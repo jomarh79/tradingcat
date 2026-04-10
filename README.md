@@ -1,0 +1,2 @@
+# tradingcat
+Seguimiento de trades
