@@ -392,8 +392,10 @@ export default function GraficosAbiertosPage() {
                     <YAxis yAxisId="right" orientation="right" stroke="#222" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
                     <Tooltip
                       contentStyle={tooltipStyle}
-                      formatter={(v: any, name: string) =>
-                        name === 'pnl' ? [money(v), 'PnL acumulado'] : [`${v}%`, 'Drawdown']
+                      formatter={(v: any, name?: string) =>
+                        name === 'pnl'
+                          ? [money(v), 'PnL acumulado']
+                          : [`${v}%`, 'Drawdown']
                       }
                     />
                     <ReferenceLine yAxisId="left" y={0} stroke="#333" strokeDasharray="3 3" />
