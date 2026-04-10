@@ -1,0 +1,415 @@
+'use client'
+
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
+import AppShell from '../AppShell'
+import { Trash2, X, History } from 'lucide-react'
+import { FaSort, FaSortUp, FaSortDown } from 'react-icons/fa'
+
+const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+
+const CLOSE_REASONS = ['Stop loss', 'TP 1', 'TP 2', 'TP 3', 'Decisión manual', 'Trailing stop', 'Otro']
+
+export default function CerradosPage() {
+  const { money, shares } = usePrivacy()
+
+  const [trades,            setTrades]            = useState<any[]>([])
+  const [portfolios,        setPortfolios]        = useState<any[]>([])
+  const [selectedPortfolio, setSelectedPortfolio] = useState('all')
+  const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
+  const [filterTicker,      setFilterTicker]      = useState('')
+  const [filterReason,      setFilterReason]      = useState('all')
+  const [viewingTrade,      setViewingTrade]      = useState<any>(null)
+  const [sortConfig,        setSortConfig]        = useState<{ key: string, direction: 'asc' | 'desc' }>({
+    key: 'close_date', direction: 'desc'
+  })
+
+  const fetchData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data: pData } = await supabase.from('portfolios').select('*').eq('user_id', user.id)
+    if (pData) setPortfolios(pData)
+    const { data: tData } = await supabase
+      .from('trades')
+      .select('*, portfolios(name), trade_executions(*)')
+      .eq('user_id', user.id)
+      .eq('status', 'closed')
+    if (tData) setTrades(tData)
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // Años dinámicos desde los datos
+  const availableYears = useMemo(() => {
+    const years = new Set(trades.map(t => parseDate(t.close_date || t.open_date).getFullYear()))
+    years.add(new Date().getFullYear())
+    return Array.from(years).sort((a, b) => b - a)
+  }, [trades])
+
+  // PnL real considerando comisiones guardadas en trade_executions
+  const calculateTradeData = useCallback((t: any) => {
+    const openDate  = parseDate(t.open_date)
+    const closeDate = parseDate(t.close_date || t.closed_at || t.open_date)
+    const diffDays  = Math.max(1, Math.ceil(Math.abs(closeDate.getTime() - openDate.getTime()) / (1000 * 60 * 60 * 24)))
+
+    const executions = t.trade_executions || []
+
+    // Inversión inicial
+    const initialQty  = parseFloat(Number(t.initial_quantity || t.quantity).toFixed(6))
+    const initialInv  = parseFloat((initialQty * Number(t.entry_price)).toFixed(2))
+
+    // Recompras: gross + comisión
+    const buyExecs = executions
+      .filter((e: any) => e.execution_type?.toLowerCase() === 'buy')
+      .reduce((acc: number, e: any) => {
+        const gross = parseFloat((Number(e.quantity) * Number(e.price)).toFixed(2))
+        const comm  = parseFloat(Number(e.commission || 0).toFixed(2))
+        return parseFloat((acc + gross + comm).toFixed(2))
+      }, 0)
+
+    const totalInvested = parseFloat((initialInv + buyExecs).toFixed(2))
+
+    // Ventas/cierres: gross - comisión
+    const totalSells = executions
+      .filter((e: any) => ['sell', 'close'].includes(e.execution_type?.toLowerCase()))
+      .reduce((acc: number, e: any) => {
+        const gross = parseFloat((Number(e.quantity) * Number(e.price)).toFixed(2))
+        const comm  = parseFloat(Number(e.commission || 0).toFixed(2))
+        return parseFloat((acc + gross - comm).toFixed(2))
+      }, 0)
+
+    const pnlCash   = parseFloat((totalSells - totalInvested).toFixed(2))
+    const pnlPct    = totalInvested > 0 ? parseFloat(((pnlCash / totalInvested) * 100).toFixed(2)) : 0
+    const annualPct = pnlPct > -100
+      ? parseFloat(((Math.pow(1 + pnlPct / 100, 365 / diffDays) - 1) * 100).toFixed(2))
+      : -100
+
+    return { diffDays, totalInvested, totalSells, pnlCash, pnlPct, annualPct }
+  }, [])
+
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }))
+  }
+
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortConfig.key !== col) return <FaSort style={{ marginLeft: 4, opacity: 0.2 }} />
+    return sortConfig.direction === 'asc'
+      ? <FaSortUp   style={{ marginLeft: 4, color: '#00bfff' }} />
+      : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
+  }
+
+  const handleDelete = async (trade: any) => {
+    if (!confirm(`¿Eliminar trade de ${trade.ticker}? Se revertirán los movimientos en la billetera.`)) return
+    await supabase.from('wallet_movements').delete()
+      .eq('ticker', trade.ticker)
+      .eq('wallet_id', trade.portfolio_id)
+      .eq('movement_type', 'trade')
+    await supabase.from('trade_executions').delete().eq('trade_id', trade.id)
+    await supabase.from('trades').delete().eq('id', trade.id)
+    fetchData()
+  }
+
+  const filteredAndSorted = useMemo(() => {
+    let result = trades.filter(t => {
+      const matchPortfolio = selectedPortfolio === 'all' || t.portfolio_id === selectedPortfolio
+      const matchYear      = selectedYear === 'all' || parseDate(t.close_date || t.open_date).getFullYear().toString() === selectedYear
+      const matchTicker    = !filterTicker || t.ticker.toLowerCase().includes(filterTicker.toLowerCase())
+      const matchReason    = filterReason === 'all' || (t.close_reason || '') === filterReason
+      return matchPortfolio && matchYear && matchTicker && matchReason
+    })
+
+    return result.sort((a, b) => {
+      const da = calculateTradeData(a)
+      const db = calculateTradeData(b)
+      let v1: any = a[sortConfig.key] ?? 0
+      let v2: any = b[sortConfig.key] ?? 0
+
+      if (sortConfig.key === 'close_date' || sortConfig.key === 'open_date') {
+        v1 = parseDate(a[sortConfig.key] || a.open_date).getTime()
+        v2 = parseDate(b[sortConfig.key] || b.open_date).getTime()
+      }
+      if (sortConfig.key === 'pnlCash')   { v1 = da.pnlCash;   v2 = db.pnlCash }
+      if (sortConfig.key === 'pnlPct')    { v1 = da.pnlPct;    v2 = db.pnlPct }
+      if (sortConfig.key === 'diffDays')  { v1 = da.diffDays;  v2 = db.diffDays }
+      if (sortConfig.key === 'annualPct') { v1 = da.annualPct; v2 = db.annualPct }
+
+      if (v1 < v2) return sortConfig.direction === 'asc' ? -1 : 1
+      if (v1 > v2) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [trades, selectedPortfolio, selectedYear, filterTicker, filterReason, sortConfig, calculateTradeData])
+
+  // Resumen del período filtrado
+  const summary = useMemo(() => {
+    const total     = filteredAndSorted.length
+    const winners   = filteredAndSorted.filter(t => calculateTradeData(t).pnlCash > 0).length
+    const winRate   = total > 0 ? (winners / total * 100) : 0
+    const totalPnl  = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).pnlCash, 0)
+    const totalInv  = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalInvested, 0)
+    const totalSell = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalSells, 0)
+    return { total, winners, winRate, totalPnl, totalInv, totalSell }
+  }, [filteredAndSorted, calculateTradeData])
+
+  return (
+    <AppShell>
+      <div style={{ padding: '0 30px', color: 'white' }}>
+
+        {/* HEADER */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '20px 0 16px' }}>
+          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <History size={22} color="#22c55e" /> Trades cerrados
+          </h1>
+
+          {/* RESUMEN */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {[
+              { label: 'Trades',      value: summary.total,                         color: '#fff' },
+              { label: 'Win rate',    value: `${summary.winRate.toFixed(1)}%`,       color: summary.winRate >= 50 ? '#22c55e' : '#f43f5e' },
+              { label: 'Invertido',  value: money(summary.totalInv),               color: '#888' },
+              { label: 'Recuperado', value: money(summary.totalSell),              color: '#888' },
+              { label: 'PnL total',  value: money(summary.totalPnl),               color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
+            ].map(card => (
+              <div key={card.label} style={summaryCard}>
+                <span style={summaryLabel}>{card.label}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: card.color }}>{card.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* TABS PORTAFOLIOS */}
+        <div style={walletNav}>
+          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={walletTab(selectedPortfolio === p.id)}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        {/* FILTROS */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
+            <option value="all">Todos los años</option>
+            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={selectStyle}>
+            <option value="all">Todas las razones</option>
+            {CLOSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <input
+            placeholder="Buscar ticker..."
+            value={filterTicker}
+            onChange={e => setFilterTicker(e.target.value.toUpperCase())}
+            style={{ ...selectStyle, minWidth: 140 }}
+          />
+          <span style={{ fontSize: 10, color: '#444' }}>{filteredAndSorted.length} resultado(s)</span>
+        </div>
+
+        {/* TABLA */}
+        <div style={tableWrapper}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#0a0a0a' }}>
+                {[
+                  { key: 'ticker',      label: 'Ticker' },
+                  { key: 'open_date',   label: 'Apertura' },
+                  { key: 'close_date',  label: 'Cierre' },
+                  { key: 'diffDays',    label: 'Días' },
+                  { key: null,          label: 'Razón' },
+                  { key: null,          label: 'Invertido' },
+                  { key: null,          label: 'Recuperado' },
+                  { key: 'pnlCash',     label: 'PnL $' },
+                  { key: 'pnlPct',      label: 'PnL %' },
+                  { key: 'annualPct',   label: 'Anual %' },
+                  { key: null,          label: 'Acciones' },
+                ].map(({ key, label }) => (
+                  <th key={label}
+                    style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
+                    onClick={key ? () => handleSort(key) : undefined}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      {label} {key && <SortIcon col={key} />}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAndSorted.length === 0 && (
+                <tr>
+                  <td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#333' }}>
+                    No hay trades cerrados para este filtro.
+                  </td>
+                </tr>
+              )}
+              {filteredAndSorted.map(t => {
+                const d = calculateTradeData(t)
+                return (
+                  <tr key={t.id} style={trStyle}>
+                    <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>
+                      {t.ticker}
+                      <div style={{ fontSize: '0.6rem', color: '#333' }}>{t.portfolios?.name}</div>
+                    </td>
+                    <td style={{ ...tdStyle, color: '#555', fontSize: 11 }}>
+                      {t.open_date ? parseDate(t.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#555', fontSize: 11 }}>
+                      {t.close_date ? parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center', color: '#666' }}>{d.diffDays}</td>
+                    <td style={{ ...tdStyle, fontSize: 10 }}>
+                      {t.close_reason
+                        ? <span style={{ background: '#111', border: '1px solid #222', padding: '2px 6px', borderRadius: 3, color: '#888' }}>{t.close_reason}</span>
+                        : <span style={{ color: '#2a2a2a' }}>—</span>
+                      }
+                    </td>
+                    <td style={tdStyle}>{money(d.totalInvested)}</td>
+                    <td style={tdStyle}>{money(d.totalSells)}</td>
+                    <td style={{ ...tdStyle, color: d.pnlCash >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 'bold' }}>
+                      {money(d.pnlCash)}
+                    </td>
+                    <td style={{ ...tdStyle, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                      {d.pnlPct >= 0 ? '+' : ''}{d.pnlPct.toFixed(2)}%
+                    </td>
+                    <td style={{ ...tdStyle, color: d.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                      {d.annualPct > 500 ? '>500' : `${d.annualPct >= 0 ? '+' : ''}${d.annualPct.toFixed(1)}`}%
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                        <button
+                          onClick={() => setViewingTrade(t)}
+                          style={viewBtn}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                          Ver historial
+                        </button>
+                        <button
+                          onClick={() => handleDelete(t)}
+                          style={{ background: 'none', border: 'none', color: '#2a2a2a', cursor: 'pointer', transition: 'color 0.2s' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#2a2a2a')}>
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* MODAL HISTORIAL */}
+        {viewingTrade && (
+          <div style={overlayStyle} onClick={() => setViewingTrade(null)}>
+            <div style={modalStyle} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={{ margin: 0, fontSize: 16 }}>
+                  Historial: <span style={{ color: '#00bfff' }}>{viewingTrade.ticker}</span>
+                </h2>
+                <button onClick={() => setViewingTrade(null)}
+                  style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ maxHeight: 350, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#000' }}>
+                      {['Fecha', 'Tipo', 'Cantidad', 'Precio', 'Comisión', 'Total'].map(h => (
+                        <th key={h} style={modalTh}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Apertura */}
+                    <tr style={trStyle}>
+                      <td style={modalTd}>{parseDate(viewingTrade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                      <td style={{ ...modalTd, color: '#00bfff', fontWeight: 700 }}>Apertura</td>
+                      <td style={modalTd}>{shares(viewingTrade.initial_quantity || viewingTrade.quantity)}</td>
+                      <td style={modalTd}>{money(viewingTrade.entry_price)}</td>
+                      <td style={{ ...modalTd, color: '#444' }}>—</td>
+                      <td style={modalTd}>{money((viewingTrade.initial_quantity || viewingTrade.quantity) * viewingTrade.entry_price)}</td>
+                    </tr>
+                    {/* Ejecuciones */}
+                    {viewingTrade.trade_executions?.map((ex: any) => {
+                      //const isBuy  = ex.execution_type?.toLowerCase() === 'buy'
+                      //const isClose = ['close', 'sell'].includes(ex.execution_type?.toLowerCase())
+
+                      const type = ex.execution_type?.toLowerCase()
+                      const isBuy = type === 'buy'
+                      const isClose = type === 'close'
+                      const isSell = type === 'sell'
+                      const comm   = parseFloat(Number(ex.commission || 0).toFixed(2))
+                      const gross  = parseFloat((Number(ex.quantity) * Number(ex.price)).toFixed(2))
+                      const net    = isBuy ? gross + comm : gross - comm
+                      return (
+                        <tr key={ex.id} style={trStyle}>
+                          <td style={modalTd}>
+                            {parseDate((ex.executed_at || '').split('T')[0]).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td
+                            style={{
+                              ...modalTd,
+                              color: isBuy ? '#22c55e' : isClose ? '#00bfff' : '#f43f5e',
+                              fontWeight: 700
+                            }}
+                          >
+                            {isBuy ? 'Recompra' : isClose ? 'Cierre' : 'Venta parcial'}
+                          </td>
+                          <td style={modalTd}>{shares(ex.quantity)}</td>
+                          <td style={modalTd}>{money(ex.price)}</td>
+                          <td style={{ ...modalTd, color: '#555' }}>{comm > 0 ? money(comm) : '—'}</td>
+                          <td style={modalTd}>
+                            {money(net)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Resumen del trade en el modal */}
+              {(() => {
+                const d = calculateTradeData(viewingTrade)
+                return (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '12px', background: '#000', borderRadius: 8, flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Invertido',  value: money(d.totalInvested), color: '#888' },
+                      { label: 'Recuperado', value: money(d.totalSells),    color: '#888' },
+                      { label: 'PnL',        value: money(d.pnlCash),       color: d.pnlCash >= 0 ? '#22c55e' : '#f43f5e' },
+                      { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
+                      { label: 'Duración',   value: `${d.diffDays} días`,   color: '#666' },
+                    ].map(item => (
+                      <div key={item.label} style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 3 }}>{item.label}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </AppShell>
+  )
+}
+
+const walletNav: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto' }
+const walletTab = (active: boolean): React.CSSProperties => ({ background: active ? '#22c55e' : 'transparent', color: active ? '#000' : '#555', border: 'none', padding: '5px 12px', borderRadius: 4, fontSize: 10, fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' })
+const tableWrapper: React.CSSProperties = { background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden', marginBottom: 30 }
+const thStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'left', fontSize: 9, textTransform: 'uppercase', color: '#444', userSelect: 'none', whiteSpace: 'nowrap', letterSpacing: 0.5 }
+const tdStyle: React.CSSProperties = { padding: '8px 12px', fontSize: 12, borderBottom: '1px solid #0a0a0a' }
+const trStyle: React.CSSProperties = { borderBottom: '1px solid #0a0a0a' }
+const selectStyle: React.CSSProperties = { background: '#0a0a0a', color: 'white', border: '1px solid #1a1a1a', padding: '6px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
+const summaryCard: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 3, background: '#0a0a0a', padding: '8px 14px', borderRadius: 8, border: '1px solid #1a1a1a' }
+const summaryLabel: React.CSSProperties = { fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
+const viewBtn: React.CSSProperties = { background: 'none', border: '1px solid #1a1a1a', color: '#555', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10, fontWeight: 'bold', transition: 'color 0.2s' }
+const overlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
+const modalStyle: React.CSSProperties = { background: '#0a0a0a', padding: 24, borderRadius: 14, width: '90%', maxWidth: 640, border: '1px solid #1a1a1a' }
+const modalTh: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #1a1a1a' }
+const modalTd: React.CSSProperties = { padding: '9px 10px', fontSize: 12, color: '#ccc' }
