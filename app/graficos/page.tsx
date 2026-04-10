@@ -239,7 +239,9 @@ export default function GraficosAbiertosPage() {
                             <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: string) => [money(v), name]} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name?: string) => {
+                          return [money(v), name ?? ""];
+                        }} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
