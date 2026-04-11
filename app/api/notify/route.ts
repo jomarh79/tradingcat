@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
+
 let resend: Resend | null = null;
 
 if (process.env.RESEND_API_KEY) {
@@ -7,19 +8,18 @@ if (process.env.RESEND_API_KEY) {
 } else {
   console.warn("⚠️ RESEND_API_KEY no configurada");
 }
-const resend = new Resend(process.env.RESEND_API_KEY);
+
 export async function POST(request: Request) {
   try {
     const { ticker, currentPrice, targetPrice } = await request.json();
-    // ✅ Validación
+
     if (!ticker || currentPrice == null || targetPrice == null) {
       return NextResponse.json(
         { error: "Datos inválidos" },
         { status: 400 }
-      )
+      );
     }
-    const safePrice = Number(currentPrice) || 0
-    const safeTarget = Number(targetPrice) || 0
+
     if (!resend) {
       return NextResponse.json(
         { error: "Email no configurado" },
@@ -27,7 +27,10 @@ export async function POST(request: Request) {
       );
     }
 
-const { data, error } = await resend.emails.send({
+    const safePrice = Number(currentPrice) || 0;
+    const safeTarget = Number(targetPrice) || 0;
+
+    const { data, error } = await resend.emails.send({
       from: 'Alertas Trading <onboarding@resend.dev>',
       to: 'ciberdgor@gmail.com',
       subject: `🚨 OPORTUNIDAD: ${ticker} en zona de compra`,
@@ -42,13 +45,16 @@ const { data, error } = await resend.emails.send({
         </div>
       `
     });
+
     if (error) {
-      console.error("RESEND ERROR:", error)
+      console.error("RESEND ERROR:", error);
       return NextResponse.json({ error }, { status: 500 });
     }
+
     return NextResponse.json({ success: true });
+
   } catch (error) {
-    console.error("API ERROR:", error)
+    console.error("API ERROR:", error);
     return NextResponse.json({ error }, { status: 500 });
   }
 }
