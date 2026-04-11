@@ -351,7 +351,7 @@ export default function HomePage() {
                   <YAxis stroke="#1a1a1a" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
                   <Tooltip
                     contentStyle={tt}
-                    formatter={(v: any, n: string) => [`${parseFloat(v) >= 0 ? '+' : ''}${parseFloat(v).toFixed(2)}%`, n]}
+                    formatter={(v: any, n?: string) => [`${parseFloat(v) >= 0 ? '+' : ''}${parseFloat(v).toFixed(2)}%`, n]}
                   />
                   <ReferenceLine y={0} stroke="#1a1a1a" strokeDasharray="3 3" />
                   <Line type="monotone" dataKey="S&P 500" stroke="#6366f1" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
