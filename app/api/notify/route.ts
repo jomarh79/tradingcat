@@ -1,7 +1,11 @@
 import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
-if (!process.env.RESEND_API_KEY) {
-  throw new Error("Falta RESEND_API_KEY")
+let resend: Resend | null = null;
+
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+} else {
+  console.warn("⚠️ RESEND_API_KEY no configurada");
 }
 const resend = new Resend(process.env.RESEND_API_KEY);
 export async function POST(request: Request) {
@@ -16,7 +20,14 @@ export async function POST(request: Request) {
     }
     const safePrice = Number(currentPrice) || 0
     const safeTarget = Number(targetPrice) || 0
-    const { data, error } = await resend.emails.send({
+    if (!resend) {
+      return NextResponse.json(
+        { error: "Email no configurado" },
+        { status: 500 }
+      );
+    }
+
+const { data, error } = await resend.emails.send({
       from: 'Alertas Trading <onboarding@resend.dev>',
       to: 'ciberdgor@gmail.com',
       subject: `🚨 OPORTUNIDAD: ${ticker} en zona de compra`,
