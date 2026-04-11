@@ -256,7 +256,7 @@ export default function Graficos2Page() {
                     <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="date" stroke="#222" fontSize={9} tickLine={false} axisLine={false} />
                     <YAxis stroke="#222" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip contentStyle={tt} formatter={(v: any, name: string) => [money(v), name]} />
+                    <Tooltip contentStyle={tt} formatter={(v: any, name?: string) => [money(v), name]} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="Portafolio" stroke={C.accent} strokeWidth={2}   dot={false} />
                     <Line type="monotone" dataKey="SP500"      stroke={C.sp500}  strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
@@ -281,7 +281,7 @@ export default function Graficos2Page() {
                     <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="month" stroke="#222" fontSize={9} tickLine={false} axisLine={false} />
                     <YAxis stroke="#222" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip contentStyle={tt} formatter={(v: any, name: string) => [money(v), name]} />
+                    <Tooltip contentStyle={tt} formatter={(v: any, name?: string) => [money(v), name]} />
                     <ReferenceLine y={0} stroke="#333" />
                     <Bar dataKey="Portafolio" radius={[3, 3, 0, 0]}>
                       {charts.monthlyComparison.map((entry, i) => (
@@ -361,7 +361,7 @@ export default function Graficos2Page() {
                   <XAxis dataKey="date" stroke="#222" fontSize={9} tickLine={false} axisLine={false} />
                   <YAxis yAxisId="left"  stroke="#222" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
                   <YAxis yAxisId="right" orientation="right" stroke="#222" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip contentStyle={tt} formatter={(v: any, name: string) => [money(v), name === 'capital' ? 'Capital acumulado' : 'PnL acumulado']} />
+                  <Tooltip contentStyle={tt} formatter={(v: any, name?: string) => [money(v), name === 'capital' ? 'Capital acumulado' : 'PnL acumulado']} />
                   <Area yAxisId="left" type="monotone" dataKey="capital" stroke={C.sp500} fill="url(#capGrad2)" strokeWidth={1.5} dot={false} />
                   <Line yAxisId="right" type="monotone" dataKey="pnl" stroke={C.accent} strokeWidth={2.5} dot={false} />
                 </ComposedChart>
@@ -388,7 +388,7 @@ export default function Graficos2Page() {
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={tt} formatter={(v: any, name: string) => [money(v), name]} />
+                    <Tooltip contentStyle={tt} formatter={(v: any, name?: string) => [money(v), name]} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 10px', marginTop: 8 }}>
