@@ -89,82 +89,50 @@ export default function TradesAbiertosPage() {
   }, [])
 
   const fetchTrades = useCallback(async (force = false) => {
-    if (isRefreshing) return
+  // 1. Evitar múltiples clics
+  if (isRefreshing) return;
+  setIsRefreshing(true);
 
+  try {
+    // 2. Traer los trades actualizados por el servidor desde Supabase
     const { data, error } = await supabase
       .from("trades")
       .select("*, portfolios(name, id)")
-      .eq("status", "open")
+      .eq("status", "open");
 
-    if (error) { console.error(error); return }
-    setTrades(data || [])
+    if (error) throw error;
 
-    // 1. Cargamos lo que ya existe en la base de datos al estado
-    const savedData: any = { ...marketData }
-    data?.forEach((t: any) => {
-      if (t.last_price) {
-        savedData[t.ticker] = {
-          price: t.last_price,
-          changePercent: t.day_change || 0,
-          rsi: marketData[t.ticker]?.rsi 
+    if (data) {
+      setTrades(data);
+
+      // 3. Sincronizar el estado local marketData con los precios de la DB
+      const syncedData: any = { ...marketData };
+      data.forEach((t: any) => {
+        if (t.last_price) {
+          syncedData[t.ticker] = {
+            price: t.last_price,
+            changePercent: t.day_change || 0,
+            // El RSI lo dejamos como estaba o lo traemos de la DB si decides guardarlo allá
+            rsi: marketData[t.ticker]?.rsi 
+          };
         }
-      }
-    })
-    setMarketData(savedData)
-
-    // 2. Si el mercado está CERRADO y NO es un clic manual (force), paramos aquí
-    if (!isMarketOpen() && !force) return
-
-    setIsRefreshing(true)
-
-    try {
-      const uniqueTickers = Array.from(new Set((data || []).map((t: any) => t.ticker))) as string[]
-      const results: any = { ...marketData }
-
-      await Promise.all(uniqueTickers.map(async (ticker) => {
-        try {
-          const now  = Math.floor(Date.now() / 1000)
-          const from = now - (60 * 60 * 24 * 60)
-
-          const [quoteRes, candleRes] = await Promise.all([
-            fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_API_KEY}`),
-            fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${now}&token=${FINNHUB_API_KEY}`)
-          ])
-
-          const quote   = await quoteRes.json()
-          const candles = await candleRes.json()
-
-          // MODIFICACIÓN 3: Persistir en Supabase
-          const price = quote?.c > 0 ? quote.c : (marketData[ticker]?.price || 0)
-          const changePercent = quote?.dp ?? 0
-          
-          await supabase.from("trades")
-            .update({ last_price: price, day_change: changePercent })
-            .eq("ticker", ticker)
-            .eq("status", "open")
-
-          results[ticker] = {
-            price,
-            changePercent,
-            rsi: candles?.s === 'ok' && candles?.c?.length > 14 
-              ? calculateRSI(candles.c) 
-              : (marketData[ticker]?.rsi ?? null),
-          }
-
-        } catch (e) { console.error(`Error con ${ticker}:`, e) }
-      }))
-
-      setMarketData(results)
-    } finally {
-      setIsRefreshing(false)
+      });
+      setMarketData(syncedData);
     }
-  }, [isRefreshing, marketData])
+  } catch (err) {
+    console.error("Error cargando trades:", err);
+  } finally {
+    setIsRefreshing(false);
+    setLastRefresh(new Date());
+  }
+}, [isRefreshing, marketData]);
+
 
   useEffect(() => {
-    fetchTrades(); fetchPortfolios()
-    const interval = setInterval(() => fetchTrades(false), 300000)
-    return () => clearInterval(interval)
-  }, [])
+  fetchTrades(); 
+  fetchPortfolios();
+  // El setInterval que estaba aquí se borra porque el servidor ya hace el trabajo
+}, [fetchTrades, fetchPortfolios])
 
   const toggleTarget = (targetId: string) =>
     setCheckedTargets(prev => ({ ...prev, [targetId]: !prev[targetId] }))
