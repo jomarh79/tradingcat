@@ -1,43 +1,60 @@
 import { serve } from "https://deno.land/std/http/server.ts";
 
-serve(async () => {
+serve(async (req) => {
 
+  // 🔐 Seguridad (CRON)
+  const authHeader = req.headers.get("Authorization");
+  if (authHeader !== "Bearer tradingcat-cron-2026") {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // 🕐 Hora México
   const now = new Date();
-
-  const todayStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Mexico_City',
-    year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(now);
-
   const mexicoTime = new Date(
     now.toLocaleString("en-US", { timeZone: "America/Mexico_City" })
   );
 
   const day = mexicoTime.getDay();
-  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
+  const hour = mexicoTime.getHours();
+  const min = mexicoTime.getMinutes();
+  const time = hour + min / 60;
 
-  const isMarketOpen = day >= 1 && day <= 5 && time >= 7.5 && time < 15;
+  const isMarketOpen =
+    day >= 1 && day <= 5 && time >= 7.5 && time < 15;
 
-  if (!isMarketOpen) return new Response("Mercado cerrado");
+  if (!isMarketOpen) {
+    return new Response("Mercado cerrado");
+  }
+
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY")!;
 
-    // 1. Obtener trades abiertos
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/trades?status=eq.open`, {
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-      },
-    });
+    // 🔹 1. Traer trades abiertos
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/trades?status=eq.open`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+        },
+      }
+    );
 
     const trades = await res.json();
 
+    // 🔹 2. Recorrer trades
     for (const trade of trades) {
 
-      // 2. Precio desde Finnhub
+      // 📊 Precio actual
       const quoteRes = await fetch(
         `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`
       );
@@ -54,7 +71,7 @@ serve(async () => {
         day_change: change,
       };
 
-      // 3. ALERTAS (1 por día)
+      // 🔔 ALERTAS (solo 1 vez por día)
       if (trade.last_trade_alert_date !== todayStr) {
 
         let alertMsg = "";
@@ -77,7 +94,8 @@ serve(async () => {
               ticker: trade.ticker,
               type: alertMsg,
               currentPrice: price,
-              targetPrice: trade.stop_loss || trade.take_profit_1,
+              targetPrice:
+                trade.stop_loss || trade.take_profit_1,
             }),
           }).catch(() => {});
 
@@ -85,23 +103,25 @@ serve(async () => {
         }
       }
 
-      // 4. Guardar
-      await fetch(`${SUPABASE_URL}/rest/v1/trades?id=eq.${trade.id}`, {
-        method: "PATCH",
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(updateData),
-      });
+      // 💾 Guardar en Supabase
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/trades?id=eq.${trade.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            apikey: SUPABASE_SERVICE_ROLE,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updateData),
+        }
+      );
 
-      // ⏳ Rate limit
-      await new Promise(r => setTimeout(r, 1200));
+      // ⏱️ Rate limit (Finnhub)
+      await new Promise((r) => setTimeout(r, 1200));
     }
 
     return new Response("OK");
-
   } catch (e) {
     return new Response(e.message, { status: 500 });
   }
