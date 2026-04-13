@@ -1,60 +1,50 @@
 import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
 
-let resend: Resend | null = null;
-
-if (process.env.RESEND_API_KEY) {
-  resend = new Resend(process.env.RESEND_API_KEY);
-} else {
-  console.warn("⚠️ RESEND_API_KEY no configurada");
-}
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 export async function POST(request: Request) {
   try {
-    const { ticker, currentPrice, targetPrice } = await request.json();
+    const body = await request.json();
+    const { ticker, currentPrice, targetPrice, type } = body;
 
-    if (!ticker || currentPrice == null || targetPrice == null) {
-      return NextResponse.json(
-        { error: "Datos inválidos" },
-        { status: 400 }
-      );
+    if (!ticker || currentPrice == null || targetPrice == null || !resend) {
+      return NextResponse.json({ error: "Faltan datos o Resend no configurado" }, { status: 400 });
     }
 
-    if (!resend) {
-      return NextResponse.json(
-        { error: "Email no configurado" },
-        { status: 500 }
-      );
-    }
+    const safePrice = Number(currentPrice).toFixed(2);
+    const safeTarget = Number(targetPrice).toFixed(2);
 
-    const safePrice = Number(currentPrice) || 0;
-    const safeTarget = Number(targetPrice) || 0;
+    // Colores dinámicos: Verde para entradas, Rojo para Stop, Amarillo para TP
+    const isEntry = type.includes("ENTRADA");
+    const isStop = type.includes("STOP") || type.includes("VENTA");
+    const accentColor = isEntry ? "#22c55e" : isStop ? "#f43f5e" : "#eab308";
 
-    const { data, error } = await resend.emails.send({
-      from: 'Alertas Trading <onboarding@resend.dev>',
+    const { error } = await resend.emails.send({
+      from: 'Trading Cat <onboarding@resend.dev>',
       to: 'ciberdgor@gmail.com',
-      subject: `🚨 OPORTUNIDAD: ${ticker} en zona de compra`,
+      subject: `${type}: ${ticker}`,
       html: `
-        <div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; border-radius: 15px;">
-          <h1 style="color: #22c55e;">¡Entrada Detectada!</h1>
-          <p>El ticker <strong>${ticker}</strong> tocó tu precio objetivo.</p>
-          <div style="background: #111; padding: 20px; border-radius: 10px;">
-            <p>💰 Precio Actual: $${safePrice.toFixed(2)}</p>
-            <p>🎯 Objetivo: $${safeTarget.toFixed(2)}</p>
+        <div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; border-radius: 15px; border: 1px solid #222;">
+          <h1 style="color: ${accentColor}; margin-bottom: 10px; font-size: 24px;">${type}</h1>
+          <p style="color: #888; font-size: 16px;">Movimiento detectado en <strong>${ticker}</strong></p>
+          
+          <div style="background: #111; padding: 25px; border-radius: 10px; margin-top: 20px; border: 1px solid #333;">
+            <p style="font-size: 1.2rem; margin: 10px 0;">💰 Precio Actual: <strong style="color: #fff;">$${safePrice}</strong></p>
+            <p style="font-size: 1.2rem; margin: 10px 0;">🎯 Objetivo: <strong style="color: #fff;">$${safeTarget}</strong></p>
           </div>
+          
+          <p style="font-size: 0.8rem; color: #444; margin-top: 25px; border-top: 1px solid #222; padding-top: 15px;">
+            Trading Cat System • Notificación Automática
+          </p>
         </div>
       `
     });
 
-    if (error) {
-      console.error("RESEND ERROR:", error);
-      return NextResponse.json({ error }, { status: 500 });
-    }
-
+    if (error) return NextResponse.json({ error }, { status: 500 });
     return NextResponse.json({ success: true });
 
   } catch (error) {
-    console.error("API ERROR:", error);
-    return NextResponse.json({ error }, { status: 500 });
+    return NextResponse.json({ error: "Error de servidor" }, { status: 500 });
   }
 }
