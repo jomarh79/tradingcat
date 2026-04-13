@@ -6,13 +6,32 @@ import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '@/app/AppShell'
 import { FaTrash, FaPencilAlt, FaSort, FaSortUp, FaSortDown } from 'react-icons/fa'
-import { ArrowDownCircle, ArrowUpCircle, DollarSign, BarChart2 } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, DollarSign, BarChart2, TrendingUp, TrendingDown } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid
 } from 'recharts'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const posAmount  = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
+
+// ── Tema de gatos ────────────────────────────────────────────────────────────
+const Paw = ({ size = 14, color = '#444', opacity = 1, style = {} }: any) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0, ...style }}>
+    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
+    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
+    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
+    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
+    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
+  </svg>
+)
+
+// Rastro de huellas decorativas
+const PawTrail = ({ color, top, right, rotate = 0 }: any) => (
+  <div style={{ position: 'absolute', top, right, display: 'flex', gap: 6, transform: `rotate(${rotate}deg)`, pointerEvents: 'none' }}>
+    {[0.12, 0.08, 0.05].map((op, i) => <Paw key={i} size={16} color={color} opacity={op} />)}
+  </div>
+)
 
 const MOVEMENT_TYPES = [
   { value: '',         label: 'Todos los tipos' },
@@ -40,11 +59,12 @@ const movementLabel = (type: string, notes?: string) => {
 }
 
 export default function HistorialPage() {
-  const { id }   = useParams()
+  const { id }    = useParams()
   const { money } = usePrivacy()
 
   const [portfolioName, setPortfolioName] = useState('')
   const [movements,     setMovements]     = useState<any[]>([])
+  const [pnlCerrados,   setPnlCerrados]   = useState<number>(0)
 
   const [filterTicker, setFilterTicker] = useState('')
   const [filterType,   setFilterType]   = useState('')
@@ -56,7 +76,6 @@ export default function HistorialPage() {
   const [editNotes,       setEditNotes]       = useState('')
   const [editDate,        setEditDate]        = useState('')
 
-  // ── Fetch con paginación completa ─────────────────────────────────────────
   const fetchMovements = useCallback(async () => {
     if (!id) return
     let all: any[] = []
@@ -81,9 +100,23 @@ export default function HistorialPage() {
     if (data) setPortfolioName(data.name)
   }, [id])
 
+  // PnL de trades cerrados de esta billetera
+  const fetchPnl = useCallback(async () => {
+    if (!id) return
+    const { data } = await supabase
+      .from('trades')
+      .select('realized_pnl')
+      .eq('portfolio_id', id)
+      .eq('status', 'closed')
+    if (data) {
+      const total = data.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
+      setPnlCerrados(parseFloat(total.toFixed(2)))
+    }
+  }, [id])
+
   useEffect(() => {
-    if (id) { fetchMovements(); fetchPortfolioName() }
-  }, [id, fetchMovements, fetchPortfolioName])
+    if (id) { fetchMovements(); fetchPortfolioName(); fetchPnl() }
+  }, [id, fetchMovements, fetchPortfolioName, fetchPnl])
 
   const availableYears = useMemo(() => {
     const years = new Set(movements.map(m => parseDate(m.date).getFullYear()))
@@ -91,8 +124,7 @@ export default function HistorialPage() {
     return Array.from(years).sort((a, b) => b - a)
   }, [movements])
 
-  // ── Métricas globales (todos los movimientos) ─────────────────────────────
-  const saldoDisponible  = useMemo(() =>
+  const saldoDisponible = useMemo(() =>
     movements.reduce((acc, m) => acc + Number(m.amount), 0)
   , [movements])
 
@@ -102,17 +134,15 @@ export default function HistorialPage() {
       .reduce((acc, m) => acc + Number(m.amount), 0)
   , [movements])
 
-  // ── Filtros ───────────────────────────────────────────────────────────────
   const sortedAndFiltered = useMemo(() => {
     let result = [...movements]
     if (filterYear !== 'all') result = result.filter(m => parseDate(m.date).getFullYear().toString() === filterYear)
     if (filterTicker)         result = result.filter(m => m.ticker?.toLowerCase().includes(filterTicker.toLowerCase()))
     if (filterType)           result = result.filter(m => m.movement_type === filterType)
-
     result.sort((a, b) => {
       let vA = a[sortConfig.key], vB = b[sortConfig.key]
       if (sortConfig.key === 'date')   { vA = parseDate(a.date).getTime(); vB = parseDate(b.date).getTime() }
-      if (sortConfig.key === 'amount') { vA = Number(a.amount);            vB = Number(b.amount) }
+      if (sortConfig.key === 'amount') { vA = Number(a.amount); vB = Number(b.amount) }
       if (vA < vB) return sortConfig.direction === 'asc' ? -1 : 1
       if (vA > vB) return sortConfig.direction === 'asc' ? 1 : -1
       return 0
@@ -120,18 +150,13 @@ export default function HistorialPage() {
     return result
   }, [filterYear, filterTicker, filterType, movements, sortConfig])
 
-  // ── Gráfica: saldo real acumulado (TODOS los movimientos) ─────────────────
   const chartData = useMemo(() => {
     let base = [...movements].sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
     if (filterYear !== 'all') base = base.filter(m => parseDate(m.date).getFullYear().toString() === filterYear)
     let accumulated = 0
     return base.map(m => {
       accumulated += Number(m.amount)
-      return {
-        date:   m.date,
-        saldo:  parseFloat(accumulated.toFixed(2)),
-        tipo:   m.movement_type,
-      }
+      return { date: m.date, saldo: parseFloat(accumulated.toFixed(2)) }
     })
   }, [movements, filterYear])
 
@@ -165,8 +190,10 @@ export default function HistorialPage() {
 
   const handleUpdate = async () => {
     if (!editAmount || !editDate) return alert('Monto y fecha son obligatorios')
+    const raw = Math.abs(parseFloat(Number(editAmount).toFixed(2)))
+    if (!raw || raw <= 0) return alert('El monto debe ser mayor a 0')
     const originalSign = Number(editingMovement.amount) < 0 ? -1 : 1
-    const finalAmount  = parseFloat((originalSign * Math.abs(Number(editAmount))).toFixed(2))
+    const finalAmount  = parseFloat((originalSign * raw).toFixed(2))
     const { error } = await supabase.from('wallet_movements')
       .update({ amount: finalAmount, notes: editNotes, date: editDate })
       .eq('id', editingMovement.id)
@@ -174,55 +201,77 @@ export default function HistorialPage() {
     else alert(error.message)
   }
 
+  const pnlColor = pnlCerrados >= 0 ? '#22c55e' : '#f43f5e'
+
   return (
     <AppShell>
-      <div style={{ maxWidth: 1200, margin: '0 auto', paddingTop: 20, paddingBottom: 40 }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', paddingTop: 20, paddingBottom: 40, color: 'white' }}>
 
-        {/* HEADER */}
+        {/* ── HEADER ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, padding: '0 10px' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'white' }}>
-              Historial: {portfolioName}
-            </h1>
-            <p style={{ color: '#444', fontSize: 13, margin: '5px 0 0' }}>
-              {movements.length} registros totales
+            {/* Rastro de huellas en el título */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <Paw size={18} color="#00bfff" opacity={0.5} />
+              <Paw size={14} color="#00bfff" opacity={0.3} />
+              <Paw size={10} color="#00bfff" opacity={0.15} />
+              <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>
+                Historial: <span style={{ color: '#00bfff' }}>{portfolioName}</span>
+              </h1>
+            </div>
+            <p style={{ color: '#888', fontSize: 12, margin: '0 0 0 42px' }}>
+              {movements.length} registros totales · paginación completa
             </p>
           </div>
 
-          {/* Dos métricas */}
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={statCardMini}>
-              <span style={{ fontSize: 9, color: '#444', fontWeight: 800, display: 'block', marginBottom: 4, letterSpacing: 0.5 }}>
-                SALDO DISPONIBLE
-              </span>
-              <span style={{ fontSize: 20, fontWeight: 900, color: saldoDisponible >= 0 ? '#22c55e' : '#f43f5e' }}>
+          {/* Tres tarjetas de métricas */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {/* Saldo disponible */}
+            <div style={{ ...statCard, borderColor: saldoDisponible >= 0 ? 'rgba(34,197,94,0.2)' : 'rgba(244,63,94,0.2)', position: 'relative', overflow: 'hidden' }}>
+              <PawTrail color={saldoDisponible >= 0 ? '#22c55e' : '#f43f5e'} top={4} right={4} rotate={-20} />
+              <div style={{ fontSize: 9, color: '#888', fontWeight: 800, letterSpacing: 0.5, marginBottom: 6 }}>SALDO DISPONIBLE</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: saldoDisponible >= 0 ? '#22c55e' : '#f43f5e' }}>
                 {money(saldoDisponible)}
-              </span>
-              <span style={{ fontSize: 9, color: '#333', display: 'block', marginTop: 3 }}>
-                depósitos + ventas + dividendos − compras − retiros
-              </span>
+              </div>
+              <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>depósitos + ventas + divid. − compras − retiros</div>
             </div>
-            <div style={statCardMini}>
-              <span style={{ fontSize: 9, color: '#444', fontWeight: 800, display: 'block', marginBottom: 4, letterSpacing: 0.5 }}>
-                CAPITAL DEPOSITADO
-              </span>
-              <span style={{ fontSize: 20, fontWeight: 900, color: '#00bfff' }}>
-                {money(capitalDepositado)}
-              </span>
-              <span style={{ fontSize: 9, color: '#333', display: 'block', marginTop: 3 }}>
-                depósitos − retiros · de tu bolsillo
-              </span>
+
+            {/* Capital depositado */}
+            <div style={{ ...statCard, borderColor: 'rgba(0,191,255,0.2)', position: 'relative', overflow: 'hidden' }}>
+              <PawTrail color="#00bfff" top={4} right={4} rotate={10} />
+              <div style={{ fontSize: 9, color: '#888', fontWeight: 800, letterSpacing: 0.5, marginBottom: 6 }}>CAPITAL DEPOSITADO</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: '#00bfff' }}>{money(capitalDepositado)}</div>
+              <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>depósitos − retiros · de tu bolsillo</div>
+            </div>
+
+            {/* PnL de trades cerrados */}
+            <div style={{ ...statCard, borderColor: `${pnlColor}33`, position: 'relative', overflow: 'hidden' }}>
+              <PawTrail color={pnlColor} top={4} right={4} rotate={-10} />
+              <div style={{ fontSize: 9, color: '#888', fontWeight: 800, letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                {pnlCerrados >= 0
+                  ? <TrendingUp size={11} color="#22c55e" />
+                  : <TrendingDown size={11} color="#f43f5e" />
+                }
+                GANANCIAS / PÉRDIDAS
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: pnlColor }}>{money(pnlCerrados)}</div>
+              <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>PnL realizado · trades cerrados</div>
             </div>
           </div>
         </div>
 
-        {/* GRÁFICA */}
-        <div style={{ ...chartBox, margin: '0 10px 20px' }}>
-          <div style={{ fontSize: 10, color: '#444', marginBottom: 10, fontWeight: 700, letterSpacing: 1 }}>
+        {/* ── GRÁFICA ── */}
+        <div style={{ ...chartBox, margin: '0 10px 20px', position: 'relative', overflow: 'hidden' }}>
+          {/* Huella grande decorativa de fondo */}
+          <div style={{ position: 'absolute', bottom: -20, right: -20, opacity: 0.025 }}>
+            <Paw size={160} color="#22c55e" />
+          </div>
+          <div style={{ fontSize: 10, color: '#888', marginBottom: 10, fontWeight: 700, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Paw size={12} color="#22c55e" opacity={0.6} />
             SALDO DISPONIBLE ACUMULADO
             {filterYear !== 'all' ? ` · ${filterYear}` : ' · todos los años'}
-            <span style={{ color: '#2a2a2a', marginLeft: 8, fontWeight: 400, fontSize: 9 }}>
-              todos los movimientos (depósitos, compras, ventas, dividendos, retiros)
+            <span style={{ color: '#444', fontWeight: 400, fontSize: 9 }}>
+              · todos los movimientos
             </span>
           </div>
           <ResponsiveContainer width="100%" height={240}>
@@ -238,17 +287,18 @@ export default function HistorialPage() {
                 tickFormatter={v => parseDate(v).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} />
               <YAxis stroke="#333" fontSize={10} tickFormatter={v => `$${v.toLocaleString()}`} />
               <Tooltip
-                contentStyle={{ background: '#000', border: '1px solid #222', fontSize: 12 }}
+                contentStyle={{ background: '#000', border: '1px solid #222', fontSize: 12, borderRadius: 8 }}
                 formatter={(v: any) => [money(Number(v)), 'Saldo']}
                 labelFormatter={l => parseDate(l).toLocaleDateString('es-MX')}
               />
-              <Area type="monotone" dataKey="saldo" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorSaldo)" />
+              <Area type="monotone" dataKey="saldo" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorSaldo)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        {/* FILTROS */}
+        {/* ── FILTROS ── */}
         <div style={{ ...filterBar, margin: '0 10px 16px' }}>
+          <Paw size={12} color="#555" opacity={0.6} />
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={selectStyle}>
             <option value="all">Todos los años</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
@@ -262,12 +312,12 @@ export default function HistorialPage() {
             onChange={e => setFilterTicker(e.target.value.toUpperCase())}
             style={inputMinimal}
           />
-          <span style={{ fontSize: 10, color: '#333', alignSelf: 'center', marginLeft: 'auto' }}>
+          <span style={{ fontSize: 10, color: '#888', alignSelf: 'center', marginLeft: 'auto' }}>
             {sortedAndFiltered.length} de {movements.length}
           </span>
         </div>
 
-        {/* TABLA */}
+        {/* ── TABLA ── */}
         <div style={{ ...tableWrapper, margin: '0 10px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -291,8 +341,11 @@ export default function HistorialPage() {
             <tbody>
               {sortedAndFiltered.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ padding: 40, textAlign: 'center', color: '#333' }}>
-                    No hay movimientos para este filtro.
+                  <td colSpan={6} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                      <Paw size={28} color="#333" opacity={0.5} />
+                      <span>No hay movimientos para este filtro</span>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -311,8 +364,8 @@ export default function HistorialPage() {
                     <td style={{ ...tdStyle, color: Number(m.amount) >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontFamily: 'monospace' }}>
                       {money(Number(m.amount))}
                     </td>
-                    <td style={{ ...tdStyle, color: '#888' }}>{m.ticker || '—'}</td>
-                    <td style={{ ...tdStyle, color: '#555', fontSize: '0.82rem', maxWidth: 240 }}>
+                    <td style={{ ...tdStyle, color: '#aaa' }}>{m.ticker || '—'}</td>
+                    <td style={{ ...tdStyle, color: '#888', fontSize: '0.82rem', maxWidth: 240 }}>
                       {m.notes
                         ? <span title={m.notes}>{m.notes.length > 50 ? m.notes.slice(0, 50) + '…' : m.notes}</span>
                         : '—'}
@@ -321,12 +374,12 @@ export default function HistorialPage() {
                       <div style={{ display: 'inline-flex', gap: 12 }}>
                         <button onClick={() => handleEditOpen(m)} style={actionBtnStyle}
                           onMouseEnter={e => (e.currentTarget.style.color = '#eab308')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                          onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
                           <FaPencilAlt size={12} />
                         </button>
                         <button onClick={() => handleDelete(m.id)} style={actionBtnStyle}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                          onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
                           <FaTrash size={12} />
                         </button>
                       </div>
@@ -338,21 +391,27 @@ export default function HistorialPage() {
           </table>
         </div>
 
-        {/* MODAL EDITAR */}
+        {/* ── MODAL EDITAR ── */}
         {editingMovement && (
           <div style={modalOverlay}>
-            <div style={modalBox}>
-              <h3 style={{ margin: '0 0 20px 0', fontSize: 16, color: 'white' }}>Editar movimiento</h3>
+            <div style={{ ...modalBox, position: 'relative', overflow: 'hidden' }}>
+              {/* Huella decorativa en el modal */}
+              <div style={{ position: 'absolute', bottom: -15, right: -15, opacity: 0.04 }}>
+                <Paw size={100} color="#00bfff" />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <Paw size={16} color="#00bfff" opacity={0.6} />
+                <h3 style={{ margin: 0, fontSize: 15, color: 'white' }}>Editar movimiento</h3>
+              </div>
               <label style={modalLabel}>Monto (USD) — valor absoluto</label>
-              <input type="number" style={modalInput} value={editAmount}
-                onChange={e => setEditAmount(e.target.value)} placeholder="0.00" />
+              <input type="number" min="0" step="0.01" style={modalInput} value={editAmount}
+                onChange={e => setEditAmount(posAmount(e.target.value))} placeholder="0.00" />
               <label style={modalLabel}>Fecha</label>
-              <input type="date" style={modalInput} value={editDate}
-                onChange={e => setEditDate(e.target.value)} />
+              <input type="date" style={modalInput} value={editDate} onChange={e => setEditDate(e.target.value)} />
               <label style={modalLabel}>Notas / Observación</label>
               <textarea style={{ ...modalInput, height: 80, resize: 'none' }} value={editNotes}
                 onChange={e => setEditNotes(e.target.value)} />
-              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                 <button onClick={handleUpdate} style={confirmBtn}>Guardar cambios</button>
                 <button onClick={() => setEditingMovement(null)} style={cancelBtn}>Cancelar</button>
               </div>
@@ -365,19 +424,20 @@ export default function HistorialPage() {
   )
 }
 
+// ── Estilos ────────────────────────────────────────────────────────────────
+const statCard: React.CSSProperties      = { background: '#0a0a0a', padding: '14px 18px', borderRadius: 12, border: '1px solid #1a1a1a', textAlign: 'right', color: 'white', minWidth: 180 }
 const chartBox: React.CSSProperties      = { background: '#0a0a0a', padding: 25, borderRadius: 15, border: '1px solid #1a1a1a' }
 const filterBar: React.CSSProperties     = { display: 'flex', alignItems: 'center', gap: 10, background: '#0a0a0a', padding: '10px 14px', borderRadius: 10, border: '1px solid #1a1a1a', flexWrap: 'wrap' }
-const statCardMini: React.CSSProperties  = { background: '#0a0a0a', padding: '12px 18px', borderRadius: 10, border: '1px solid #1a1a1a', textAlign: 'right', color: 'white' }
 const tableWrapper: React.CSSProperties  = { background: '#0a0a0a', borderRadius: 12, border: '1px solid #1a1a1a', overflow: 'hidden' }
-const thStyle: React.CSSProperties       = { textAlign: 'left', padding: '12px 18px', color: '#444', fontSize: 9, fontWeight: 800, letterSpacing: 1, userSelect: 'none', whiteSpace: 'nowrap' }
+const thStyle: React.CSSProperties       = { textAlign: 'left', padding: '12px 18px', color: '#888', fontSize: 9, fontWeight: 800, letterSpacing: 1, userSelect: 'none', whiteSpace: 'nowrap' }
 const tdStyle: React.CSSProperties       = { padding: '11px 18px', fontSize: 12, color: '#ccc' }
 const trStyle: React.CSSProperties       = { borderBottom: '1px solid #0f0f0f', transition: '0.2s' }
-const selectStyle: React.CSSProperties   = { background: '#000', border: '1px solid #222', color: '#ccc', padding: '7px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
-const inputMinimal: React.CSSProperties  = { background: '#000', border: '1px solid #222', padding: '7px 12px', borderRadius: 6, color: '#fff', fontSize: 11, outline: 'none' }
-const actionBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: '#333', cursor: 'pointer', transition: 'color 0.2s', padding: 5, display: 'flex', alignItems: 'center' }
-const modalOverlay: React.CSSProperties  = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modalBox: React.CSSProperties      = { background: '#0a0a0a', padding: 30, borderRadius: 15, border: '1px solid #1a1a1a', width: 400 }
-const modalLabel: React.CSSProperties    = { display: 'block', fontSize: 10, color: '#444', marginBottom: 5, fontWeight: 'bold', letterSpacing: 0.5 }
-const modalInput: React.CSSProperties    = { width: '100%', background: '#000', border: '1px solid #222', padding: 12, borderRadius: 8, color: '#fff', marginBottom: 15, outline: 'none', boxSizing: 'border-box', fontSize: 13 }
+const selectStyle: React.CSSProperties   = { background: '#000', border: '1px solid #333', color: '#ccc', padding: '7px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
+const inputMinimal: React.CSSProperties  = { background: '#000', border: '1px solid #333', padding: '7px 12px', borderRadius: 6, color: '#fff', fontSize: 11, outline: 'none' }
+const actionBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: '#444', cursor: 'pointer', transition: 'color 0.2s', padding: 5, display: 'flex', alignItems: 'center' }
+const modalOverlay: React.CSSProperties  = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
+const modalBox: React.CSSProperties      = { background: '#0a0a0a', padding: 28, borderRadius: 14, border: '1px solid #1a1a1a', width: 420 }
+const modalLabel: React.CSSProperties    = { display: 'block', fontSize: 10, color: '#888', marginBottom: 5, fontWeight: 700, letterSpacing: 0.5 }
+const modalInput: React.CSSProperties    = { width: '100%', background: '#000', border: '1px solid #333', padding: 11, borderRadius: 8, color: '#fff', marginBottom: 14, outline: 'none', boxSizing: 'border-box', fontSize: 13 }
 const confirmBtn: React.CSSProperties    = { flex: 1, background: '#00bfff', color: '#000', border: 'none', padding: 12, borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }
-const cancelBtn: React.CSSProperties     = { flex: 1, background: 'transparent', color: '#444', border: '1px solid #222', padding: 12, borderRadius: 8, cursor: 'pointer' }
+const cancelBtn: React.CSSProperties     = { flex: 1, background: 'transparent', color: '#888', border: '1px solid #333', padding: 12, borderRadius: 8, cursor: 'pointer' }
