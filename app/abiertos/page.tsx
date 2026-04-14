@@ -88,13 +88,11 @@ export default function TradesAbiertosPage() {
     if (data) setPortfolios(data)
   }, [])
 
-  const fetchTrades = useCallback(async (force = false) => {
-  // 1. Evitar múltiples clics
+  const fetchTrades = useCallback(async () => {
   if (isRefreshing) return;
   setIsRefreshing(true);
 
   try {
-    // 2. Traer los trades actualizados por el servidor desde Supabase
     const { data, error } = await supabase
       .from("trades")
       .select("*, portfolios(name, id)")
@@ -104,35 +102,22 @@ export default function TradesAbiertosPage() {
 
     if (data) {
       setTrades(data);
-
-      // 3. Sincronizar el estado local marketData con los precios de la DB
-      const syncedData: any = { ...marketData };
-      data.forEach((t: any) => {
-        if (t.last_price) {
-          syncedData[t.ticker] = {
-            price: t.last_price,
-            changePercent: t.day_change || 0,
-            // El RSI lo dejamos como estaba o lo traemos de la DB si decides guardarlo allá
-            rsi: marketData[t.ticker]?.rsi 
-          };
-        }
-      });
-      setMarketData(syncedData);
     }
+
   } catch (err) {
     console.error("Error cargando trades:", err);
   } finally {
     setIsRefreshing(false);
     setLastRefresh(new Date());
   }
-}, [isRefreshing, marketData]);
+}, [isRefreshing]);
 
 
   useEffect(() => {
   fetchTrades(); 
   fetchPortfolios();
-  // El setInterval que estaba aquí se borra porque el servidor ya hace el trabajo
-}, [fetchTrades, fetchPortfolios])
+  
+}, [])
 
   const toggleTarget = (targetId: string) =>
     setCheckedTargets(prev => ({ ...prev, [targetId]: !prev[targetId] }))
@@ -273,7 +258,7 @@ export default function TradesAbiertosPage() {
       </div>
 
       <button 
-  onClick={() => fetchTrades(true)} 
+  onClick={fetchTrades} 
   disabled={isRefreshing} 
   style={refreshBtn(isRefreshing)}
 >
