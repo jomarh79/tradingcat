@@ -139,22 +139,39 @@ for (const item of toUpdate) {
     init()
   }, [init])
 
-  const agregarEmpresa = async () => {
-    const ticker = newTicker.trim().toUpperCase()
-    if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
-    const { error } = await supabase.from('watchlist').insert({
-      ticker,
-      buy_target: parseFloat(parseFloat(newTarget).toFixed(2)),
-      analyst_target: parseFloat(newAnalyst) || 0,
-      notes: newNotes.trim(),
-    })
-    if (error) { alert('Error: ' + error.message); return }
-    setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
-    const items = await fetchList()
-    setList(items)
-    const newItem = items.find(i => i.ticker === ticker)
-    if (newItem) fetchPrices([newItem], true)
+ const agregarEmpresa = async () => {
+  const ticker = newTicker.trim().toUpperCase()
+  if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
+
+  const { error } = await supabase.from('watchlist').insert({
+    ticker,
+    buy_target: parseFloat(parseFloat(newTarget).toFixed(2)),
+    analyst_target: parseFloat(newAnalyst) || 0,
+    notes: newNotes.trim(),
+  })
+
+  if (error) {
+    alert('Error: ' + error.message)
+    return
   }
+
+  setNewTicker('')
+  setNewTarget('')
+  setNewAnalyst('')
+  setNewNotes('')
+
+  // 🔥 Obtener solo el nuevo registro
+  const { data } = await supabase
+    .from('watchlist')
+    .select('*')
+    .eq('ticker', ticker)
+    .single()
+
+  if (data) {
+    setList(prev => [...prev, data])  // ✅ lo agregas a la UI
+    fetchPrices([data], true)         // ✅ actualizas precio inmediato
+  }
+}
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker}?`)) return
