@@ -77,38 +77,51 @@ export default function WatchlistPage() {
 
   const fetchPrices = useCallback(async (items: WatchItem[], force = false) => {
     if (!items.length) return
-    const toUpdate = force ? items : items.filter(i => isStale(i.last_updated, 3))
-    if (!toUpdate.length) { setLastRefresh(new Date()); return }
+    const toUpdate = force
+    ? items
+    : items.filter(i => isStale(i.last_updated, 3))
+    if (!toUpdate.length) {
+      setLastRefresh(new Date());
+      return
+    }
 
     setLoadingTickers(toUpdate.map(i => i.ticker))
-    for (const item of toUpdate) {
-      const ticker = item.ticker.trim().toUpperCase()
-      try {
-        const res  = await fetch(`https://twelvedata.com{ticker}&apikey=${TD_API_KEY}`)
-        const data = await res.json()
-        if (data.status === 'error') continue
 
-        if (data?.close) {
-          const price  = parseFloat(Number(data.close).toFixed(2))
-          const change = parseFloat(Number(data.percent_change || 0).toFixed(2))
-          const nowIso = new Date().toISOString()
+for (const item of toUpdate) {
+  const ticker = item.ticker.trim().toUpperCase()
 
-          await supabase.from('watchlist').update({
-            current_price: price,
-            price_change:  change,
-            last_updated:  nowIso,
-          }).eq('id', item.id)
+  try {
+    const res = await fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TD_API_KEY}`)
+    const data = await res.json()
 
-          setList(prev => prev.map(i =>
-            i.id === item.id ? { ...i, current_price: price, price_change: change, last_updated: nowIso } : i
-          ))
-        }
-        if (toUpdate.indexOf(item) < toUpdate.length - 1) await new Promise(r => setTimeout(r, 6000))
-      } catch (err) { console.error(`Error ${ticker}:`, err) }
-      finally { setLoadingTickers(prev => prev.filter(t => t !== item.ticker)) }
+    if (data.status === 'error') continue
+
+    if (data?.close) {
+      const price  = parseFloat(Number(data.close).toFixed(2))
+      const change = parseFloat(Number(data.percent_change || 0).toFixed(2))
+      const nowIso = new Date().toISOString()
+
+      await supabase.from('watchlist').update({
+        current_price: price,
+        price_change: change,
+        last_updated: nowIso,
+      }).eq('id', item.id)
+
+      setList(prev => prev.map(i =>
+        i.id === item.id
+          ? { ...i, current_price: price, price_change: change, last_updated: nowIso }
+          : i
+      ))
     }
-    setLastRefresh(new Date())
-  }, [])
+
+    await new Promise(r => setTimeout(r, 6000))
+
+  } catch (err) {
+    console.error(`Error ${ticker}:`, err)
+  } finally {
+    setLoadingTickers(prev => prev.filter(t => t !== item.ticker))
+  }
+}
 
   const init = useCallback(async (force = false) => {
     setLoading(true)
