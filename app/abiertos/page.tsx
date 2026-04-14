@@ -11,6 +11,7 @@ import { TrendingUp, Settings, Trash2, Star } from 'lucide-react'
 const FINNHUB_API_KEY = process.env.NEXT_PUBLIC_FINNHUB_KEY
 const MARKET_CACHE_KEY = 'tradercat_market_data'
 const TARGETS_KEY      = 'tradercat_targets_v2'
+const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
