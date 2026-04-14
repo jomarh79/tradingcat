@@ -123,6 +123,9 @@ for (const item of toUpdate) {
   }
 }
 
+setLastRefresh(new Date())
+}, [])
+
   const init = useCallback(async (force = false) => {
     setLoading(true)
     const items = await fetchList()
