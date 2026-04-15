@@ -2,11 +2,11 @@ import { serve } from "https://deno.land/std/http/server.ts";
 
 serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
-  if (authHeader !== "Bearer tradingcat-cron-2026") {
-    return new Response("Unauthorized", { status: 401 });
-  }
+ if (!authHeader) {
+  return new Response("Unauthorized", { status: 401 });
+}
 
-  // 🕒 Horario mercado
+  // 🕒 Hora México
   const now = new Date();
   const mexicoTime = new Date(
     now.toLocaleString("en-US", { timeZone: "America/Mexico_City" })
@@ -15,15 +15,44 @@ serve(async (req) => {
   const day = mexicoTime.getDay();
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
 
+  // 🛑 Validar horario mercado
   if (day < 1 || day > 5 || time < 7.5 || time >= 15) {
     return new Response("Mercado cerrado");
   }
 
-  try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const API_KEY = Deno.env.get("TWELVEDATA_API_KEY")!;
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const API_KEY = Deno.env.get("TWELVEDATA_API_KEY")!;
 
+  const LOCK_KEY = "update_ia_lock";
+
+  // 🔒 Revisar lock
+  const lockRes = await fetch(`${SUPABASE_URL}/rest/v1/${LOCK_KEY}?id=eq.1`, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+    },
+  });
+
+  const lockData = await lockRes.json();
+
+  if (lockData[0]?.running) {
+    return new Response("Ya corriendo");
+  }
+
+  // 🔒 Activar lock
+  await fetch(`${SUPABASE_URL}/rest/v1/${LOCK_KEY}?id=eq.1`, {
+    method: "PATCH",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ running: true }),
+  });
+
+  try {
+    // 📥 Obtener watchlist
     const res = await fetch(`${SUPABASE_URL}/rest/v1/watchlist`, {
       headers: {
         apikey: SUPABASE_KEY,
@@ -34,7 +63,7 @@ serve(async (req) => {
     const list = await res.json();
 
     for (const item of list) {
-      // 📈 HISTÓRICOS
+      // 📈 Históricos
       const ts = await fetch(
         `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=30&apikey=${API_KEY}`
       );
@@ -50,7 +79,7 @@ serve(async (req) => {
       const prev = prices[prices.length - 2] || price;
       const change = ((price - prev) / prev) * 100;
 
-      // 📊 INDICADORES
+      // 📊 Indicadores
       const rsi = calculateRSI(prices);
       const ema20 = calculateEMA(prices, 20);
       const volatility = calculateVolatility(prices);
@@ -67,7 +96,7 @@ serve(async (req) => {
         spy_change: 0,
       });
 
-      // 💾 GUARDAR
+      // 💾 Guardar
       await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
         method: "PATCH",
         headers: {
@@ -85,7 +114,7 @@ serve(async (req) => {
         }),
       });
 
-      // 🔔 ALERTA IA (solo top)
+      // 🔔 Alerta IA
       if (probability > 85) {
         await fetch("https://tradingcat.onrender.com/api/notify", {
           method: "POST",
@@ -99,34 +128,60 @@ serve(async (req) => {
         }).catch(() => {});
       }
 
-      await new Promise((r) => setTimeout(r, 8000));
+      // ⏱️ Rate limit
+      await new Promise((r) => setTimeout(r, 2000));
     }
 
     return new Response("OK");
+
   } catch (e) {
     return new Response(e.message, { status: 500 });
+
+  } finally {
+    // 🔓 LIBERAR LOCK SIEMPRE
+    await fetch(`${SUPABASE_URL}/rest/v1/${LOCK_KEY}?id=eq.1`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ running: false }),
+    });
   }
 });
+
 
 // ================= INDICADORES =================
 
 function calculateRSI(prices: number[], period = 14) {
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= period; i++) {
+  if (prices.length <= period) return 50;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = prices.length - period; i < prices.length; i++) {
     const diff = prices[i] - prices[i - 1];
     if (diff >= 0) gains += diff;
-    else losses -= diff;
+    else losses -= Math.abs(diff);
   }
-  const rs = (gains / period) / ((losses / period) || 1);
-  return 100 - 100 / (1 + rs);
+
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
 }
 
 function calculateEMA(prices: number[], period = 20) {
   const k = 2 / (period + 1);
   let ema = prices[0];
+
   for (let i = 1; i < prices.length; i++) {
     ema = prices[i] * k + ema * (1 - k);
   }
+
   return ema;
 }
 
@@ -136,6 +191,7 @@ function calculateVolatility(prices: number[]) {
   const variance = returns.reduce((a, b) => a + (b - avg) ** 2, 0) / returns.length;
   return Math.sqrt(variance) * 100;
 }
+
 
 // ================= IA =================
 

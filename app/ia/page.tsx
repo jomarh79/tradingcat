@@ -51,7 +51,6 @@ export default function IAPage() {
               🚀 Señal: {item.ai_signal}
             </p>
 
-            <p>🚀 Señal: {item.ai_signal}</p>
           </div>
         ))}
       </div>
