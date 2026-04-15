@@ -123,7 +123,7 @@ serve(async (req) => {
       });
 
       // 🔔 Alerta IA
-      if (probability > 85 && item.last_ai_alert_date !== todayStr) {
+      if (probability > 80 && item.last_ai_alert_date !== todayStr) {
         await fetch("https://tradingcat.onrender.com/api/notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -169,18 +169,32 @@ function calculateRSI(prices: number[], period = 14) {
   let gains = 0;
   let losses = 0;
 
-  for (let i = prices.length - period; i < prices.length; i++) {
+  for (let i = prices.length - period + 1; i < prices.length; i++) {
     const diff = prices[i] - prices[i - 1];
+
     if (diff >= 0) gains += diff;
-    else losses -= Math.abs(diff);
+    else losses += Math.abs(diff);
   }
+
+  if (losses === 0) return 100;
+  if (gains === 0) return 0;
+
+  const rs = gains / losses;
+  const rsi = 100 - (100 / (1 + rs));
+
+  // blindaje extra
+  return Math.max(0, Math.min(100, rsi));
+}
 
   const avgGain = gains / period;
   const avgLoss = losses / period;
 
   if (avgLoss === 0) return 100;
+
   const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+  const rsi = 100 - (100 / (1 + rs));
+
+  return rsi;
 }
 
 function calculateEMA(prices: number[], period = 20) {

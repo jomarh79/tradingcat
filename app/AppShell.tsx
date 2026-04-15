@@ -175,7 +175,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div style={sectionLabel}>ANÁLISIS</div>
             <MenuLink href="/watchlist" icon={<Eye size={16} />} label="Watchlist" active={pathname === '/watchlist'} />
 
-            <div style={sectionLabel}>ANÁLISIS</div>
             <MenuLink href="/ia" icon={<Brain size={16} />} label="IA Señales" active={pathname === '/ia'} />
 
             <div style={groupHeader}><Activity size={14} color="#444" /> Estadísticas</div>
