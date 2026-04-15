@@ -36,9 +36,9 @@ serve(async (req) => {
 
   const lockData = await lockRes.json();
 
-  if (lockData[0]?.running) {
-    return new Response("Ya corriendo");
-  }
+ if (lockData[0]?.running) {
+  return new Response("Skip");
+}
 
   // 🔒 Activar lock
   await fetch(`${SUPABASE_URL}/rest/v1/${LOCK_KEY}?id=eq.1`, {
@@ -111,11 +111,12 @@ serve(async (req) => {
           ai_probability: probability,
           ai_score: score,
           ai_signal: signal,
+          last_ai_alert_date: probability > 85 ? todayStr : item.last_ai_alert_date,
         }),
       });
 
       // 🔔 Alerta IA
-      if (probability > 85) {
+      if (probability > 85 && item.last_ai_alert_date !== todayStr) {
         await fetch("https://tradingcat.onrender.com/api/notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -129,7 +130,7 @@ serve(async (req) => {
       }
 
       // ⏱️ Rate limit
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 800));
     }
 
     return new Response("OK");

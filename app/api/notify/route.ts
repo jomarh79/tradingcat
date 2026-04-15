@@ -6,7 +6,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { ticker, currentPrice, targetPrice, type } = body;
+    const { ticker, currentPrice, targetPrice, rsi, type } = body;
 
     if (!ticker || currentPrice == null || targetPrice == null || !resend) {
       return NextResponse.json({ error: "Faltan datos o Resend no configurado" }, { status: 400 });
@@ -32,6 +32,7 @@ export async function POST(request: Request) {
           <div style="background: #111; padding: 25px; border-radius: 10px; margin-top: 20px; border: 1px solid #333;">
             <p style="font-size: 1.2rem; margin: 10px 0;">💰 Precio Actual: <strong style="color: #fff;">$${safePrice}</strong></p>
             <p style="font-size: 1.2rem; margin: 10px 0;">🎯 Objetivo: <strong style="color: #fff;">$${safeTarget}</strong></p>
+            <p style="font-size: 1.1rem; margin: 10px 0;">📊 RSI: <strong style="color: #fff;">${rsi || 'N/A'}</strong></p>
           </div>
           
           <p style="font-size: 0.8rem; color: #444; margin-top: 25px; border-top: 1px solid #222; padding-top: 15px;">
