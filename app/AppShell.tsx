@@ -7,8 +7,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
-  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff
+  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, FaBrain
 } from 'lucide-react'
+//import { FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, FaSync } from 'react-icons/fa'
 
 function MenuLink({ href, icon, label, active, isSubItem }: any) {
   return (
