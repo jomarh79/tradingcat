@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
-  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, FaBrain
+  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, Brain
 } from 'lucide-react'
 //import { FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, FaSync } from 'react-icons/fa'
 
