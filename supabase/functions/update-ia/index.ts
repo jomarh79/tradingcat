@@ -12,6 +12,13 @@ serve(async (req) => {
     now.toLocaleString("en-US", { timeZone: "America/Mexico_City" })
   );
 
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Mexico_City",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  }).format(new Date()); 
+
   const day = mexicoTime.getDay();
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
 
@@ -111,7 +118,7 @@ serve(async (req) => {
           ai_probability: probability,
           ai_score: score,
           ai_signal: signal,
-          last_ai_alert_date: probability > 85 ? todayStr : item.last_ai_alert_date,
+          last_ai_alert_date: probability > 80 ? todayStr : item.last_ai_alert_date,
         }),
       });
 
@@ -124,6 +131,7 @@ serve(async (req) => {
             ticker: item.ticker,
             currentPrice: price,
             targetPrice: item.buy_target,
+            rsi: rsi.toFixed(2),
             type: `🤖 IA ${signal} (${probability}%)`,
           }),
         }).catch(() => {});
