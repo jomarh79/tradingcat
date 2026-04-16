@@ -97,82 +97,88 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   const totalOpUSD = parseFloat((actionsNum * priceUSD).toFixed(2))
 
   const loadHistory = useCallback(async () => {
-    const { data: freshTrade } = await supabase
-      .from("trades").select("*").eq("id", trade.id).single()
-    const { data: executions } = await supabase
-      .from("trade_executions").select("*")
-      .eq("trade_id", trade.id).order('executed_at', { ascending: true })
+  const { data: freshTrade } = await supabase
+    .from("trades").select("*").eq("id", trade.id).single()
+  const { data: executions } = await supabase
+    .from("trade_executions").select("*")
+    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
 
-    const initialPrice = parseFloat(Number(freshTrade?.initial_entry_price || freshTrade?.entry_price || trade.entry_price).toFixed(2))
-    const initialQty   = parseFloat(Number(freshTrade?.initial_quantity || trade.quantity).toFixed(6))
+  // 🔥 CAMBIO: Usar los valores iniciales fijos
+  const initialPrice = parseFloat(Number(freshTrade?.initial_entry_price || trade.entry_price).toFixed(2))
+  const initialQty   = parseFloat(Number(freshTrade?.initial_quantity || trade.quantity).toFixed(6))
 
-    const opening = {
-      id: 'apertura', date: trade.open_date,
-      actions: initialQty, price: initialPrice,
-      total: parseFloat((initialQty * initialPrice).toFixed(2)),
-      commission: 0, type: 'Apertura',
-    }
+  const opening = {
+    id: 'apertura', 
+    date: freshTrade?.open_date || trade.open_date,
+    actions: initialQty, 
+    price: initialPrice,
+    total: parseFloat((initialQty * initialPrice).toFixed(2)),
+    commission: 0, 
+    type: 'Apertura',
+  }
 
-    const execHistory = (executions || []).map(e => ({
-      id: e.id, date: e.executed_at,
-      actions:    parseFloat(Number(e.quantity).toFixed(6)),
-      price:      parseFloat(Number(e.price).toFixed(2)),
-      total:      parseFloat(Number(e.total).toFixed(2)),
-      commission: parseFloat(Number(e.commission || 0).toFixed(2)),
-      type:       e.execution_type === 'buy' ? 'Recompra' : e.execution_type === 'sell' ? 'Venta parcial' : 'Cierre',
-    }))
+  const execHistory = (executions || []).map(e => ({
+    id: e.id, 
+    date: e.executed_at,
+    actions: parseFloat(Number(e.quantity).toFixed(6)),
+    price: parseFloat(Number(e.price).toFixed(2)),
+    total: parseFloat(Number(e.total).toFixed(2)),
+    commission: parseFloat(Number(e.commission || 0).toFixed(2)),
+    type: e.execution_type === 'buy' ? 'Recompra' : e.execution_type === 'sell' ? 'Venta parcial' : 'Cierre',
+  }))
 
-    setHistory([opening, ...execHistory].sort((a, b) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    ))
-  }, [trade])
+  setHistory([opening, ...execHistory].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  ))
+}, [trade])
+
 
   useEffect(() => { loadHistory() }, [loadHistory])
 
   const recalculateTrade = useCallback(async () => {
-    const { data: t }  = await supabase.from("trades").select("*").eq("id", trade.id).single()
-    const { data: ex } = await supabase.from("trade_executions").select("*")
-      .eq("trade_id", trade.id).order('executed_at', { ascending: true })
+  const { data: t }  = await supabase.from("trades").select("*").eq("id", trade.id).single()
+  const { data: ex } = await supabase.from("trade_executions").select("*")
+    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
 
-    let cQty = parseFloat(Number(t.initial_quantity).toFixed(6))
-    let cCap = parseFloat((cQty * Number(t.initial_entry_price || t.entry_price)).toFixed(2))
-    let cPnl = 0
+  // 🔥 Empezar siempre con la base inmutable
+  let cQty = parseFloat(Number(t.initial_quantity || t.quantity).toFixed(6))
+  let cCap = parseFloat((cQty * Number(t.initial_entry_price || t.entry_price)).toFixed(2))
+  let cPnl = 0
 
-    if (ex) {
-      ex.forEach(e => {
-        const q     = parseFloat(Number(e.quantity).toFixed(6))
-        const p     = parseFloat(Number(e.price).toFixed(2))
-        const comm  = parseFloat(Number(e.commission || 0).toFixed(2))
-        const gross = parseFloat((q * p).toFixed(2))
-        if (e.execution_type === 'buy') {
-          cQty = parseFloat((cQty + q).toFixed(6))
-          cCap = parseFloat((cCap + gross + comm).toFixed(2))
-        } else {
-          const avgM  = cQty > 0 ? cCap / cQty : 0
-          const cost  = parseFloat((q * avgM).toFixed(2))
-          const netIn = parseFloat((gross - comm).toFixed(2))
-          cQty = parseFloat((cQty - q).toFixed(6))
-          cCap = parseFloat((cCap - cost).toFixed(2))
-          cPnl = parseFloat((cPnl + (netIn - cost)).toFixed(2))
-        }
-      })
-    }
+  if (ex) {
+    ex.forEach(e => {
+      const q = parseFloat(Number(e.quantity).toFixed(6))
+      const p = parseFloat(Number(e.price).toFixed(2))
+      const comm = parseFloat(Number(e.commission || 0).toFixed(2))
+      const gross = parseFloat((q * p).toFixed(2))
 
-    const avgPrice = cQty > 0
-      ? parseFloat((cCap / cQty).toFixed(2))
-      : parseFloat(Number(t.initial_entry_price || t.entry_price).toFixed(2))
+      if (e.execution_type === 'buy') {
+        cQty = parseFloat((cQty + q).toFixed(6))
+        cCap = parseFloat((cCap + gross + comm).toFixed(2))
+      } else {
+        const avgM = cQty > 0 ? cCap / cQty : 0
+        const cost = parseFloat((q * avgM).toFixed(2))
+        const netIn = parseFloat((gross - comm).toFixed(2))
+        cQty = parseFloat((cQty - q).toFixed(6))
+        cCap = parseFloat((cCap - cost).toFixed(2))
+        cPnl = parseFloat((cPnl + (netIn - cost)).toFixed(2))
+      }
+    })
+  }
 
-    setQty(cQty); setCapital(cCap); setAvg(avgPrice); setPnl(cPnl)
+  const avgPrice = cQty > 0 ? parseFloat((cCap / cQty).toFixed(2)) : t.initial_entry_price
 
-    await supabase.from("trades").update({
-      quantity:       cQty,
-      total_invested: parseFloat(cCap.toFixed(2)),
-      entry_price:    avgPrice,
-      realized_pnl:   parseFloat(cPnl.toFixed(2)),
-      status:         cQty <= 0 ? 'closed' : 'open',
-      close_date:     cQty <= 0 ? date : null,
-    }).eq("id", trade.id)
-  }, [trade, date])
+  setQty(cQty); setCapital(cCap); setAvg(avgPrice); setPnl(cPnl)
+
+  await supabase.from("trades").update({
+    quantity: cQty,
+    total_invested: parseFloat(cCap.toFixed(2)),
+    entry_price: avgPrice, // El promedio para la tabla principal
+    realized_pnl: parseFloat(cPnl.toFixed(2)),
+    status: cQty <= 0 ? 'closed' : 'open',
+  }).eq("id", trade.id)
+}, [trade])
+
 
   const recomprar = () => {
     if (!actionsNum || !priceUSD) return
@@ -237,13 +243,16 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
     if (!editingId) return
     setIsSaving(true)
     try {
-      if (editingId === 'apertura') {
-        await supabase.from("trades").update({
-          initial_quantity:    parseFloat(actionsNum.toFixed(6)),
-          initial_entry_price: parseFloat(priceUSD.toFixed(2)),
-          entry_price:         parseFloat(priceUSD.toFixed(2)),
-          open_date:           date,
-        }).eq("id", trade.id)
+      // Dentro de updateExecution, en el bloque de 'apertura':
+if (editingId === 'apertura') {
+  await supabase.from("trades").update({
+    initial_quantity: parseFloat(actionsNum.toFixed(6)),
+    initial_entry_price: parseFloat(priceUSD.toFixed(2)),
+    // No actualices entry_price aquí, deja que recalculateTrade lo haga
+    open_date: date,
+  }).eq("id", trade.id)
+}
+
       } else {
         await supabase.from("trade_executions").update({
           quantity:    parseFloat(actionsNum.toFixed(6)),
