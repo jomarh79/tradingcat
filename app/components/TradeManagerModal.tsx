@@ -248,23 +248,25 @@ if (editingId === 'apertura') {
   await supabase.from("trades").update({
     initial_quantity: parseFloat(actionsNum.toFixed(6)),
     initial_entry_price: parseFloat(priceUSD.toFixed(2)),
-    // No actualices entry_price aquí, deja que recalculateTrade lo haga
     open_date: date,
   }).eq("id", trade.id)
-}
 
-      } else {
-        await supabase.from("trade_executions").update({
-          quantity:    parseFloat(actionsNum.toFixed(6)),
-          price:       parseFloat(priceUSD.toFixed(2)),
-          total:       parseFloat((actionsNum * priceUSD).toFixed(2)),
-          commission:  commUSD,
-          executed_at: date,
-        }).eq("id", editingId)
-        await supabase.from("wallet_movements")
-          .update({ date, amount: parseFloat((actionsNum * priceUSD - commUSD).toFixed(2)) })
-          .eq("execution_id", editingId)
-      }
+} else {
+  await supabase.from("trade_executions").update({
+    quantity:    parseFloat(actionsNum.toFixed(6)),
+    price:       parseFloat(priceUSD.toFixed(2)),
+    total:       parseFloat((actionsNum * priceUSD).toFixed(2)),
+    commission:  commUSD,
+    executed_at: date,
+  }).eq("id", editingId)
+
+  await supabase.from("wallet_movements")
+    .update({
+      date,
+      amount: parseFloat((actionsNum * priceUSD - commUSD).toFixed(2))
+    })
+    .eq("execution_id", editingId)
+}
       await recalculateTrade()
       setEditingId(null); setActions(""); setPrice(""); setCommission("0")
       loadHistory(); onRefresh()
