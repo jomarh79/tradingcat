@@ -147,7 +147,9 @@ export default function TradesAbiertosPage() {
       const qty       = parseFloat(Number(trade.quantity     || 0).toFixed(6))
       const invested  = parseFloat(Number(trade.total_invested || 0).toFixed(2))
       const mData     = marketData[trade.ticker] || {}
-      const curPrice  = parseFloat(Number(mData.price || trade.entry_price || 0).toFixed(2))
+      const curPrice = parseFloat(
+        Number(trade.last_price || mData.price || trade.entry_price || 0).toFixed(2)
+      )
       const avgPrice  = qty > 0 ? parseFloat((invested / qty).toFixed(2)) : parseFloat(Number(trade.entry_price || 0).toFixed(2))
       const pnl       = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
       const pnlPct    = avgPrice > 0 ? parseFloat(((curPrice - avgPrice) / avgPrice * 100).toFixed(2)) : 0
@@ -161,7 +163,7 @@ export default function TradesAbiertosPage() {
         ...trade, curPrice, avgPrice, pnl, pnlPct,
         invested, curValue, nearStop, nearTP,
         rsi:       mData.rsi,
-        dayChange: parseFloat(Number(mData.changePercent || 0).toFixed(2)),
+        dayChange: parseFloat(Number(trade.day_change || mData.changePercent || 0).toFixed(2)),
       }
     })
 
