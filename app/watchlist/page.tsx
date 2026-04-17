@@ -10,10 +10,7 @@ import {
 } from 'react-icons/fa'
 import { TrendingUp, TrendingDown, AlertTriangle, Eye } from 'lucide-react'
 
-// Solo se llama desde el botón manual — el cron en Supabase hace el trabajo automático
-//const TD_API_KEY = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY || ''
 
-// ── Utilidades ────────────────────────────────────────────────────────────────
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
 const isMarketOpen = () => {
@@ -111,7 +108,6 @@ export default function WatchlistIAPage() {
 
   const [list,           setList]           = useState<WatchItem[]>([])
   const [loading,        setLoading]        = useState(false)
-  //const [loadingTickers, setLoadingTickers] = useState<string[]>([])
   const [lastRefresh,    setLastRefresh]    = useState<Date | null>(null)
 
   // Formulario agregar
@@ -140,54 +136,7 @@ export default function WatchlistIAPage() {
     return (data as WatchItem[]) || []
   }, [])
 
-  // ── Actualización manual de precios (solo cuando el usuario lo pide) ─────────
-  // El cron de Supabase se encarga de actualizar automáticamente + IA
-  //const fetchPrices = useCallback(async (items: WatchItem[], force = false) => {
-    //if (!items.length) return
-    //const toUpdate = force ? items : items.filter(i => isStale(i.last_updated, 3))
-    //if (!toUpdate.length) { setLastRefresh(new Date()); return }
-
-    //setLoadingTickers(toUpdate.map(i => i.ticker))
-
-    //for (const item of toUpdate) {
-      //const ticker = item.ticker.trim().toUpperCase()
-      //try {
-        //const res  = await fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TD_API_KEY}`)
-        //const data = await res.json()
-        //if (data.status === 'error' || !data?.close) continue
-
-        //const price    = parseFloat(Number(data.close).toFixed(2))
-        //const change   = parseFloat(Number(data.percent_change || 0).toFixed(2))
-        //const nowIso   = new Date().toISOString()
-
-        //await supabase.from('watchlist').update({
-          //current_price: price,
-          //price_change:  change,
-          //price_name:    data.name || ticker,
-          //last_updated:  nowIso,
-        //}).eq('id', item.id)
-
-        //setList(prev => prev.map(i =>
-          //i.id === item.id ? { ...i, current_price: price, price_change: change, last_updated: nowIso } : i
-        //))
-      //} catch (err) {
-        //console.error(`Error ${ticker}:`, err)
-      //} finally {
-        //setLoadingTickers(prev => prev.filter(t => t !== ticker))
-      //}
-      //await new Promise(r => setTimeout(r, 6000))
-    //}
-    //setLastRefresh(new Date())
-  //}, [])
-
-  //const init = useCallback(async (force = false) => {
-    //setLoading(true)
-    //const items = await fetchList()
-    //setList(items)
-    //setLoading(false)
-    //if (force) fetchPrices(items, true)
-    //else setLastRefresh(new Date())
-  //}, [fetchList, fetchPrices])
+  
 
   //nuevo bloque
   const init = useCallback(async () => {
@@ -198,8 +147,6 @@ export default function WatchlistIAPage() {
   setLastRefresh(new Date())
 }, [fetchList])
 
-  //useEffect(() => { init() }, [init])
-//nuevo bloque
 useEffect(() => {
   init()
 
@@ -226,7 +173,7 @@ useEffect(() => {
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
 
     const { data } = await supabase.from('watchlist').select('*').eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
-    if (data) { setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))} //;fetchPrices([data], true) }
+    if (data) { setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))}
   }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
@@ -335,14 +282,7 @@ useEffect(() => {
               </span>
             )}
 
-            {/* Spinner */}
-            {loadingTickers.length > 0 && (
-              <span style={{ color: '#00bfff', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <FaSpinner className="animate-spin" />
-                {loadingTickers[0]}
-                {loadingTickers.length > 1 ? ` +${loadingTickers.length - 1}` : ''}
-              </span>
-            )}
+            
 
             {lastRefresh && (
               <span style={{ fontSize: '0.65rem', color: '#444' }}>
@@ -517,16 +457,7 @@ useEffect(() => {
                       </td>
 
                       {/* Var. día */}
-                      //<td style={tdStyle}>
-                        //{loadingTickers.includes(item.ticker)
-                          //? <FaSpinner style={{ animation: 'spin 1s linear infinite', color: '#444', fontSize: 10 }} />
-                          //: item.price_change !== null
-                            //? <span style={{ color: item.price_change >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
-                              //  {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
-                              //</span>
-                            //: <span style={{ color: '#333' }}>—</span>
-                        //}
-                      //</td>
+                     
 
                       {/* Precio */}
                       <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
@@ -588,7 +519,7 @@ useEffect(() => {
 
                       {/* RSI */}
                       <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
-                        {item.rsi !== null
+                        {item.rsi !== null && item.rsi >= 0 && item.rsi <= 100
                           ? <span style={{ color: rsiColor(item.rsi) }}>{item.rsi.toFixed(1)}</span>
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
@@ -680,7 +611,9 @@ useEffect(() => {
                   {/* Indicadores */}
                   <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 12 }}>
                     {[
-                      { label: 'RSI (14)',    value: item.rsi        ? item.rsi.toFixed(2)        : '—', color: rsiColor(item.rsi) },
+                      { label: 'RSI (14)',    value: item.rsi !== null && item.rsi >= 0 && item.rsi <= 100
+                        ? item.rsi.toFixed(2)
+                        : '—', color: rsiColor(item.rsi) },
                       { label: 'EMA (20)',    value: item.ema20      ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
                       { label: 'Volatilidad', value: item.volatility ? `${item.volatility.toFixed(2)}%` : '—', color: (item.volatility || 0) < 2 ? '#22c55e' : (item.volatility || 0) > 4 ? '#f43f5e' : '#888' },
                     ].map(row => (
