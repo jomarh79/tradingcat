@@ -8,8 +8,7 @@ import {
   FaBell, FaPlus, FaTrash, FaSpinner,
   FaSort, FaSortUp, FaSortDown, FaSearch, FaSync, FaBrain,
 } from 'react-icons/fa'
-import { TrendingUp, TrendingDown, AlertTriangle, Eye } from 'lucide-react'
-
+import { TrendingUp, AlertTriangle, Eye } from 'lucide-react'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -55,28 +54,26 @@ const CatTail = ({ color = '#00bfff', opacity = 0.07 }: any) => (
   </svg>
 )
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
-type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'distancia' | 'analyst_target' | 'vsAnalyst' | 'ai_probability'
+type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'distancia' | 'analyst_target' | 'vsAnalyst' | 'ai_probability' | 'rsi'
 
 interface WatchItem {
-  id:               number
-  ticker:           string
-  buy_target:       number
-  analyst_target:   number
-  notes:            string
-  current_price:    number | null
-  price_change:     number | null
-  price_name:       string | null
-  last_updated:     string | null
-  // IA
-  rsi:              number | null
-  ema20:            number | null
-  volatility:       number | null
-  ai_probability:   number | null
-  ai_score:         number | null
-  ai_signal:        string | null
+  id:                 number
+  ticker:             string
+  buy_target:         number
+  analyst_target:     number
+  notes:              string
+  current_price:      number | null
+  price_change:       number | null
+  price_name:         string | null
+  last_updated:       string | null
+  rsi:                number | null
+  ema20:              number | null
+  volatility:         number | null
+  ai_probability:     number | null
+  ai_score:           number | null
+  ai_signal:          string | null
   last_ai_alert_date: string | null
-  last_alert_date:  string | null
+  last_alert_date:    string | null
 }
 
 interface EnrichedItem extends WatchItem {
@@ -86,80 +83,63 @@ interface EnrichedItem extends WatchItem {
   stale:     boolean
 }
 
-// ── Señal IA → color y etiqueta ───────────────────────────────────────────────
+// ── IA label + colores ────────────────────────────────────────────────────────
 const signalMeta = (prob: number | null) => {
-  if (prob === null || prob === undefined) return { color: '#444', bg: '#111', label: 'SIN DATOS', icon: null }
-  if (prob >= 80) return { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  label: '🔥 STRONG BUY', icon: <TrendingUp size={11} /> }
-  if (prob >= 65) return { color: '#eab308', bg: 'rgba(234,179,8,0.08)', label: '⚡ BUY',         icon: <TrendingUp size={11} /> }
-  if (prob >= 50) return { color: '#00bfff', bg: 'rgba(0,191,255,0.08)', label: '👀 WATCH',       icon: <Eye size={11} /> }
-  return { color: '#555', bg: 'transparent', label: 'NO TRADE', icon: null }
+  if (prob === null || prob === undefined)
+    return { color: '#444', bg: '#111', label: 'SIN DATOS' }
+  if (prob >= 80) return { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  label: '🔥 STRONG BUY' }
+  if (prob >= 65) return { color: '#eab308', bg: 'rgba(234,179,8,0.08)', label: '⚡ BUY' }
+  if (prob >= 50) return { color: '#00bfff', bg: 'rgba(0,191,255,0.08)', label: '👀 WATCH' }
+  return { color: '#555', bg: 'transparent', label: 'NO TRADE' }
 }
 
-// ── RSI color ─────────────────────────────────────────────────────────────────
 const rsiColor = (rsi: number | null) => {
-  if (!rsi) return '#888'
-  if (rsi < 30) return '#22c55e'   // sobrevendido — oportunidad
-  if (rsi > 70) return '#f43f5e'   // sobrecomprado — precaución
+  if (rsi === null || rsi === undefined) return '#888'
+  if (rsi < 30) return '#22c55e'
+  if (rsi > 70) return '#f43f5e'
   return '#aaa'
 }
 
 export default function WatchlistIAPage() {
   const { money } = usePrivacy()
 
-  const [list,           setList]           = useState<WatchItem[]>([])
-  const [loading,        setLoading]        = useState(false)
-  const [lastRefresh,    setLastRefresh]    = useState<Date | null>(null)
+  const [list,        setList]        = useState<WatchItem[]>([])
+  const [loading,     setLoading]     = useState(false)
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  // Formulario agregar
   const [newTicker,  setNewTicker]  = useState('')
   const [newTarget,  setNewTarget]  = useState('')
   const [newAnalyst, setNewAnalyst] = useState('')
   const [newNotes,   setNewNotes]   = useState('')
 
-  // Tabla
-  const [sortField,  setSortField]  = useState<SortField>('ai_probability')
-  const [sortDir,    setSortDir]    = useState<'asc' | 'desc'>('desc')
+  const [sortField, setSortField] = useState<SortField>('ai_probability')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
   const [filterText, setFilterText] = useState('')
   const [editingId,  setEditingId]  = useState<number | null>(null)
   const [tempTarget, setTempTarget] = useState('')
+  const [view,       setView]       = useState<'table' | 'cards'>('table')
 
-  // Vista
-  const [view, setView] = useState<'table' | 'cards'>('table')
-
-  // ── Carga desde Supabase (precios + IA ya calculados por el cron) ────────────
   const fetchList = useCallback(async (): Promise<WatchItem[]> => {
     const { data, error } = await supabase
-      .from('watchlist')
-      .select('*')
-      .order('ai_probability', { ascending: false })
+      .from('watchlist').select('*').order('ai_probability', { ascending: false })
     if (error) { console.error(error); return [] }
     return (data as WatchItem[]) || []
   }, [])
 
-  
-
-  //nuevo bloque
   const init = useCallback(async () => {
-  setLoading(true)
-  const items = await fetchList()
-  setList(items)
-  setLoading(false)
-  setLastRefresh(new Date())
-}, [fetchList])
+    setLoading(true)
+    const items = await fetchList()
+    setList(items)
+    setLoading(false)
+    setLastRefresh(new Date())
+  }, [fetchList])
 
-useEffect(() => {
-  init()
+  useEffect(() => {
+    init()
+    const interval = setInterval(() => { if (isMarketOpen()) init() }, 120000)
+    return () => clearInterval(interval)
+  }, [init])
 
-  const interval = setInterval(() => {
-    if (isMarketOpen()) {
-      init()
-    }
-  }, 120000) // 2 minutos
-
-  return () => clearInterval(interval)
-}, [init])
-
-  // ── Agregar ticker ────────────────────────────────────────────────────────────
   const agregarEmpresa = async () => {
     const ticker = newTicker.trim().toUpperCase()
     if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
@@ -171,9 +151,9 @@ useEffect(() => {
     })
     if (error) { alert('Error: ' + error.message); return }
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
-
-    const { data } = await supabase.from('watchlist').select('*').eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
-    if (data) { setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))}
+    const { data } = await supabase.from('watchlist').select('*').eq('ticker', ticker)
+      .order('created_at', { ascending: false }).limit(1).single()
+    if (data) setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
   }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
@@ -190,15 +170,13 @@ useEffect(() => {
     setEditingId(null)
   }
 
-  // ── Enriquecer lista ─────────────────────────────────────────────────────────
   const enrichedList = useMemo<EnrichedItem[]>(() =>
     list.map(item => {
       const cur  = item.current_price || 0
       const dist = cur > 0 ? ((item.buy_target - cur) / cur) * 100 : 0
       const vs   = cur > 0 && item.analyst_target > 0 ? ((item.analyst_target - cur) / cur) * 100 : 0
       const zone = cur > 0 && Math.abs((cur - item.buy_target) / item.buy_target) <= 0.02
-      const stale = isStale(item.last_updated, 15)
-      return { ...item, distancia: dist, vsAnalyst: vs, inZone: zone, stale }
+      return { ...item, distancia: dist, vsAnalyst: vs, inZone: zone, stale: isStale(item.last_updated, 15) }
     })
   , [list])
 
@@ -212,7 +190,9 @@ useEffect(() => {
     if (filterText) {
       const q = filterText.toLowerCase()
       filtered = enrichedList.filter(i =>
-        i.ticker.toLowerCase().includes(q) || (i.price_name || '').toLowerCase().includes(q) || (i.notes || '').toLowerCase().includes(q)
+        i.ticker.toLowerCase().includes(q) ||
+        (i.price_name || '').toLowerCase().includes(q) ||
+        (i.notes || '').toLowerCase().includes(q)
       )
     }
     return [...filtered].sort((a, b) => {
@@ -226,24 +206,24 @@ useEffect(() => {
     })
   }, [enrichedList, filterText, sortField, sortDir])
 
-  // Tickers con señal fuerte para las tarjetas destacadas
   const strongSignals = useMemo(() =>
     enrichedList.filter(i => (i.ai_probability || 0) >= 65).slice(0, 6)
   , [enrichedList])
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <FaSort style={{ opacity: 0.3, marginLeft: 3 }} />
-    return sortDir === 'asc' ? <FaSortUp style={{ color: '#00bfff', marginLeft: 3 }} /> : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
+    return sortDir === 'asc'
+      ? <FaSortUp   style={{ color: '#00bfff', marginLeft: 3 }} />
+      : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
 
-  const marketOpen = isMarketOpen()
+  const marketOpen   = isMarketOpen()
   const staleTickers = list.filter(i => isStale(i.last_updated, 30)).length
 
   return (
     <AppShell>
       <div style={{ padding: '22px 28px', color: 'white', maxWidth: 1500, margin: '0 auto', position: 'relative' }}>
 
-        {/* Cat decorations */}
         <div style={{ position: 'absolute', top: -2, right: 55, pointerEvents: 'none' }}>
           <CatEars color="#ffd700" opacity={0.12} size={42} />
         </div>
@@ -258,7 +238,7 @@ useEffect(() => {
               <Paw size={20} color="#ffd700" opacity={0.6} />
               <Paw size={14} color="#ffd700" opacity={0.35} />
               <Paw size={9}  color="#ffd700" opacity={0.18} />
-              <FaBell style={{ color: '#ffd700', fontSize: 18 }} />
+              <FaBell  style={{ color: '#ffd700', fontSize: 18 }} />
               <FaBrain style={{ color: '#00bfff', fontSize: 16 }} />
               <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Watchlist & IA Signals</h1>
             </div>
@@ -268,55 +248,48 @@ useEffect(() => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Estado mercado */}
             <span style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 5, color: marketOpen ? '#22c55e' : '#666' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: marketOpen ? '#22c55e' : '#444', display: 'inline-block' }} />
               {marketOpen ? 'Mercado abierto' : 'Mercado cerrado'}
             </span>
-
-            {/* Indicador de datos viejos */}
             {staleTickers > 0 && (
               <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <AlertTriangle size={10} />
                 {staleTickers} dato{staleTickers !== 1 ? 's' : ''} desact.
               </span>
             )}
-
-            
-
             {lastRefresh && (
               <span style={{ fontSize: '0.65rem', color: '#444' }}>
                 {lastRefresh.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
-
-            {/* Toggle vista */}
             <div style={{ display: 'flex', background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, overflow: 'hidden' }}>
               {(['table', 'cards'] as const).map(v => (
                 <button key={v} onClick={() => setView(v)} style={{
                   background: view === v ? '#00bfff' : 'transparent',
                   color: view === v ? '#000' : '#666',
-                  border: 'none', padding: '6px 12px', cursor: 'pointer',
-                  fontSize: 10, fontWeight: 700,
+                  border: 'none', padding: '6px 12px', cursor: 'pointer', fontSize: 10, fontWeight: 700,
                 }}>
                   {v === 'table' ? 'Tabla' : 'Tarjetas'}
                 </button>
               ))}
             </div>
-
-            <button onClick={async () => {
-  setLoading(true)
-  await supabase.functions.invoke('update-ia')
-  await init()
-  setLoading(false)
-}} disabled={loading} style={btnStyle}>
+            <button
+              onClick={async () => {
+                setLoading(true)
+                await supabase.functions.invoke('update-ia')
+                await init()
+                setLoading(false)
+              }}
+              disabled={loading}
+              style={btnStyle}>
               <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
               Actualizar
             </button>
           </div>
         </div>
 
-        {/* ── SEÑALES FUERTES (tarjetas mini destacadas) ── */}
+        {/* ── SEÑALES FUERTES ── */}
         {strongSignals.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -331,7 +304,6 @@ useEffect(() => {
                     background: sig.bg, border: `1px solid ${sig.color}44`,
                     borderRadius: 10, padding: '12px 14px', position: 'relative', overflow: 'hidden',
                   }}>
-                    {/* Huella decorativa de fondo */}
                     <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                       <Paw size={44} color={sig.color} opacity={0.07} />
                     </div>
@@ -350,18 +322,21 @@ useEffect(() => {
                       </div>
                       <div>
                         <div style={{ color: '#666' }}>RSI</div>
-                        <div style={{ color: rsiColor(item.rsi), fontWeight: 700 }}>{item.rsi?.toFixed(1) || '—'}</div>
+                        <div style={{ color: rsiColor(item.rsi), fontWeight: 700 }}>
+                          {item.rsi !== null && item.rsi >= 0 && item.rsi <= 100 ? item.rsi.toFixed(1) : '—'}
+                        </div>
                       </div>
                       <div>
                         <div style={{ color: '#666' }}>Dist.</div>
                         <div style={{ color: item.inZone ? '#22c55e' : '#aaa', fontWeight: 700 }}>
-                          {item.current_price ? (item.inZone ? '✓zona' : `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`) : '—'}
+                          {item.current_price
+                            ? item.inZone ? '✓zona'
+                            : `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
+                            : '—'}
                         </div>
                       </div>
                     </div>
-                    <div style={{ fontSize: 8, color: '#444', marginTop: 6 }}>
-                      Análisis: {fmtTime(item.last_updated)}
-                    </div>
+                    <div style={{ fontSize: 8, color: '#444', marginTop: 6 }}>Análisis: {fmtTime(item.last_updated)}</div>
                   </div>
                 )
               })}
@@ -372,7 +347,7 @@ useEffect(() => {
         {/* ── FORMULARIO ── */}
         <div style={{ display: 'flex', gap: 8, background: '#0a0a0a', padding: 12, borderRadius: 10, marginBottom: 16, border: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
           <input style={inpStyle} placeholder="TICKER" value={newTicker}
-            onChange={e => setNewTicker(e.target.value.toUpperCase().replace(/\s/g,''))}
+            onChange={e => setNewTicker(e.target.value.toUpperCase().replace(/\s/g, ''))}
             onKeyDown={e => e.key === 'Enter' && agregarEmpresa()} />
           <input style={inpStyle} type="number" min="0" placeholder="Mi precio objetivo" value={newTarget}
             onChange={e => setNewTarget(posAmount(e.target.value))} />
@@ -392,7 +367,10 @@ useEffect(() => {
             {filterText && <span style={{ fontSize: 10, color: '#666' }}>{displayList.length} resultado(s)</span>}
           </div>
           <div style={{ fontSize: 9, color: '#555', display: 'flex', gap: 16 }}>
-            <span><span style={{ display: 'inline-block', width: 8, height: 8, background: 'rgba(34,197,94,0.3)', borderRadius: 1, marginRight: 4 }}></span>±2% de tu objetivo</span>
+            <span>
+              <span style={{ display: 'inline-block', width: 8, height: 8, background: 'rgba(34,197,94,0.3)', borderRadius: 1, marginRight: 4 }} />
+              ±2% de tu objetivo
+            </span>
             <span>Dist (+) = falta bajar · (−) = ya pasó</span>
           </div>
         </div>
@@ -400,20 +378,21 @@ useEffect(() => {
         {/* ── VISTA TABLA ── */}
         {view === 'table' && (
           <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
               <thead>
                 <tr style={{ background: '#0a0a0a' }}>
+                  {/* Columnas: campo sorteable | null = no sorteable */}
                   {([
                     ['ticker',        'Ticker'],
-                    ['price_change',  'Var. día'],
+                    ['price_change',  'Var. día'],       // ← columna var día de vuelta
                     ['current_price', 'Precio'],
                     ['buy_target',    'Mi objetivo'],
                     ['distancia',     'Dist. %'],
                     ['analyst_target','Analistas'],
                     ['vsAnalyst',     'Vs analistas'],
-                    ['ai_probability','IA prob.'],
-                    [null,            'RSI'],
-                    [null,            'Señal'],
+                    ['ai_probability','IA señal'],        // muestra etiqueta (STRONG BUY etc.)
+                    ['rsi',           'RSI'],             // muestra número
+                    [null,            'Notas'],           // ← columna observaciones
                     [null,            'Actualizado'],
                     [null,            ''],
                   ] as [string | null, string][]).map(([field, label], idx) => (
@@ -439,37 +418,55 @@ useEffect(() => {
                 )}
                 {displayList.map(item => {
                   const sig = signalMeta(item.ai_probability)
+                  // RSI válido solo si está entre 0 y 100
+                  const rsiOk = item.rsi !== null && item.rsi !== undefined && isFinite(item.rsi) && item.rsi >= 0 && item.rsi <= 100
+
                   return (
                     <tr key={item.id} style={{
                       borderBottom: '1px solid #0c0c0c',
                       background: item.inZone ? 'rgba(34,197,94,0.05)' : 'transparent',
                     }}>
+
                       {/* Ticker */}
                       <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 14 }}>
                         <div style={{ fontWeight: 700, color: item.inZone ? '#22c55e' : '#00bfff', fontSize: 14 }}>
                           {item.ticker}
                         </div>
                         {item.price_name && (
-                          <div style={{ fontSize: 9, color: '#444', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 9, color: '#444', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.price_name}
                           </div>
                         )}
                       </td>
 
-                      {/* Var. día */}
-                     
+                      {/* Var. día — siempre en % */}
+                      <td style={tdStyle}>
+                        {item.price_change !== null && item.price_change !== undefined
+                          ? <span style={{
+                              color: item.price_change >= 0 ? '#22c55e' : '#f43f5e',
+                              fontWeight: 600, fontSize: 12,
+                              background: item.price_change >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(244,63,94,0.08)',
+                              padding: '2px 6px', borderRadius: 3,
+                            }}>
+                              {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
+                            </span>
+                          : <span style={{ color: '#333' }}>—</span>}
+                      </td>
 
                       {/* Precio */}
                       <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
-                        {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
+                        {item.current_price
+                          ? `$${item.current_price.toFixed(2)}`
+                          : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Mi objetivo — editable */}
+                      {/* Mi objetivo — editable con clic */}
                       <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
                         {editingId === item.id ? (
                           <input autoFocus type="number" min="0"
-                            style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem' }}
-                            value={tempTarget} onChange={e => setTempTarget(e.target.value)}
+                            style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }}
+                            value={tempTarget}
+                            onChange={e => setTempTarget(e.target.value)}
                             onBlur={() => updateTarget(item.id, tempTarget)}
                             onKeyDown={e => { if (e.key === 'Enter') updateTarget(item.id, tempTarget); if (e.key === 'Escape') setEditingId(null) }}
                           />
@@ -480,7 +477,7 @@ useEffect(() => {
                         )}
                       </td>
 
-                      {/* Distancia */}
+                      {/* Distancia al objetivo */}
                       <td style={tdStyle}>
                         {item.current_price
                           ? item.inZone
@@ -491,12 +488,14 @@ useEffect(() => {
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Analistas */}
+                      {/* Precio analistas */}
                       <td style={{ ...tdStyle, color: '#666', fontSize: 12 }}>
-                        {item.analyst_target > 0 ? `$${Number(item.analyst_target).toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
+                        {item.analyst_target > 0
+                          ? `$${Number(item.analyst_target).toFixed(2)}`
+                          : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Vs analistas */}
+                      {/* Vs analistas % */}
                       <td style={tdStyle}>
                         {item.current_price && item.analyst_target > 0
                           ? <span style={{ color: item.vsAnalyst > 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
@@ -505,35 +504,44 @@ useEffect(() => {
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* IA probabilidad */}
+                      {/* IA señal — muestra la ETIQUETA (STRONG BUY, BUY, etc.) con barra de prob */}
                       <td style={tdStyle}>
                         {item.ai_probability !== null ? (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                            <span style={{ color: sig.color, fontWeight: 700, fontSize: 13 }}>{item.ai_probability.toFixed(0)}%</span>
-                            <div style={{ width: 40, background: '#111', height: 2, borderRadius: 1 }}>
-                              <div style={{ width: `${item.ai_probability}%`, background: sig.color, height: '100%', borderRadius: 1 }} />
+                            <span style={{
+                              color: sig.color, fontSize: 10, fontWeight: 700,
+                              background: sig.bg, padding: '2px 7px', borderRadius: 4,
+                              border: `1px solid ${sig.color}33`, whiteSpace: 'nowrap',
+                            }}>
+                              {sig.label}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ width: 36, background: '#111', height: 2, borderRadius: 1 }}>
+                                <div style={{ width: `${item.ai_probability}%`, background: sig.color, height: '100%', borderRadius: 1 }} />
+                              </div>
+                              <span style={{ fontSize: 9, color: sig.color }}>{item.ai_probability.toFixed(0)}%</span>
                             </div>
                           </div>
                         ) : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
                       </td>
 
-                      {/* RSI */}
-                      <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
-                        {item.rsi !== null && item.rsi >= 0 && item.rsi <= 100
-                          ? <span style={{ color: rsiColor(item.rsi) }}>{item.rsi.toFixed(1)}</span>
+                      {/* RSI — muestra el NÚMERO (no la etiqueta) */}
+                      <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
+                        {rsiOk
+                          ? <span style={{ color: rsiColor(item.rsi) }}>{item.rsi!.toFixed(1)}</span>
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Señal */}
-                      <td style={tdStyle}>
-                        {item.ai_signal
-                          ? <span style={{ color: sig.color, fontSize: 10, fontWeight: 700, background: sig.bg, padding: '2px 7px', borderRadius: 4, border: `1px solid ${sig.color}33` }}>
-                              {item.ai_signal}
+                      {/* Notas / Observaciones */}
+                      <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
+                        {item.notes
+                          ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
+                              {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
                             </span>
-                          : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
+                          : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Actualizado */}
+                      {/* Última actualización */}
                       <td style={{ ...tdStyle, fontSize: 10 }}>
                         <span style={{ color: item.stale ? '#555' : '#888' }}>
                           {fmtTime(item.last_updated)}
@@ -543,8 +551,9 @@ useEffect(() => {
 
                       {/* Eliminar */}
                       <td style={tdStyle}>
-                        <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', transition: 'color 0.2s', padding: 4 }}
+                        <button
+                          onClick={() => eliminarEmpresa(item.id, item.ticker)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                           <FaTrash style={{ fontSize: 11 }} />
@@ -558,17 +567,17 @@ useEffect(() => {
           </div>
         )}
 
-        {/* ── VISTA TARJETAS COMPLETA ── */}
+        {/* ── VISTA TARJETAS ── */}
         {view === 'cards' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
             {displayList.map(item => {
-              const sig = signalMeta(item.ai_probability)
+              const sig   = signalMeta(item.ai_probability)
+              const rsiOk = item.rsi !== null && item.rsi !== undefined && isFinite(item.rsi) && item.rsi >= 0 && item.rsi <= 100
               return (
                 <div key={item.id} style={{
                   background: '#080808', border: `1px solid ${sig.color}33`,
                   borderRadius: 14, padding: 18, position: 'relative', overflow: 'hidden',
                 }}>
-                  {/* Huella y glow */}
                   <div style={{ position: 'absolute', bottom: -12, right: -12, pointerEvents: 'none' }}>
                     <Paw size={70} color={sig.color} opacity={0.05} />
                   </div>
@@ -586,7 +595,6 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  {/* Precios */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <div style={{ background: '#050505', borderRadius: 8, padding: '8px 10px', border: '1px solid #111' }}>
                       <div style={{ fontSize: 8, color: '#555', marginBottom: 3 }}>PRECIO ACTUAL</div>
@@ -608,13 +616,10 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  {/* Indicadores */}
                   <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 12 }}>
                     {[
-                      { label: 'RSI (14)',    value: item.rsi !== null && item.rsi >= 0 && item.rsi <= 100
-                        ? item.rsi.toFixed(2)
-                        : '—', color: rsiColor(item.rsi) },
-                      { label: 'EMA (20)',    value: item.ema20      ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
+                      { label: 'RSI (14)',    value: rsiOk ? item.rsi!.toFixed(2) : '—',           color: rsiColor(item.rsi) },
+                      { label: 'EMA (20)',    value: item.ema20 ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
                       { label: 'Volatilidad', value: item.volatility ? `${item.volatility.toFixed(2)}%` : '—', color: (item.volatility || 0) < 2 ? '#22c55e' : (item.volatility || 0) > 4 ? '#f43f5e' : '#888' },
                     ].map(row => (
                       <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #0d0d0d', fontSize: 11 }}>
@@ -622,9 +627,13 @@ useEffect(() => {
                         <span style={{ color: row.color, fontWeight: 700, fontFamily: 'monospace' }}>{row.value}</span>
                       </div>
                     ))}
+                    {item.notes && (
+                      <div style={{ padding: '6px 0 0', fontSize: 10, color: '#888' }} title={item.notes}>
+                        {item.notes.length > 50 ? item.notes.slice(0, 50) + '…' : item.notes}
+                      </div>
+                    )}
                   </div>
 
-                  {/* IA confidence bar */}
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 9, color: '#888', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -648,7 +657,7 @@ useEffect(() => {
 
         <div style={{ marginTop: 10, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Paw size={9} color="#333" opacity={0.5} />
-          Precios y análisis IA actualizados por cron en Supabase · actualización manual disponible con el botón
+          Análisis IA actualizado por cron en Supabase · botón Actualizar fuerza la ejecución
         </div>
 
       </div>
