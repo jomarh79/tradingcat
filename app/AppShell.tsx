@@ -173,9 +173,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <MenuLink href="/cerrados" icon={<History size={16} />} label="Cerrados" active={pathname === '/cerrados'} />
 
             <div style={sectionLabel}>ANÁLISIS</div>
-            <MenuLink href="/watchlist" icon={<Eye size={16} />} label="Watchlist" active={pathname === '/watchlist'} />
+            <MenuLink href="/watchlist" icon={<Brain size={16} />} label="IA Watchlist" active={pathname === '/watchlist'} />
 
-            <MenuLink href="/ia" icon={<Brain size={16} />} label="IA Señales" active={pathname === '/ia'} />
 
             <div style={groupHeader}><Activity size={14} color="#444" /> Estadísticas</div>
             <MenuLink href="/estadisticas" label="Abiertos" active={pathname === '/estadisticas'} isSubItem />
