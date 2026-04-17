@@ -11,7 +11,7 @@ import {
 import { TrendingUp, TrendingDown, AlertTriangle, Eye } from 'lucide-react'
 
 // Solo se llama desde el botón manual — el cron en Supabase hace el trabajo automático
-const TD_API_KEY = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY || ''
+//const TD_API_KEY = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY || ''
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
@@ -91,7 +91,7 @@ interface EnrichedItem extends WatchItem {
 
 // ── Señal IA → color y etiqueta ───────────────────────────────────────────────
 const signalMeta = (prob: number | null) => {
-  if (!prob) return { color: '#444', bg: '#111', label: 'SIN DATOS', icon: null }
+  if (prob === null || prob === undefined) return { color: '#444', bg: '#111', label: 'SIN DATOS', icon: null }
   if (prob >= 80) return { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  label: '🔥 STRONG BUY', icon: <TrendingUp size={11} /> }
   if (prob >= 65) return { color: '#eab308', bg: 'rgba(234,179,8,0.08)', label: '⚡ BUY',         icon: <TrendingUp size={11} /> }
   if (prob >= 50) return { color: '#00bfff', bg: 'rgba(0,191,255,0.08)', label: '👀 WATCH',       icon: <Eye size={11} /> }
@@ -111,7 +111,7 @@ export default function WatchlistIAPage() {
 
   const [list,           setList]           = useState<WatchItem[]>([])
   const [loading,        setLoading]        = useState(false)
-  const [loadingTickers, setLoadingTickers] = useState<string[]>([])
+  //const [loadingTickers, setLoadingTickers] = useState<string[]>([])
   const [lastRefresh,    setLastRefresh]    = useState<Date | null>(null)
 
   // Formulario agregar
@@ -142,54 +142,75 @@ export default function WatchlistIAPage() {
 
   // ── Actualización manual de precios (solo cuando el usuario lo pide) ─────────
   // El cron de Supabase se encarga de actualizar automáticamente + IA
-  const fetchPrices = useCallback(async (items: WatchItem[], force = false) => {
-    if (!items.length) return
-    const toUpdate = force ? items : items.filter(i => isStale(i.last_updated, 3))
-    if (!toUpdate.length) { setLastRefresh(new Date()); return }
+  //const fetchPrices = useCallback(async (items: WatchItem[], force = false) => {
+    //if (!items.length) return
+    //const toUpdate = force ? items : items.filter(i => isStale(i.last_updated, 3))
+    //if (!toUpdate.length) { setLastRefresh(new Date()); return }
 
-    setLoadingTickers(toUpdate.map(i => i.ticker))
+    //setLoadingTickers(toUpdate.map(i => i.ticker))
 
-    for (const item of toUpdate) {
-      const ticker = item.ticker.trim().toUpperCase()
-      try {
-        const res  = await fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TD_API_KEY}`)
-        const data = await res.json()
-        if (data.status === 'error' || !data?.close) continue
+    //for (const item of toUpdate) {
+      //const ticker = item.ticker.trim().toUpperCase()
+      //try {
+        //const res  = await fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TD_API_KEY}`)
+        //const data = await res.json()
+        //if (data.status === 'error' || !data?.close) continue
 
-        const price    = parseFloat(Number(data.close).toFixed(2))
-        const change   = parseFloat(Number(data.percent_change || 0).toFixed(2))
-        const nowIso   = new Date().toISOString()
+        //const price    = parseFloat(Number(data.close).toFixed(2))
+        //const change   = parseFloat(Number(data.percent_change || 0).toFixed(2))
+        //const nowIso   = new Date().toISOString()
 
-        await supabase.from('watchlist').update({
-          current_price: price,
-          price_change:  change,
-          price_name:    data.name || ticker,
-          last_updated:  nowIso,
-        }).eq('id', item.id)
+        //await supabase.from('watchlist').update({
+          //current_price: price,
+          //price_change:  change,
+          //price_name:    data.name || ticker,
+          //last_updated:  nowIso,
+        //}).eq('id', item.id)
 
-        setList(prev => prev.map(i =>
-          i.id === item.id ? { ...i, current_price: price, price_change: change, last_updated: nowIso } : i
-        ))
-      } catch (err) {
-        console.error(`Error ${ticker}:`, err)
-      } finally {
-        setLoadingTickers(prev => prev.filter(t => t !== ticker))
-      }
-      await new Promise(r => setTimeout(r, 6000))
+        //setList(prev => prev.map(i =>
+          //i.id === item.id ? { ...i, current_price: price, price_change: change, last_updated: nowIso } : i
+        //))
+      //} catch (err) {
+        //console.error(`Error ${ticker}:`, err)
+      //} finally {
+        //setLoadingTickers(prev => prev.filter(t => t !== ticker))
+      //}
+      //await new Promise(r => setTimeout(r, 6000))
+    //}
+    //setLastRefresh(new Date())
+  //}, [])
+
+  //const init = useCallback(async (force = false) => {
+    //setLoading(true)
+    //const items = await fetchList()
+    //setList(items)
+    //setLoading(false)
+    //if (force) fetchPrices(items, true)
+    //else setLastRefresh(new Date())
+  //}, [fetchList, fetchPrices])
+
+  //nuevo bloque
+  const init = useCallback(async () => {
+  setLoading(true)
+  const items = await fetchList()
+  setList(items)
+  setLoading(false)
+  setLastRefresh(new Date())
+}, [fetchList])
+
+  //useEffect(() => { init() }, [init])
+//nuevo bloque
+useEffect(() => {
+  init()
+
+  const interval = setInterval(() => {
+    if (isMarketOpen()) {
+      init()
     }
-    setLastRefresh(new Date())
-  }, [])
+  }, 120000) // 2 minutos
 
-  const init = useCallback(async (force = false) => {
-    setLoading(true)
-    const items = await fetchList()
-    setList(items)
-    setLoading(false)
-    if (force) fetchPrices(items, true)
-    else setLastRefresh(new Date())
-  }, [fetchList, fetchPrices])
-
-  useEffect(() => { init() }, [init])
+  return () => clearInterval(interval)
+}, [init])
 
   // ── Agregar ticker ────────────────────────────────────────────────────────────
   const agregarEmpresa = async () => {
@@ -205,7 +226,7 @@ export default function WatchlistIAPage() {
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
 
     const { data } = await supabase.from('watchlist').select('*').eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
-    if (data) { setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0))); fetchPrices([data], true) }
+    if (data) { setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))} //;fetchPrices([data], true) }
   }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
@@ -343,7 +364,12 @@ export default function WatchlistIAPage() {
               ))}
             </div>
 
-            <button onClick={() => init(true)} disabled={loading} style={btnStyle}>
+            <button onClick={async () => {
+  setLoading(true)
+  await supabase.functions.invoke('update-ia')
+  await init()
+  setLoading(false)
+}} disabled={loading} style={btnStyle}>
               <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
               Actualizar
             </button>
@@ -491,16 +517,16 @@ export default function WatchlistIAPage() {
                       </td>
 
                       {/* Var. día */}
-                      <td style={tdStyle}>
-                        {loadingTickers.includes(item.ticker)
-                          ? <FaSpinner style={{ animation: 'spin 1s linear infinite', color: '#444', fontSize: 10 }} />
-                          : item.price_change !== null
-                            ? <span style={{ color: item.price_change >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
-                                {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
-                              </span>
-                            : <span style={{ color: '#333' }}>—</span>
-                        }
-                      </td>
+                      //<td style={tdStyle}>
+                        //{loadingTickers.includes(item.ticker)
+                          //? <FaSpinner style={{ animation: 'spin 1s linear infinite', color: '#444', fontSize: 10 }} />
+                          //: item.price_change !== null
+                            //? <span style={{ color: item.price_change >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
+                              //  {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
+                              //</span>
+                            //: <span style={{ color: '#333' }}>—</span>
+                        //}
+                      //</td>
 
                       {/* Precio */}
                       <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
