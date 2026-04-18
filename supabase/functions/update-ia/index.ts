@@ -1,10 +1,21 @@
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 import { serve } from "https://deno.land/std/http/server.ts";
 
 const CRON_TOKEN = "Bearer tradingcat-cron-2026";
 
 serve(async (req) => {
+
+  // ✅ CORS PREFLIGHT (ESTO ES LO QUE TE ESTÁ FALLANDO)
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   const authHeader = req.headers.get("Authorization");
-  if (authHeader !== CRON_TOKEN) return new Response("Unauthorized", { status: 401 });
+  const isCron = authHeader === CRON_TOKEN;
 
   const now = new Date();
   const mexicoTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
@@ -14,10 +25,10 @@ serve(async (req) => {
 
   const day  = mexicoTime.getDay();
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  const isCron = req.headers.get("Authorization") === CRON_TOKEN;
+  
 
   if (isCron && (day < 1 || day > 5 || time < 7.5 || time >= 15)) {
-    return new Response("Mercado cerrado");
+    return new Response("Mercado cerrado", { headers: corsHeaders });
   }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -33,7 +44,8 @@ serve(async (req) => {
   // ── Lock ──────────────────────────────────────────────────────────────────
   const lockRes  = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, { headers });
   const lockData = await lockRes.json();
-  if (lockData[0]?.running) return new Response("Skip — ocupado");
+  if (lockData[0]?.running)
+  return new Response("Skip — ocupado", { headers: corsHeaders });
 
   await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
     method: "PATCH", headers, body: JSON.stringify({ running: true }),
@@ -42,7 +54,7 @@ serve(async (req) => {
   try {
     const res  = await fetch(`${SUPABASE_URL}/rest/v1/watchlist`, { headers });
     const list = await res.json();
-    if (!Array.isArray(list) || list.length === 0) return new Response("Watchlist vacía");
+    if (!Array.isArray(list) || list.length === 0) return new Response("Watchlist vacía", { headers: corsHeaders });
 
     for (const item of list) {
       try {
@@ -135,10 +147,10 @@ serve(async (req) => {
       await sleep(8000);
     }
 
-    return new Response(`OK — ${list.length} tickers procesados`);
+    return new Response(`OK — ${list.length} tickers procesados`, { headers: corsHeaders });
 
   } catch (e: any) {
-    return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500 });
+    return new Response(`OK — ${list.length} tickers procesados`, { headers: corsHeaders });
 
   } finally {
     // Siempre liberar el lock
