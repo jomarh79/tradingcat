@@ -277,11 +277,13 @@ export default function WatchlistIAPage() {
             <button
               onClick={async () => {
                 setLoading(true)
-                await supabase.functions.invoke('update-ia', {
+                const { data, error } = await supabase.functions.invoke('update-ia', {
                   headers: {
                     Authorization: 'Bearer tradingcat-cron-2026'
                   }
                 })
+
+                console.log('update-ia response:', data, error)
                 await init()
                 setLoading(false)
               }}
