@@ -419,7 +419,8 @@ export default function WatchlistIAPage() {
                 {displayList.map(item => {
                   const sig = signalMeta(item.ai_probability)
                   // RSI válido solo si está entre 0 y 100
-                  const rsiOk = item.rsi !== null && item.rsi !== undefined && isFinite(item.rsi) && item.rsi >= 0 && item.rsi <= 100
+                  const rsiValue = Number(item.rsi)
+                  const rsiOk = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
 
                   return (
                     <tr key={item.id} style={{
@@ -528,7 +529,7 @@ export default function WatchlistIAPage() {
                       {/* RSI — muestra el NÚMERO (no la etiqueta) */}
                       <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
                         {rsiOk
-                          ? <span style={{ color: rsiColor(item.rsi) }}>{item.rsi!.toFixed(1)}</span>
+                          ? <span style={{ color: rsiColor(rsiValue) }}>{rsiValue.toFixed(1)}</span>
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
@@ -572,7 +573,8 @@ export default function WatchlistIAPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
             {displayList.map(item => {
               const sig   = signalMeta(item.ai_probability)
-              const rsiOk = item.rsi !== null && item.rsi !== undefined && isFinite(item.rsi) && item.rsi >= 0 && item.rsi <= 100
+              const rsiValue = Number(item.rsi)
+              const rsiOk = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
               return (
                 <div key={item.id} style={{
                   background: '#080808', border: `1px solid ${sig.color}33`,
@@ -618,7 +620,7 @@ export default function WatchlistIAPage() {
 
                   <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 12 }}>
                     {[
-                      { label: 'RSI (14)',    value: rsiOk ? item.rsi!.toFixed(2) : '—',           color: rsiColor(item.rsi) },
+                      { label: 'RSI (14)', value: rsiOk ? rsiValue.toFixed(2) : '—', color: rsiColor(rsiValue) },
                       { label: 'EMA (20)',    value: item.ema20 ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
                       { label: 'Volatilidad', value: item.volatility ? `${item.volatility.toFixed(2)}%` : '—', color: (item.volatility || 0) < 2 ? '#22c55e' : (item.volatility || 0) > 4 ? '#f43f5e' : '#888' },
                     ].map(row => (

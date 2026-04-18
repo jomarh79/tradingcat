@@ -87,7 +87,7 @@ serve(async (req) => {
           price_change:   parseFloat(change.toFixed(2)),
           price_name:     priceName,
           last_updated:   new Date().toISOString(),
-          rsi:            parseFloat(rsi.toFixed(2)),
+          rsi: isFinite(rsi) ? parseFloat(rsi.toFixed(2)) : 50,
           ema20:          parseFloat(ema20.toFixed(4)),
           volatility:     parseFloat(volatility.toFixed(4)),
           ai_probability: parseFloat(probability.toFixed(1)),
@@ -164,7 +164,7 @@ async function sendAlert(payload: Record<string, any>) {
 function calculateRSI(prices: number[], period = 14): number {
   if (prices.length <= period) return 50;
 
-  const changes = prices.slice(1).map((p, i) => p - prices[i]);
+  const changes = prices.map((p, i) => i === 0 ? 0 : p - prices[i - 1]).slice(1);
 
   // Promedios iniciales (primeros `period` cambios)
   let avgGain = 0, avgLoss = 0;
