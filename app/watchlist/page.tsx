@@ -8,7 +8,7 @@ import {
   FaBell, FaPlus, FaTrash, FaSpinner,
   FaSort, FaSortUp, FaSortDown, FaSearch, FaSync, FaBrain,
 } from 'react-icons/fa'
-import { TrendingUp, AlertTriangle, Eye } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -83,7 +83,6 @@ interface EnrichedItem extends WatchItem {
   stale:     boolean
 }
 
-// ── IA label + colores ────────────────────────────────────────────────────────
 const signalMeta = (prob: number | null) => {
   if (prob === null || prob === undefined)
     return { color: '#444', bg: '#111', label: 'SIN DATOS' }
@@ -100,11 +99,21 @@ const rsiColor = (rsi: number | null) => {
   return '#aaa'
 }
 
+// ── Llamar API route del servidor (evita CORS) ────────────────────────────────
+async function triggerIA(ticker?: string): Promise<void> {
+  await fetch('/api/trigger-ia', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(ticker ? { ticker } : {}),
+  })
+}
+
 export default function WatchlistIAPage() {
   const { money } = usePrivacy()
 
   const [list,        setList]        = useState<WatchItem[]>([])
   const [loading,     setLoading]     = useState(false)
+  const [addingNew,   setAddingNew]   = useState(false)  // spinner solo para ticker nuevo
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const [newTicker,  setNewTicker]  = useState('')
@@ -112,12 +121,12 @@ export default function WatchlistIAPage() {
   const [newAnalyst, setNewAnalyst] = useState('')
   const [newNotes,   setNewNotes]   = useState('')
 
-  const [sortField, setSortField] = useState<SortField>('ai_probability')
-  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
-  const [filterText, setFilterText] = useState('')
-  const [editingId,  setEditingId]  = useState<number | null>(null)
-  const [tempTarget, setTempTarget] = useState('')
-  const [view,       setView]       = useState<'table' | 'cards'>('table')
+  const [sortField,   setSortField]  = useState<SortField>('ai_probability')
+  const [sortDir,     setSortDir]    = useState<'asc' | 'desc'>('desc')
+  const [filterText,  setFilterText] = useState('')
+  const [editingId,   setEditingId]  = useState<number | null>(null)
+  const [tempTarget,  setTempTarget] = useState('')
+  const [view,        setView]       = useState<'table' | 'cards'>('table')
 
   const fetchList = useCallback(async (): Promise<WatchItem[]> => {
     const { data, error } = await supabase
@@ -136,13 +145,25 @@ export default function WatchlistIAPage() {
 
   useEffect(() => {
     init()
+    // Auto-refresh cada 2 minutos solo en horario de mercado
     const interval = setInterval(() => { if (isMarketOpen()) init() }, 120000)
     return () => clearInterval(interval)
   }, [init])
 
+  // ── Botón Actualizar — llama API route del servidor ────────────────────────
+  const handleUpdate = async () => {
+    setLoading(true)
+    await triggerIA()          // dispara la Edge Function desde el servidor
+    await new Promise(r => setTimeout(r, 3000))  // esperar ~3s a que empiece a guardar
+    await init()               // refrescar la lista desde Supabase
+    setLoading(false)
+  }
+
+  // ── Agregar ticker — inserta en DB y dispara IA solo para ese ticker ───────
   const agregarEmpresa = async () => {
     const ticker = newTicker.trim().toUpperCase()
     if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
+
     const { error } = await supabase.from('watchlist').insert({
       ticker,
       buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
@@ -150,10 +171,24 @@ export default function WatchlistIAPage() {
       notes:          newNotes.trim(),
     })
     if (error) { alert('Error: ' + error.message); return }
+
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
-    const { data } = await supabase.from('watchlist').select('*').eq('ticker', ticker)
-      .order('created_at', { ascending: false }).limit(1).single()
-    if (data) setList(prev => [data, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
+
+    // Agregar inmediatamente a la lista con datos vacíos para que aparezca
+    const { data: newItem } = await supabase.from('watchlist').select('*')
+      .eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
+    if (newItem) {
+      setList(prev => [newItem, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
+    }
+
+    // Disparar análisis IA solo para este ticker en background
+    setAddingNew(true)
+    triggerIA(ticker).then(async () => {
+      // Esperar que termine (aprox 10s por el rate limit) y refrescar
+      await new Promise(r => setTimeout(r, 12000))
+      await init()
+      setAddingNew(false)
+    }).catch(() => setAddingNew(false))
   }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
@@ -252,17 +287,27 @@ export default function WatchlistIAPage() {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: marketOpen ? '#22c55e' : '#444', display: 'inline-block' }} />
               {marketOpen ? 'Mercado abierto' : 'Mercado cerrado'}
             </span>
+
             {staleTickers > 0 && (
               <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <AlertTriangle size={10} />
                 {staleTickers} dato{staleTickers !== 1 ? 's' : ''} desact.
               </span>
             )}
+
+            {addingNew && (
+              <span style={{ fontSize: '0.65rem', color: '#00bfff', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                Analizando nuevo ticker...
+              </span>
+            )}
+
             {lastRefresh && (
               <span style={{ fontSize: '0.65rem', color: '#444' }}>
                 {lastRefresh.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
+
             <div style={{ display: 'flex', background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, overflow: 'hidden' }}>
               {(['table', 'cards'] as const).map(v => (
                 <button key={v} onClick={() => setView(v)} style={{
@@ -274,21 +319,8 @@ export default function WatchlistIAPage() {
                 </button>
               ))}
             </div>
-            <button
-              onClick={async () => {
-                setLoading(true)
-                const { data, error } = await supabase.functions.invoke('update-ia', {
-                  headers: {
-                    Authorization: 'Bearer tradingcat-cron-2026'
-                  }
-                })
 
-                console.log('update-ia response:', data, error)
-                await init()
-                setLoading(false)
-              }}
-              disabled={loading}
-              style={btnStyle}>
+            <button onClick={handleUpdate} disabled={loading} style={btnStyle}>
               <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
               Actualizar
             </button>
@@ -305,6 +337,8 @@ export default function WatchlistIAPage() {
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(strongSignals.length, 6)}, 1fr)`, gap: 10 }}>
               {strongSignals.map(item => {
                 const sig = signalMeta(item.ai_probability)
+                const rsiVal = Number(item.rsi)
+                const rsiOk  = isFinite(rsiVal) && rsiVal >= 0 && rsiVal <= 100
                 return (
                   <div key={item.id} style={{
                     background: sig.bg, border: `1px solid ${sig.color}44`,
@@ -328,8 +362,8 @@ export default function WatchlistIAPage() {
                       </div>
                       <div>
                         <div style={{ color: '#666' }}>RSI</div>
-                        <div style={{ color: rsiColor(item.rsi), fontWeight: 700 }}>
-                          {item.rsi !== null && item.rsi >= 0 && item.rsi <= 100 ? item.rsi.toFixed(1) : '—'}
+                        <div style={{ color: rsiColor(rsiOk ? rsiVal : null), fontWeight: 700 }}>
+                          {rsiOk ? rsiVal.toFixed(1) : '—'}
                         </div>
                       </div>
                       <div>
@@ -361,7 +395,10 @@ export default function WatchlistIAPage() {
             onChange={e => setNewAnalyst(posAmount(e.target.value))} />
           <input style={{ ...inpStyle, flex: 2, minWidth: 160 }} placeholder="Notas (opc.)" value={newNotes}
             onChange={e => setNewNotes(e.target.value)} />
-          <button onClick={agregarEmpresa} style={btnStyle}><FaPlus /> Agregar</button>
+          <button onClick={agregarEmpresa} disabled={addingNew} style={btnStyle}>
+            {addingNew ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaPlus />}
+            {addingNew ? 'Analizando...' : 'Agregar'}
+          </button>
         </div>
 
         {/* ── FILTRO ── */}
@@ -387,18 +424,17 @@ export default function WatchlistIAPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
               <thead>
                 <tr style={{ background: '#0a0a0a' }}>
-                  {/* Columnas: campo sorteable | null = no sorteable */}
                   {([
                     ['ticker',        'Ticker'],
-                    ['price_change',  'Var. día'],       // ← columna var día de vuelta
+                    ['price_change',  'Var. día'],
                     ['current_price', 'Precio'],
                     ['buy_target',    'Mi objetivo'],
                     ['distancia',     'Dist. %'],
                     ['analyst_target','Analistas'],
                     ['vsAnalyst',     'Vs analistas'],
-                    ['ai_probability','IA señal'],        // muestra etiqueta (STRONG BUY etc.)
-                    ['rsi',           'RSI'],             // muestra número
-                    [null,            'Notas'],           // ← columna observaciones
+                    ['ai_probability','IA señal'],
+                    ['rsi',           'RSI'],
+                    [null,            'Notas'],
                     [null,            'Actualizado'],
                     [null,            ''],
                   ] as [string | null, string][]).map(([field, label], idx) => (
@@ -423,10 +459,9 @@ export default function WatchlistIAPage() {
                   </td></tr>
                 )}
                 {displayList.map(item => {
-                  const sig = signalMeta(item.ai_probability)
-                  // RSI válido solo si está entre 0 y 100
+                  const sig      = signalMeta(item.ai_probability)
                   const rsiValue = Number(item.rsi)
-                  const rsiOk = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+                  const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
 
                   return (
                     <tr key={item.id} style={{
@@ -446,7 +481,7 @@ export default function WatchlistIAPage() {
                         )}
                       </td>
 
-                      {/* Var. día — siempre en % */}
+                      {/* Var. día en % */}
                       <td style={tdStyle}>
                         {item.price_change !== null && item.price_change !== undefined
                           ? <span style={{
@@ -462,12 +497,10 @@ export default function WatchlistIAPage() {
 
                       {/* Precio */}
                       <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
-                        {item.current_price
-                          ? `$${item.current_price.toFixed(2)}`
-                          : <span style={{ color: '#333' }}>—</span>}
+                        {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Mi objetivo — editable con clic */}
+                      {/* Mi objetivo — editable */}
                       <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
                         {editingId === item.id ? (
                           <input autoFocus type="number" min="0"
@@ -484,7 +517,7 @@ export default function WatchlistIAPage() {
                         )}
                       </td>
 
-                      {/* Distancia al objetivo */}
+                      {/* Distancia */}
                       <td style={tdStyle}>
                         {item.current_price
                           ? item.inZone
@@ -497,12 +530,10 @@ export default function WatchlistIAPage() {
 
                       {/* Precio analistas */}
                       <td style={{ ...tdStyle, color: '#666', fontSize: 12 }}>
-                        {item.analyst_target > 0
-                          ? `$${Number(item.analyst_target).toFixed(2)}`
-                          : <span style={{ color: '#333' }}>—</span>}
+                        {item.analyst_target > 0 ? `$${Number(item.analyst_target).toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Vs analistas % */}
+                      {/* Vs analistas */}
                       <td style={tdStyle}>
                         {item.current_price && item.analyst_target > 0
                           ? <span style={{ color: item.vsAnalyst > 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
@@ -511,7 +542,7 @@ export default function WatchlistIAPage() {
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* IA señal — muestra la ETIQUETA (STRONG BUY, BUY, etc.) con barra de prob */}
+                      {/* IA señal — etiqueta + barra */}
                       <td style={tdStyle}>
                         {item.ai_probability !== null ? (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -532,14 +563,14 @@ export default function WatchlistIAPage() {
                         ) : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
                       </td>
 
-                      {/* RSI — muestra el NÚMERO (no la etiqueta) */}
+                      {/* RSI — número solamente, validado entre 0-100 */}
                       <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
                         {rsiOk
                           ? <span style={{ color: rsiColor(rsiValue) }}>{rsiValue.toFixed(1)}</span>
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Notas / Observaciones */}
+                      {/* Notas */}
                       <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
                         {item.notes
                           ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
@@ -548,7 +579,7 @@ export default function WatchlistIAPage() {
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
-                      {/* Última actualización */}
+                      {/* Actualizado */}
                       <td style={{ ...tdStyle, fontSize: 10 }}>
                         <span style={{ color: item.stale ? '#555' : '#888' }}>
                           {fmtTime(item.last_updated)}
@@ -558,8 +589,7 @@ export default function WatchlistIAPage() {
 
                       {/* Eliminar */}
                       <td style={tdStyle}>
-                        <button
-                          onClick={() => eliminarEmpresa(item.id, item.ticker)}
+                        <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
@@ -578,9 +608,9 @@ export default function WatchlistIAPage() {
         {view === 'cards' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
             {displayList.map(item => {
-              const sig   = signalMeta(item.ai_probability)
+              const sig      = signalMeta(item.ai_probability)
               const rsiValue = Number(item.rsi)
-              const rsiOk = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+              const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
               return (
                 <div key={item.id} style={{
                   background: '#080808', border: `1px solid ${sig.color}33`,
@@ -626,7 +656,7 @@ export default function WatchlistIAPage() {
 
                   <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 12 }}>
                     {[
-                      { label: 'RSI (14)', value: rsiOk ? rsiValue.toFixed(2) : '—', color: rsiColor(rsiValue) },
+                      { label: 'RSI (14)',    value: rsiOk ? rsiValue.toFixed(2) : '—',            color: rsiOk ? rsiColor(rsiValue) : '#555' },
                       { label: 'EMA (20)',    value: item.ema20 ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
                       { label: 'Volatilidad', value: item.volatility ? `${item.volatility.toFixed(2)}%` : '—', color: (item.volatility || 0) < 2 ? '#22c55e' : (item.volatility || 0) > 4 ? '#f43f5e' : '#888' },
                     ].map(row => (
