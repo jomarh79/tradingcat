@@ -39,9 +39,9 @@ serve(async (req) => {
   }
 
   // Si no es cron ni viene de Supabase anon key, rechazar
-  if (!isCron && authHeader !== `Bearer ${SUPABASE_KEY}`) {
-    return new Response("Unauthorized", { status: 401, headers: CORS });
-  }
+  if (!isCron && !req.headers.get("apikey")) {
+  return new Response("Unauthorized", { status: 401, headers: CORS });
+}
 
   // ── Ticker específico (cuando se agrega uno nuevo desde el frontend) ──────
   // Body opcional: { ticker: "AAPL" } para procesar solo ese ticker
