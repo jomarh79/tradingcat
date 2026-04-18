@@ -33,9 +33,9 @@ serve(async (req) => {
     const mexicoTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
     const day  = mexicoTime.getDay();
     const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-    if (day < 1 || day > 5 || time < 7.5 || time >= 15) {
-      return new Response("Mercado cerrado", { headers: CORS });
-    }
+    //if (day < 1 || day > 5 || time < 7.5 || time >= 15) {
+    //  return new Response("Mercado cerrado", { headers: CORS });
+    //}
   }
 
   // Si no es cron ni viene de Supabase anon key, rechazar
@@ -85,6 +85,8 @@ serve(async (req) => {
 
     let processed = 0;
 
+    console.log(`📊 Procesando ${list.length} tickers`);
+
     for (const item of list) {
       try {
         // ── TwelveData: historial de 100 días para RSI preciso ────────
@@ -94,7 +96,7 @@ serve(async (req) => {
         const tsData = await tsRes.json();
 
         if (tsData.status === "error" || !tsData.values?.length) {
-          console.warn(`Sin datos para ${item.ticker}: ${tsData.message}`);
+          console.log(`❌ ${item.ticker} ERROR: ${tsData.message}`);
           continue;
         }
 

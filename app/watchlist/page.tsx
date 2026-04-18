@@ -231,14 +231,34 @@ export default function WatchlistIAPage() {
       )
     }
     return [...filtered].sort((a, b) => {
-      let av: any = a[sortField] ?? 0
-      let bv: any = b[sortField] ?? 0
-      if (typeof av === 'string') av = av.toLowerCase()
-      if (typeof bv === 'string') bv = bv.toLowerCase()
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
+  // 🧠 prioridad por señal IA
+  const getPriority = (p: number | null) => {
+    if (p === null || p === undefined) return 4
+    if (p >= 80) return 1
+    if (p >= 65) return 2
+    if (p >= 50) return 3
+    return 4
+  }
+
+  // Solo aplicar prioridad en modo tarjetas
+  if (view === 'cards') {
+    const pa = getPriority(a.ai_probability)
+    const pb = getPriority(b.ai_probability)
+
+    if (pa !== pb) return pa - pb
+  }
+
+  // orden normal (tabla o empate)
+  let av: any = a[sortField] ?? 0
+  let bv: any = b[sortField] ?? 0
+
+  if (typeof av === 'string') av = av.toLowerCase()
+  if (typeof bv === 'string') bv = bv.toLowerCase()
+
+  if (av < bv) return sortDir === 'asc' ? -1 : 1
+  if (av > bv) return sortDir === 'asc' ? 1 : -1
+  return 0
+})
   }, [enrichedList, filterText, sortField, sortDir])
 
   const strongSignals = useMemo(() =>
@@ -328,7 +348,7 @@ export default function WatchlistIAPage() {
         </div>
 
         {/* ── SEÑALES FUERTES ── */}
-        {strongSignals.length > 0 && (
+        {view === 'table' && strongSignals.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
               <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
