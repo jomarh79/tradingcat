@@ -14,7 +14,11 @@ serve(async (req) => {
 
   const day  = mexicoTime.getDay();
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  if (day < 1 || day > 5 || time < 7.5 || time >= 15) return new Response("Mercado cerrado");
+  const isCron = req.headers.get("Authorization") === CRON_TOKEN;
+
+  if (isCron && (day < 1 || day > 5 || time < 7.5 || time >= 15)) {
+    return new Response("Mercado cerrado");
+  }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -44,7 +48,7 @@ serve(async (req) => {
       try {
         // ── URL correcta de TwelveData ─────────────────────────────────────
         const tsRes  = await fetch(
-          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=30&apikey=${API_KEY}`
+          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
         );
         const tsData = await tsRes.json();
 
