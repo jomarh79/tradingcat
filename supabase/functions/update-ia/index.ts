@@ -33,9 +33,9 @@ serve(async (req) => {
     const mexicoTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
     const day  = mexicoTime.getDay();
     const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-    //if (day < 1 || day > 5 || time < 7.5 || time >= 15) {
-    //  return new Response("Mercado cerrado", { headers: CORS });
-    //}
+    if (day < 1 || day > 5 || time < 8.05 || time >= 15) {
+      return new Response("Mercado cerrado", { headers: CORS });
+    }
   }
 
   // Si no es cron ni viene de Supabase anon key, rechazar

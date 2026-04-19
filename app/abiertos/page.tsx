@@ -8,78 +8,66 @@ import TradeManagerModal from "../components/TradeManagerModal"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
 import { TrendingUp, Settings, Trash2, Star } from 'lucide-react'
 
-const FINNHUB_API_KEY = process.env.NEXT_PUBLIC_FINNHUB_KEY
-const MARKET_CACHE_KEY = 'tradercat_market_data'
-const TARGETS_KEY      = 'tradercat_targets_v2'
-
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
 const isMarketOpen = () => {
   const now = new Date()
-  const day = now.getDay()
-  const hour = now.getHours()
-  return day !== 0 && day !== 6 && hour >= 8 && hour < 15
+  const mx  = new Date(now.toLocaleString('en-US', { timeZone: 'America/Mexico_City' }))
+  const day  = mx.getDay()
+  const time = mx.getHours() + mx.getMinutes() / 60
+  return day >= 1 && day <= 5 && time >= 7.5 && time < 15
 }
 
-const calculateRSI = (prices: number[], period = 14) => {
-  if (!prices || prices.length < period + 1) return null
-  let gains = 0, losses = 0
-  for (let i = 1; i <= period; i++) {
-    const diff = prices[i] - prices[i - 1]
-    if (diff >= 0) gains += diff; else losses -= diff
-  }
-  let avgGain = gains / period, avgLoss = losses / period
-  for (let i = period + 1; i < prices.length; i++) {
-    const diff = prices[i] - prices[i - 1]
-    avgGain = ((avgGain * (period - 1)) + (diff > 0 ? diff : 0)) / period
-    avgLoss = ((avgLoss * (period - 1)) + (diff < 0 ? -diff : 0)) / period
-  }
-  if (avgLoss === 0) return 100
-  return parseFloat((100 - (100 / (1 + avgGain / avgLoss))).toFixed(1))
+// ── Paw SVG ────────────────────────────────────────────────────────────────
+const Paw = ({ size = 14, color = '#333', opacity = 1 }: any) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0 }}>
+    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
+    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
+    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
+    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
+    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
+  </svg>
+)
+
+// RSI color — mismo criterio que watchlist
+const rsiColor = (rsi: number | null) => {
+  if (rsi === null || rsi === undefined) return '#444'
+  if (rsi < 30) return '#22c55e'   // sobrevendido
+  if (rsi <= 45) return '#4caf50'
+  if (rsi >= 80) return '#ff4444'  // muy sobrecomprado
+  if (rsi >= 70) return '#f43f5e'  // sobrecomprado
+  return '#666'                    // neutro — gris oscuro
 }
 
 export default function TradesAbiertosPage() {
-  const { money, shares, visible } = usePrivacy()
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const { money, shares } = usePrivacy()
+
   const [selectedTrade,     setSelectedTrade]     = useState<any | null>(null)
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
+  const [watchlistRSI,      setWatchlistRSI]      = useState<Record<string, number | null>>({})
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
-
-  const [currentTime, setCurrentTime] = useState(new Date())
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000) // Actualiza cada minuto
-    return () => clearInterval(timer)
-  }, [])
-
-
-  // Persistir marketData en localStorage para que sobreviva cambios de página
-  const [marketData, setMarketData] = useState<any>(() => {
-    if (typeof window === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem(MARKET_CACHE_KEY) || '{}') } catch { return {} }
-  })
+  const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
+  const [currentTime,       setCurrentTime]       = useState(new Date())
 
   const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem(TARGETS_KEY) || '{}') } catch { return {} }
+    try { return JSON.parse(localStorage.getItem('tradercat_targets_v2') || '{}') } catch { return {} }
   })
 
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({
     key: 'ticker', direction: 'asc'
   })
 
-  // Persistir marketData cuando cambia
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(marketData))
-    }
-  }, [marketData])
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(TARGETS_KEY, JSON.stringify(checkedTargets))
+      localStorage.setItem('tradercat_targets_v2', JSON.stringify(checkedTargets))
     }
   }, [checkedTargets])
 
@@ -88,46 +76,50 @@ export default function TradesAbiertosPage() {
     if (data) setPortfolios(data)
   }, [])
 
-  const fetchTrades = useCallback(async () => {
-  if (isRefreshing) return;
-  setIsRefreshing(true);
-
-  try {
-    const { data, error } = await supabase
-      .from("trades")
-      .select("*, portfolios(name, id)")
-      .eq("status", "open");
-
-    if (error) throw error;
-
+  // ── RSI desde watchlist (ya calculado por el cron update-ia) ─────────────
+  const fetchWatchlistRSI = useCallback(async () => {
+    const { data } = await supabase.from('watchlist').select('ticker, rsi')
     if (data) {
-      setTrades(data);
+      const map: Record<string, number | null> = {}
+      data.forEach((w: any) => {
+        const rsi = Number(w.rsi)
+        map[w.ticker] = isFinite(rsi) && rsi >= 0 && rsi <= 100 ? rsi : null
+      })
+      setWatchlistRSI(map)
     }
+  }, [])
 
-  } catch (err) {
-    console.error("Error cargando trades:", err);
-  } finally {
-    setIsRefreshing(false);
-    setLastRefresh(new Date());
-  }
-}, [isRefreshing]);
-
+  const fetchTrades = useCallback(async () => {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    try {
+      const { data, error } = await supabase
+        .from("trades")
+        .select("*, portfolios(name, id)")
+        .eq("status", "open")
+      if (error) throw error
+      if (data) setTrades(data)
+    } catch (err) {
+      console.error("Error cargando trades:", err)
+    } finally {
+      setIsRefreshing(false)
+      setLastRefresh(new Date())
+    }
+  }, [isRefreshing])
 
   useEffect(() => {
-  fetchTrades(); 
-  fetchPortfolios();
-  
-}, [])
+    fetchTrades()
+    fetchPortfolios()
+    fetchWatchlistRSI()
+  }, [])
 
-  const toggleTarget = (targetId: string) =>
-    setCheckedTargets(prev => ({ ...prev, [targetId]: !prev[targetId] }))
+  const toggleTarget = (id: string) =>
+    setCheckedTargets(prev => ({ ...prev, [id]: !prev[id] }))
 
   const handleDelete = async (trade: any) => {
-    if (!confirm(`¿Eliminar el trade de ${trade.ticker} completo? Se revertirán todos los movimientos en la billetera.`)) return
+    if (!confirm(`¿Eliminar el trade de ${trade.ticker}? Se revertirán todos los movimientos en la billetera.`)) return
     await supabase.from("wallet_movements").delete()
-      .eq("ticker", trade.ticker)
-      .eq("wallet_id", trade.portfolio_id)
-      .eq("movement_type", "trade")
+      .eq("ticker", trade.ticker).eq("wallet_id", trade.portfolio_id).eq("movement_type", "trade")
     await supabase.from("trade_executions").delete().eq("trade_id", trade.id)
     await supabase.from("trades").delete().eq("id", trade.id)
     fetchTrades()
@@ -144,26 +136,28 @@ export default function TradesAbiertosPage() {
       : trades.filter(t => t.portfolios?.id === selectedPortfolio)
 
     const items = filtered.map(trade => {
-      const qty       = parseFloat(Number(trade.quantity     || 0).toFixed(6))
-      const invested  = parseFloat(Number(trade.total_invested || 0).toFixed(2))
-      const mData     = marketData[trade.ticker] || {}
-      const curPrice = parseFloat(
-        Number(trade.last_price || mData.price || trade.entry_price || 0).toFixed(2)
-      )
-      const avgPrice  = qty > 0 ? parseFloat((invested / qty).toFixed(2)) : parseFloat(Number(trade.entry_price || 0).toFixed(2))
-      const pnl       = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
-      const pnlPct    = avgPrice > 0 ? parseFloat(((curPrice - avgPrice) / avgPrice * 100).toFixed(2)) : 0
-      const curValue  = parseFloat((curPrice * qty).toFixed(2))
-      const stopDist  = trade.stop_loss  ? Math.abs((curPrice - trade.stop_loss)  / curPrice * 100) : null
-      const tp1Dist   = trade.take_profit_1 ? Math.abs((curPrice - trade.take_profit_1) / curPrice * 100) : null
-      const nearStop  = stopDist !== null && stopDist <= 2
-      const nearTP    = tp1Dist  !== null && tp1Dist  <= 2
+      const qty      = parseFloat(Number(trade.quantity      || 0).toFixed(6))
+      const invested = parseFloat(Number(trade.total_invested || 0).toFixed(2))
+      const curPrice = parseFloat(Number(trade.last_price || trade.entry_price || 0).toFixed(2))
+      const avgPrice = qty > 0
+        ? parseFloat((invested / qty).toFixed(2))
+        : parseFloat(Number(trade.entry_price || 0).toFixed(2))
+      const pnl    = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
+      const pnlPct = avgPrice > 0 ? parseFloat(((curPrice - avgPrice) / avgPrice * 100).toFixed(2)) : 0
+      const curValue = parseFloat((curPrice * qty).toFixed(2))
+
+      const stopDist = trade.stop_loss     ? Math.abs((curPrice - trade.stop_loss)     / curPrice * 100) : null
+      const tp1Dist  = trade.take_profit_1 ? Math.abs((curPrice - trade.take_profit_1) / curPrice * 100) : null
+      const nearStop = stopDist !== null && stopDist <= 2
+      const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
+
+      // RSI desde watchlist — no requiere llamada extra a API
+      const rsi      = watchlistRSI[trade.ticker] ?? null
+      const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
         ...trade, curPrice, avgPrice, pnl, pnlPct,
-        invested, curValue, nearStop, nearTP,
-        rsi:       mData.rsi,
-        dayChange: parseFloat(Number(trade.day_change || mData.changePercent || 0).toFixed(2)),
+        invested, curValue, nearStop, nearTP, rsi, dayChange,
       }
     })
 
@@ -172,9 +166,8 @@ export default function TradesAbiertosPage() {
       ...item,
       portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
     }))
-  }, [trades, selectedPortfolio, marketData])
+  }, [trades, selectedPortfolio, watchlistRSI])
 
-  // Totales del header
   const totals = useMemo(() => {
     const totalInvested = enrichedTrades.reduce((a, t) => a + t.invested, 0)
     const totalValue    = enrichedTrades.reduce((a, t) => a + t.curValue, 0)
@@ -198,89 +191,84 @@ export default function TradesAbiertosPage() {
   const SortIcon = ({ column }: { column: string }) => {
     if (sortConfig.key !== column) return <FaSort style={{ marginLeft: 4, opacity: 0.15 }} />
     return sortConfig.direction === 'asc'
-      ? <FaSortUp  style={{ marginLeft: 4, color: '#00bfff' }} />
+      ? <FaSortUp   style={{ marginLeft: 4, color: '#00bfff' }} />
       : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
   }
 
-  const getRSIColor = (rsi: number | null) => {
-    if (rsi === null || rsi === undefined) return '#444'
-    if (rsi >= 80) return '#ff6b6b'; if (rsi >= 70) return '#cc3333'
-    if (rsi <= 20) return '#90ee90'; if (rsi <= 30) return '#22c55e'
-    return '#555'
-  }
-
   const targetBtn = (checked: boolean, color: string): React.CSSProperties => ({
-    color: checked ? '#333' : color,
-    cursor: 'pointer', fontWeight: 'bold', background: 'none', border: 'none',
+    color: checked ? '#333' : color, cursor: 'pointer', fontWeight: 'bold',
+    background: 'none', border: 'none',
     textDecoration: checked ? 'line-through' : 'none', fontSize: '0.7rem',
   })
 
+  const marketOpen = isMarketOpen()
+
   return (
     <AppShell>
-      <div style={{ padding: '15px 25px', color: 'white' }}>
+      <div style={{ padding: '15px 25px', color: 'white', position: 'relative' }}>
 
-        {/* HEADER */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-          <h1 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <TrendingUp size={20} color="#4caf50" /> Trades abiertos
-            <span style={{ fontSize: 11, color: '#444', fontWeight: 400 }}>({enrichedTrades.length})</span>
-          </h1>
-
-{/* RESUMEN RÁPIDO */}
-<div style={{ display: 'flex', gap: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-  
-  {/* Ajustado para que no empuje todo al centro */}
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-    <div style={{ fontSize: '0.65rem', fontWeight: 'bold', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
-      <span style={{ color: isMarketOpen() ? '#22c55e' : '#f43f5e', textTransform: 'uppercase' }}>
-        {isMarketOpen() ? 'Mercado abierto • auto-refresh 5min ' : 'Mercado cerrado • solo manual '}
-      </span>
-      <span style={{ color: '#444', marginLeft: 4 }}>
-        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}
-      </span>
-    </div>
-
-    {/* Aquí empiezan tus cards alineadas a la orilla */}
-    <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-      <div style={summaryCard}>
-        <span style={summaryLabel}>Invertido</span>
-        <span style={{ color: '#fff' }}>{money(totals.totalInvested)}</span>
-      </div>
-
-      <div style={summaryCard}>
-        <span style={summaryLabel}>Valor actual</span>
-        <span style={{ color: '#00bfff' }}>{money(totals.totalValue)}</span>
-      </div>
-
-      <div style={summaryCard}>
-        <span style={summaryLabel}>PnL total</span>
-        <span style={{ color: totals.totalPnl >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
-          {money(totals.totalPnl)} ({totals.totalPnlPct >= 0 ? '+' : ''}{totals.totalPnlPct.toFixed(2)}%)
-        </span>
-      </div>
-
-      <button 
-  onClick={fetchTrades} 
-  disabled={isRefreshing} 
-  style={refreshBtn(isRefreshing)}
->
-  <FaSync 
-    style={{ 
-      animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
-      color: isRefreshing ? '#555' : '#eab308' 
-    }} 
-  />
-  {isRefreshing ? 'Actualizando...' : 'Actualizar'}
-</button>
-
-    </div>
-  </div>
-</div>
-
-
+        {/* Huella decorativa de fondo */}
+        <div style={{ position: 'absolute', top: 8, right: 30, pointerEvents: 'none', display: 'flex', gap: 6, transform: 'rotate(-12deg)' }}>
+          <Paw size={16} color="#22c55e" opacity={0.07} />
+          <Paw size={12} color="#22c55e" opacity={0.05} />
+          <Paw size={8}  color="#22c55e" opacity={0.03} />
         </div>
 
-        {/* TABS PORTAFOLIOS */}
+        {/* ── HEADER ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+          <h1 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <TrendingUp size={20} color="#4caf50" />
+            Trades abiertos
+            <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>({enrichedTrades.length})</span>
+          </h1>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Estado mercado */}
+            <div style={{ fontSize: '0.65rem', fontWeight: 'bold', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: marketOpen ? '#22c55e' : '#f43f5e', display: 'inline-block' }} />
+                <span style={{ color: marketOpen ? '#22c55e' : '#f43f5e' }}>
+                  {marketOpen ? 'Mercado abierto' : 'Mercado cerrado'}
+                </span>
+              </span>
+              <span style={{ color: '#555' }}>
+                {currentTime.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              {lastRefresh && (
+                <span style={{ color: '#444' }}>
+                  · actualizado {lastRefresh.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+
+            {/* KPIs + botón */}
+            <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+              <div style={summaryCard}>
+                <span style={summaryLabel}>Invertido</span>
+                <span style={{ color: '#fff', fontWeight: 700 }}>{money(totals.totalInvested)}</span>
+              </div>
+              <div style={summaryCard}>
+                <span style={summaryLabel}>Valor actual</span>
+                <span style={{ color: '#00bfff', fontWeight: 700 }}>{money(totals.totalValue)}</span>
+              </div>
+              <div style={summaryCard}>
+                <span style={summaryLabel}>PnL total</span>
+                <span style={{ color: totals.totalPnl >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
+                  {money(totals.totalPnl)} ({totals.totalPnlPct >= 0 ? '+' : ''}{totals.totalPnlPct.toFixed(2)}%)
+                </span>
+              </div>
+              <button
+                onClick={() => { fetchTrades(); fetchWatchlistRSI() }}
+                disabled={isRefreshing}
+                style={refreshBtn(isRefreshing)}>
+                <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+                {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── TABS PORTAFOLIOS ── */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto' }}>
           {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
             <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
@@ -290,29 +278,29 @@ export default function TradesAbiertosPage() {
           ))}
         </div>
 
-        {/* TABLA */}
+        {/* ── TABLA ── */}
         <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
                 {[
-                  { key: null,             label: '★' },
-                  { key: 'open_date',      label: 'Fecha' },
-                  { key: 'ticker',         label: 'Ticker' },
-                  { key: 'dayChange',      label: 'Var día' },
-                  { key: 'rsi',            label: 'RSI' },
-                  { key: 'pnlPct',         label: 'PnL %' },
-                  { key: 'pnl',            label: 'PnL $' },
-                  { key: 'portfolioWeight',label: '% Cartera' },
-                  { key: 'quantity',       label: 'Cant.' },
-                  { key: 'avgPrice',       label: 'Avg' },
-                  { key: 'invested',       label: 'Invertido' },
-                  { key: 'stop_loss',      label: 'Stop' },
-                  { key: 'curPrice',       label: 'Actual' },
-                  { key: 'take_profit_1',  label: 'TP 1' },
-                  { key: 'take_profit_2',  label: 'TP 2' },
-                  { key: 'take_profit_3',  label: 'TP 3' },
-                  { key: null,             label: 'Acc.' },
+                  { key: null,              label: '★' },
+                  { key: 'open_date',       label: 'Fecha' },
+                  { key: 'ticker',          label: 'Ticker' },
+                  { key: 'dayChange',       label: 'Var día' },
+                  { key: 'rsi',             label: 'RSI' },
+                  { key: 'pnlPct',          label: 'PnL %' },
+                  { key: 'pnl',             label: 'PnL $' },
+                  { key: 'portfolioWeight', label: '% Cartera' },
+                  { key: 'quantity',        label: 'Cant.' },
+                  { key: 'avgPrice',        label: 'Avg' },
+                  { key: 'invested',        label: 'Invertido' },
+                  { key: 'stop_loss',       label: 'Stop' },
+                  { key: 'curPrice',        label: 'Actual' },
+                  { key: 'take_profit_1',   label: 'TP 1' },
+                  { key: 'take_profit_2',   label: 'TP 2' },
+                  { key: 'take_profit_3',   label: 'TP 3' },
+                  { key: null,              label: 'Acc.' },
                 ].map(({ key, label }) => (
                   <th key={label} style={{ ...tableTh, cursor: key ? 'pointer' : 'default' }}
                     onClick={key ? () => requestSort(key) : undefined}>
@@ -326,18 +314,21 @@ export default function TradesAbiertosPage() {
             <tbody>
               {sortedTrades.length === 0 && (
                 <tr>
-                  <td colSpan={17} style={{ padding: 40, textAlign: 'center', color: '#333' }}>
-                    No hay trades abiertos.
+                  <td colSpan={17} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                      <Paw size={28} color="#333" opacity={0.5} />
+                      No hay trades abiertos.
+                    </div>
                   </td>
                 </tr>
               )}
               {sortedTrades.map(trade => {
                 const rowBg = trade.priority
-                  ? 'rgba(255,215,0,0.10)'
+                  ? 'rgba(255,215,0,0.08)'
                   : trade.nearStop
-                    ? 'rgba(255, 17, 0, 0.12)'
+                    ? 'rgba(255,17,0,0.10)'
                     : trade.nearTP
-                      ? 'rgba(0, 255, 8, 0.08)'
+                      ? 'rgba(0,255,8,0.06)'
                       : 'transparent'
 
                 return (
@@ -352,14 +343,16 @@ export default function TradesAbiertosPage() {
                     </td>
 
                     {/* Fecha */}
-                    <td style={{ ...tdStyle, color: '#444', fontSize: '0.65rem' }}>
-                      {trade.open_date ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : '—'}
+                    <td style={{ ...tdStyle, color: '#555', fontSize: '0.65rem' }}>
+                      {trade.open_date
+                        ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
+                        : '—'}
                     </td>
 
                     {/* Ticker */}
                     <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold', color: '#00bfff' }}>
                       {trade.ticker}
-                      <div style={{ fontSize: '0.55rem', color: '#333' }}>{trade.portfolios?.name}</div>
+                      <div style={{ fontSize: '0.55rem', color: '#444' }}>{trade.portfolios?.name}</div>
                     </td>
 
                     {/* Var día */}
@@ -367,9 +360,11 @@ export default function TradesAbiertosPage() {
                       {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
                     </td>
 
-                    {/* RSI */}
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: getRSIColor(trade.rsi) }}>
-                      {trade.rsi !== null && trade.rsi !== undefined ? trade.rsi : '—'}
+                    {/* RSI — leído de watchlist, validado 0-100 */}
+                    <td style={{ ...tdStyle, fontWeight: 'bold', color: rsiColor(trade.rsi) }}>
+                      {trade.rsi !== null && trade.rsi !== undefined
+                        ? trade.rsi.toFixed(1)
+                        : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
                     {/* PnL % */}
@@ -383,7 +378,7 @@ export default function TradesAbiertosPage() {
                     </td>
 
                     {/* % Cartera */}
-                    <td style={{ ...tdStyle, color: '#555' }}>{trade.portfolioWeight.toFixed(2)}%</td>
+                    <td style={{ ...tdStyle, color: '#666' }}>{trade.portfolioWeight.toFixed(2)}%</td>
 
                     {/* Cantidad */}
                     <td style={tdStyle}>{shares(trade.quantity)}</td>
@@ -438,6 +433,11 @@ export default function TradesAbiertosPage() {
             </tbody>
           </table>
         </div>
+
+        <div style={{ marginTop: 8, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
+          <Paw size={9} color="#333" opacity={0.4} />
+          RSI leído desde Watchlist · precios desde Finnhub vía cron · actualiza cada 5min en horario de mercado
+        </div>
       </div>
 
       {selectedTrade && (
@@ -447,35 +447,25 @@ export default function TradesAbiertosPage() {
           onRefresh={fetchTrades}
         />
       )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </AppShell>
   )
 }
 
-const tableTh: React.CSSProperties = {
-  textAlign: 'center', padding: '8px 6px', color: '#444',
-  fontSize: '0.6rem', borderBottom: '1px solid #1a1a1a',
-  textTransform: 'uppercase', userSelect: 'none', letterSpacing: 0.5, whiteSpace: 'nowrap',
-}
-const tdStyle: React.CSSProperties = {
-  padding: '5px 8px', fontSize: '0.72rem',
-  borderBottom: '1px solid #0a0a0a', textAlign: 'center', whiteSpace: 'nowrap',
-}
-const summaryCard: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', fontSize: 11, gap: 2,
-}
-const summaryLabel: React.CSSProperties = {
-  fontSize: 9, color: '#444', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase',
-}
+const tableTh: React.CSSProperties = { textAlign: 'center', padding: '8px 6px', color: '#888', fontSize: '0.6rem', borderBottom: '1px solid #1a1a1a', textTransform: 'uppercase', userSelect: 'none', letterSpacing: 0.5, whiteSpace: 'nowrap' }
+const tdStyle: React.CSSProperties = { padding: '5px 8px', fontSize: '0.72rem', borderBottom: '1px solid #0a0a0a', textAlign: 'center', whiteSpace: 'nowrap' }
+const summaryCard: React.CSSProperties = { display: 'flex', flexDirection: 'column', fontSize: 11, gap: 2 }
+const summaryLabel: React.CSSProperties = { fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
 const refreshBtn = (loading: boolean): React.CSSProperties => ({
   background: '#0a0a0a', border: '1px solid #222',
-  color: loading ? '#444' : '#00bfff',
+  color: loading ? '#444' : '#eab308',
   padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
-  fontSize: 10, fontWeight: 'bold',
-  display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 10, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6,
 })
 const portfolioTab = (active: boolean): React.CSSProperties => ({
   padding: '4px 12px', borderRadius: 4, border: 'none', cursor: 'pointer',
   background: active ? '#22c55e' : 'transparent',
-  color: active ? '#000' : '#555',
+  color: active ? '#000' : '#888',
   fontSize: 10, fontWeight: 'bold', whiteSpace: 'nowrap',
 })
