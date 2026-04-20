@@ -1,30 +1,61 @@
 import { serve } from "https://deno.land/std/http/server.ts";
 
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+};
+
 const CRON_TOKEN = "Bearer tradingcat-cron-2026";
 
 serve(async (req) => {
+   if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS });
+    }
   // ── Autenticación ──────────────────────────────────────────────────────
   const authHeader = req.headers.get("Authorization");
-  if (authHeader !== CRON_TOKEN) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const isCron     = authHeader === CRON_TOKEN;
 
-  // ── Hora México — forma correcta ───────────────────────────────────────
-  const now        = new Date();
-  const mexicoTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
-  const day        = mexicoTime.getDay();
-  const time       = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
+if (!isCron && !req.headers.get("apikey")) {
+  return new Response("Unauthorized", { status: 401, headers: CORS });
+}
 
-  if (day < 1 || day > 5 || time < 7.5 || time >= 15) {
-    return new Response("Mercado cerrado");
-  }
+ // ── Hora México — forma correcta ───────────────────────────────────────
+const now = new Date();
 
-  const todayStr = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Mexico_City",
-    year:     "numeric",
-    month:    "2-digit",
-    day:      "2-digit",
-  }).format(now);
+const formatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Mexico_City",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const parts = formatter.formatToParts(now);
+
+const dayStr = parts.find(p => p.type === "weekday")?.value;
+const hour   = parseInt(parts.find(p => p.type === "hour")?.value || "0");
+const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0");
+
+const time = hour + minute / 60;
+
+const dayMap: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6
+};
+
+const day = dayMap[dayStr || ""] ?? 0;
+
+// 👇 ESTE lo puedes activar/desactivar para pruebas
+ if (day < 1 || day > 5 || time < 8.05 || time >= 15) {
+   return new Response("Mercado cerrado", { headers: CORS });
+ }
+
+const todayStr = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Mexico_City",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,7 +73,7 @@ serve(async (req) => {
     const trades = await res.json();
 
     if (!Array.isArray(trades) || trades.length === 0) {
-      return new Response("Sin trades abiertos");
+      return new Response("Sin trades abiertos", { headers: CORS });
     }
 
     let updated = 0, alerted = 0, skipped = 0;
@@ -54,9 +85,18 @@ serve(async (req) => {
         );
         const quote = await quoteRes.json();
 
-        if (!quote?.c || quote.c === 0) { skipped++; continue; }
+        let price = 0;
 
-        const price  = quote.c  as number;
+if (quote?.c && quote.c > 0) {
+  price = quote.c; // precio en tiempo real
+} else if (quote?.pc && quote.pc > 0) {
+  price = quote.pc; // fallback a cierre anterior
+} else {
+  skipped++;
+  continue;
+}
+
+        
         const change = typeof quote.dp === "number" ? quote.dp : 0;
 
         const updateData: Record<string, any> = {
@@ -104,10 +144,13 @@ serve(async (req) => {
       await new Promise(r => setTimeout(r, 1200));
     }
 
-    return new Response(`OK — ${updated} actualizados, ${alerted} alertas, ${skipped} saltados`);
+    return new Response(`OK — ${updated} actualizados, ${alerted} alertas, ${skipped} saltados`, { headers: CORS });
 
   } catch (e: any) {
-    return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500 });
+    return new Response(`Error: ${e?.message ?? String(e)}`, {
+      status: 500,
+      headers: CORS
+    });
   }
 });
 
