@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const SP500_DAILY = 0.0003
+//const SP500_DAILY = 0.0003
 const PORT_COLORS = ['#00bfff', '#a78bfa', '#34d399', '#fb923c', '#f472b6']
 
 type Period = 'YTD' | '1Y' | '5Y' | 'MAX'
@@ -142,6 +142,7 @@ export default function HomePage() {
   const [loading,    setLoading]    = useState(true)
   const [period,     setPeriod]     = useState<Period>('YTD')
   const [equityPeriod, setEquityPeriod] = useState<Period>('YTD')
+  const [sp500Data, setSp500Data] = useState<any[]>([])
 
   const fetchData = useCallback(async () => {
     const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
@@ -157,7 +158,35 @@ export default function HomePage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+  fetchData()
+  fetchSP500()
+}, [fetchData])
+
+ const fetchSP500 = async () => {
+  try {
+    const res = await fetch(
+      `https://api.twelvedata.com/time_series?symbol=SPY&interval=1day&outputsize=5000&apikey=${process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY}`
+    )
+
+    const json = await res.json()
+
+    if (json.values) {
+      const formatted = json.values
+        .map((d: any) => ({
+          date: new Date(d.datetime),
+          close: Number(d.close),
+        }))
+        .sort((a: any, b: any) => a.date.getTime() - b.date.getTime())
+
+      setSP500Data(formatted)
+    } else {
+      console.error('Error SP500:', json)
+    }
+  } catch (e) {
+    console.error('Error SP500 fetch:', e)
+  }
+}
 
   // ── Stats globales ────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -249,13 +278,26 @@ export default function HomePage() {
 
     return weeks.map((monday, i) => {
       const nextM = new Date(monday); nextM.setDate(nextM.getDate() + 7)
-      sp500Cum = parseFloat((sp500Cum + (Math.pow(1 + SP500_DAILY, 5) - 1) * 100).toFixed(3))
-      const point: any = {
-        label:     monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
-        labelFull: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
-        date:      monday,
-        'S&P 500': parseFloat(sp500Cum.toFixed(2)),
-      }
+      let spValue = 0
+
+if (sp500Data.length > 0) {
+  const first = sp500Data[0].close
+
+  const current = sp500Data
+  .filter(d => d.date <= monday)
+  .slice(-1)[0]?.close
+
+  if (current && first) {
+    spValue = ((current - first) / first) * 100
+  }
+}
+
+const point: any = {
+  label: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+  labelFull: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
+  date: monday,
+  'S&P 500': parseFloat(spValue.toFixed(2)),
+}
       portfolios.forEach(p => {
         const wm    = movements.filter(m => m.wallet_id === p.id && parseDate(m.date) >= monday && parseDate(m.date) < nextM)
         const open  = allTrades.filter(t => t.portfolio_id === p.id && t.status === 'open')
@@ -267,7 +309,7 @@ export default function HomePage() {
       })
       return point
     })
-  }, [movements, portfolios, allTrades])
+  }, [movements, portfolios, allTrades, sp500Data])
 
   const compChart = useMemo(() => {
     if (!compChartAll.length) return []
