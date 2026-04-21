@@ -276,21 +276,25 @@ export default function HomePage() {
     portfolios.forEach(p => { cumMap[p.id] = 0; baseMap[p.id] = 0 })
     let sp500Cum = 0
 
+     const cutoff = periodCutoff(period)
+const filteredSP = sp500Data.filter(d => d.date >= cutoff)
+const first = filteredSP[0]?.close
+
     return weeks.map((monday, i) => {
-      const nextM = new Date(monday); nextM.setDate(nextM.getDate() + 7)
-      let spValue = 0
+  const nextM = new Date(monday)
+  nextM.setDate(nextM.getDate() + 7)
 
-if (sp500Data.length > 0) {
-  const first = sp500Data[0].close
+  let spValue = 0
 
-  const current = sp500Data
-  .filter(d => d.date <= monday)
-  .slice(-1)[0]?.close
+  if (filteredSP.length > 0 && first) {
+    const current = filteredSP
+      .filter(d => d.date <= monday)
+      .slice(-1)[0]?.close
 
-  if (current && first) {
-    spValue = ((current - first) / first) * 100
+    if (current) {
+      spValue = ((current - first) / first) * 100
+    }
   }
-}
 
 const point: any = {
   label: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
@@ -309,7 +313,7 @@ const point: any = {
       })
       return point
     })
-  }, [movements, portfolios, allTrades, sp500Data])
+  }, [movements, portfolios, allTrades, sp500Data, period])
 
   const compChart = useMemo(() => {
     if (!compChartAll.length) return []
