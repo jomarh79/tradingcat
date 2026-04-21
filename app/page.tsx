@@ -179,7 +179,7 @@ export default function HomePage() {
         }))
         .sort((a: any, b: any) => a.date.getTime() - b.date.getTime())
 
-      setSP500Data(formatted)
+      setSp500Data(formatted)
     } else {
       console.error('Error SP500:', json)
     }
