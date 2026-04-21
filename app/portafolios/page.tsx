@@ -638,7 +638,7 @@ export default function PortafoliosPage() {
               <input placeholder="Ej: Largo Plazo ETFs" value={newName} onChange={e => setNewName(e.target.value)} style={inp} />
               <label style={lbl}>Fecha de creación</label>
               <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={inp} />
-              <label style={lbl}>Grupo</label>
+              <label style={lbl}>Tipo de Inversion</label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
                 {Object.entries(GRUPOS).map(([key, g]) => (
                   <button key={key} onClick={() => setNewGrupo(key)} style={{
@@ -647,7 +647,7 @@ export default function PortafoliosPage() {
                     color: newGrupo === key ? g.color : '#888',
                     padding: '8px 6px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 700,
                   }}>
-                    {key === 'largo' ? 'Largo / ETF' : key === 'mediano' ? 'Mediano' : 'Corto / Espec.'}
+                    {key === 'largo' ? 'Largo' : key === 'mediano' ? 'Mediano' : 'Corto'}
                   </button>
                 ))}
               </div>
