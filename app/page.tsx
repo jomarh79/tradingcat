@@ -261,78 +261,50 @@ export default function HomePage() {
     }))
   }, [equityCurveAll, equityPeriod])
 
-  // ── Comparativo % semanal vs SP500 ────────────────────────────────────────
-  const compChartAll = useMemo(() => {
-    if (!movements.length || !portfolios.length) return []
-    const allDates    = movements.map(m => parseDate(m.date))
-    const firstMonday = getMondayOfWeek(allDates.sort((a, b) => a.getTime() - b.getTime())[0])
-    const weeks: Date[] = []
-    const cur = new Date(firstMonday)
-    const now = getMondayOfWeek(new Date())
-    while (cur <= now) { weeks.push(new Date(cur)); cur.setDate(cur.getDate() + 7) }
+  // 2. Corrige compChart para que calcule el % real basado en el periodo visual
+const compChart = useMemo(() => {
+  if (!compChartAll.length || !sp500Data.length) return []
+  
+  const cutoff = periodCutoff(period)
+  const data = compChartAll.filter(row => row.date >= cutoff)
+  if (!data.length) return []
 
-    const cumMap:  Record<string, number> = {}
-    const baseMap: Record<string, number> = {}
-    portfolios.forEach(p => { cumMap[p.id] = 0; baseMap[p.id] = 0 })
-    let sp500Cum = 0
+  // 1. Obtener precio base del SP500 al inicio del periodo filtrado
+  const spInPeriod = sp500Data.filter(d => d.date >= cutoff)
+  const spBasePrice = spInPeriod[0]?.close || sp500Data[0]?.close || 1
 
-     const cutoff = periodCutoff(period)
-const filteredSP = sp500Data.filter(d => d.date >= cutoff)
-const first = filteredSP[0]?.close
-
-    return weeks.map((monday, i) => {
-  const nextM = new Date(monday)
-  nextM.setDate(nextM.getDate() + 7)
-
-  let spValue = 0
-
-  if (filteredSP.length > 0 && first) {
-    const current = filteredSP
-      .filter(d => d.date <= monday)
-      .slice(-1)[0]?.close
-
-    if (current) {
-      spValue = ((current - first) / first) * 100
-    }
-  }
-
-const point: any = {
-  label: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
-  labelFull: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
-  date: monday,
-  'S&P 500': parseFloat(spValue.toFixed(2)),
-}
-      portfolios.forEach(p => {
-        const wm    = movements.filter(m => m.wallet_id === p.id && parseDate(m.date) >= monday && parseDate(m.date) < nextM)
-        const open  = allTrades.filter(t => t.portfolio_id === p.id && t.status === 'open')
-        cumMap[p.id] += wm.reduce((a, m) => a + Number(m.amount), 0)
-        const cartera = cumMap[p.id] + open.reduce((a, t) => a + Number(t.total_invested || 0), 0)
-        if (i === 0 && cartera > 0) baseMap[p.id] = cartera
-        const base = baseMap[p.id] || 1
-        point[p.name] = parseFloat(((cartera - base) / base * 100).toFixed(2))
-      })
-      return point
-    })
-  }, [movements, portfolios, allTrades, sp500Data, period])
-
-  const compChart = useMemo(() => {
-    if (!compChartAll.length) return []
-    const cutoff   = periodCutoff(period)
-    const filtered = compChartAll.filter(row => row.date >= cutoff)
-    const data     = filtered.length ? filtered : compChartAll
-    const firstSP  = data[0]['S&P 500']
-    return data.map(row => {
-      const point: any = {
-        label:     period === '5Y' || period === 'MAX' ? row.labelFull : row.label,
-        'S&P 500': parseFloat((row['S&P 500'] - firstSP).toFixed(2)),
+  return data.map(row => {
+    // 2. Buscar el valor del SP500 para la fecha de esta semana (lunes)
+    // Buscamos el último precio disponible que sea menor o igual a la fecha de la fila
+    let currentPrice = spBasePrice
+    for (let i = sp500Data.length - 1; i >= 0; i--) {
+      if (sp500Data[i].date <= row.date) {
+        currentPrice = sp500Data[i].close
+        break
       }
-      portfolios.forEach(p => {
-        const firstVal = data[0][p.name] ?? 0
-        point[p.name]  = parseFloat(((row[p.name] ?? 0) - firstVal).toFixed(2))
-      })
-      return point
+    }
+    
+    const point: any = {
+      label: period === '5Y' || period === 'MAX' ? row.labelFull : row.label,
+      'S&P 500': parseFloat((((currentPrice - spBasePrice) / spBasePrice) * 100).toFixed(2))
+    }
+
+    // 3. Crecimiento de portafolios relativo al inicio del periodo
+    portfolios.forEach(p => {
+      const firstVal = data[0][p.name] || 0
+      const currentVal = row[p.name] || 0
+
+      if (firstVal <= 0) {
+        point[p.name] = 0
+      } else {
+        point[p.name] = parseFloat((((currentVal - firstVal) / firstVal) * 100).toFixed(2))
+      }
     })
-  }, [compChartAll, period, portfolios])
+    
+    return point
+  })
+}, [compChartAll, period, portfolios, sp500Data])
+
 
   // ── Watchlist en zona ─────────────────────────────────────────────────────
   const inZone = useMemo(() =>
