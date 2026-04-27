@@ -372,7 +372,7 @@ export default function HomePage() {
         {/* ── DECORACIONES GLOBALES DE GATO ── */}
         <div style={{ position: 'absolute', top: 0, right: 60, pointerEvents: 'none', zIndex: 0 }}>
           <CatEars color="#00bfff" opacity={0.1} size={52} />
-        </div>curva
+        </div>
         <div style={{ position: 'absolute', right: -10, top: '18%', pointerEvents: 'none', zIndex: 0 }}>
           <CatTail color="#a78bfa" opacity={0.07} height={110} />
         </div>
@@ -387,8 +387,14 @@ export default function HomePage() {
         </div>
 
         {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr',
-          gridTemplateRows: 'auto auto', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+        <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: '280px 1fr 180px 180px 180px 180px',
+            gap: 12,
+            marginBottom: 16, 
+            position: 'relative', 
+            zIndex: 1 
+          }}>
 
           {/* ── Tarjeta TRADERCAT ── */}
           <div style={{
@@ -444,8 +450,7 @@ export default function HomePage() {
               ...card,
               position: 'relative',
               overflow: 'hidden',
-              gridColumn: '2',
-              gridRow: '2'
+              gridColumn: '2'
             }}>
             {/* Gato decorativo dentro de la tarjeta */}
             <div style={{ position: 'absolute', bottom: 0, right: -8, pointerEvents: 'none' }}>
@@ -488,10 +493,9 @@ export default function HomePage() {
           </div>
           {/* ── KPIs por portafolio — 4 secciones ── */}
           <div style={{
-              display: 'grid',
+              display: 'contents',
               gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-              gridRow: '1 / span 2'
+              gap: 10
             }}>
 
             {/* CERRADOS por portafolio */}
