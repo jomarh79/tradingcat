@@ -372,7 +372,7 @@ export default function HomePage() {
         {/* ── DECORACIONES GLOBALES DE GATO ── */}
         <div style={{ position: 'absolute', top: 0, right: 60, pointerEvents: 'none', zIndex: 0 }}>
           <CatEars color="#00bfff" opacity={0.1} size={52} />
-        </div>
+        </div>curva
         <div style={{ position: 'absolute', right: -10, top: '18%', pointerEvents: 'none', zIndex: 0 }}>
           <CatTail color="#a78bfa" opacity={0.07} height={110} />
         </div>
@@ -387,7 +387,8 @@ export default function HomePage() {
         </div>
 
         {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr'
+          gridTemplateRows: 'auto auto', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
           {/* ── Tarjeta TRADERCAT ── */}
           <div style={{
@@ -438,9 +439,60 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+{/* Curva de equity CON filtro de período */}
+          <div style={{
+              ...card,
+              position: 'relative',
+              overflow: 'hidden',
+              gridColumn: '2',
+              gridRow: '2'
+            }}>
+            {/* Gato decorativo dentro de la tarjeta */}
+            <div style={{ position: 'absolute', bottom: 0, right: -8, pointerEvents: 'none' }}>
+              <CatFull size={55} color="#00bfff" opacity={0.04} />
+            </div>
 
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Paw size={11} color="#00bfff" opacity={0.6} />
+                <span style={cardLabel}>CURVA DE EQUITY</span>
+                {lastEquityPt && (
+                  <span style={{ fontSize: 12, fontWeight: 800, color: lastEquityPt.pnl >= 0 ? '#22c55e' : '#f43f5e', marginLeft: 6 }}>
+                    {lastEquityPt.pnl >= 0 ? '+' : ''}{money(lastEquityPt.pnl)}
+                  </span>
+                )}
+              </div>
+              <PeriodSelector period={equityPeriod} onChange={setEquityPeriod} />
+            </div>
+
+            {equityCurve.length > 1 ? (
+              <ResponsiveContainer width="100%" height={210}>
+                <AreaChart data={equityCurve} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#00bfff" stopOpacity={0.22} />
+                      <stop offset="95%" stopColor="#00bfff" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#0d0d0d" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
+                  <Tooltip contentStyle={tt} formatter={(v: any) => [money(v), 'PnL']} />
+                  <ReferenceLine y={0} stroke="#222" strokeDasharray="3 3" />
+                  <Area type="monotone" dataKey="pnl" stroke="#00bfff" fill="url(#eqGrad)" strokeWidth={2.5} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState msg="Cierra trades para ver la curva" height={210} />
+            )}
+          </div>
           {/* ── KPIs por portafolio — 4 secciones ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+          <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 10,
+              gridRow: '1 / span 2'
+            }}>
 
             {/* CERRADOS por portafolio */}
             <div style={{ ...kpiGroup, borderColor: '#1a1a2a' }}>
@@ -564,49 +616,9 @@ export default function HomePage() {
         </div>
 
         {/* ═══ FILA 2 — EQUITY (con período) + COMPARATIVO ════════════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
-          {/* Curva de equity CON filtro de período */}
-          <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
-            {/* Gato decorativo dentro de la tarjeta */}
-            <div style={{ position: 'absolute', bottom: 0, right: -8, pointerEvents: 'none' }}>
-              <CatFull size={55} color="#00bfff" opacity={0.04} />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Paw size={11} color="#00bfff" opacity={0.6} />
-                <span style={cardLabel}>CURVA DE EQUITY</span>
-                {lastEquityPt && (
-                  <span style={{ fontSize: 12, fontWeight: 800, color: lastEquityPt.pnl >= 0 ? '#22c55e' : '#f43f5e', marginLeft: 6 }}>
-                    {lastEquityPt.pnl >= 0 ? '+' : ''}{money(lastEquityPt.pnl)}
-                  </span>
-                )}
-              </div>
-              <PeriodSelector period={equityPeriod} onChange={setEquityPeriod} />
-            </div>
-
-            {equityCurve.length > 1 ? (
-              <ResponsiveContainer width="100%" height={210}>
-                <AreaChart data={equityCurve} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#00bfff" stopOpacity={0.22} />
-                      <stop offset="95%" stopColor="#00bfff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#0d0d0d" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip contentStyle={tt} formatter={(v: any) => [money(v), 'PnL']} />
-                  <ReferenceLine y={0} stroke="#222" strokeDasharray="3 3" />
-                  <Area type="monotone" dataKey="pnl" stroke="#00bfff" fill="url(#eqGrad)" strokeWidth={2.5} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState msg="Cierra trades para ver la curva" height={210} />
-            )}
-          </div>
+          
 
           {/* Comparativo vs SP500 */}
           <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
@@ -648,7 +660,7 @@ export default function HomePage() {
             )}
 
             {compChart.length > 1 ? (
-              <ResponsiveContainer width="100%" height={186}>
+              <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={compChart} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#0d0d0d" vertical={false} strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} />

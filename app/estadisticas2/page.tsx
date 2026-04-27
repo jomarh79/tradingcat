@@ -143,14 +143,13 @@ export default function EstadisticasCerradosPage() {
       ? Math.ceil((maxLossStrk * avgLoss) / avgWin)
       : null
 
-    // Rendimiento promedio % por trade
-    const avgReturnPct = parseFloat((
-      sorted.reduce((acc, t) => {
-        const inv = Number(t.total_invested || 0)
-        const pnl = Number(t.realized_pnl || 0)
-        return acc + (inv > 0 ? (pnl / inv) * 100 : 0)
-      }, 0) / totalTrades
-    ).toFixed(2))
+// Rendimiento % ponderado por capital
+const totalInvested = sorted.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
+const totalPnLWeighted = sorted.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
+
+const avgReturnPct = totalInvested > 0
+  ? parseFloat(((totalPnLWeighted / totalInvested) * 100).toFixed(2))
+  : 0
 
     // Mejor y peor trade en %
     const withPct = sorted.map(t => ({
