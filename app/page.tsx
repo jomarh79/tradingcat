@@ -158,8 +158,15 @@ export default function HomePage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => {
+ useEffect(() => {
   fetchData()
+
+  // 👇 Cargar cache primero (IMPORTANTE)
+  const cached = localStorage.getItem('sp500')
+  if (cached) {
+    setSp500Data(JSON.parse(cached))
+  }
+
   fetchSP500()
 }, [fetchData])
 
@@ -373,8 +380,6 @@ export default function HomePage() {
 
  const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
 const lastEquityPt = equityCurve[equityCurve.length - 1]
-
-if (!sp500Data.length) return null
 
 return (
     <AppShell>
