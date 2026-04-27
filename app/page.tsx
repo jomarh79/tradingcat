@@ -387,7 +387,7 @@ export default function HomePage() {
         </div>
 
         {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr'
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr',
           gridTemplateRows: 'auto auto', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
           {/* ── Tarjeta TRADERCAT ── */}
