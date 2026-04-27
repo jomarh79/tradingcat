@@ -179,12 +179,18 @@ export default function HomePage() {
         }))
         .sort((a: any, b: any) => a.date.getTime() - b.date.getTime())
 
+      localStorage.setItem('sp500', JSON.stringify(formatted))
       setSp500Data(formatted)
     } else {
       console.error('Error SP500:', json)
     }
   } catch (e) {
     console.error('Error SP500 fetch:', e)
+
+    const cached = localStorage.getItem('sp500')
+    if (cached) {
+      setSp500Data(JSON.parse(cached))
+    }
   }
 }
 
@@ -297,22 +303,25 @@ export default function HomePage() {
 
   // 2. SEGUNDO: Definir compChart (Cálculo porcentual)
   const compChart = useMemo(() => {
-    if (!compChartAll.length || !sp500Data.length) return []
+    if (!compChartAll.length) return []
     const cutoff = periodCutoff(period)
     const data = compChartAll.filter(row => row.date >= cutoff)
     if (!data.length) return []
 
     const spInPeriod = sp500Data.filter(d => d.date >= cutoff)
-    const spBasePrice = spInPeriod[0]?.close || sp500Data[0]?.close || 1
+    const spBasePrice = spInPeriod.length
+  ? spInPeriod[0].close
+  : sp500Data.length
+    ? sp500Data[0].close
+    : null
+
+    if (!spBasePrice) return data.map(row => ({
+  label: row.label,
+}))
 
     return data.map(row => {
-      let currentPrice = spBasePrice
-      for (let i = sp500Data.length - 1; i >= 0; i--) {
-        if (sp500Data[i].date <= row.date) {
-          currentPrice = sp500Data[i].close
-          break
-        }
-      }
+      const spMatch = sp500Data.findLast(d => d.date <= row.date)
+      const currentPrice = spMatch ? spMatch.close : spBasePrice
       const point: any = {
         label: period === '5Y' || period === 'MAX' ? row.labelFull : row.label,
         'S&P 500': parseFloat((((currentPrice - spBasePrice) / spBasePrice) * 100).toFixed(2))
@@ -362,10 +371,12 @@ export default function HomePage() {
     </AppShell>
   )
 
-  const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
-  const lastEquityPt = equityCurve[equityCurve.length - 1]
+ const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
+const lastEquityPt = equityCurve[equityCurve.length - 1]
 
-  return (
+if (!sp500Data.length) return null
+
+return (
     <AppShell>
       <div style={{ color: 'white', padding: '20px 28px', maxWidth: 1400, margin: '0 auto', position: 'relative', overflow: 'hidden' }}>
 
