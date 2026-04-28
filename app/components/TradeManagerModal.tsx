@@ -289,6 +289,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
         amount: walletAmount,
       })
       .eq("execution_id", editingId)
+      }
     } catch (err) {
         console.error("Error actualizando ejecución:", err)
     } finally {
