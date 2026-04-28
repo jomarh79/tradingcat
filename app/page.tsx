@@ -476,7 +476,7 @@ return (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <Paw size={11} color="#00bfff" opacity={0.6} />
-                <span style={cardLabel}>CURVA DE EQUITY</span>
+                <span style={cardLabel}>EQUITY</span>
                 {lastEquityPt && (
                   <span style={{ fontSize: 12, fontWeight: 800, color: lastEquityPt.pnl >= 0 ? '#22c55e' : '#f43f5e', marginLeft: 6 }}>
                     {lastEquityPt.pnl >= 0 ? '+' : ''}{money(lastEquityPt.pnl)}

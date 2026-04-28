@@ -162,13 +162,51 @@ export default function CerradosPage() {
   }
 
   const handleDelete = async (trade: any) => {
-    if (!confirm(`¿Eliminar trade de ${trade.ticker}? Se revertirán los movimientos en la billetera.`)) return
-    await supabase.from('wallet_movements').delete()
-      .eq('ticker', trade.ticker).eq('wallet_id', trade.portfolio_id).eq('movement_type', 'trade')
-    await supabase.from('trade_executions').delete().eq('trade_id', trade.id)
-    await supabase.from('trades').delete().eq('id', trade.id)
-    fetchData()
+  if (!confirm(`¿Eliminar trade de ${trade.ticker}? Se revertirán los movimientos de esta operación en la billetera.`)) return
+
+  // 1. Obtener los IDs de las ejecuciones de ESTE trade
+  const { data: execs } = await supabase
+    .from('trade_executions')
+    .select('id')
+    .eq('trade_id', trade.id)
+
+  const execIds = (execs || []).map((e: any) => e.id)
+
+  // 2. Borrar wallet_movements vinculados a estas ejecuciones (recompras, cierres, ventas)
+  if (execIds.length > 0) {
+    await supabase
+      .from('wallet_movements')
+      .delete()
+      .in('execution_id', execIds)
   }
+
+  // 3. Borrar el movimiento de APERTURA de este trade
+  //    Se identifica por: mismo ticker, misma billetera, tipo 'trade',
+  //    monto negativo, execution_id null, y fecha igual a open_date
+  await supabase
+    .from('wallet_movements')
+    .delete()
+    .eq('wallet_id', trade.portfolio_id)
+    .eq('ticker', trade.ticker)
+    .eq('movement_type', 'trade')
+    .lt('amount', 0)
+    .is('execution_id', null)
+    .eq('date', trade.open_date)
+
+  // 4. Borrar ejecuciones del trade
+  await supabase
+    .from('trade_executions')
+    .delete()
+    .eq('trade_id', trade.id)
+
+  // 5. Borrar el trade
+  await supabase
+    .from('trades')
+    .delete()
+    .eq('id', trade.id)
+
+  fetchData()
+}
 
   // ── Abrir modal de edición ────────────────────────────────────────────────
   const openEdit = (row: EditRow) => {

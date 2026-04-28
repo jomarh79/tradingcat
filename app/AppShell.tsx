@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
-  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, Brain
+  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode
 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -303,7 +303,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 ANÁLISIS
               </div>
-              <MenuLink href="/watchlist" icon={<Brain size={15} />} label="Seguimiento" active={pathname === '/watchlist'} />
+              <MenuLink href="/watchlist" icon={<SearchCode size={15} />} label="Seguimiento" active={pathname === '/watchlist'} />
 
               <div style={groupHeader}>
                 <Activity size={13} color="#555" />

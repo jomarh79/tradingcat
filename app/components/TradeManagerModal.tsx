@@ -240,7 +240,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   }
 
   const updateExecution = async () => {
-    if (!editingId) return
+    if (!editingId || isSaving) return
     setIsSaving(true)
     try {
       // Dentro de updateExecution, en el bloque de 'apertura':
@@ -252,10 +252,26 @@ if (editingId === 'apertura') {
   }).eq("id", trade.id)
 
 } else {
+  // Obtener el tipo de ejecución para calcular el monto correcto
+  const { data: execData } = await supabase
+    .from("trade_executions")
+    .select("execution_type")
+    .eq("id", editingId)
+    .single()
+
+  const isBuy = execData?.execution_type === 'buy'
+  const gross = parseFloat((actionsNum * priceUSD).toFixed(2))
+
+  // Buy: salida de dinero (negativo) = -(gross + comisión)
+  // Sell/Close: entrada de dinero (positivo) = gross - comisión
+  const walletAmount = isBuy
+    ? parseFloat((-(gross + commUSD)).toFixed(2))
+    : parseFloat((gross - commUSD).toFixed(2))
+
   await supabase.from("trade_executions").update({
     quantity:    parseFloat(actionsNum.toFixed(6)),
     price:       parseFloat(priceUSD.toFixed(2)),
-    total:       parseFloat((actionsNum * priceUSD).toFixed(2)),
+    total:       gross,
     commission:  commUSD,
     executed_at: date,
   }).eq("id", editingId)
@@ -263,15 +279,10 @@ if (editingId === 'apertura') {
   await supabase.from("wallet_movements")
     .update({
       date,
-      amount: parseFloat((actionsNum * priceUSD - commUSD).toFixed(2))
+      amount: walletAmount,
     })
     .eq("execution_id", editingId)
 }
-      await recalculateTrade()
-      setEditingId(null); setActions(""); setPrice(""); setCommission("0")
-      loadHistory(); onRefresh()
-    } finally { setIsSaving(false) }
-  }
 
   const deleteExecution = async (h: any) => {
     if (h.id === 'apertura' || !confirm('¿Eliminar esta ejecución?')) return
@@ -281,7 +292,10 @@ if (editingId === 'apertura') {
   }
 
   async function guardar() {
-    if (isSaving) return
+    if (isSaving) {
+      console.warn("Ya se está guardando, ignorado")
+      return
+    }
 
     // Si está en modo cierre, validar precio antes de proceder
     if (closingMode && !priceUSD) return alert('Ingresa el precio de cierre')
