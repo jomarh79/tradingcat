@@ -239,51 +239,6 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
     setClosingMode(false)
   }
 
-  const updateExecution = async () => {
-    if (!editingId || isSaving) return
-    setIsSaving(true)
-    try {
-      // Dentro de updateExecution, en el bloque de 'apertura':
-if (editingId === 'apertura') {
-  await supabase.from("trades").update({
-    initial_quantity: parseFloat(actionsNum.toFixed(6)),
-    initial_entry_price: parseFloat(priceUSD.toFixed(2)),
-    open_date: date,
-  }).eq("id", trade.id)
-
-} else {
-  // Obtener el tipo de ejecución para calcular el monto correcto
-  const { data: execData } = await supabase
-    .from("trade_executions")
-    .select("execution_type")
-    .eq("id", editingId)
-    .single()
-
-  const isBuy = execData?.execution_type === 'buy'
-  const gross = parseFloat((actionsNum * priceUSD).toFixed(2))
-
-  // Buy: salida de dinero (negativo) = -(gross + comisión)
-  // Sell/Close: entrada de dinero (positivo) = gross - comisión
-  const walletAmount = isBuy
-    ? parseFloat((-(gross + commUSD)).toFixed(2))
-    : parseFloat((gross - commUSD).toFixed(2))
-
-  await supabase.from("trade_executions").update({
-    quantity:    parseFloat(actionsNum.toFixed(6)),
-    price:       parseFloat(priceUSD.toFixed(2)),
-    total:       gross,
-    commission:  commUSD,
-    executed_at: date,
-  }).eq("id", editingId)
-
-  await supabase.from("wallet_movements")
-    .update({
-      date,
-      amount: walletAmount,
-    })
-    .eq("execution_id", editingId)
-}
-
   const deleteExecution = async (h: any) => {
     if (h.id === 'apertura' || !confirm('¿Eliminar esta ejecución?')) return
     await supabase.from("trade_executions").delete().eq("id", h.id)
@@ -291,6 +246,56 @@ if (editingId === 'apertura') {
     await recalculateTrade(); loadHistory(); onRefresh()
   }
 
+  const updateExecution = async () => {
+    if (!editingId || isSaving) return
+    setIsSaving(true)
+    try {
+      // Dentro de updateExecution, en el bloque de 'apertura':
+      if (editingId === 'apertura') {
+        await supabase.from("trades").update({
+          initial_quantity: parseFloat(actionsNum.toFixed(6)),
+          initial_entry_price: parseFloat(priceUSD.toFixed(2)),
+          open_date: date,
+        }).eq("id", trade.id)
+
+    } else {
+      // Obtener el tipo de ejecución para calcular el monto correcto
+      const { data: execData } = await supabase
+        .from("trade_executions")
+        .select("execution_type")
+        .eq("id", editingId)
+        .single()
+
+      const isBuy = execData?.execution_type === 'buy'
+      const gross = parseFloat((actionsNum * priceUSD).toFixed(2))
+
+      // Buy: salida de dinero (negativo) = -(gross + comisión)
+      // Sell/Close: entrada de dinero (positivo) = gross - comisión
+      const walletAmount = isBuy
+        ? parseFloat((-(gross + commUSD)).toFixed(2))
+        : parseFloat((gross - commUSD).toFixed(2))
+
+      await supabase.from("trade_executions").update({
+        quantity:    parseFloat(actionsNum.toFixed(6)),
+        price:       parseFloat(priceUSD.toFixed(2)),
+        total:       gross,
+        commission:  commUSD,
+        executed_at: date,
+      }).eq("id", editingId)
+
+    await supabase.from("wallet_movements")
+      .update({
+        date,
+        amount: walletAmount,
+      })
+      .eq("execution_id", editingId)
+    } catch (err) {
+        console.error("Error actualizando ejecución:", err)
+    } finally {
+      setIsSaving(false)
+  }
+}
+  
   async function guardar() {
     if (isSaving) {
       console.warn("Ya se está guardando, ignorado")
