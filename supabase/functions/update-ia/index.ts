@@ -29,14 +29,17 @@ serve(async (req) => {
   const isCron     = authHeader === CRON_TOKEN;
 
   // Si viene del cron, verificar horario de mercado
-  if (isCron) {
-    const mexicoTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
-    const day  = mexicoTime.getDay();
-    const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-    if (day < 1 || day > 5 || time < 8.05 || time >= 15) {
-      return new Response("Mercado cerrado", { headers: CORS });
-    }
-  }
+ const mexicoTime = new Date(
+  new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
+)
+const day  = mexicoTime.getDay()
+const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
+
+const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
+
+if (!isMarketOpen) {
+  return new Response("Mercado cerrado", { headers: CORS })
+}
 
   // Si no es cron ni viene de Supabase anon key, rechazar
   if (!isCron && !req.headers.get("apikey")) {

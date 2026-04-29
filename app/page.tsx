@@ -164,7 +164,11 @@ export default function HomePage() {
   // 👇 Cargar cache primero (IMPORTANTE)
   const cached = localStorage.getItem('sp500')
   if (cached) {
-    setSp500Data(JSON.parse(cached))
+    const parsed = JSON.parse(cached).map((d: any) => ({
+      date:  new Date(d.date + 'T00:00:00'),  // re-parsear como local, no UTC
+      close: Number(d.close),
+    }))
+    setSp500Data(parsed)
   }
 
   fetchSP500()
@@ -186,7 +190,11 @@ export default function HomePage() {
         }))
         .sort((a: any, b: any) => a.date.getTime() - b.date.getTime())
 
-      localStorage.setItem('sp500', JSON.stringify(formatted))
+      const toSave = formatted.map((d: any) => ({
+        date:  d.date.toISOString().split('T')[0],
+        close: d.close,
+      }))
+      localStorage.setItem('sp500', JSON.stringify(toSave))
       setSp500Data(formatted)
     } else {
       console.error('Error SP500:', json)
@@ -415,7 +423,7 @@ return (
           {/* ── Tarjeta TRADERCAT ── */}
           <div style={{
             background: 'linear-gradient(135deg, #060810 0%, #0a1428 50%, #080810 100%)',
-            border: '1px solid #1a2a4a', borderRadius: 20, padding: '24px 26px',
+            border: '1px solid #1a2a4a', borderRadius: 20, padding: '16px 20px',
             position: 'relative', overflow: 'hidden',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
           }}>
@@ -442,7 +450,7 @@ return (
               <div style={{ fontSize: 10, color: '#1a3a5a', marginBottom: 4, fontWeight: 700, letterSpacing: 1 }}>
                 CAPITAL TOTAL
               </div>
-              <div style={{ fontSize: 32, fontWeight: 900, color: '#00bfff', letterSpacing: -1, lineHeight: 1, marginBottom: 16 }}>
+              <div style={{ fontSize: 26, fontWeight: 900, color: '#00bfff', letterSpacing: -1, lineHeight: 1, marginBottom: 10 }}>
                 {money(stats.capital)}
               </div>
 
@@ -820,7 +828,7 @@ const cardLabel: React.CSSProperties = {
 }
 const kpiGroup: React.CSSProperties = {
   background: '#080808', border: '1px solid #1a1a1a', borderRadius: 14,
-  padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+  padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 6,
 }
 const kpiGroupHeader: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 5, fontSize: 9,
