@@ -19,7 +19,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Salud":                     ["Farmacéuticas", "Biotecnología", "Dispositivos Médicos"],
   "Consumo Cíclico":           ["Automotriz", "E-commerce", "Lujo", "Turismo", "Ropa y Calzado", "Bebidas No Alcohólicas", "Comercio minorista", "Restaurantes", "Resorts y casinos", "Construcción", "Textiles", "Juguetes"],
   "Consumo Defensivo":         ["Bebidas", "Alimentos", "Supermercados", "Comercio minorista", "Tabaco", "Cuidado personal", "Ocio", "Dulces"],
-  "Financiero":                ["Bancos", "Seguros", "Fintech", "Pagos", "Publicidad", "Fideicomiso"],
+  "Financiero":                ["Bancos", "Seguros", "Fintech", "Pagos", "Publicidad", "Fideicomiso", "Brokers"],
   "Energía":                   ["Petróleo", "Gas", "Solar", "Eólica"],
   "Industrial":                ["Aeroespacial", "Logística", "Maquinaria", "Productos agrícolas", "Productos eléctricos", "Materiales de construcción", "Químicos", "Contenedores", "Aerolíneas", "Construcción", "Ferrocarriles", "Medioambiente", "Metales", "Fabricación de productos"],
   "Materiales básicos":        ["Minería", "Litio", "Química", "Agricultura"],
@@ -28,7 +28,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Servicios de comunicación": ["Internet", "Telecomunicaciones", "Multimedia", "Entretenimiento"],
 }
 
-const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia"]
+const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia", "Singapur"]
 
 // ── Elementos decorativos ─────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
