@@ -165,7 +165,7 @@ export default function HomePage() {
   const cached = localStorage.getItem('sp500')
   if (cached) {
     const parsed = JSON.parse(cached).map((d: any) => ({
-      date:  new Date(d.date + 'T00:00:00'),  // re-parsear como local, no UTC
+      date: new Date(d.date),
       close: Number(d.close),
     }))
     setSp500Data(parsed)
@@ -204,7 +204,11 @@ export default function HomePage() {
 
     const cached = localStorage.getItem('sp500')
     if (cached) {
-      setSp500Data(JSON.parse(cached))
+      const parsed = JSON.parse(cached).map((d: any) => ({
+        date: new Date(d.date),
+        close: Number(d.close),
+      }))
+      setSp500Data(parsed)
     }
   }
 }
@@ -321,21 +325,42 @@ export default function HomePage() {
     if (!compChartAll.length) return []
     const cutoff = periodCutoff(period)
     const data = compChartAll.filter(row => row.date >= cutoff)
+    const spDataSortedDesc = [...sp500Data]
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
     if (!data.length) return []
 
     const spInPeriod = sp500Data.filter(d => d.date >= cutoff)
-    const spBasePrice = spInPeriod.length
-  ? spInPeriod[0].close
-  : sp500Data.length
-    ? sp500Data[0].close
-    : null
+    const spBaseMatch = [...sp500Data]
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .find(d => d.date <= cutoff)
 
-    if (!spBasePrice) return data.map(row => ({
-  label: row.label,
-}))
+    const spBasePrice = spBaseMatch
+      ? spBaseMatch.close
+      : spInPeriod.length
+      ? spInPeriod[0].close
+      : sp500Data.length
+      ? sp500Data[0].close
+      : null
+
+   if (!spBasePrice) {
+  return data.map(row => {
+    const point: any = {
+      label: row.label,
+      'S&P 500': 0
+    }
+
+    portfolios.forEach(p => {
+      const firstVal = data[0][p.name] || 0
+      const currentVal = row[p.name] || 0
+      point[p.name] = firstVal === 0 ? 0 : ((currentVal - firstVal) / firstVal) * 100
+    })
+
+    return point
+  })
+}
 
     return data.map(row => {
-      const spMatch = sp500Data.findLast(d => d.date <= row.date)
+      const spMatch = spDataSortedDesc.find(d => d.date <= row.date)
       const currentPrice = spMatch ? spMatch.close : spBasePrice
       const point: any = {
         label: period === '5Y' || period === 'MAX' ? row.labelFull : row.label,
@@ -344,7 +369,7 @@ export default function HomePage() {
       portfolios.forEach(p => {
         const firstVal = data[0][p.name] || 0
         const currentVal = row[p.name] || 0
-        point[p.name] = firstVal <= 0 ? 0 : parseFloat((((currentVal - firstVal) / firstVal) * 100).toFixed(2))
+        point[p.name] = firstVal === 0 ? 0 : parseFloat((((currentVal - firstVal) / firstVal) * 100).toFixed(2))
       })
       return point
     })
