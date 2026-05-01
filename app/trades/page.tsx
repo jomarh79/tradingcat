@@ -28,7 +28,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Servicios de comunicación": ["Internet", "Telecomunicaciones", "Multimedia", "Entretenimiento"],
 }
 
-const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia", "Singapur"]
+const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia", "Singapur", "Paises Bajos"]
 
 // ── Elementos decorativos ─────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
