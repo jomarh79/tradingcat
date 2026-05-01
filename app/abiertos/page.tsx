@@ -45,7 +45,6 @@ export default function TradesAbiertosPage() {
   const [selectedTrade,     setSelectedTrade]     = useState<any | null>(null)
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
-  const [watchlistRSI,      setWatchlistRSI]      = useState<Record<string, number | null>>({})
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
@@ -77,18 +76,7 @@ export default function TradesAbiertosPage() {
   }, [])
 
   // ── RSI desde watchlist (ya calculado por el cron update-ia) ─────────────
-  const fetchWatchlistRSI = useCallback(async () => {
-    const { data } = await supabase.from('watchlist').select('ticker, rsi')
-    if (data) {
-      const map: Record<string, number | null> = {}
-      data.forEach((w: any) => {
-        const rsi = Number(w.rsi)
-        map[w.ticker] = isFinite(rsi) && rsi >= 0 && rsi <= 100 ? rsi : null
-      })
-      setWatchlistRSI(map)
-    }
-  }, [])
-
+  
   const fetchTrades = useCallback(async () => {
     if (isRefreshing) return
     setIsRefreshing(true)
@@ -110,8 +98,7 @@ export default function TradesAbiertosPage() {
   useEffect(() => {
     fetchTrades()
     fetchPortfolios()
-    fetchWatchlistRSI()
-  }, [])
+    }, [])
 
   const toggleTarget = (id: string) =>
     setCheckedTargets(prev => ({ ...prev, [id]: !prev[id] }))
@@ -152,7 +139,7 @@ export default function TradesAbiertosPage() {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-      const rsi      = watchlistRSI[trade.ticker] ?? null
+      const rsi = trade.rsi ?? null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
@@ -258,7 +245,7 @@ export default function TradesAbiertosPage() {
                 </span>
               </div>
               <button
-                onClick={() => { fetchTrades(); fetchWatchlistRSI() }}
+                onClick={() => { fetchTrades()}}
                 disabled={isRefreshing}
                 style={refreshBtn(isRefreshing)}>
                 <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
@@ -345,7 +332,7 @@ export default function TradesAbiertosPage() {
                     {/* Fecha */}
                     <td style={{ ...tdStyle, color: '#555', fontSize: '0.65rem' }}>
                       {trade.open_date
-                        ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
+                        ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit'})
                         : '—'}
                     </td>
 

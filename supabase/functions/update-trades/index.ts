@@ -72,6 +72,18 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
     const res    = await fetch(`${SUPABASE_URL}/rest/v1/trades?status=eq.open`, { headers });
     const trades = await res.json();
 
+    // ── Traer RSI desde watchlist ───────────────────────────
+    const wlRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/watchlist?select=ticker,rsi`,
+      { headers }
+    );
+    const wlData = await wlRes.json();
+
+    const rsiMap: Record<string, number> = {};
+    for (const w of wlData) {
+      rsiMap[w.ticker] = w.rsi;
+    }
+
     if (!Array.isArray(trades) || trades.length === 0) {
       return new Response("Sin trades abiertos", { headers: CORS });
     }
@@ -80,30 +92,33 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
 
     for (const trade of trades) {
       try {
-        const quoteRes = await fetch(
-          `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`
-        );
-        const quote = await quoteRes.json();
+       // ── Traer histórico para RSI ─────────────────────────────
 
-        let price = 0;
+// ── Traer precio actual ─────────────────────────────────
+const quoteRes = await fetch(
+  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`
+);
+const quote = await quoteRes.json();
+
+let price = 0;
 
 if (quote?.c && quote.c > 0) {
-  price = quote.c; // precio en tiempo real
+  price = quote.c;
 } else if (quote?.pc && quote.pc > 0) {
-  price = quote.pc; // fallback a cierre anterior
+  price = quote.pc;
 } else {
   skipped++;
   continue;
 }
 
-        
-        const change = typeof quote.dp === "number" ? quote.dp : 0;
+const change = typeof quote.dp === "number" ? quote.dp : 0;
+const rsi = rsiMap[trade.ticker] ?? null;
 
         const updateData: Record<string, any> = {
           last_price: parseFloat(price.toFixed(4)),
           day_change: parseFloat(change.toFixed(2)),
+          rsi: rsi,
         };
-
         // ── Alertas — 1 vez por día por trade ─────────────────────────
         const alreadyAlerted = (trade.last_trade_alert_date ?? "") === todayStr;
 
@@ -163,3 +178,4 @@ async function sendAlert(payload: Record<string, any>): Promise<void> {
     });
   } catch { /* silencioso */ }
 }
+

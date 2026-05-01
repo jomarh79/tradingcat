@@ -35,9 +35,12 @@ serve(async (req) => {
 const day  = mexicoTime.getDay()
 const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
+
 const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
 
-if (!isMarketOpen) {
+(globalThis as any).isMarketOpen = isMarketOpen;
+
+if (isCron && !isMarketOpen) {
   return new Response("Mercado cerrado", { headers: CORS })
 }
 
@@ -148,13 +151,13 @@ if (!isMarketOpen) {
 
         // ── Alerta zona ±2% ────────────────────────────────────────────
         const inZone = Math.abs((price - item.buy_target) / item.buy_target) <= 0.02;
-        if (inZone && item.last_alert_date !== todayStr) {
+        if (isMarketOpen && inZone && item.last_alert_date !== todayStr) {
           await sendAlert({ ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target, type: "🟢 POSIBLE ENTRADA" });
           updateData.last_alert_date = todayStr;
         }
 
         // ── Alerta IA ─────────────────────────────────────────────────
-        if (probability > 80 && item.last_ai_alert_date !== todayStr) {
+        if (isMarketOpen && probability > 80 && item.last_ai_alert_date !== todayStr) {
           await sendAlert({
             ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target,
             rsi: rsi.toFixed(2), type: `🤖 IA ${signal} (${probability.toFixed(0)}%)`,
