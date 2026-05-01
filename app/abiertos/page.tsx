@@ -29,7 +29,7 @@ const Paw = ({ size = 14, color = '#333', opacity = 1 }: any) => (
   </svg>
 )
 
-// RSI color — mismo criterio que watchlist
+// RSI color
 const rsiColor = (rsi: number | null) => {
   if (rsi === null || rsi === undefined) return '#444'
   if (rsi < 30) return '#22c55e'   // sobrevendido
@@ -153,7 +153,7 @@ export default function TradesAbiertosPage() {
       ...item,
       portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
     }))
-  }, [trades, selectedPortfolio, watchlistRSI])
+  }, [trades, selectedPortfolio])
 
   const totals = useMemo(() => {
     const totalInvested = enrichedTrades.reduce((a, t) => a + t.invested, 0)
@@ -347,7 +347,7 @@ export default function TradesAbiertosPage() {
                       {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
                     </td>
 
-                    {/* RSI — leído de watchlist, validado 0-100 */}
+                    {/* RSI */}
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: rsiColor(trade.rsi) }}>
                       {trade.rsi !== null && trade.rsi !== undefined
                         ? trade.rsi.toFixed(1)
@@ -423,7 +423,7 @@ export default function TradesAbiertosPage() {
 
         <div style={{ marginTop: 8, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
           <Paw size={9} color="#333" opacity={0.4} />
-          RSI leído desde Watchlist · precios desde Finnhub vía cron · actualiza cada 5min en horario de mercado
+          RSI y precios desde cron · actualiza cada 5min en horario de mercado
         </div>
       </div>
 
