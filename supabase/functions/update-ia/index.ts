@@ -55,9 +55,9 @@ if (!isMarketOpen && !singleTicker) {
 }
 
   // Si no es cron ni viene de Supabase anon key, rechazar
-  if (!isCron && !req.headers.get("apikey")) {
-  return new Response("Unauthorized", { status: 401, headers: CORS });
-}
+  //if (!isCron && !req.headers.get("apikey")) {
+  //return new Response("Unauthorized", { status: 401, headers: CORS });
+  //}
 
 
 

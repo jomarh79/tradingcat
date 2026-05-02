@@ -46,6 +46,7 @@ export default function TradesAbiertosPage() {
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
+  const [tickerFilter, setTickerFilter] = useState("all")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime,       setCurrentTime]       = useState(new Date())
@@ -75,15 +76,17 @@ export default function TradesAbiertosPage() {
     if (data) setPortfolios(data)
   }, [])
 
-  // ── RSI desde watchlist (ya calculado por el cron update-ia) ─────────────
-  
   const fetchTrades = useCallback(async () => {
     if (isRefreshing) return
     setIsRefreshing(true)
     try {
       const { data, error } = await supabase
         .from("trades")
-        .select("*, portfolios(name, id)")
+        .select(`
+          *,
+          portfolios(name, id),
+          watchlist(rsi)
+        `)
         .eq("status", "open")
       if (error) throw error
       if (data) setTrades(data)
@@ -117,10 +120,21 @@ export default function TradesAbiertosPage() {
     fetchTrades()
   }
 
+  const uniqueTickers = useMemo(() => {
+  const set = new Set(trades.map(t => t.ticker))
+  return ["all", ...Array.from(set).sort()]
+}, [trades])
+
   const enrichedTrades = useMemo(() => {
-    const filtered = selectedPortfolio === "all"
-      ? trades
-      : trades.filter(t => t.portfolios?.id === selectedPortfolio)
+ let filtered = trades
+
+if (selectedPortfolio !== "all") {
+  filtered = filtered.filter(t => t.portfolios?.id === selectedPortfolio)
+}
+
+if (tickerFilter !== "all") {
+  filtered = filtered.filter(t => t.ticker === tickerFilter)
+}
 
     const items = filtered.map(trade => {
       const qty      = parseFloat(Number(trade.quantity      || 0).toFixed(6))
@@ -139,7 +153,7 @@ export default function TradesAbiertosPage() {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-      const rsi = trade.rsi ?? null
+      const rsi = trade.watchlist?.rsi ?? null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
@@ -253,6 +267,28 @@ export default function TradesAbiertosPage() {
               </button>
             </div>
           </div>
+        </div>
+        {/* ── FILTRO TICKER ── */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
+          {uniqueTickers.map(t => (
+            <button
+              key={t}
+              onClick={() => setTickerFilter(t)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 4,
+                border: 'none',
+                cursor: 'pointer',
+                background: tickerFilter === t ? '#00bfff' : 'transparent',
+                color: tickerFilter === t ? '#000' : '#888',
+                fontSize: 10,
+                fontWeight: 'bold',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t}
+            </button>
+          ))}
         </div>
 
         {/* ── TABS PORTAFOLIOS ── */}
@@ -371,7 +407,7 @@ export default function TradesAbiertosPage() {
                     <td style={tdStyle}>{shares(trade.quantity)}</td>
 
                     {/* Avg */}
-                    <td style={{ ...tdStyle, color: '#666' }}>{money(trade.avgPrice)}</td>
+                    <td style={{ ...tdStyle, color: '#fbbf24'}}>{money(trade.avgPrice)}</td>
 
                     {/* Invertido */}
                     <td style={{ ...tdStyle, fontWeight: 'bold' }}>{money(trade.invested)}</td>

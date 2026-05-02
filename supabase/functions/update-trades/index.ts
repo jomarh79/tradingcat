@@ -49,9 +49,9 @@ const day = dayMap[dayStr || ""] ?? 0;
  const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15;
  (globalThis as any).isMarketOpen = isMarketOpen;
 
-if (isCron && !isMarketOpen) {
-  return new Response("Mercado cerrado (cron bloqueado)", { headers: CORS });
-}
+//if (isCron && !isMarketOpen) {
+//  return new Response("Mercado cerrado (cron bloqueado)", { headers: CORS });
+//}
 
 const todayStr = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Mexico_City",
