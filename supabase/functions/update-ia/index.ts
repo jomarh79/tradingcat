@@ -50,7 +50,7 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
     }
   } catch { /* sin body está bien */ }
 
-if (!isMarketOpen && !singleTicker) {
+if (!isMarketOpen && !singleTicker && !isCron) {
   return new Response("Mercado cerrado", { headers: CORS })
 }
 
