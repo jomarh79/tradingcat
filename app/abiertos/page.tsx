@@ -47,6 +47,7 @@ export default function TradesAbiertosPage() {
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
   const [tickerFilter, setTickerFilter] = useState("all")
+  const [tickerSearch, setTickerSearch] = useState("")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime,       setCurrentTime]       = useState(new Date())
@@ -128,10 +129,11 @@ if (selectedPortfolio !== "all") {
   filtered = filtered.filter(t => t.portfolios?.id === selectedPortfolio)
 }
 
-if (tickerFilter !== "all") {
-  filtered = filtered.filter(t => t.ticker === tickerFilter)
+if (tickerSearch.trim() !== "") {
+  filtered = filtered.filter(t =>
+    t.ticker.toLowerCase().includes(tickerSearch.toLowerCase())
+  )
 }
-
     const items = filtered.map(trade => {
       const qty      = parseFloat(Number(trade.quantity      || 0).toFixed(6))
       const invested = parseFloat(Number(trade.total_invested || 0).toFixed(2))
@@ -264,28 +266,24 @@ if (tickerFilter !== "all") {
             </div>
           </div>
         </div>
-        {/* ── FILTRO TICKER ── */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
-          {uniqueTickers.map(t => (
-            <button
-              key={t}
-              onClick={() => setTickerFilter(t)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 4,
-                border: 'none',
-                cursor: 'pointer',
-                background: tickerFilter === t ? '#00bfff' : 'transparent',
-                color: tickerFilter === t ? '#000' : '#888',
-                fontSize: 10,
-                fontWeight: 'bold',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+
+        <input
+          type="text"
+          placeholder="Buscar ticker (ej: AAPL)"
+          value={tickerSearch}
+          onChange={(e) => setTickerSearch(e.target.value.toUpperCase())}
+          style={{
+            width: '200px',
+            padding: '6px 10px',
+            marginBottom: 10,
+            borderRadius: 6,
+            border: '1px solid #222',
+            background: '#0a0a0a',
+            color: '#fff',
+            fontSize: 11,
+            fontWeight: 'bold'
+          }}
+        />
 
         {/* ── TABS PORTAFOLIOS ── */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto' }}>
