@@ -46,9 +46,12 @@ const dayMap: Record<string, number> = {
 const day = dayMap[dayStr || ""] ?? 0;
 
 // 👇 ESTE lo puedes activar/desactivar para pruebas
- if (day < 1 || day > 5 || time < 8.05 || time >= 15) {
-   return new Response("Mercado cerrado", { headers: CORS });
- }
+ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15;
+ (globalThis as any).isMarketOpen = isMarketOpen;
+
+if (isCron && !isMarketOpen) {
+  return new Response("Mercado cerrado (cron bloqueado)", { headers: CORS });
+}
 
 const todayStr = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Mexico_City",
@@ -92,7 +95,6 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
 
     for (const trade of trades) {
       try {
-       // ── Traer histórico para RSI ─────────────────────────────
 
 // ── Traer precio actual ─────────────────────────────────
 const quoteRes = await fetch(
@@ -122,7 +124,7 @@ const rsi = rsiMap[trade.ticker] ?? null;
         // ── Alertas — 1 vez por día por trade ─────────────────────────
         const alreadyAlerted = (trade.last_trade_alert_date ?? "") === todayStr;
 
-        if (!alreadyAlerted) {
+        if (!alreadyAlerted && isMarketOpen) {
           let alertMsg    = "";
           let alertTarget = 0;
 
@@ -170,8 +172,10 @@ const rsi = rsiMap[trade.ticker] ?? null;
 });
 
 async function sendAlert(payload: Record<string, any>): Promise<void> {
+  if (!(globalThis as any).isMarketOpen) return;
+
   try {
-    await fetch("https://tradingcat.onrender.com/api/notify", {
+      await fetch("https://tradingcat.onrender.com/api/notify", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(payload),

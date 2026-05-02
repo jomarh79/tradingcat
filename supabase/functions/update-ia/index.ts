@@ -40,15 +40,6 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
 
 (globalThis as any).isMarketOpen = isMarketOpen;
 
-if (isCron && !isMarketOpen) {
-  return new Response("Mercado cerrado", { headers: CORS })
-}
-
-  // Si no es cron ni viene de Supabase anon key, rechazar
-  if (!isCron && !req.headers.get("apikey")) {
-  return new Response("Unauthorized", { status: 401, headers: CORS });
-}
-
   // ── Ticker específico (cuando se agrega uno nuevo desde el frontend) ──────
   // Body opcional: { ticker: "AAPL" } para procesar solo ese ticker
   let singleTicker: string | null = null;
@@ -58,6 +49,17 @@ if (isCron && !isMarketOpen) {
       if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
     }
   } catch { /* sin body está bien */ }
+
+if (!isMarketOpen && !singleTicker) {
+  return new Response("Mercado cerrado", { headers: CORS })
+}
+
+  // Si no es cron ni viene de Supabase anon key, rechazar
+  if (!isCron && !req.headers.get("apikey")) {
+  return new Response("Unauthorized", { status: 401, headers: CORS });
+}
+
+
 
   // ── Fecha México ──────────────────────────────────────────────────────────
   const todayStr = new Intl.DateTimeFormat("en-CA", {
@@ -203,6 +205,8 @@ if (isCron && !isMarketOpen) {
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendAlert(payload: Record<string, any>) {
+  if (!(globalThis as any).isMarketOpen) return;
+
   try {
     await fetch("https://tradingcat.onrender.com/api/notify", {
       method: "POST",
