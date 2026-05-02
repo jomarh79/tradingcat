@@ -257,7 +257,17 @@ if (tickerSearch.trim() !== "") {
                 </span>
               </div>
               <button
-                onClick={() => { fetchTrades()}}
+                onClick={async () => {
+  await fetch("https://TU_PROYECTO.supabase.co/functions/v1/update-ia", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer tradingcat-cron-2026"
+    }
+  })
+
+  fetchTrades()
+}}
                 disabled={isRefreshing}
                 style={refreshBtn(isRefreshing)}>
                 <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
