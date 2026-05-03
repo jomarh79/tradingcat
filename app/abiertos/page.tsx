@@ -100,6 +100,28 @@ export default function TradesAbiertosPage() {
     fetchPortfolios()
     }, [])
 
+  useEffect(() => {
+  const syncTradesToWatchlist = async () => {
+    const { data: openTrades } = await supabase
+      .from("trades")
+      .select("ticker")
+      .eq("status", "open")
+
+    if (!openTrades) return
+
+    for (const t of openTrades) {
+      await supabase
+        .from("watchlist")
+        .upsert(
+          { ticker: t.ticker, buy_target: 0 },
+          { onConflict: "ticker" }
+        )
+    }
+  }
+
+  syncTradesToWatchlist()
+}, [])
+
   const toggleTarget = (id: string) =>
     setCheckedTargets(prev => ({ ...prev, [id]: !prev[id] }))
 
@@ -257,17 +279,7 @@ if (tickerSearch.trim() !== "") {
                 </span>
               </div>
               <button
-                onClick={async () => {
-  await fetch("https://TU_PROYECTO.supabase.co/functions/v1/update-ia", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer tradingcat-cron-2026"
-    }
-  })
-
-  fetchTrades()
-}}
+                onClick={() => { fetchTrades()}}
                 disabled={isRefreshing}
                 style={refreshBtn(isRefreshing)}>
                 <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
@@ -276,7 +288,7 @@ if (tickerSearch.trim() !== "") {
             </div>
           </div>
         </div>
-
+        
         <input
           type="text"
           placeholder="Buscar ticker (ej: AAPL)"
