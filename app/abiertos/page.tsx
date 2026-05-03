@@ -39,8 +39,6 @@ const rsiColor = (rsi: number | null) => {
   return '#666'                    // neutro — gris oscuro
 }
 
-const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>({})
-
 export default function TradesAbiertosPage() {
   const { money, shares } = usePrivacy()
 
@@ -52,7 +50,8 @@ export default function TradesAbiertosPage() {
   const [tickerSearch, setTickerSearch] = useState("")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
-  const [currentTime,       setCurrentTime]       = useState(new Date())
+  const [currentTime, setCurrentTime] = useState(new Date())
+const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>({})
 
   const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
