@@ -39,6 +39,8 @@ const rsiColor = (rsi: number | null) => {
   return '#666'                    // neutro — gris oscuro
 }
 
+const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>({})
+
 export default function TradesAbiertosPage() {
   const { money, shares } = usePrivacy()
 
@@ -77,7 +79,19 @@ export default function TradesAbiertosPage() {
     if (data) setPortfolios(data)
   }, [])
 
-  const fetchTrades = useCallback(async () => {
+  const fetchWatchlistRSI = useCallback(async () => {
+  const { data } = await supabase.from('watchlist').select('ticker, rsi')
+  if (data) {
+    const map: Record<string, number | null> = {}
+    data.forEach((w: any) => {
+      const rsi = Number(w.rsi)
+      map[w.ticker] = isFinite(rsi) && rsi >= 0 && rsi <= 100 ? rsi : null
+    })
+    setWatchlistRSI(map)
+  }
+}, [])
+
+    const fetchTrades = useCallback(async () => {
     if (isRefreshing) return
     setIsRefreshing(true)
     try {
@@ -96,10 +110,10 @@ export default function TradesAbiertosPage() {
   }, [isRefreshing])
 
   useEffect(() => {
-    fetchTrades()
-    fetchPortfolios()
-    }, [])
-
+  fetchTrades()
+  fetchPortfolios()
+  fetchWatchlistRSI()   
+}, [])
   useEffect(() => {
   const syncTradesToWatchlist = async () => {
     const { data: openTrades } = await supabase
@@ -173,7 +187,7 @@ if (tickerSearch.trim() !== "") {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-      const rsi = trade.rsi ?? null
+      const rsi = watchlistRSI[trade.ticker] ?? null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
@@ -279,7 +293,7 @@ if (tickerSearch.trim() !== "") {
                 </span>
               </div>
               <button
-                onClick={() => { fetchTrades()}}
+                onClick={() => { fetchTrades(); fetchWatchlistRSI() }}
                 disabled={isRefreshing}
                 style={refreshBtn(isRefreshing)}>
                 <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
@@ -289,32 +303,33 @@ if (tickerSearch.trim() !== "") {
           </div>
         </div>
         
-        <input
-          type="text"
-          placeholder="Buscar ticker (ej: AAPL)"
-          value={tickerSearch}
-          onChange={(e) => setTickerSearch(e.target.value.toUpperCase())}
-          style={{
-            width: '200px',
-            padding: '6px 10px',
-            marginBottom: 10,
-            borderRadius: 6,
-            border: '1px solid #222',
-            background: '#0a0a0a',
-            color: '#fff',
-            fontSize: 11,
-            fontWeight: 'bold'
-          }}
-        />
 
         {/* ── TABS PORTAFOLIOS ── */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto' }}>
-          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto', alignItems: 'center' }}>
+            {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
             <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
               style={portfolioTab(selectedPortfolio === p.id)}>
               {p.name}
             </button>
           ))}
+          <input
+            type="text"
+            placeholder="🔍 Buscar ticker..."
+            value={tickerSearch}
+            onChange={e => setTickerSearch(e.target.value.toUpperCase())}
+            style={{
+              marginLeft: 'auto',
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid #222',
+              background: '#0a0a0a',
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+              width: 160,
+              outline: 'none',
+            }}
+          />
         </div>
 
         {/* ── TABLA ── */}
