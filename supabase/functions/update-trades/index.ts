@@ -116,11 +116,20 @@ if (quote?.c && quote.c > 0) {
 const change = typeof quote.dp === "number" ? quote.dp : 0;
 const rsi = rsiMap[trade.ticker] ?? null;
 
-        const updateData: Record<string, any> = {
-          last_price: parseFloat(price.toFixed(4)),
-          day_change: parseFloat(change.toFixed(2)),
-          rsi: rsi,
-        };
+        // Leer RSI desde watchlist para este ticker
+const wlRes = await fetch(
+  `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${trade.ticker}&select=rsi`,
+  { headers }
+)
+const wlData = await wlRes.json()
+const wlRsi  = wlData?.[0]?.rsi ? parseFloat(wlData[0].rsi) : null
+const validRsi = wlRsi !== null && isFinite(wlRsi) && wlRsi >= 0 && wlRsi <= 100 ? wlRsi : null
+
+const updateData: Record<string, any> = {
+  last_price: parseFloat(price.toFixed(4)),
+  day_change: parseFloat(change.toFixed(2)),
+  ...(validRsi !== null ? { rsi: validRsi } : {}),
+}
         // ── Alertas — 1 vez por día por trade ─────────────────────────
         const alreadyAlerted = (trade.last_trade_alert_date ?? "") === todayStr;
 
