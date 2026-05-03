@@ -118,7 +118,7 @@ const change = typeof quote.dp === "number" ? quote.dp : 0;
 const updateData: Record<string, any> = {
   last_price: parseFloat(price.toFixed(4)),
   day_change: parseFloat(change.toFixed(2)),
-  rsi,
+  rsi: rsiMap[trade.ticker] ?? null,
 };
 
         // ── Alertas — 1 vez por día por trade ─────────────────────────
