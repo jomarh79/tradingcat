@@ -168,9 +168,11 @@ if (!isMarketOpen && !singleTicker && !isCron) {
         }
 
         // ── Guardar en Supabase ────────────────────────────────────────
-        await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
-          method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
-        });
+        // También actualizar RSI en trades abiertos con este ticker
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
+          { method: "PATCH", headers: dbHeaders, body: JSON.stringify({ rsi: parseFloat(rsi.toFixed(2)) }) }
+        );
 
         processed++;
 
