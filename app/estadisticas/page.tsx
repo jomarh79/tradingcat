@@ -65,6 +65,7 @@ export default function EstadisticasAbiertosPage() {
     if (!filteredTrades.length) return null
 
     const totalInvested = filteredTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
+    const totalCurrent = filteredTrades.reduce((acc, t) => acc + Number(t.current_value || t.total_invested || 0), 0)
 
     // Horizonte
     const horizonStats = { long: 0, mid: 0, short: 0 }
@@ -109,10 +110,15 @@ export default function EstadisticasAbiertosPage() {
     const topPositions = [...filteredTrades].sort((a, b) => b.total_invested - a.total_invested).slice(0, 5)
 
     // Top 5 mayores ganancias y pérdidas (por realized_pnl)
-    const withPnl     = filteredTrades.filter(t => t.realized_pnl != null)
-    const topGains    = [...withPnl].sort((a, b) => Number(b.realized_pnl) - Number(a.realized_pnl)).slice(0, 5)
-    const topLosses   = [...withPnl].sort((a, b) => Number(a.realized_pnl) - Number(b.realized_pnl)).slice(0, 5)
+    const withPnl = filteredTrades.map(t => {
+      const invested = Number(t.total_invested || 0)
+      const current  = Number(t.current_value || invested)
+      const pnl      = current - invested
+      return { ...t, pnl }
+    })
 
+    const topGains  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
+    const topLosses = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
     // Duración promedio
     const now = new Date()
     const avgDuration = filteredTrades.reduce((acc, t) =>
@@ -130,7 +136,9 @@ export default function EstadisticasAbiertosPage() {
       : 0
 
     return {
-      totalInvested, totalCount: filteredTrades.length,
+      totalInvested,
+      totalCurrent,   // 👈 EXACTO aquí
+      totalCount: filteredTrades.length,
       horizonStats, sectorGroups, countryGroups,
       topPositions, topGains, topLosses,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
@@ -180,7 +188,11 @@ export default function EstadisticasAbiertosPage() {
 
             {/* ── KPIs PRINCIPALES ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <StatCard label="Capital expuesto"        value={money(stats.totalInvested)} color="#00bfff" />
+              <StatCard 
+                label="Capital expuesto / actual" 
+                value={`${money(stats.totalInvested)} / ${money(stats.totalCurrent)}`} 
+                color="#00bfff" 
+              />
               <StatCard label="Posiciones abiertas"     value={String(stats.totalCount)}   color="#fff" />
               <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
                 desc="Tiempo promedio en posición" />
@@ -228,7 +240,7 @@ export default function EstadisticasAbiertosPage() {
                   <Paw size={10} color="#22c55e" opacity={0.6} style={{ marginRight: 6 }} />
                   Top 5 mayores ganancias
                 </div>
-                {stats.topGains.filter(t => Number(t.realized_pnl) > 0).length === 0 ? (
+                {stats.topGains.filter(t => t.pnl > 0).length === 0 ? (
                   <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Paw size={12} color="#333" opacity={0.5} />
                     Sin ganancias realizadas aún
@@ -239,14 +251,14 @@ export default function EstadisticasAbiertosPage() {
                       {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
                     </tr></thead>
                     <tbody>
-                      {stats.topGains.filter(t => Number(t.realized_pnl) > 0).map((t, i) => (
+                      {stats.topGains.filter(t => t.pnl > 0).map((t, i) => (
                         <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
                           <td style={td}><span style={{ color: '#22c55e', fontWeight: 700 }}>{t.ticker}</span></td>
                           <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>
-                            +{money(Number(t.realized_pnl))}
+                            +{money(t.pnl)}
                           </td>
                           <td style={{ ...td, textAlign: 'right', color: '#888' }}>
-                            {t.total_invested > 0 ? `+${(Number(t.realized_pnl) / t.total_invested * 100).toFixed(1)}%` : '—'}
+                            {t.total_invested > 0 ? `+${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
                           </td>
                         </tr>
                       ))}
@@ -264,7 +276,7 @@ export default function EstadisticasAbiertosPage() {
                   <Paw size={10} color="#f43f5e" opacity={0.6} style={{ marginRight: 6 }} />
                   Top 5 mayores pérdidas
                 </div>
-                {stats.topLosses.filter(t => Number(t.realized_pnl) < 0).length === 0 ? (
+                {stats.topLosses.filter(t => t.pnl < 0).length === 0 ? (
                   <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Paw size={12} color="#333" opacity={0.5} />
                     Sin pérdidas realizadas
@@ -275,14 +287,14 @@ export default function EstadisticasAbiertosPage() {
                       {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
                     </tr></thead>
                     <tbody>
-                      {stats.topLosses.filter(t => Number(t.realized_pnl) < 0).map((t, i) => (
+                      {stats.topLosses.filter(t => t.pnl < 0).map((t, i) => (
                         <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
                           <td style={td}><span style={{ color: '#f43f5e', fontWeight: 700 }}>{t.ticker}</span></td>
                           <td style={{ ...td, textAlign: 'right', color: '#f43f5e', fontWeight: 700 }}>
-                            {money(Number(t.realized_pnl))}
+                            {money(t.pnl)}
                           </td>
                           <td style={{ ...td, textAlign: 'right', color: '#888' }}>
-                            {t.total_invested > 0 ? `${(Number(t.realized_pnl) / t.total_invested * 100).toFixed(1)}%` : '—'}
+                            {t.total_invested > 0 ? `${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
                           </td>
                         </tr>
                       ))}
