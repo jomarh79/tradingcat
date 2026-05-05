@@ -122,7 +122,7 @@ export default function WatchlistIAPage() {
   const [newNotes,   setNewNotes]   = useState('')
 
   const [sortField, setSortField] = useState<SortField>('distancia')
-  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
+  const [sortDir,   setSortDir]   = useState<'desc' | 'desc'>('desc')
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
