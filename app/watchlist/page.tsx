@@ -130,7 +130,10 @@ export default function WatchlistIAPage() {
 
   const fetchList = useCallback(async (): Promise<WatchItem[]> => {
     const { data, error } = await supabase
-      .from('watchlist').select('*').order('ai_probability', { ascending: false })
+  .from('watchlist')
+  .select('*')
+  .gt('buy_target', 0) // 👈 SOLO LOS QUE TU AGREGAS
+  .order('ai_probability', { ascending: false })
     if (error) { console.error(error); return [] }
     return (data as WatchItem[]) || []
   }, [])
