@@ -122,7 +122,7 @@ export default function WatchlistIAPage() {
   const [newNotes,   setNewNotes]   = useState('')
 
   const [sortField, setSortField] = useState<SortField>('distancia')
-  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
@@ -188,8 +188,23 @@ export default function WatchlistIAPage() {
     setAddingNew(true)
     triggerIA(ticker).then(async () => {
       // Esperar que termine (aprox 10s por el rate limit) y refrescar
-      await new Promise(r => setTimeout(r, 12000))
-      await init()
+      let attempts = 0
+const maxAttempts = 10
+
+const interval = setInterval(async () => {
+  const updated = await fetchList()
+
+  const found = updated.find(i => i.ticker === ticker && i.current_price !== null)
+
+  if (found || attempts >= maxAttempts) {
+    clearInterval(interval)
+    setList(updated)
+    setAddingNew(false)
+  }
+
+  attempts++
+}, 3000)
+
       setAddingNew(false)
     }).catch(() => setAddingNew(false))
   }
