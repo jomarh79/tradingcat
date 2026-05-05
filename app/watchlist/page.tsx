@@ -54,7 +54,7 @@ const CatTail = ({ color = '#00bfff', opacity = 0.07 }: any) => (
   </svg>
 )
 
-type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'distancia' | 'analyst_target' | 'vsAnalyst' | 'ai_probability' | 'rsi'
+type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'distancia' | 'analyst_target' | 'vsAnalyst' | 'ai_probability' | 'rsi' | 'notes'
 
 interface WatchItem {
   id:                 number
@@ -121,8 +121,8 @@ export default function WatchlistIAPage() {
   const [newAnalyst, setNewAnalyst] = useState('')
   const [newNotes,   setNewNotes]   = useState('')
 
-  const [sortField,   setSortField]  = useState<SortField>('ai_probability')
-  const [sortDir,     setSortDir]    = useState<'asc' | 'desc'>('desc')
+  const [sortField, setSortField] = useState<SortField>('distancia')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
@@ -231,30 +231,30 @@ export default function WatchlistIAPage() {
       )
     }
     return [...filtered].sort((a, b) => {
-  // 🧠 prioridad por señal IA
-  const getPriority = (p: number | null) => {
-    if (p === null || p === undefined) return 4
-    if (p >= 80) return 1
-    if (p >= 65) return 2
-    if (p >= 50) return 3
-    return 4
-  }
-
-  // Solo aplicar prioridad en modo tarjetas
+  // En tarjetas: prioridad por señal IA
   if (view === 'cards') {
+    const getPriority = (p: number | null) => {
+      if (p === null || p === undefined) return 4
+      if (p >= 80) return 1
+      if (p >= 65) return 2
+      if (p >= 50) return 3
+      return 4
+    }
     const pa = getPriority(a.ai_probability)
     const pb = getPriority(b.ai_probability)
-
     if (pa !== pb) return pa - pb
   }
 
-  // orden normal (tabla o empate)
+  // En zona siempre primero cuando se ordena por distancia
+  if (sortField === 'distancia') {
+    if (a.inZone && !b.inZone) return -1
+    if (!a.inZone && b.inZone) return 1
+  }
+
   let av: any = a[sortField] ?? 0
   let bv: any = b[sortField] ?? 0
-
   if (typeof av === 'string') av = av.toLowerCase()
   if (typeof bv === 'string') bv = bv.toLowerCase()
-
   if (av < bv) return sortDir === 'asc' ? -1 : 1
   if (av > bv) return sortDir === 'asc' ? 1 : -1
   return 0
@@ -454,8 +454,7 @@ export default function WatchlistIAPage() {
                     ['vsAnalyst',     'Vs analistas'],
                     ['ai_probability','IA señal'],
                     ['rsi',           'RSI'],
-                    [null,            'Notas'],
-                    [null,            'Actualizado'],
+                    ['notes',         'Notas'],
                     [null,            ''],
                   ] as [string | null, string][]).map(([field, label], idx) => (
                     <th key={idx}
