@@ -140,6 +140,11 @@ export default function GraficosAbiertosPage() {
     if (!trades.length) return null
 
     const totalInvested = trades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
+    const totalActual = trades.reduce((acc, t) => {
+      const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      return acc + qty * cur
+    }, 0)
 
     // Capital por sector
     const sectorMap: Record<string, number> = {}
@@ -175,7 +180,7 @@ export default function GraficosAbiertosPage() {
       { name: 'Largo plazo',         value: parseFloat(long.toFixed(2)),  pct: parseFloat((long  / totalInvested * 100).toFixed(1)), color: C.success },
       { name: 'Mediano plazo',       value: parseFloat(mid.toFixed(2)),   pct: parseFloat((mid   / totalInvested * 100).toFixed(1)), color: C.warning },
       { name: 'Corto/Especulativo',  value: parseFloat(short.toFixed(2)), pct: parseFloat((short / totalInvested * 100).toFixed(1)), color: C.danger  },
-    ].filter(h => h.value > 0)
+    ]
 
     // PnL mensual
     const monthlyMap: Record<string, number> = {}
@@ -252,7 +257,13 @@ export default function GraficosAbiertosPage() {
       }
     })
 
-    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, drawdownData, vsData, totalInvested }
+const sorted = [...trades].sort((a, b) => Number(b.realized_pnl || 0) - Number(a.realized_pnl || 0))
+    const top5Gains  = sorted.filter(t => Number(t.realized_pnl || 0) > 0).slice(0, 5)
+      .map(t => ({ ticker: t.ticker, pnl: parseFloat(Number(t.realized_pnl).toFixed(2)) }))
+    const top5Losses = sorted.filter(t => Number(t.realized_pnl || 0) < 0).slice(-5).reverse()
+      .map(t => ({ ticker: t.ticker, pnl: parseFloat(Number(t.realized_pnl).toFixed(2)) }))
+
+    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, drawdownData, vsData, totalInvested, totalActual, top5Gains, top5Losses }
   }, [trades, allExecutions, tradeIds, sp500Data])
 
   const tooltipStyle = { background: '#0d0d0d', border: '1px solid #333', fontSize: 11, borderRadius: 8 }
@@ -305,10 +316,11 @@ export default function GraficosAbiertosPage() {
         ) : (
           <>
             {/* KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 18 }}>
-              <KpiCard label="Capital total expuesto" value={money(charts.totalInvested)} color={C.accent} />
-              <KpiCard label="Posiciones abiertas"    value={String(trades.length)} color="#fff" />
-              <KpiCard label="Portafolios activos"    value={String(charts.portfolioData.length)} color={C.warning} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+              <KpiCard label="Capital expuesto"    value={money(charts.totalInvested)} color={C.accent} />
+              <KpiCard label="Capital actual"      value={money(charts.totalActual)}   color={charts.totalActual >= charts.totalInvested ? C.success : C.danger} />
+              <KpiCard label="Posiciones abiertas" value={String(trades.length)}       color="#fff" />
+              <KpiCard label="Portafolios activos" value={String(charts.portfolioData.length)} color={C.warning} />
             </div>
 
             {/* ── FILA 1: Sector pie + Horizonte ── */}
@@ -506,6 +518,37 @@ export default function GraficosAbiertosPage() {
                 </>
               ) : <EmptyChart message="Se necesitan más trades para calcular drawdown" height={240} />}
             </ChartCard>
+
+            {/* ── TOP 5 GANANCIAS Y PÉRDIDAS ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+              <ChartCard title="Top 5 mayores ganancias" sub="Trades abiertos con mayor PnL realizado">
+                {charts.top5Gains.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={charts.top5Gains} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
+                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
+                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
+                      <Bar dataKey="pnl" name="PnL" radius={[0,6,6,0]} fill={C.success} fillOpacity={0.85} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <EmptyChart message="Sin ganancias realizadas aún" height={180} />}
+              </ChartCard>
+
+              <ChartCard title="Top 5 mayores pérdidas" sub="Trades abiertos con mayor PnL negativo">
+                {charts.top5Losses.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={charts.top5Losses} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
+                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
+                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
+                      <Bar dataKey="pnl" name="PnL" radius={[0,6,6,0]} fill={C.danger} fillOpacity={0.85} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <EmptyChart message="Sin pérdidas realizadas" height={180} />}
+              </ChartCard>
+            </div>
           </>
         )}
       </div>
