@@ -113,28 +113,7 @@ const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>(
   fetchPortfolios()
   fetchWatchlistRSI()   
 }, [])
-  useEffect(() => {
-  const syncTradesToWatchlist = async () => {
-    const { data: openTrades } = await supabase
-      .from("trades")
-      .select("ticker")
-      .eq("status", "open")
-
-    if (!openTrades) return
-
-    for (const t of openTrades) {
-      await supabase
-        .from("watchlist")
-        .upsert(
-          { ticker: t.ticker, buy_target: 0 },
-          { onConflict: "ticker" }
-        )
-    }
-  }
-
-  syncTradesToWatchlist()
-}, [])
-
+  
   const toggleTarget = (id: string) =>
     setCheckedTargets(prev => ({ ...prev, [id]: !prev[id] }))
 
@@ -186,7 +165,10 @@ if (tickerSearch.trim() !== "") {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-      const rsi = watchlistRSI[trade.ticker] ?? null
+      const rsiValue = Number(trade.rsi)
+      const rsi = (isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100)
+        ? rsiValue
+        : (watchlistRSI[trade.ticker] ?? null)
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
@@ -200,7 +182,7 @@ if (tickerSearch.trim() !== "") {
       ...item,
       portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
     }))
-  }, [trades, selectedPortfolio])
+  }, [trades, selectedPortfolio, tickerSearch, watchlistRSI])
 
   const totals = useMemo(() => {
     const totalInvested = enrichedTrades.reduce((a, t) => a + t.invested, 0)
@@ -337,7 +319,6 @@ if (tickerSearch.trim() !== "") {
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
                 {[
-                  { key: null,              label: '★' },
                   { key: 'open_date',       label: 'Fecha' },
                   { key: 'ticker',          label: 'Ticker' },
                   { key: 'dayChange',       label: 'Var día' },
@@ -346,7 +327,7 @@ if (tickerSearch.trim() !== "") {
                   { key: 'pnl',             label: 'PnL $' },
                   { key: 'portfolioWeight', label: '% Cartera' },
                   { key: 'quantity',        label: 'Cant.' },
-                  { key: 'avgPrice',        label: 'Avg' },
+                  { key: 'avgPrice',        label: 'AVG' },
                   { key: 'invested',        label: 'Invertido' },
                   { key: 'stop_loss',       label: 'Stop' },
                   { key: 'curPrice',        label: 'Actual' },
@@ -367,7 +348,7 @@ if (tickerSearch.trim() !== "") {
             <tbody>
               {sortedTrades.length === 0 && (
                 <tr>
-                  <td colSpan={17} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                  <td colSpan={16} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                       <Paw size={28} color="#333" opacity={0.5} />
                       No hay trades abiertos.
@@ -386,14 +367,6 @@ if (tickerSearch.trim() !== "") {
 
                 return (
                   <tr key={trade.id} style={{ background: rowBg, borderBottom: '1px solid #0a0a0a' }}>
-
-                    {/* Prioridad */}
-                    <td style={tdStyle}>
-                      <button onClick={() => handleTogglePriority(trade)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
-                        <Star size={13} fill={trade.priority ? '#ffd700' : 'none'} color={trade.priority ? '#ffd700' : '#333'} />
-                      </button>
-                    </td>
 
                     {/* Fecha */}
                     <td style={{ ...tdStyle, color: '#555', fontSize: '0.65rem' }}>
@@ -465,7 +438,7 @@ if (tickerSearch.trim() !== "") {
 
                     {/* Acciones */}
                     <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
                         <button onClick={() => setSelectedTrade(trade)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
@@ -477,6 +450,10 @@ if (tickerSearch.trim() !== "") {
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#2a2a2a')}>
                           <Trash2 size={14} />
+                        </button>
+                        <button onClick={() => handleTogglePriority(trade)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                          <Star size={13} fill={trade.priority ? '#ffd700' : 'none'} color={trade.priority ? '#ffd700' : '#333'} />
                         </button>
                       </div>
                     </td>
