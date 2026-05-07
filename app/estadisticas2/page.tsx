@@ -462,7 +462,15 @@ export default function EstadisticasCerradosPage() {
                       <span style={{ color: '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
                     </span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 12 }}>+{money(Number(t.realized_pnl))}</div>
+                      <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 12 }}>
+                        +{money(Number(t.realized_pnl))}
+
+                        {Number(t.total_invested) > 0 && (
+                          <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>
+                            +{((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
                       {Number(t.total_invested) > 0 && (
                         <div style={{ color: '#888', fontSize: 9 }}>
                           +{((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
@@ -486,7 +494,15 @@ export default function EstadisticasCerradosPage() {
                   <div key={t.id} style={listRow}>
                     <span style={{ color: '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: '#f43f5e', fontWeight: 700, fontSize: 12 }}>{money(Number(t.realized_pnl))}</div>
+                      <div style={{ color: '#f43f5e', fontWeight: 700, fontSize: 12 }}>
+                        {money(Number(t.realized_pnl))}
+
+                        {Number(t.total_invested) > 0 && (
+                          <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>
+                            {((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
                       {Number(t.total_invested) > 0 && (
                         <div style={{ color: '#888', fontSize: 9 }}>
                           {((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
