@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase"
 import { usePrivacy } from "@/lib/PrivacyContext"
 import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
+import AiInsightPanel from "../components/AiInsightPanel"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
 import { TrendingUp, Settings, Trash2, Star } from 'lucide-react'
 
@@ -43,6 +44,7 @@ export default function TradesAbiertosPage() {
   const { money, shares } = usePrivacy()
 
   const [selectedTrade,     setSelectedTrade]     = useState<any | null>(null)
+  const [showAITerminal, setShowAITerminal] = useState(false)
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
@@ -439,7 +441,10 @@ if (tickerSearch.trim() !== "") {
                     {/* Acciones */}
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
-                        <button onClick={() => setSelectedTrade(trade)}
+                        <button onClick={() => {
+                          setSelectedTrade(trade)
+                          setShowAITerminal(true)
+                        }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
@@ -470,13 +475,29 @@ if (tickerSearch.trim() !== "") {
         </div>
       </div>
 
-      {selectedTrade && (
+     {selectedTrade && (
+      <>
         <TradeManagerModal
           trade={selectedTrade}
-          onClose={() => { setSelectedTrade(null); fetchTrades() }}
+          onClose={() => {
+            setSelectedTrade(null)
+            setShowAITerminal(false)
+            fetchTrades()
+          }}
           onRefresh={fetchTrades}
         />
-      )}
+
+        {showAITerminal && (
+          <AiInsightPanel
+            ticker={selectedTrade.ticker}
+            country={selectedTrade.country}
+            sector={selectedTrade.sector}
+            subsector={selectedTrade.subsector}
+            onClose={() => setShowAITerminal(false)}
+          />
+        )}
+      </>
+    )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </AppShell>
