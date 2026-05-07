@@ -70,10 +70,16 @@ export default function EstadisticasAbiertosPage() {
       const cur = Number(t.last_price || t.entry_price || 0)
       return acc + qty * cur
     }, 0)
+    const totalPnL = totalCurrent - totalInvested
+
+    const totalPnLPct =
+      totalInvested > 0
+        ? (totalPnL / totalInvested) * 100
+        : 0
 
     // Horizonte
     const horizonStats = { long: 0, mid: 0, short: 0 }
-    filteredTrades.forEach(t => {
+    trades.forEach(t => {
       const pName = (t.portfolios?.name || '').toLowerCase()
       const inv   = Number(t.total_invested || 0)
       if (pName.includes('largo'))      horizonStats.long  += inv
@@ -121,6 +127,13 @@ export default function EstadisticasAbiertosPage() {
       const pnl      = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
       return { ...t, pnl }
     })
+    const winningTrades = withPnl.filter(t => t.pnl > 0).length
+    const losingTrades  = withPnl.filter(t => t.pnl < 0).length
+
+    const tradesPnLPct =
+      filteredTrades.length > 0
+        ? ((winningTrades - losingTrades) / filteredTrades.length) * 100
+        : 0
 
     const topGains  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
     const topLosses = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
@@ -142,7 +155,12 @@ export default function EstadisticasAbiertosPage() {
 
     return {
       totalInvested,
-      totalCurrent,   
+      totalCurrent,
+      totalPnL,
+      totalPnLPct,
+      winningTrades,
+      losingTrades,
+      tradesPnLPct, 
       totalCount: filteredTrades.length,
       horizonStats, sectorGroups, countryGroups,
       topPositions, topGains, topLosses,
@@ -194,11 +212,27 @@ export default function EstadisticasAbiertosPage() {
             {/* ── KPIs PRINCIPALES ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <StatCard 
-                label="Capital expuesto / actual" 
-                value={`${money(stats.totalInvested)} / ${money(stats.totalCurrent)}`} 
-                color="#00bfff" 
+              label="Capital expuesto / actual / %" 
+              value={`${money(stats.totalInvested)} / ${money(stats.totalCurrent)} / ${stats.totalPnLPct.toFixed(1)}%`}
+              color={
+                stats.totalPnL > 0
+                  ? '#22c55e'
+                  : stats.totalPnL < 0
+                  ? '#f43f5e'
+                  : '#00bfff'
+              }
+            />
+              <StatCard 
+                label="Posiciones abiertas / %"     
+                value={`${stats.totalCount} / ${stats.tradesPnLPct.toFixed(1)}%`}
+                color={
+                  stats.tradesPnLPct > 0
+                    ? '#22c55e'
+                    : stats.tradesPnLPct < 0
+                    ? '#f43f5e'
+                    : '#fff'
+                }
               />
-              <StatCard label="Posiciones abiertas"     value={String(stats.totalCount)}   color="#fff" />
               <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
                 desc="Tiempo promedio en posición" />
               <StatCard label="R/R promedio objetivo"   value={stats.avgRR > 0 ? `${stats.avgRR}R` : '—'} color="#22c55e"
