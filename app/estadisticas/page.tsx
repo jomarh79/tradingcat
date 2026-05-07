@@ -65,7 +65,11 @@ export default function EstadisticasAbiertosPage() {
     if (!filteredTrades.length) return null
 
     const totalInvested = filteredTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
-    const totalCurrent = filteredTrades.reduce((acc, t) => acc + Number(t.current_value || t.total_invested || 0), 0)
+    const totalCurrent = filteredTrades.reduce((acc, t) => {
+      const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      return acc + qty * cur
+    }, 0)
 
     // Horizonte
     const horizonStats = { long: 0, mid: 0, short: 0 }
@@ -111,9 +115,10 @@ export default function EstadisticasAbiertosPage() {
 
     // Top 5 mayores ganancias y pérdidas (por realized_pnl)
     const withPnl = filteredTrades.map(t => {
-      const invested = Number(t.total_invested || 0)
-      const current  = Number(t.current_value || invested)
-      const pnl      = current - invested
+      const qty      = Number(t.quantity || 0)
+      const avgPrice = qty > 0 ? Number(t.total_invested || 0) / qty : Number(t.entry_price || 0)
+      const curPrice = Number(t.last_price || t.entry_price || 0)
+      const pnl      = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
       return { ...t, pnl }
     })
 
@@ -137,7 +142,7 @@ export default function EstadisticasAbiertosPage() {
 
     return {
       totalInvested,
-      totalCurrent,   // 👈 EXACTO aquí
+      totalCurrent,   
       totalCount: filteredTrades.length,
       horizonStats, sectorGroups, countryGroups,
       topPositions, topGains, topLosses,
@@ -478,12 +483,13 @@ function ProgressBar({ label, val, total, color, money }: any) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
         <span style={{ color: '#aaa' }}>{label}</span>
-        <span style={{ fontWeight: 700, color }}>
-          {pct.toFixed(1)}% <span style={{ color: '#666', fontWeight: 400 }}>· {money(val)}</span>
+        <span style={{ fontWeight: 700, color: val > 0 ? color : '#555' }}>
+          {pct.toFixed(1)}%
+          <span style={{ color: '#666', fontWeight: 400 }}> · {val > 0 ? money(val) : '$0.00'}</span>
         </span>
       </div>
       <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, background: color, height: '100%', borderRadius: 2 }} />
+        <div style={{ width: `${Math.max(pct, 0)}%`, background: val > 0 ? color : '#222', height: '100%', borderRadius: 2 }} />
       </div>
     </div>
   )
