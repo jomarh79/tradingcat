@@ -102,6 +102,15 @@ export default function EstadisticasCerradosPage() {
     const breakEven = sorted.filter(t => Number(t.realized_pnl) === 0)
 
     const totalPnL  = parseFloat(sorted.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0).toFixed(2))
+    const totalInvestedPnL = sorted.reduce(
+      (acc, t) => acc + Number(t.total_invested || 0),
+      0
+    )
+
+    const totalPnLPct =
+      totalInvestedPnL > 0
+        ? parseFloat(((totalPnL / totalInvestedPnL) * 100).toFixed(2))
+        : 0
     const totalWin  = parseFloat(wins.reduce((acc, t)   => acc + Number(t.realized_pnl || 0), 0).toFixed(2))
     const totalLoss = parseFloat(losses.reduce((acc, t)  => acc + Math.abs(Number(t.realized_pnl || 0)), 0).toFixed(2))
 
@@ -144,12 +153,27 @@ export default function EstadisticasCerradosPage() {
       : null
 
 // Rendimiento % ponderado por capital
-const totalInvested = sorted.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
-const totalPnLWeighted = sorted.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
+    const tradesWithPct = sorted.map(t => {
+      const invested = Number(t.total_invested || 0)
+      const pnl = Number(t.realized_pnl || 0)
 
-const avgReturnPct = totalInvested > 0
-  ? parseFloat(((totalPnLWeighted / totalInvested) * 100).toFixed(2))
-  : 0
+      const pct =
+        invested > 0
+          ? (pnl / invested) * 100
+          : 0
+
+      return pct
+    })
+
+    const avgReturnPct =
+      tradesWithPct.length > 0
+        ? parseFloat(
+            (
+              tradesWithPct.reduce((acc, pct) => acc + pct, 0) /
+              tradesWithPct.length
+            ).toFixed(2)
+          )
+        : 0
 
     // Mejor y peor trade en %
     const withPct = sorted.map(t => ({
@@ -193,7 +217,7 @@ const avgReturnPct = totalInvested > 0
     const worstSector   = sectorEntries[sectorEntries.length - 1]
 
     return {
-      totalTrades, totalPnL, winRate, profitFactor, expectancy,
+      totalTrades, totalPnL, totalPnLPct, winRate, profitFactor, expectancy,
       avgWin, avgLoss, winLossRatio, maxDD: parseFloat(maxDD.toFixed(2)),
       maxWinStrk, maxLossStrk, avgDuration,
       bestMonth, worstMonth, bestSector, worstSector,
@@ -254,10 +278,24 @@ const avgReturnPct = totalInvested > 0
 
             {/* ── F1: KPIs principales ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <StatCard label="PnL total acumulado"
-                value={money(stats.totalPnL)}
-                color={stats.totalPnL >= 0 ? '#22c55e' : '#f43f5e'}
-                pawColor={stats.totalPnL >= 0 ? '#22c55e' : '#f43f5e'} />
+              <StatCard
+                label="PnL total acumulado / %"
+                value={`${money(stats.totalPnL)} / ${stats.totalPnLPct.toFixed(1)}%`}
+                color={
+                  stats.totalPnL > 0
+                    ? '#22c55e'
+                    : stats.totalPnL < 0
+                    ? '#f43f5e'
+                    : '#00bfff'
+                }
+                pawColor={
+                  stats.totalPnL > 0
+                    ? '#22c55e'
+                    : stats.totalPnL < 0
+                    ? '#f43f5e'
+                    : '#00bfff'
+                }
+              />
               <StatCard label="Win rate" value={`${stats.winRate}%`}
                 desc={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos${stats.breakEvenCount ? ` · ${stats.breakEvenCount} BE` : ''}`}
                 color="#fff" bar={stats.winRate} pawColor="#fff" />
