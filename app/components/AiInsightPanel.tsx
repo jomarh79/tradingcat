@@ -91,39 +91,56 @@ export default function AiInsightPanel({
   const [similarTickers, setSimilarTickers] = useState<string[]>([])
   const [openTickers, setOpenTickers] = useState<string[]>([])
   const generateInsight = async () => {
-    setLoading(true)
-    setError('')
-    setContent('')
-    try {
-      const res = await fetch('/api/ai-terminal', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, country, sector, subsector, rsi, entry_price, quantity }),
-      })
-      const data = await res.json()
-      if (!data.ok) throw new Error(data.error || 'Error generando análisis')
-      setContent(data.content)
+  setLoading(true)
+  setError('')
+  setContent('')
+
+  try {
+    const res = await fetch('/api/ai-terminal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker,
+        country,
+        sector,
+        subsector,
+        rsi,
+        entry_price,
+        quantity
+      }),
+    })
+
+    const data = await res.json()
+
+    if (!data.ok) {
+      throw new Error(data.error || 'Error generando análisis')
+    }
+
+    setContent(data.content)
+
     if (data.similarTickers) {
       setSimilarTickers(data.similarTickers)
     }
-    } catch (err: any) {
-      setError(err.message || 'Error conectando con la IA')
-    } finally {
-      setLoading(false)
-    }
-    const loadOpenTickers = async () => {
-      const { data } = await supabase
-        .from('trades')
-        .select('ticker')
-        .eq('status', 'open')
 
-      if (data) {
-        setOpenTickers(
-          data.map(t => String(t.ticker).toUpperCase())
-        )
-      }
-    }
+  } catch (err: any) {
+    setError(err.message || 'Error conectando con la IA')
+  } finally {
+    setLoading(false)
   }
+}
+
+const loadOpenTickers = async () => {
+  const { data } = await supabase
+    .from('trades')
+    .select('ticker')
+    .eq('status', 'open')
+
+  if (data) {
+    setOpenTickers(
+      data.map(t => String(t.ticker).toUpperCase())
+    )
+  }
+}
 
   useEffect(() => {
   generateInsight()
