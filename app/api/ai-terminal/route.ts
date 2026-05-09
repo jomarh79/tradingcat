@@ -13,20 +13,43 @@ export async function POST(request: Request) {
     }
 
     const prompt = `
-Actúa como terminal Bloomberg profesional.
+Actúa como un terminal Bloomberg institucional con IA.
 
-Ticker: ${ticker}
+El usuario tiene una posición en ${ticker}.
 
-Responde ÚNICAMENTE un JSON válido con este formato:
+Devuelve ÚNICAMENTE un JSON válido con esta estructura:
 
 {
-  "content": "Resumen ejecutivo corto del activo",
-  "similarTickers": ["AMD","INTC","TSM"]
+  "content": "🏢 EMPRESA\\nTexto...\\n\\n⚙️ PRODUCTOS / SERVICIOS\\n- item\\n- item\\n\\n📰 NOTICIAS RECIENTES\\n- noticia\\n- noticia\\n\\n📊 SENTIMIENTO FINANCIERO\\nTexto...",
+  "similarTickers": ["AAA","BBB","CCC"]
 }
 
-NO markdown.
-NO bloques de código.
-SOLO JSON válido.
+Dentro de "content" genera EXACTAMENTE estas secciones:
+
+🏢 EMPRESA
+Nombre completo de la empresa y descripción ejecutiva en 2-3 líneas.
+
+⚙️ PRODUCTOS / SERVICIOS
+- Producto o servicio principal
+- Producto o servicio principal
+- Producto o servicio principal
+
+📰 NOTICIAS RECIENTES
+- Catalizador reciente
+- Riesgo o noticia relevante
+- Tendencia importante
+
+📊 SENTIMIENTO FINANCIERO
+Resumen de sentimiento, momentum, analistas y riesgos en 3-4 líneas.
+
+Reglas:
+- Responde SOLO JSON válido
+- No markdown
+- No bloques de código
+- No texto fuera del JSON
+- Español profesional
+- Tono ejecutivo institucional
+- Máximo 500 palabras
 `
 
     const response = await fetch(
