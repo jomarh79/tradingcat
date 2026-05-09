@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import { usePrivacy } from "@/lib/PrivacyContext"
-import { Trash2, Pencil, X } from "lucide-react"
+import { Trash2, Pencil, X, Brain, ChevronRight } from "lucide-react"
+import AiInsightPanel from "./AiInsightPanel"
+
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
@@ -49,6 +51,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   const [isSaving,    setIsSaving]    = useState(false)
   const [editingId,   setEditingId]   = useState<string | null>(null)
   const [closingMode, setClosingMode] = useState(false)
+  const [showAI, setShowAI] = useState(true)
 
   const [stop, setStop] = useState(trade.stop_loss     || 0)
   const [tp1,  setTp1]  = useState(trade.take_profit_1 || 0)
@@ -371,25 +374,90 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   const canSave = !isSaving && (!closingMode || (priceUSD > 0 && closeReason !== ''))
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
+  <div style={overlay}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', maxHeight: '92vh' }}>
+      <div style={{
+        ...modal,
+        borderRadius: showAI ? '12px 0 0 12px' : '12px',
+        borderRight:  showAI ? 'none' : '1px solid #333',
+      }}>
+{/* HEADER */}
+<div style={{
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  borderBottom: '1px solid #1a1a1a',
+  paddingBottom: 12,
+  marginBottom: 16
+}}>
 
-        {/* HEADER */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Paw color="#00bfff" size={16} />
-            <h2 style={{ margin: 0, fontSize: 18 }}>
-              Gestión: <span style={{ color: '#00bfff' }}>{trade.ticker}</span>
-            </h2>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {editingId    && <span style={{ color: '#eab308', fontWeight: 'bold', fontSize: 11 }}>Modo edición</span>}
-            
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
-          </div>
-        </div>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <Paw color="#00bfff" size={16} />
 
-        {/* RESUMEN */}
+    <h2 style={{ margin: 0, fontSize: 18 }}>
+      Gestión: <span style={{ color: '#00bfff' }}>{trade.ticker}</span>
+    </h2>
+  </div>
+
+  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+
+    {editingId && (
+      <span style={{
+        color: '#eab308',
+        fontWeight: 'bold',
+        fontSize: 11
+      }}>
+        Modo edición
+      </span>
+    )}
+
+    <button
+      onClick={() => setShowAI(v => !v)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        background: showAI ? 'rgba(0,191,255,0.1)' : '#111',
+        border: `1px solid ${showAI ? 'rgba(0,191,255,0.3)' : '#222'}`,
+        color: showAI ? '#00bfff' : '#666',
+        borderRadius: 6,
+        padding: '4px 10px',
+        cursor: 'pointer',
+        fontSize: 10,
+        fontWeight: 700,
+        transition: 'all 0.2s',
+      }}
+    >
+      <Brain size={12} />
+
+      IA
+
+      <ChevronRight
+        size={10}
+        style={{
+          transform: showAI ? 'rotate(180deg)' : 'none',
+          transition: 'transform 0.2s',
+        }}
+      />
+    </button>
+
+    <button
+      onClick={onClose}
+      style={{
+        background: 'none',
+        border: 'none',
+        color: '#555',
+        cursor: 'pointer'
+      }}
+    >
+      <X size={18} />
+    </button>
+
+  </div>
+
+</div>
+
+{/* RESUMEN */}
         <div style={rowLabels4Col}>
           <div>Acciones</div><div>Precio avg (USD)</div><div>Capital (USD)</div><div>PnL realizado</div>
         </div>
@@ -576,12 +644,26 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
         </div>
 
       </div>
+      {/* Panel IA lateral */}
+      {showAI && (
+        <AiInsightPanel
+          ticker={trade.ticker}
+          country={trade.country}
+          sector={trade.sector}
+          subsector={trade.subsector}
+          rsi={trade.rsi}
+          entry_price={trade.entry_price}
+          quantity={trade.quantity}
+          onClose={() => setShowAI(false)}
+        />
+      )}
     </div>
+  </div>
   )
 }
 
 const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modal: React.CSSProperties   = { width: 940, maxHeight: '92vh', overflowY: 'auto', background: '#111', padding: 25, borderRadius: 12, border: '1px solid #333', color: 'white' }
+const modal: React.CSSProperties = { width: 940, maxHeight: '92vh', overflowY: 'auto', background: '#111', padding: 25, border: '1px solid #333', color: 'white' }
 const rowLabels4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
 const rowValues4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }
 const valBoxLarge: React.CSSProperties       = { background: '#000', padding: 14, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', fontSize: 15, fontWeight: 'bold' }
