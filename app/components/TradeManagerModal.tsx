@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import { usePrivacy } from "@/lib/PrivacyContext"
-import { Trash2, Pencil, X, Brain, ChevronRight } from "lucide-react"
+import { Trash2, Pencil, X, ChevronRight } from "lucide-react"
 import AiInsightPanel from "./AiInsightPanel"
 
 
@@ -428,7 +428,6 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
         transition: 'all 0.2s',
       }}
     >
-      <brain size={12} />
 
       Resumen
 
