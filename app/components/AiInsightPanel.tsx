@@ -68,7 +68,7 @@ function RenderContent({ text }: { text: string }) {
 
         return (
           <div key={i} style={{
-            fontSize: 11, color: '#aaa', lineHeight: 1.65,
+            fontSize: 12, color: '#d1d5db', lineHeight: 1.65,
             paddingLeft: isBullet ? 12 : 4,
             display: 'flex', gap: isBullet ? 6 : 0, alignItems: 'flex-start',
           }}>
@@ -116,7 +116,15 @@ export default function AiInsightPanel({
       throw new Error(data.error || 'Error generando análisis')
     }
 
-    setContent(data.content)
+    let cleanContent = data.content || ''
+
+    cleanContent = cleanContent
+      .replace(/^"?content"?\s*:\s*/i, '')
+      .replace(/^{/i, '')
+      .replace(/}$/i, '')
+      .trim()
+
+    setContent(cleanContent)
 
     if (data.similarTickers) {
       setSimilarTickers(data.similarTickers)
@@ -160,7 +168,7 @@ const loadOpenTickers = async () => {
       borderRadius: '0 12px 12px 0',
       display: 'flex', flexDirection: 'column',
       position: 'relative', overflow: 'hidden',
-      flexShrink: 0, maxHeight: '92vh',
+      flexShrink: 0, height: '96vh', maxHeight: '96vh',
     }}>
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
@@ -179,10 +187,10 @@ const loadOpenTickers = async () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Brain size={14} color="#00bfff" />
             <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#00bfff', letterSpacing: 0.5 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#00bfff', letterSpacing: 0.6 }}>
                 Resumen — {ticker}
               </div>
-              <div style={{ fontSize: 9, color: '#444', marginTop: 1 }}>Bloomberg Terminal · TraderCat</div>
+              <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>Bloomberg Terminal · TraderCat</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -217,13 +225,13 @@ const loadOpenTickers = async () => {
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
           {[country, sector, subsector].filter(Boolean).map((tag, i) => (
             <span key={i} style={{
-              fontSize: 9, color: '#777', background: '#0f0f0f',
+              fontSize: 10, color: '#bbb', background: '#151515',
               padding: '2px 7px', borderRadius: 3, border: '1px solid #1a1a1a',
             }}>{tag}</span>
           ))}
           {rsi != null && (
             <span style={{
-              fontSize: 9, fontWeight: 700, color: rsiColor,
+              fontSize: 10, fontWeight: 700, color: rsiColor,
               background: `${rsiColor}18`, padding: '2px 7px',
               borderRadius: 3, border: `1px solid ${rsiColor}33`,
             }}>
@@ -239,7 +247,7 @@ const loadOpenTickers = async () => {
         {loading && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', height: 220, gap: 16,
+            justifyContent: 'center', height: 320, gap: 16,
           }}>
             <div style={{ display: 'flex', gap: 6 }}>
               {[0, 1, 2].map(i => (
