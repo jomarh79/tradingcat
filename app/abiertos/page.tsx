@@ -443,7 +443,6 @@ if (tickerSearch.trim() !== "") {
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
                         <button onClick={() => {
                           setSelectedTrade(trade)
-                          setShowAITerminal(true)
                         }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
