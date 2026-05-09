@@ -118,13 +118,19 @@ export default function AiInsightPanel({
 
     let cleanContent = data.content || ''
 
-    cleanContent = cleanContent
-      .replace(/^"?content"?\s*:\s*/i, '')
-      .replace(/^{/i, '')
-      .replace(/}$/i, '')
-      .trim()
+      // Quitar "content":" al inicio
+      cleanContent = cleanContent.replace(/^"?content"?\s*:\s*"/i, '')
 
-    setContent(cleanContent)
+      // Quitar última comilla final
+      cleanContent = cleanContent.replace(/"$/, '')
+
+      // Convertir \\n a saltos reales
+      cleanContent = cleanContent.replace(/\\n/g, '\n')
+
+      // Limpiar escapes
+      cleanContent = cleanContent.replace(/\\"/g, '"')
+
+      setContent(cleanContent.trim())
 
     if (data.similarTickers) {
       setSimilarTickers(data.similarTickers)
@@ -168,7 +174,7 @@ const loadOpenTickers = async () => {
       borderRadius: '0 12px 12px 0',
       display: 'flex', flexDirection: 'column',
       position: 'relative', overflow: 'hidden',
-      flexShrink: 0, height: '96vh', maxHeight: '96vh',
+      flexShrink: 0, maxHeight: '88vh',
     }}>
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
@@ -187,8 +193,8 @@ const loadOpenTickers = async () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Brain size={14} color="#00bfff" />
             <div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#00bfff', letterSpacing: 0.6 }}>
-                Resumen — {ticker}
+              <div style={{ fontSize: 17, fontWeight: 900, color: '#00bfff', letterSpacing: 0.6 }}>
+                Resumen
               </div>
               <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>Bloomberg Terminal · TraderCat</div>
             </div>

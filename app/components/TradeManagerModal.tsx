@@ -428,7 +428,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
         transition: 'all 0.2s',
       }}
     >
-      <Brain size={12} />
+      <cat size={12} />
 
       Resumen
 
