@@ -100,8 +100,11 @@ No agregues texto fuera del JSON.
 
     const data = await response.json()
 
-const raw =
-  data?.choices?.[0]?.message?.content ?? ''
+  const raw =
+    data?.choices?.[0]?.message?.content ?? ''
+
+  console.log('RAW IA RESPONSE:')
+  console.log(raw)
 
 try {
   const parsed = JSON.parse(raw)
