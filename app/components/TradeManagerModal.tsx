@@ -430,7 +430,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
     >
       <Brain size={12} />
 
-      IA
+      Resumen
 
       <ChevronRight
         size={10}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { X, Brain, RefreshCw } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 interface Props {
   ticker:       string
@@ -87,7 +88,8 @@ export default function AiInsightPanel({
   const [content, setContent] = useState('')
   const [error,   setError]   = useState('')
   const [retries, setRetries] = useState(0)
-
+  const [similarTickers, setSimilarTickers] = useState<string[]>([])
+  const [openTickers, setOpenTickers] = useState<string[]>([])
   const generateInsight = async () => {
     setLoading(true)
     setError('')
@@ -101,14 +103,32 @@ export default function AiInsightPanel({
       const data = await res.json()
       if (!data.ok) throw new Error(data.error || 'Error generando análisis')
       setContent(data.content)
+    if (data.similarTickers) {
+      setSimilarTickers(data.similarTickers)
+    }
     } catch (err: any) {
       setError(err.message || 'Error conectando con la IA')
     } finally {
       setLoading(false)
     }
+    const loadOpenTickers = async () => {
+      const { data } = await supabase
+        .from('trades')
+        .select('ticker')
+        .eq('status', 'open')
+
+      if (data) {
+        setOpenTickers(
+          data.map(t => String(t.ticker).toUpperCase())
+        )
+      }
+    }
   }
 
-  useEffect(() => { generateInsight() }, [ticker, retries])
+  useEffect(() => {
+  generateInsight()
+  loadOpenTickers()
+}, [ticker, retries])
 
   const rsiColor = rsi == null ? '#666'
     : rsi < 30 ? '#22c55e'
@@ -143,7 +163,7 @@ export default function AiInsightPanel({
             <Brain size={14} color="#00bfff" />
             <div>
               <div style={{ fontSize: 11, fontWeight: 900, color: '#00bfff', letterSpacing: 0.5 }}>
-                ANÁLISIS IA — {ticker}
+                Resumen — {ticker}
               </div>
               <div style={{ fontSize: 9, color: '#444', marginTop: 1 }}>Bloomberg Terminal · TraderCat</div>
             </div>
@@ -240,7 +260,63 @@ export default function AiInsightPanel({
           </div>
         )}
 
-        {!loading && !error && content && <RenderContent text={content} />}
+        {!loading && !error && (
+          <>
+            {content && <RenderContent text={content} />}
+
+            {similarTickers.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                
+                <div style={{
+                  fontSize: 10,
+                  color: '#555',
+                  marginBottom: 8,
+                  fontWeight: 800,
+                  letterSpacing: 1,
+                }}>
+                  TICKERS RELACIONADOS
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}>
+                  {similarTickers.map((tk) => {
+                    const alreadyOpen = openTickers.includes(
+                      tk.toUpperCase()
+                    )
+
+                    return (
+                      <div
+                        key={tk}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          border: `1px solid ${
+                            alreadyOpen
+                              ? '#22c55e55'
+                              : '#333'
+                          }`,
+                          background: alreadyOpen
+                            ? 'rgba(34,197,94,0.08)'
+                            : '#111',
+                          color: alreadyOpen
+                            ? '#22c55e'
+                            : '#ddd',
+                        }}
+                      >
+                        {tk}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Footer */}
