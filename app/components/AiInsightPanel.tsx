@@ -178,7 +178,7 @@ const loadOpenTickers = async () => {
       position: 'relative',
       overflow: 'hidden',
       flexShrink: 0,
-      height: 'calc(82vh - 2px)',
+      maxHeight: '92vh',
     }}>
       
       {/* Orejas decorativas */}
@@ -192,7 +192,7 @@ const loadOpenTickers = async () => {
       {/* Header */}
       <div style={{
         padding: '13px 16px 11px', borderBottom: '1px solid #131313',
-        background: '#050505', flexShrink: 0,
+        background: '#111', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -364,7 +364,7 @@ const loadOpenTickers = async () => {
       <div style={{
         padding: '8px 16px', borderTop: '1px solid #0f0f0f',
         display: 'flex', alignItems: 'center', gap: 6,
-        flexShrink: 0, background: '#050505',
+        flexShrink: 0, background: '#111',
       }}>
         <Paw color="#1a1a1a" size={8} />
         <span style={{ fontSize: 8, color: '#2a2a2a', letterSpacing: 0.5 }}>
