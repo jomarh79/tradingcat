@@ -192,7 +192,6 @@ const loadOpenTickers = async () => {
               <div style={{ fontSize: 17, fontWeight: 900, color: '#00bfff', letterSpacing: 0.6 }}>
                 Resumen
               </div>
-              <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>Bloomberg Terminal · TraderCat</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
