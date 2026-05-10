@@ -210,15 +210,39 @@ if (!isMarketOpen && !singleTicker && !isCron) {
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendAlert(payload: Record<string, any>) {
-  if (!(globalThis as any).isMarketOpen) return;
+  // Validar horario REAL al momento de enviar
+  const mexicoTime = new Date(
+    new Date().toLocaleString("en-US", {
+      timeZone: "America/Mexico_City",
+    })
+  )
+
+  const day  = mexicoTime.getDay()
+  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
+
+  const isMarketOpen =
+    day >= 1 &&
+    day <= 5 &&
+    time >= 8.05 &&
+    time < 15
+
+  // Bloquear alertas fuera de horario
+  if (!isMarketOpen) {
+    console.log("🔕 Alerta bloqueada — mercado cerrado")
+    return
+  }
 
   try {
     await fetch("https://tradingcat.onrender.com/api/notify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
-    });
-  } catch { /* silencioso */ }
+    })
+  } catch (err) {
+    console.error("Error enviando alerta:", err)
+  }
 }
 
 // ── Indicadores técnicos ──────────────────────────────────────────────────────
