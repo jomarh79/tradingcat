@@ -167,7 +167,7 @@ const loadOpenTickers = async () => {
     : '#aaa'
 
   return (
-    <div style={{
+  <div style={{
       width: 320,
       background: '#111',
       border: '1px solid #333',
@@ -178,7 +178,8 @@ const loadOpenTickers = async () => {
       position: 'relative',
       overflow: 'hidden',
       flexShrink: 0,
-      maxHeight: '92vh',
+      height: '100%',
+      alignSelf: 'stretch',
     }}>
       
       {/* Orejas decorativas */}
