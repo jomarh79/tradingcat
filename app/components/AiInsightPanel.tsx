@@ -168,13 +168,17 @@ const loadOpenTickers = async () => {
 
   return (
     <div style={{
-      width: 320, background: '#080808',
-      border: '1px solid #1a1a1a',
-      borderLeft: '1px solid #222',
+      width: 320,
+      background: '#111',
+      border: '1px solid #333',
+      borderLeft: 'none',
       borderRadius: '0 12px 12px 0',
-      display: 'flex', flexDirection: 'column',
-      position: 'relative', overflow: 'hidden',
-      flexShrink: 0, maxHeight: '88vh',
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'relative',
+      overflow: 'hidden',
+      flexShrink: 0,
+      maxHeight: '92vh',
     }}>
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>

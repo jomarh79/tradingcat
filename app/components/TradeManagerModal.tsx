@@ -51,7 +51,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   const [isSaving,    setIsSaving]    = useState(false)
   const [editingId,   setEditingId]   = useState<string | null>(null)
   const [closingMode, setClosingMode] = useState(false)
-  const [showAI, setShowAI] = useState(true)
+  const [showAI, setShowAI] = useState(false)
 
   const [stop, setStop] = useState(trade.stop_loss     || 0)
   const [tp1,  setTp1]  = useState(trade.take_profit_1 || 0)
