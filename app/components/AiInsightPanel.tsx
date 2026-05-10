@@ -15,16 +15,6 @@ interface Props {
   onClose:      () => void
 }
 
-const Paw = ({ color = '#444', size = 10 }: any) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ flexShrink: 0 }}>
-    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
-    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
-    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
-    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
-    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
-  </svg>
-)
-
 const SECTION_STYLES: Record<string, { color: string; bg: string }> = {
   '🏢': { color: '#00bfff', bg: 'rgba(0,191,255,0.06)' },
   '⚙️': { color: '#a78bfa', bg: 'rgba(167,139,250,0.06)' },
@@ -168,19 +158,19 @@ const loadOpenTickers = async () => {
 
   return (
   <div style={{
-      width: 320,
-      background: '#111',
-      border: '1px solid #333',
-      borderLeft: 'none',
-      borderRadius: '0 12px 12px 0',
-      display: 'flex',
-      flexDirection: 'column',
-      position: 'relative',
-      overflow: 'hidden',
-      flexShrink: 0,
-      height: '100%',
-      alignSelf: 'stretch',
-    }}>
+    width: 320,
+    background: '#111',
+    border: '1px solid #333',
+    borderLeft: 'none',
+    borderRadius: '0 12px 12px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    overflow: 'hidden',
+    flexShrink: 0,
+    height: '100%',
+    alignSelf: 'stretch',
+  }}>
       
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
@@ -361,19 +351,7 @@ const loadOpenTickers = async () => {
         )}
       </div>
 
-      {/* Footer */}
-      <div style={{
-        padding: '8px 16px', borderTop: '1px solid #0f0f0f',
-        display: 'flex', alignItems: 'center', gap: 6,
-        flexShrink: 0, background: '#111',
-      }}>
-        <Paw color="#1a1a1a" size={8} />
-        <span style={{ fontSize: 8, color: '#2a2a2a', letterSpacing: 0.5 }}>
-          Solo referencial · No constituye asesoría financiera
-        </span>
-      </div>
-
-      <style>{`
+       <style>{`
         @keyframes tc-pulse {
           0%, 100% { opacity: 0.15; transform: scale(0.75); }
           50%       { opacity: 1;    transform: scale(1.15); }
