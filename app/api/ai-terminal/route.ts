@@ -21,7 +21,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
 
 {
   "content": "🏢 EMPRESA\\nTexto...\\n\\n⚙️ PRODUCTOS / SERVICIOS\\n- item\\n- item\\n\\n📰 NOTICIAS RECIENTES\\n- noticia\\n- noticia\\n\\n📊 SENTIMIENTO FINANCIERO\\nTexto...",
-  "similarTickers": ["AAA","BBB","CCC"]
+  "similarTickers": ["AAA","BBB","CCC","DDD", "EEE"]
 }
 
 Dentro de "content" genera EXACTAMENTE estas secciones:
@@ -41,6 +41,12 @@ Nombre completo de la empresa y descripción ejecutiva en 2-3 líneas.
 
 📊 SENTIMIENTO FINANCIERO
 Resumen de sentimiento, momentum, analistas y riesgos en 3-4 líneas.
+
+tickers Similares
+-ticker
+-ticker
+-ticker
+-ticker
 
 Reglas:
 - Responde SOLO JSON válido

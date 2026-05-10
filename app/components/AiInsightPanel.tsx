@@ -179,7 +179,9 @@ const loadOpenTickers = async () => {
       overflow: 'hidden',
       flexShrink: 0,
       maxHeight: '92vh',
+      height: '92vh',
     }}>
+      
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
         <svg width={56} height={36} viewBox="0 0 60 40" fill="#00bfff">
@@ -252,7 +254,12 @@ const loadOpenTickers = async () => {
       </div>
 
       {/* Contenido */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '14px 16px',
+        minHeight: 0,
+      }}>
 
         {loading && (
           <div style={{
