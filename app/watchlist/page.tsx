@@ -146,10 +146,16 @@ export default function WatchlistIAPage() {
     setLastRefresh(new Date())
   }, [fetchList])
 
-  useEffect(() => {
-    init()
-    // Auto-refresh cada 2 minutos solo en horario de mercado
-    if (probability > 80 && item.last_ai_alert_date !== todayStr) {
+ useEffect(() => {
+  init()
+
+  // Auto refresh cada 2 minutos SOLO si mercado abierto
+    const interval = setInterval(() => {
+      if (isMarketOpen()) {
+        init()
+      }
+    }, 120000)
+
     return () => clearInterval(interval)
   }, [init])
 
