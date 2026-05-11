@@ -374,13 +374,15 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
   const canSave = !isSaving && (!closingMode || (priceUSD > 0 && closeReason !== ''))
 
   return (
-  <div style={overlay}>
-    <div style={{ display: 'flex', alignItems: 'flex-start', maxHeight: '92vh' }}>
-      <div style={{
-        ...modal,
-        borderRadius: showAI ? '12px 0 0 12px' : '12px',
-        borderRight:  showAI ? 'none' : '1px solid #333',
-      }}>
+  // Busca esta parte en el return:
+<div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '85vh' }}>
+  <div style={{
+    ...modal,
+    height: '100%', // <--- Asegúrate de que tenga esto
+    borderRadius: showAI ? '12px 0 0 12px' : '12px',
+    borderRight:  showAI ? 'none' : '1px solid #333',
+  }}>
+
 {/* HEADER */}
 <div style={{
   display: 'flex',
@@ -662,7 +664,18 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
 }
 
 const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modal: React.CSSProperties = { width: 940, maxHeight: '85vh', overflowY: 'auto', background: '#111', padding: 25, border: '1px solid #333', color: 'white' }
+const modal: React.CSSProperties = { 
+  width: 940, 
+  height: '85vh',      // <--- Cambiado de maxHeight a height fija
+  display: 'flex',     // <--- Añadido
+  flexDirection: 'column', // <--- Añadido
+  overflowY: 'auto', 
+  background: '#111', 
+  padding: 25, 
+  border: '1px solid #333', 
+  color: 'white' 
+}
+
 const rowLabels4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
 const rowValues4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }
 const valBoxLarge: React.CSSProperties       = { background: '#000', padding: 14, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', fontSize: 15, fontWeight: 'bold' }

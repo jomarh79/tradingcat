@@ -168,9 +168,10 @@ const loadOpenTickers = async () => {
     position: 'relative',
     overflow: 'hidden',
     flexShrink: 0,
-    alignSelf: 'stretch', // 🔥 Esto hace que estire lo mismo que el modal
-    height: '100%',       // 🔥 Ocupa el 100% del contenedor flexible
-}}>
+    alignSelf: 'stretch', // <--- Asegúrate de que diga stretch
+    height: '100%',       // <--- Cambiado de maxHeight/minHeight a 100%
+  }}>
+
 
       
       {/* Orejas decorativas */}
