@@ -375,7 +375,8 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
 
   return (
   // Busca esta parte en el return:
-<div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '85vh' }}>
+// Busca esta línea cerca del inicio del return y edítala:
+<div style={{ display: 'flex', alignItems: 'stretch', height: '85vh', maxHeight: '85vh' }}>
   <div style={{
     ...modal,
     height: '100%', // <--- Asegúrate de que tenga esto
@@ -645,7 +646,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
         </div>
 
       </div>
-      {/* Panel IA lateral */}
+            {/* Panel IA lateral */}
       {showAI && (
         <AiInsightPanel
           ticker={trade.ticker}
@@ -660,8 +661,12 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
       )}
     </div>
   </div>
-  )
+  );
 }
+
+// Asegúrate de que las constantes de estilo empiecen justo después de esa llave
+const overlay: React.CSSProperties = { ... }
+
 
 const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modal: React.CSSProperties = { 
