@@ -168,8 +168,9 @@ const loadOpenTickers = async () => {
     position: 'relative',
     overflow: 'hidden',
     flexShrink: 0,
-    height: '100%',
-    alignSelf: 'stretch',
+    alignSelf: 'flex-start',
+    maxHeight: '92vh',
+    minHeight: '92vh',
   }}>
       
       {/* Orejas decorativas */}
@@ -248,6 +249,7 @@ const loadOpenTickers = async () => {
         overflowY: 'auto',
         padding: '14px 16px',
         minHeight: 0,
+        maxHeight: 'calc(92vh - 120px)',
       }}>
 
         {loading && (
