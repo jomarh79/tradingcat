@@ -168,10 +168,10 @@ const loadOpenTickers = async () => {
     position: 'relative',
     overflow: 'hidden',
     flexShrink: 0,
-    alignSelf: 'flex-start',
-    maxHeight: '92vh',
-    minHeight: '92vh',
-  }}>
+    alignSelf: 'stretch', // 🔥 Esto hace que estire lo mismo que el modal
+    height: '100%',       // 🔥 Ocupa el 100% del contenedor flexible
+}}>
+
       
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
@@ -245,12 +245,12 @@ const loadOpenTickers = async () => {
 
       {/* Contenido */}
       <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '14px 16px',
-        minHeight: 0,
-        maxHeight: 'calc(92vh - 120px)',
+          flex: 1,            // 🔥 Toma todo el espacio disponible entre header y footer
+          overflowY: 'auto',  // 🔥 Activa el scroll lateral
+          padding: '14px 16px',
+          minHeight: 0,       // Importante para que flexbox respete el scroll
       }}>
+
 
         {loading && (
           <div style={{
