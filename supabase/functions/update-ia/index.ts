@@ -28,18 +28,6 @@ serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
   const isCron     = authHeader === CRON_TOKEN;
 
-  // Si viene del cron, verificar horario de mercado
- const mexicoTime = new Date(
-  new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
-)
-const day  = mexicoTime.getDay()
-const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
-
-
-const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
-
-(globalThis as any).isMarketOpen = isMarketOpen;
-
   // ── Ticker específico (cuando se agrega uno nuevo desde el frontend) ──────
   // Body opcional: { ticker: "AAPL" } para procesar solo ese ticker
   let singleTicker: string | null = null;
@@ -49,10 +37,6 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
       if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
     }
   } catch { /* sin body está bien */ }
-
-if (!isMarketOpen && !singleTicker && !isCron) {
-  return new Response("Mercado cerrado", { headers: CORS })
-}
 
   // Si no es cron ni viene de Supabase anon key, rechazar
   if (!isCron && !req.headers.get("apikey")) {
@@ -153,13 +137,13 @@ if (!isMarketOpen && !singleTicker && !isCron) {
 
         // ── Alerta zona ±2% ────────────────────────────────────────────
         const inZone = Math.abs((price - item.buy_target) / item.buy_target) <= 0.02;
-        if (isMarketOpen && inZone && item.last_alert_date !== todayStr) {
+        if (inZone && item.last_alert_date !== todayStr) {
           await sendAlert({ ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target, type: "🟢 POSIBLE ENTRADA" });
           updateData.last_alert_date = todayStr;
         }
 
         // ── Alerta IA ─────────────────────────────────────────────────
-        if (isMarketOpen && probability > 80 && item.last_ai_alert_date !== todayStr) {
+        if (probability > 80 && item.last_ai_alert_date !== todayStr) {
           await sendAlert({
             ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target,
             rsi: rsi.toFixed(2), type: `🤖 IA ${signal} (${probability.toFixed(0)}%)`,
@@ -210,27 +194,6 @@ if (!isMarketOpen && !singleTicker && !isCron) {
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendAlert(payload: Record<string, any>) {
-  // Validar horario REAL al momento de enviar
-  const mexicoTime = new Date(
-    new Date().toLocaleString("en-US", {
-      timeZone: "America/Mexico_City",
-    })
-  )
-
-  const day  = mexicoTime.getDay()
-  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
-
-  const isMarketOpen =
-    day >= 1 &&
-    day <= 5 &&
-    time >= 8.05 &&
-    time < 15
-
-  // Bloquear alertas fuera de horario
-  if (!isMarketOpen) {
-    console.log("🔕 Alerta bloqueada — mercado cerrado")
-    return
-  }
 
   try {
     await fetch("https://tradingcat.onrender.com/api/notify", {
