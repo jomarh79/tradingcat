@@ -101,9 +101,15 @@ serve(async (req) => {
         // Necesitamos al menos period + 1 precios para RSI válido
         if (prices.length < 15) continue;
 
-        const price     = prices[prices.length - 1];
-        const prevDay   = prices[prices.length - 2];
-        const change    = ((price - prevDay) / prevDay) * 100;
+        const price = prices[prices.length - 1];
+
+        // Variación del día: close de hoy vs open de hoy
+        const todayOpen = parseFloat(tsData.values[0]?.open || '0');
+
+        const change = todayOpen > 0
+          ? ((price - todayOpen) / todayOpen) * 100
+          : ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100;
+
         const priceName = tsData.meta?.symbol || item.ticker;
 
         // ── Indicadores ────────────────────────────────────────────────
