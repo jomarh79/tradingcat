@@ -384,8 +384,8 @@ if (tickerSearch.trim() !== "") {
 
                     {/* RSI */}
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: rsiColor(trade.rsi) }}>
-                      {trade.rsi !== null && trade.rsi !== undefined
-                        ? (rsi !== null ? rsi.toFixed(1) : '—')
+                     {trade.rsi !== null && trade.rsi !== undefined
+                        ? trade.rsi.toFixed(1)
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
