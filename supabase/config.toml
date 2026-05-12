@@ -1,4 +1,9 @@
 
+[functions.update-ia]
+enabled = true
+verify_jwt = false
+import_map = "./functions/update-ia/deno.json"
+entrypoint = "./functions/update-ia/index.ts"
 [functions.update-prices]
 enabled = true
 verify_jwt = true

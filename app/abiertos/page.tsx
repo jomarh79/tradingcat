@@ -53,7 +53,7 @@ export default function TradesAbiertosPage() {
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
-const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>({})
+
 
   const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
@@ -80,18 +80,6 @@ const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>(
     if (data) setPortfolios(data)
   }, [])
 
-  const fetchWatchlistRSI = useCallback(async () => {
-  const { data } = await supabase.from('watchlist').select('ticker, rsi')
-  if (data) {
-    const map: Record<string, number | null> = {}
-    data.forEach((w: any) => {
-      const rsi = Number(w.rsi)
-      map[w.ticker] = isFinite(rsi) && rsi >= 0 && rsi <= 100 ? rsi : null
-    })
-    setWatchlistRSI(map)
-  }
-}, [])
-
     const fetchTrades = useCallback(async () => {
     if (isRefreshing) return
     setIsRefreshing(true)
@@ -112,8 +100,7 @@ const [watchlistRSI, setWatchlistRSI] = useState<Record<string, number | null>>(
 
   useEffect(() => {
   fetchTrades()
-  fetchPortfolios()
-  fetchWatchlistRSI()   
+  fetchPortfolios() 
 }, [])
   
   const toggleTarget = (id: string) =>
@@ -167,10 +154,7 @@ if (tickerSearch.trim() !== "") {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-      const rsiValue = Number(trade.rsi)
-      const rsi = (isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100)
-        ? rsiValue
-        : (watchlistRSI[trade.ticker] ?? null)
+     const rsi = null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
@@ -184,7 +168,7 @@ if (tickerSearch.trim() !== "") {
       ...item,
       portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
     }))
-  }, [trades, selectedPortfolio, tickerSearch, watchlistRSI])
+  }, [trades, selectedPortfolio])
 
   const totals = useMemo(() => {
     const totalInvested = enrichedTrades.reduce((a, t) => a + t.invested, 0)
@@ -276,7 +260,17 @@ if (tickerSearch.trim() !== "") {
                 </span>
               </div>
               <button
-                onClick={() => { fetchTrades(); fetchWatchlistRSI() }}
+                onClick={async () => {
+                  await fetch("https://TU_PROYECTO.supabase.co/functions/v1/update-ia", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer tradingcat-cron-2026"
+                  }
+                })
+
+                fetchTrades()
+              }}
                 disabled={isRefreshing}
                 style={refreshBtn(isRefreshing)}>
                 <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
@@ -391,7 +385,7 @@ if (tickerSearch.trim() !== "") {
                     {/* RSI */}
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: rsiColor(trade.rsi) }}>
                       {trade.rsi !== null && trade.rsi !== undefined
-                        ? trade.rsi.toFixed(1)
+                        ? (rsi !== null ? rsi.toFixed(1) : '—')
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
