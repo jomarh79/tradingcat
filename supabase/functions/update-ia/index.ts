@@ -37,7 +37,7 @@ serve(async (req) => {
   const mexicoTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
   const day  = mexicoTime.getDay();
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15;
+  const isMarketOpen = day >= 1 && day <= 5 && time >= 8.0 && time < 15;
 
   (globalThis as any).isMarketOpen = isMarketOpen;
 
@@ -76,10 +76,8 @@ serve(async (req) => {
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
-    // Cambia lo que tengas en esa línea por esto:
-let url = `${SUPABASE_URL}/rest/v1/watchlist?order=last_updated.asc`;
-if (singleTicker) url += `&ticker=eq.${singleTicker}`;
-
+    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0`;
+    if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
 
     const res  = await fetch(url, { headers: dbHeaders });
     const list = await res.json();
@@ -198,7 +196,25 @@ if (singleTicker) url += `&ticker=eq.${singleTicker}`;
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendAlert(payload: Record<string, any>) {
-  if (!(globalThis as any).isMarketOpen) return;
+  // 🔥 Verificación MÁS ESTRICTA de horario y día
+  const ahora = new Date();
+  const mx = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const dia = mx.getDay();     // 0 = domingo, 1 = lunes, ..., 6 = sábado
+  const hora = mx.getHours();  // 0 a 23
+  const minutos = mx.getMinutes();
+  const horaDecimal = hora + minutos / 60;
+  
+  // Solo lunes a viernes (dia 1 a 5) y entre 8:00 AM y 3:00 PM
+  const esDiaHabil = dia >= 1 && dia <= 5;
+  const esHorarioValido = horaDecimal >= 8.0 && horaDecimal < 15.0;
+  
+  if (!esDiaHabil || !esHorarioValido) {
+    console.log(`⏰ Correo NO enviado - Día: ${dia}, Hora: ${hora}:${minutos} (fuera de horario laboral)`);
+    return;
+  }
+  
+  console.log(`✅ Correo ENVIADO - Día: ${dia}, Hora: ${hora}:${minutos} (horario válido)`);
+  
   try {
     const res = await fetch("https://tradingcat.onrender.com/api/notify", {
       method: "POST",
@@ -206,7 +222,9 @@ async function sendAlert(payload: Record<string, any>) {
       body: JSON.stringify(payload),
     });
     await res.body?.cancel();
-  } catch { /* silencioso */ }
+  } catch (error) {
+    console.error("Error enviando alerta:", error);
+  }
 }
 
 // ── Indicadores técnicos ──────────────────────────────────────────────────────
