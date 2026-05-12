@@ -68,13 +68,13 @@ serve(async (req) => {
     if (lockData?.[0]?.running) {
       return new Response("Skip — ocupado", { headers: CORS });
     }
-    const setLock = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
+        const setLock = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
       method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: true }),
     });
-    await setLock.body?.cancel();
+    await setLock.text(); 
   }
 
-  try {
+   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
     let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0`;
     if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
@@ -92,17 +92,25 @@ serve(async (req) => {
     for (const item of list) {
       console.log("➡️ Procesando:", item.ticker);
       try {
+        console.log("🟡 INICIO TRY:", item.ticker);
         // ── TwelveData ───────────────────────────────────────────────────
         const tsRes  = await fetch(
           `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
         );
         const tsData = await tsRes.json();
+        console.log("🟡 INICIO TRY:", item.ticker);
+
+        console.log("📦 TWELVEDATA RESPONSE:", JSON.stringify(tsData));
+
+        console.log(`📡 ${item.ticker} TwelveData response status: ${tsData.status}`);
+        console.log(`📡 ${item.ticker} values count: ${tsData.values?.length ?? 'undefined'}`);
+        console.log(`📡 ${item.ticker} raw: ${JSON.stringify(tsData).slice(0, 300)}`);
 
         if (tsData.status === "error" || !tsData.values?.length) {
           console.log(`❌ ${item.ticker} ERROR: ${tsData.message}`);
           continue;
         }
-
+        console.log("🟢 PASÓ VALIDACIÓN:", item.ticker);
         const prices: number[] = tsData.values
           .map((v: any) => parseFloat(v.close))
           .filter((p: number) => !isNaN(p) && p > 0)
@@ -161,16 +169,19 @@ serve(async (req) => {
           updateData.last_ai_alert_date = todayStr;
         }
 
-        // ── Guardar en Supabase (CORREGIDO) ──────────────────────────────
+                // ── Guardar en Supabase (CORREGIDO) ──────────────────────────────
         const upWatchlist = await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
           method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
         });
-        await upWatchlist.body?.cancel();
+        await upWatchlist.text(); 
+
+        console.log("✅ PROCESADO OK:", item.ticker);
 
         processed++;
 
       } catch (err: any) {
-        console.error(`Error procesando ${item.ticker}:`, err?.message ?? String(err));
+        console.error(`💥 Error procesando ${item.ticker}:`, err?.message ?? String(err));
+        console.error(`💥 Stack:`, err?.stack ?? 'sin stack');
       }
 
       // TwelveData free: 8 req/min = mínimo 7.5s entre llamadas
@@ -182,12 +193,12 @@ serve(async (req) => {
   } catch (e: any) {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
 
-  } finally {
+    } finally {
     if (!singleTicker) {
       const releaseLock = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
         method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: false }),
       });
-      await releaseLock.body?.cancel();
+      await releaseLock.text(); // <--- CAMBIAR AQUÍ
     }
   }
 });
