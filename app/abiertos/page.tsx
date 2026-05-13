@@ -261,7 +261,7 @@ if (tickerSearch.trim() !== "") {
               </div>
               <button
                 onClick={async () => {
-                  await fetch("https://TU_PROYECTO.supabase.co/functions/v1/update-ia", {
+                  await fetch("https://kdxqnaglhhjwnzvptqvt.supabase.co/functions/v1/update-trades", {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
