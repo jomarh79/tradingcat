@@ -375,7 +375,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
 
   return (
   <div style={overlay}>
-    <div style={{ display: 'flex', alignItems: 'flex-start', maxHeight: '92vh' }}>
+    <div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '92vh' }}>
   <div style={{
     ...modal,
     height: '100%', // <--- Asegúrate de que tenga esto
