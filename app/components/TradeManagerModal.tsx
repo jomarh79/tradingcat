@@ -666,9 +666,7 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
 const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modal: React.CSSProperties = { 
   width: 940, 
-  height: '85vh',      // <--- Cambiado de maxHeight a height fija
-  display: 'flex',     // <--- Añadido
-  flexDirection: 'column', // <--- Añadido
+  maxHeight: '92vh',
   overflowY: 'auto', 
   background: '#111', 
   padding: 25, 

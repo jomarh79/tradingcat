@@ -168,8 +168,8 @@ const loadOpenTickers = async () => {
     position: 'relative',
     overflow: 'hidden',
     flexShrink: 0,
-    alignSelf: 'stretch', // <--- Asegúrate de que diga stretch
-    height: '100%',       // <--- Cambiado de maxHeight/minHeight a 100%
+    minHeight: '92vh',
+    maxHeight: '92vh',
   }}>
 
 
