@@ -28,20 +28,20 @@ serve(async (req) => {
   const authHeader = req.headers.get("Authorization");
   const isCron     = authHeader === CRON_TOKEN;
 
-  // Si no es cron ni viene de Supabase apikey, rechazar inmediatamente
-  if (!isCron && !req.headers.get("apikey")) {
-    return new Response("Unauthorized", { status: 401, headers: CORS });
-  }
+  // Si viene del cron, verificar horario de mercado
+ const mexicoTime = new Date(
+  new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
+)
+const day  = mexicoTime.getDay()
+const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
-  // Verificar horario de mercado (México)
-  const mexicoTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
-  const day  = mexicoTime.getDay();
-  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  const isMarketOpen = day >= 1 && day <= 5 && time >= 8.0 && time < 15;
 
-  (globalThis as any).isMarketOpen = isMarketOpen;
+const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
 
-  // ── Ticker específico ─────────────────────────────────────────────────────
+//(globalThis as any).isMarketOpen = isMarketOpen;
+
+  // ── Ticker específico (cuando se agrega uno nuevo desde el frontend) ──────
+  // Body opcional: { ticker: "AAPL" } para procesar solo ese ticker
   let singleTicker: string | null = null;
   try {
     if (req.headers.get("content-type")?.includes("application/json")) {
@@ -50,10 +50,16 @@ serve(async (req) => {
     }
   } catch { /* sin body está bien */ }
 
-  // Control de mercado cerrado
-  if (!isMarketOpen && !singleTicker && !isCron) {
-    return new Response("Mercado cerrado", { headers: CORS });
+if (!isMarketOpen && !singleTicker && !isCron) {
+  return new Response("Mercado cerrado", { headers: CORS })
+}
+
+  // Si no es cron ni viene de Supabase anon key, rechazar
+  if (!isCron && !req.headers.get("apikey")) {
+  return new Response("Unauthorized", { status: 401, headers: CORS });
   }
+
+
 
   // ── Fecha México ──────────────────────────────────────────────────────────
   const todayStr = new Intl.DateTimeFormat("en-CA", {
@@ -61,23 +67,22 @@ serve(async (req) => {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
-  // ── Lock ──────────────────────────────────────────────────────────────────
+  // ── Lock — solo para ejecución completa (no para ticker individual) ───────
   if (!singleTicker) {
     const lockRes  = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running`, { headers: dbHeaders });
     const lockData = await lockRes.json();
     if (lockData?.[0]?.running) {
       return new Response("Skip — ocupado", { headers: CORS });
     }
-        const setLock = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
+    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
       method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: true }),
     });
-    await setLock.text(); 
   }
 
-   try {
+  try {
     // ── Obtener watchlist ────────────────────────────────────────────────
-    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0`;
-    if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
+    let url = `${SUPABASE_URL}/rest/v1/watchlist`;
+    if (singleTicker) url += `?ticker=eq.${singleTicker}`;
 
     const res  = await fetch(url, { headers: dbHeaders });
     const list = await res.json();
@@ -87,39 +92,30 @@ serve(async (req) => {
     }
 
     let processed = 0;
+
     console.log(`📊 Procesando ${list.length} tickers`);
 
     for (const item of list) {
-      console.log("➡️ Procesando:", item.ticker);
       try {
-        console.log("🟡 INICIO TRY:", item.ticker);
-        // ── TwelveData ───────────────────────────────────────────────────
+        // ── TwelveData: historial de 100 días para RSI preciso ────────
         const tsRes  = await fetch(
           `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
         );
         const tsData = await tsRes.json();
-        console.log("🟡 INICIO TRY:", item.ticker);
-
-        console.log("📦 TWELVEDATA RESPONSE:", JSON.stringify(tsData));
-
-        console.log(`📡 ${item.ticker} TwelveData response status: ${tsData.status}`);
-        console.log(`📡 ${item.ticker} values count: ${tsData.values?.length ?? 'undefined'}`);
-        console.log(`📡 ${item.ticker} raw: ${JSON.stringify(tsData).slice(0, 300)}`);
 
         if (tsData.status === "error" || !tsData.values?.length) {
           console.log(`❌ ${item.ticker} ERROR: ${tsData.message}`);
           continue;
         }
-        console.log("🟢 PASÓ VALIDACIÓN:", item.ticker);
+
+        // Invertir: TwelveData devuelve más reciente primero
         const prices: number[] = tsData.values
           .map((v: any) => parseFloat(v.close))
           .filter((p: number) => !isNaN(p) && p > 0)
           .reverse();
 
-        if (prices.length < 15) {
-          console.log(`⚠️ ${item.ticker} sin suficientes precios`);
-          continue;
-        }
+        // Necesitamos al menos period + 1 precios para RSI válido
+        if (prices.length < 15) continue;
 
         const price     = prices[prices.length - 1];
         const prevDay   = prices[prices.length - 2];
@@ -128,6 +124,7 @@ serve(async (req) => {
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
+        // Blindaje: si por cualquier razón sale fuera de rango, corregir
         if (!isFinite(rsi) || isNaN(rsi)) rsi = 50;
         rsi = Math.max(0, Math.min(100, rsi));
 
@@ -154,13 +151,14 @@ serve(async (req) => {
           ai_signal:      signal,
         };
 
-        // ── Alertas ─────────────────────────────────────────────────────
+        // ── Alerta zona ±2% ────────────────────────────────────────────
         const inZone = Math.abs((price - item.buy_target) / item.buy_target) <= 0.02;
         if (isMarketOpen && inZone && item.last_alert_date !== todayStr) {
           await sendAlert({ ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target, type: "🟢 POSIBLE ENTRADA" });
           updateData.last_alert_date = todayStr;
         }
 
+        // ── Alerta IA ─────────────────────────────────────────────────
         if (isMarketOpen && probability > 80 && item.last_ai_alert_date !== todayStr) {
           await sendAlert({
             ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target,
@@ -169,23 +167,27 @@ serve(async (req) => {
           updateData.last_ai_alert_date = todayStr;
         }
 
-                // ── Guardar en Supabase (CORREGIDO) ──────────────────────────────
-        const upWatchlist = await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
-          method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
-        });
-        await upWatchlist.text(); 
-
-        console.log("✅ PROCESADO OK:", item.ticker);
+        // ── Guardar en Supabase ────────────────────────────────────────
+        await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
+            method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
+          });
+        // También actualizar RSI en trades abiertos con este ticker  
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
+          { method: "PATCH", headers: dbHeaders, body: JSON.stringify({ rsi: parseFloat(rsi.toFixed(2)) }) }
+        );
 
         processed++;
 
-      } catch (err: any) {
-        console.error(`💥 Error procesando ${item.ticker}:`, err?.message ?? String(err));
-        console.error(`💥 Stack:`, err?.stack ?? 'sin stack');
+      } catch (err) {
+        console.error(`Error procesando ${item.ticker}:`, err);
       }
 
-      // TwelveData free: 8 req/min = mínimo 7.5s entre llamadas
-      if (list.length > 1) await sleep(8000);
+      // Rate limit TwelveData gratuito: 8 req/min → 8s entre llamadas
+      // Solo aplicar delay si hay más de un ticker pendiente
+      if (list.length > 1 && list.indexOf(item) < list.length - 1) {
+        await sleep(1000);
+      }
     }
 
     return new Response(`OK — ${processed}/${list.length} tickers procesados`, { headers: CORS });
@@ -193,58 +195,73 @@ serve(async (req) => {
   } catch (e: any) {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
 
-    } finally {
+  } finally {
+    // Liberar lock solo si fue ejecución completa
     if (!singleTicker) {
-      const releaseLock = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
+      await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
         method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: false }),
       });
-      await releaseLock.text(); // <--- CAMBIAR AQUÍ
     }
   }
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendAlert(payload: Record<string, any>) {
-  // 🔥 Verificación MÁS ESTRICTA de horario y día
-  const ahora = new Date();
-  const mx = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
-  const dia = mx.getDay();     // 0 = domingo, 1 = lunes, ..., 6 = sábado
-  const hora = mx.getHours();  // 0 a 23
-  const minutos = mx.getMinutes();
-  const horaDecimal = hora + minutos / 60;
-  
-  // Solo lunes a viernes (dia 1 a 5) y entre 8:00 AM y 3:00 PM
-  const esDiaHabil = dia >= 1 && dia <= 5;
-  const esHorarioValido = horaDecimal >= 8.0 && horaDecimal < 15.0;
-  
-  if (!esDiaHabil || !esHorarioValido) {
-    console.log(`⏰ Correo NO enviado - Día: ${dia}, Hora: ${hora}:${minutos} (fuera de horario laboral)`);
-    return;
+  // Validar horario REAL al momento de enviar
+  const mexicoTime = new Date(
+    new Date().toLocaleString("en-US", {
+      timeZone: "America/Mexico_City",
+    })
+  )
+
+  const day  = mexicoTime.getDay()
+  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
+
+  const isMarketOpen =
+    day >= 1 &&
+    day <= 5 &&
+    time >= 8.05 &&
+    time < 15
+
+  // Bloquear alertas fuera de horario
+  if (!isMarketOpen) {
+    console.log("🔕 Alerta bloqueada — mercado cerrado")
+    return
   }
-  
-  console.log(`✅ Correo ENVIADO - Día: ${dia}, Hora: ${hora}:${minutos} (horario válido)`);
-  
+
   try {
-    const res = await fetch("https://tradingcat.onrender.com/api/notify", {
+    await fetch("https://tradingcat.onrender.com/api/notify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(payload),
-    });
-    await res.body?.cancel();
-  } catch (error) {
-    console.error("Error enviando alerta:", error);
+    })
+  } catch (err) {
+    console.error("Error enviando alerta:", err)
   }
 }
 
 // ── Indicadores técnicos ──────────────────────────────────────────────────────
+
+/**
+ * RSI con suavizado de Wilder.
+ * prices debe estar ordenado de más antiguo a más reciente.
+ * Con outputsize=100 y period=14 tenemos suficiente historia para el suavizado.
+ */
 function calculateRSI(prices: number[], period = 14): number {
   if (prices.length <= period) return 50;
+
+  // Calcular cambios diarios
   const changes: number[] = [];
   for (let i = 1; i < prices.length; i++) {
     changes.push(prices[i] - prices[i - 1]);
   }
+
+  // Promedios iniciales (primeros `period` cambios)
   let avgGain = 0, avgLoss = 0;
   for (let i = 0; i < period; i++) {
     if (changes[i] > 0) avgGain += changes[i];
@@ -253,15 +270,19 @@ function calculateRSI(prices: number[], period = 14): number {
   avgGain /= period;
   avgLoss /= period;
 
+  // Suavizado de Wilder para el resto de los cambios
   for (let i = period; i < changes.length; i++) {
     const gain = changes[i] > 0 ? changes[i] : 0;
     const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
     avgGain = (avgGain * (period - 1) + gain) / period;
     avgLoss = (avgLoss * (period - 1) + loss) / period;
   }
+
   if (avgLoss === 0) return 100;
   if (avgGain === 0) return 0;
+
   const rs = avgGain / avgLoss;
+  // Resultado garantizado entre 0 y 100
   return Math.max(0, Math.min(100, 100 - (100 / (1 + rs))));
 }
 
