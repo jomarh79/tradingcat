@@ -154,7 +154,7 @@ if (tickerSearch.trim() !== "") {
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
       // RSI desde watchlist — no requiere llamada extra a API
-     const rsi = null
+     const rsi = trade.rsi ?? null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
