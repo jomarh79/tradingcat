@@ -132,7 +132,7 @@ export default function PortafoliosPage() {
         pnlMap[id] = parseFloat(((pnlMap[id] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
       })
     }
-  
+  }, [])
 
   useEffect(() => {
     const init = async () => {
