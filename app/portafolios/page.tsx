@@ -51,6 +51,7 @@ export default function PortafoliosPage() {
   const [walletDepositos, setWalletDepositos] = useState<Record<string, number>>({})
   const [walletLastMove,  setWalletLastMove]  = useState<Record<string, string>>({})
   const [walletMoveCount, setWalletMoveCount] = useState<Record<string, number>>({})
+  const [walletPnL, setWalletPnL] = useState<Record<string, number>>({})
 
   // Transferencia entre cuentas
   const [showTransfer,    setShowTransfer]    = useState(false)
@@ -95,6 +96,7 @@ export default function PortafoliosPage() {
     const depositos: Record<string, number> = {}
     const lastMove:  Record<string, string> = {}
     const counts:    Record<string, number> = {}
+    const pnlMap:    Record<string, number> = {}
 
     all.forEach(m => {
       const id  = m.wallet_id
@@ -107,10 +109,16 @@ export default function PortafoliosPage() {
       if (!lastMove[id] || m.date > lastMove[id]) lastMove[id] = m.date
     })
 
+    // PnL = saldo actual - capital depositado (lo que ganaste o perdiste operando)
+    Object.keys(saldos).forEach(id => {
+      pnlMap[id] = parseFloat(((saldos[id] || 0) - (depositos[id] || 0)).toFixed(2))
+    })
+
     setWalletSaldos(saldos)
     setWalletDepositos(depositos)
     setWalletLastMove(lastMove)
     setWalletMoveCount(counts)
+    setWalletPnL(pnlMap)
 
     const { data: tData } = await supabase.from('trades').select('ticker').eq('status', 'open')
     if (tData) setAllOpenTickers(Array.from(new Set(tData.map((t: any) => t.ticker))).sort() as string[])
@@ -374,9 +382,8 @@ export default function PortafoliosPage() {
                       <th style={th}>Billetera</th>
                       <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
                       <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Movimientos</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
                       <th style={{ ...th, textAlign: 'right' }}>Último movimiento</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Creada</th>
                       <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
@@ -401,12 +408,21 @@ export default function PortafoliosPage() {
                             <div style={{ fontWeight: 700, color: '#00bfff', fontSize: 13 }}>{money(deposito)}</div>
                             <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>de tu bolsillo</div>
                           </td>
-                          <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>{count}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            {(() => {
+                              const pnl = walletPnL[p.id] ?? 0
+                              const color = Math.abs(pnl) < 0.5 ? '#00bfff' : pnl > 0 ? '#22c55e' : '#f43f5e'
+                              const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
+                              return (
+                                <div>
+                                  <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
+                                  {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
+                                </div>
+                              )
+                            })()}
+                          </td>
                           <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>
                             {walletLastMove[p.id] ? fmtDate(walletLastMove[p.id]) : '—'}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', color: '#888', fontSize: 12 }}>
-                            {fmtDate(p.created_at)}
                           </td>
                           <td style={{ ...td, textAlign: 'center' }}>
                             <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
@@ -441,7 +457,7 @@ export default function PortafoliosPage() {
                     <th style={th}>Billetera</th>
                     <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
                     <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Movimientos</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
                     <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
@@ -451,7 +467,19 @@ export default function PortafoliosPage() {
                       <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
                       <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>{money(walletSaldos[p.id] || 0)}</td>
                       <td style={{ ...td, textAlign: 'right', color: '#00bfff', fontWeight: 700 }}>{money(walletDepositos[p.id] || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>{walletMoveCount[p.id] || 0}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        {(() => {
+                          const pnl = walletPnL[p.id] ?? 0
+                          const color = Math.abs(pnl) < 0.5 ? '#00bfff' : pnl > 0 ? '#22c55e' : '#f43f5e'
+                          const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
+                          return (
+                            <div>
+                              <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
+                              {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
+                            </div>
+                          )
+                        })()}
+                      </td>
                       <td style={{ ...td, textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                           <button onClick={() => setMovementWallet(p)} style={actionBtn('#1b4d20', '#22c55e')}>Movimientos</button>
