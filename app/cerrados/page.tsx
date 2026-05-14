@@ -472,7 +472,7 @@ export default function CerradosPage() {
             {availableMonths.map(m => {
               const [y, mo] = m.split('-')
               const label = new Date(Number(y), Number(mo) - 1, 1)
-                .toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+                .toLocaleDateString('es-MX', { month: 'long' })
               return <option key={m} value={m}>{label}</option>
             })}
           </select>
