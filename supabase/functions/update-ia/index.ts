@@ -6,8 +6,6 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-const CRON_TOKEN = "Bearer tradingcat-cron-2026";
-
 serve(async (req) => {
   // ── CORS preflight ────────────────────────────────────────────────────────
   if (req.method === "OPTIONS") {
@@ -25,9 +23,6 @@ serve(async (req) => {
   };
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const authHeader = req.headers.get("Authorization");
-  const isCron     = authHeader === CRON_TOKEN;
-
   // Si viene del cron, verificar horario de mercado
  const mexicoTime = new Date(
   new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
@@ -50,7 +45,7 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
     }
   } catch { /* sin body está bien */ }
 
-if (!isMarketOpen && !singleTicker && !isCron) {
+if (!isMarketOpen && !singleTicker) {
   return new Response("Mercado cerrado", { headers: CORS })
 }
 
@@ -97,6 +92,44 @@ if (!isMarketOpen && !singleTicker && !isCron) {
 
     for (const item of list) {
       try {
+            // ── Control inteligente de frecuencia ─────────────────
+
+        const currentPrice = item.current_price || 0
+
+        if (currentPrice > 0) {
+
+          // Distancia porcentual al target
+          const distPercent =
+            Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
+
+          // Última actualización guardada en DB
+          const lastUpdate = item.last_updated
+            ? new Date(item.last_updated).getTime()
+            : 0
+
+          const now = Date.now()
+
+          // Minutos desde la última actualización
+          const minutesSinceUpdate = (now - lastUpdate) / 60000
+
+          // <= 5% del objetivo → actualizar cada 5 min
+          if (distPercent <= 5 && minutesSinceUpdate < 5) {
+            console.log(`⏭️ ${item.ticker} skip 5m`)
+            continue
+          }
+
+          // >5% y <=10% → actualizar cada 30 min
+          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 30) {
+            console.log(`⏭️ ${item.ticker} skip 30m`)
+            continue
+          }
+
+          // >10% → actualizar cada 60 min
+          if (distPercent > 10 && minutesSinceUpdate < 60) {
+            console.log(`⏭️ ${item.ticker} skip 60m`)
+            continue
+          }
+        }
         // ── TwelveData: historial de 100 días para RSI preciso ────────
         const tsRes  = await fetch(
           `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
@@ -104,7 +137,7 @@ if (!isMarketOpen && !singleTicker && !isCron) {
         const tsData = await tsRes.json();
 
         if (tsData.status === "error" || !tsData.values?.length) {
-          console.log(`❌ ${item.ticker} ERROR: ${tsData.message}`);
+          console.log(`❌ ${item.ticker} ERROR:`, tsData);
           continue;
         }
 
@@ -186,7 +219,7 @@ if (!isMarketOpen && !singleTicker && !isCron) {
       // Rate limit TwelveData gratuito: 8 req/min → 8s entre llamadas
       // Solo aplicar delay si hay más de un ticker pendiente
       if (list.length > 1 && list.indexOf(item) < list.length - 1) {
-        await sleep(1000);
+        await sleep(4000);
       }
     }
 

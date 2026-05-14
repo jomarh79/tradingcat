@@ -48,7 +48,6 @@ export default function TradesAbiertosPage() {
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
-  const [tickerFilter, setTickerFilter] = useState("all")
   const [tickerSearch, setTickerSearch] = useState("")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
@@ -120,11 +119,6 @@ export default function TradesAbiertosPage() {
     fetchTrades()
   }
 
-  const uniqueTickers = useMemo(() => {
-  const set = new Set(trades.map(t => t.ticker))
-  return ["all", ...Array.from(set).sort()]
-}, [trades])
-
   const enrichedTrades = useMemo(() => {
  let filtered = trades
 
@@ -168,7 +162,7 @@ if (tickerSearch.trim() !== "") {
       ...item,
       portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
     }))
-  }, [trades, selectedPortfolio])
+  }, [trades, selectedPortfolio, tickerSearch])
 
   const totals = useMemo(() => {
     const totalInvested = enrichedTrades.reduce((a, t) => a + t.invested, 0)
