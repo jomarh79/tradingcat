@@ -125,7 +125,6 @@ export default function PortafoliosPage() {
       .eq('user_id', userId)
       .eq('status', 'closed')
 
-    const pnlMap: Record<string, number> = {}
     if (closedTrades) {
       closedTrades.forEach(t => {
         const id = t.portfolio_id
