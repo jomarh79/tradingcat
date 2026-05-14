@@ -407,7 +407,14 @@ export default function CerradosPage() {
     const totalInv = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalInvested, 0)
     const totalSell = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalSells, 0)
     const avgPnl   = total > 0 ? totalPnl / total : 0
-    return { total, winners, winRate, totalPnl, totalInv, totalSell, avgPnl }
+    // PnL anual ponderado: suma de (pnlCash / totalInvested * annualPct) ponderado por inversión
+    const weightedAnnual = filteredAndSorted.reduce((acc, t) => {
+      const d = calculateTradeData(t)
+      if (d.totalInvested <= 0) return acc
+      return acc + d.annualPct * (d.totalInvested / (totalInv || 1))
+    }, 0)
+
+    return { total, winners, winRate, totalPnl, totalInv, totalSell, avgPnl, weightedAnnual: parseFloat(weightedAnnual.toFixed(2)) }
   }, [filteredAndSorted, calculateTradeData])
 
   return (
@@ -442,6 +449,7 @@ export default function CerradosPage() {
               { label: 'Recuperado', value: money(summary.totalSell),        color: '#aaa' },
               { label: 'PnL total',  value: money(summary.totalPnl),         color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
               { label: 'PnL/trade',  value: money(summary.avgPnl),           color: summary.avgPnl >= 0 ? '#22c55e' : '#f43f5e' },
+              { label: 'Rend. anual', value: `${summary.weightedAnnual >= 0 ? '+' : ''}${summary.weightedAnnual.toFixed(2)}%`, color: summary.weightedAnnual >= 0 ? '#22c55e' : '#f43f5e' },
             ].map(c => (
               <div key={c.label} style={summaryCard}>
                 <span style={summaryLabel}>{c.label}</span>
