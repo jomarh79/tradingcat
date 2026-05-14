@@ -113,7 +113,6 @@ export default function PortafoliosPage() {
     setWalletDepositos(depositos)
     setWalletLastMove(lastMove)
     setWalletMoveCount(counts)
-    setWalletPnL(pnlMap)
 
     const { data: tData } = await supabase.from('trades').select('ticker').eq('status', 'open')
     if (tData) setAllOpenTickers(Array.from(new Set(tData.map((t: any) => t.ticker))).sort() as string[])
@@ -126,11 +125,13 @@ export default function PortafoliosPage() {
       .eq('status', 'closed')
 
     if (closedTrades) {
-      closedTrades.forEach(t => {
-        const id = t.portfolio_id
-        pnlMap[id] = parseFloat(((pnlMap[id] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
-      })
-    }
+  closedTrades.forEach(t => {
+    const id = t.portfolio_id
+    pnlMap[id] = parseFloat(((pnlMap[id] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
+  })
+}
+
+setWalletPnL(pnlMap)
   }, [])
 
   useEffect(() => {
