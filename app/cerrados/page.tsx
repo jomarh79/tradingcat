@@ -408,13 +408,17 @@ export default function CerradosPage() {
     const totalSell = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalSells, 0)
     const avgPnl   = total > 0 ? totalPnl / total : 0
     // PnL anual ponderado: suma de (pnlCash / totalInvested * annualPct) ponderado por inversión
-    const weightedAnnual = filteredAndSorted.reduce((acc, t) => {
+    const avgDays = filteredAndSorted.reduce((acc, t) => {
       const d = calculateTradeData(t)
-      if (d.totalInvested <= 0) return acc
-      return acc + d.annualPct * (d.totalInvested / (totalInv || 1))
-    }, 0)
+      return acc + d.diffDays
+    }, 0) / (filteredAndSorted.length || 1)
 
-    return { total, winners, winRate, totalPnl, totalInv, totalSell, avgPnl, weightedAnnual: parseFloat(weightedAnnual.toFixed(2)) }
+    const totalPnlPct   = totalInv > 0 ? (totalPnl / totalInv) * 100 : 0
+    const weightedAnnual = avgDays > 0
+      ? parseFloat(((totalPnlPct / 100) * (365 / avgDays) * 100).toFixed(2))
+      : 0
+
+    return { total, winners, winRate, totalPnl, totalInv, totalSell, avgPnl, weightedAnnual }
   }, [filteredAndSorted, calculateTradeData])
 
   return (
