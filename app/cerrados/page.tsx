@@ -8,6 +8,7 @@ import { Trash2, X, History, Pencil, Check, AlertTriangle } from 'lucide-react'
 import { FaSort, FaSortUp, FaSortDown } from 'react-icons/fa'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 const CLOSE_REASONS = [
   'Take Profit', 'Stop loss', 'Decisión manual', 'Sentimiento del mercado',
@@ -116,13 +117,12 @@ export default function CerradosPage() {
 
   const availableMonths = useMemo(() => {
     const months = new Set(
-      trades.map(t => {
-        const d = parseDate(t.close_date || t.open_date)
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      })
+      trades
+        .filter(t => selectedYear === 'all' || parseDate(t.close_date || t.open_date).getFullYear().toString() === selectedYear)
+        .map(t => String(parseDate(t.close_date || t.open_date).getMonth() + 1))
     )
-    return Array.from(months).sort((a, b) => b.localeCompare(a))
-  }, [trades])
+    return Array.from(months).sort((a, b) => Number(a) - Number(b))
+  }, [trades, selectedYear])
 
   const availableSectors = useMemo(() => {
     const sectors = new Set(trades.map(t => t.sector || 'Sin sector').filter(Boolean))
@@ -375,9 +375,8 @@ export default function CerradosPage() {
 
       const matchMonth = filterMonth === 'all' || (() => {
         const d = parseDate(t.close_date || t.open_date)
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === filterMonth
+        return String(d.getMonth() + 1) === filterMonth
       })()
-
       return matchPortfolio && matchYear && matchTicker && matchReason && matchSector && matchMonth
     })
 
@@ -469,12 +468,9 @@ export default function CerradosPage() {
           </select>
           <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={selectStyle}>
             <option value="all">Todos los meses</option>
-            {availableMonths.map(m => {
-              const [y, mo] = m.split('-')
-              const label = new Date(Number(y), Number(mo) - 1, 1)
-                .toLocaleDateString('es-MX', { month: 'long' })
-              return <option key={m} value={m}>{label}</option>
-            })}
+            {availableMonths.map(mo => (
+              <option key={mo} value={mo}>{MESES[Number(mo) - 1]}</option>
+            ))}
           </select>
           <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={selectStyle}>
             <option value="all">Todas las razones</option>
