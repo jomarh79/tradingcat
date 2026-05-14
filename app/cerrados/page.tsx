@@ -77,6 +77,7 @@ export default function CerradosPage() {
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState('all')
   const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
+  const [filterMonth, setFilterMonth] = useState('all')
   const [filterTicker,      setFilterTicker]      = useState('')
   const [filterReason,      setFilterReason]      = useState('all')
   const [filterSector,      setFilterSector]      = useState('all')
@@ -111,6 +112,16 @@ export default function CerradosPage() {
     const years = new Set(trades.map(t => parseDate(t.close_date || t.open_date).getFullYear()))
     years.add(new Date().getFullYear())
     return Array.from(years).sort((a, b) => b - a)
+  }, [trades])
+
+  const availableMonths = useMemo(() => {
+    const months = new Set(
+      trades.map(t => {
+        const d = parseDate(t.close_date || t.open_date)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      })
+    )
+    return Array.from(months).sort((a, b) => b.localeCompare(a))
   }, [trades])
 
   const availableSectors = useMemo(() => {
@@ -361,7 +372,13 @@ export default function CerradosPage() {
       const matchTicker    = !filterTicker || t.ticker.toLowerCase().includes(filterTicker.toLowerCase())
       const matchReason    = filterReason === 'all' || (t.close_reason || '') === filterReason
       const matchSector    = filterSector === 'all' || (t.sector || 'Sin sector') === filterSector
-      return matchPortfolio && matchYear && matchTicker && matchReason && matchSector
+
+      const matchMonth = filterMonth === 'all' || (() => {
+        const d = parseDate(t.close_date || t.open_date)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === filterMonth
+      })()
+
+      return matchPortfolio && matchYear && matchTicker && matchReason && matchSector && matchMonth
     })
 
     return result.sort((a, b) => {
@@ -381,7 +398,7 @@ export default function CerradosPage() {
       if (v1 > v2) return sortConfig.direction === 'asc' ? 1 : -1
       return 0
     })
-  }, [trades, selectedPortfolio, selectedYear, filterTicker, filterReason, filterSector, sortConfig, calculateTradeData])
+  }, [trades, selectedPortfolio, selectedYear, filterMonth, filterTicker, filterReason, filterSector, sortConfig, calculateTradeData])
 
   const summary = useMemo(() => {
     const total    = filteredAndSorted.length
@@ -449,6 +466,15 @@ export default function CerradosPage() {
           <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
             <option value="all">Todos los años</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={selectStyle}>
+            <option value="all">Todos los meses</option>
+            {availableMonths.map(m => {
+              const [y, mo] = m.split('-')
+              const label = new Date(Number(y), Number(mo) - 1, 1)
+                .toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+              return <option key={m} value={m}>{label}</option>
+            })}
           </select>
           <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={selectStyle}>
             <option value="all">Todas las razones</option>
@@ -538,10 +564,10 @@ export default function CerradosPage() {
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                         <button onClick={() => setViewingTrade(t)} style={actionBtn('#00bfff')}
-                          title="Ver historial"
+                          title="Historial"
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
-                          Ver historial
+                          Historial
                         </button>
                         <button onClick={() => handleDelete(t)} style={iconBtn}
                           title="Eliminar"
