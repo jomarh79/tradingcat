@@ -206,27 +206,70 @@ export default function EstadisticasAbiertosPage() {
             {/* ── KPIs PRINCIPALES ── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <StatCard 
-              label="Capital expuesto / actual / %" 
-              value={`${money(stats.totalInvested)} / ${money(stats.totalCurrent)} / ${stats.totalPnLPct.toFixed(1)}%`}
-              color={
-                stats.totalPnL > 0
-                  ? '#22c55e'
-                  : stats.totalPnL < 0
-                  ? '#f43f5e'
-                  : '#00bfff'
+                label="Capital expuesto / actual / %" 
+                value={
+                  <>
+                    <span style={{ color: '#00bfff' }}>
+                      {money(stats.totalInvested)}
+                    </span>
+
+                    <span style={{ color: '#666' }}> / </span>
+
+                    <span style={{
+                      color:
+                        stats.totalPnL > 0
+                          ? '#22c55e'
+                          : stats.totalPnL < 0
+                          ? '#f43f5e'
+                          : '#fff'
+                    }}>
+                      {money(stats.totalCurrent)}
+                    </span>
+
+                    <span style={{ color: '#666' }}> / </span>
+
+                    <span style={{
+                      color:
+                        stats.totalPnL > 0
+                          ? '#22c55e'
+                          : stats.totalPnL < 0
+                          ? '#f43f5e'
+                          : '#fff'
+                    }}>
+                      {stats.totalPnLPct.toFixed(1)}%
+                    </span>
+                  </>
+                }
+              />
+            <StatCard 
+              label="Posiciones abiertas / Ganando / Perdiendo"     
+              value={
+                <>
+                  <span style={{
+                    color:
+                      stats.winningTrades > stats.losingTrades
+                        ? '#22c55e'
+                        : stats.losingTrades > stats.winningTrades
+                        ? '#f43f5e'
+                        : '#fff'
+                  }}>
+                    {stats.totalCount}
+                  </span>
+
+                  <span style={{ color: '#666' }}> / </span>
+
+                  <span style={{ color: '#22c55e' }}>
+                    {stats.winningTrades}
+                  </span>
+
+                  <span style={{ color: '#666' }}> / </span>
+
+                  <span style={{ color: '#f43f5e' }}>
+                    {stats.losingTrades}
+                  </span>
+                </>
               }
             />
-<StatCard 
-  label="Posiciones abiertas / Ganando / Perdiendo"     
-  value={`${stats.totalCount} / ${stats.winningTrades} / ${stats.losingTrades}`}
-  color={
-    stats.winningTrades > stats.losingTrades
-      ? '#22c55e'
-      : stats.losingTrades > stats.winningTrades
-      ? '#f43f5e'
-      : '#fff'
-  }
-/>
               <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
                 desc="Tiempo promedio en posición" />
               <StatCard label="R/R promedio objetivo"   value={stats.avgRR > 0 ? `${stats.avgRR}R` : '—'} color="#22c55e"
@@ -499,7 +542,9 @@ function StatCard({ label, value, desc, color = 'white' }: any) {
         <Paw size={44} color="#fff" opacity={0.02} />
       </div>
       <div style={{ fontSize: 9, color: '#888', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 900, color }}>{value}</div>
+      <div style={{ fontSize: 20, fontWeight: 900, color }}>
+        {value}
+      </div>
       {desc && <div style={{ fontSize: 10, color: '#666', marginTop: 5 }}>{desc}</div>}
     </div>
   )
