@@ -130,11 +130,6 @@ export default function EstadisticasAbiertosPage() {
     const winningTrades = withPnl.filter(t => t.pnl > 0).length
     const losingTrades  = withPnl.filter(t => t.pnl < 0).length
 
-    const tradesPnLPct =
-      filteredTrades.length > 0
-        ? ((winningTrades - losingTrades) / filteredTrades.length) * 100
-        : 0
-
     const topGains  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
     const topLosses = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
     // Duración promedio
@@ -160,7 +155,6 @@ export default function EstadisticasAbiertosPage() {
       totalPnLPct,
       winningTrades,
       losingTrades,
-      tradesPnLPct, 
       totalCount: filteredTrades.length,
       horizonStats, sectorGroups, countryGroups,
       topPositions, topGains, topLosses,
@@ -222,17 +216,17 @@ export default function EstadisticasAbiertosPage() {
                   : '#00bfff'
               }
             />
-              <StatCard 
-                label="Posiciones abiertas / %"     
-                value={`${stats.totalCount} / ${stats.tradesPnLPct.toFixed(1)}%`}
-                color={
-                  stats.tradesPnLPct > 0
-                    ? '#22c55e'
-                    : stats.tradesPnLPct < 0
-                    ? '#f43f5e'
-                    : '#fff'
-                }
-              />
+<StatCard 
+  label="Posiciones abiertas / Ganando / Perdiendo"     
+  value={`${stats.totalCount} / ${stats.winningTrades} / ${stats.losingTrades}`}
+  color={
+    stats.winningTrades > stats.losingTrades
+      ? '#22c55e'
+      : stats.losingTrades > stats.winningTrades
+      ? '#f43f5e'
+      : '#fff'
+  }
+/>
               <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
                 desc="Tiempo promedio en posición" />
               <StatCard label="R/R promedio objetivo"   value={stats.avgRR > 0 ? `${stats.avgRR}R` : '—'} color="#22c55e"
