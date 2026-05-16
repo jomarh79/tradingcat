@@ -49,9 +49,12 @@ if (!isMarketOpen && !singleTicker) {
   return new Response("Mercado cerrado", { headers: CORS })
 }
 
+  const authHeader = req.headers.get("Authorization");
+  const isCron     = authHeader === "Bearer tradingcat-cron-2026";
+
   // Si no es cron ni viene de Supabase anon key, rechazar
   if (!isCron && !req.headers.get("apikey")) {
-  return new Response("Unauthorized", { status: 401, headers: CORS });
+    return new Response("Unauthorized", { status: 401, headers: CORS });
   }
 
 
@@ -76,8 +79,8 @@ if (!isMarketOpen && !singleTicker) {
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
-    let url = `${SUPABASE_URL}/rest/v1/watchlist`;
-    if (singleTicker) url += `?ticker=eq.${singleTicker}`;
+    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0`;
+    if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
 
     const res  = await fetch(url, { headers: dbHeaders });
     const list = await res.json();
@@ -91,6 +94,9 @@ if (!isMarketOpen && !singleTicker) {
     console.log(`📊 Procesando ${list.length} tickers`);
 
     for (const item of list) {
+      // Sleep primero — garantiza delay incluso si se hace continue
+      if (list.indexOf(item) > 0) await sleep(8000);
+
       try {
             // ── Control inteligente de frecuencia ─────────────────
 
@@ -214,12 +220,6 @@ if (!isMarketOpen && !singleTicker) {
 
       } catch (err) {
         console.error(`Error procesando ${item.ticker}:`, err);
-      }
-
-      // Rate limit TwelveData gratuito: 8 req/min → 8s entre llamadas
-      // Solo aplicar delay si hay más de un ticker pendiente
-      if (list.length > 1 && list.indexOf(item) < list.length - 1) {
-        await sleep(4000);
       }
     }
 

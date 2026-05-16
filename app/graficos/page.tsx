@@ -146,7 +146,7 @@ export default function GraficosAbiertosPage() {
       return acc + qty * cur
     }, 0)
 
-    const totalInvestedGlobal = allTrades.reduce(
+    const totalInvestedGlobal = trades.reduce(
       (acc, t) => acc + Number(t.total_invested || 0),
       0
     )
@@ -163,7 +163,7 @@ export default function GraficosAbiertosPage() {
     // Capital por portafolio
     const portfolioMap: Record<string, { name: string, value: number }> = {}
 
-    allTrades.forEach(t => {
+    trades.forEach(t => {
       const id = t.portfolio_id
       if (!portfolioMap[id]) portfolioMap[id] = { name: t.portfolios?.name || id, value: 0 }
       portfolioMap[id].value += Number(t.total_invested || 0)
@@ -175,7 +175,7 @@ export default function GraficosAbiertosPage() {
     // Horizonte (SIEMPRE GLOBAL)
     let long = 0, mid = 0, short = 0
 
-    allTrades.forEach(t => {
+    trades.forEach(t => {
       const name = (t.portfolios?.name || '').toLowerCase()
       const inv  = Number(t.total_invested || 0)
       if (name.includes('largo'))      long  += inv
