@@ -368,7 +368,7 @@ if (tickerSearch.trim() !== "") {
                     {/* Ticker */}
                     <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold' }}>
                       <a
-                        href={`https://www.tradingview.com/chart/?symbol=${trade.ticker}`}
+                        href={`https://es.tradingview.com/chart/?symbol=${trade.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
