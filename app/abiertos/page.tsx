@@ -366,9 +366,29 @@ if (tickerSearch.trim() !== "") {
                     </td>
 
                     {/* Ticker */}
-                    <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold', color: '#00bfff' }}>
-                      {trade.ticker}
-                      <div style={{ fontSize: '0.55rem', color: '#444' }}>{trade.portfolios?.name}</div>
+                    <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold' }}>
+                      <a
+                        href={`https://www.tradingview.com/chart/?symbol=${trade.ticker}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          color: '#00bfff',
+                          textDecoration: 'none',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.textDecoration = 'underline'
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.textDecoration = 'none'
+                        }}
+                      >
+                        {trade.ticker}
+                      </a>
+
+                      <div style={{ fontSize: '0.55rem', color: '#444' }}>
+                        {trade.portfolios?.name}
+                      </div>
                     </td>
 
                     {/* Var día */}
