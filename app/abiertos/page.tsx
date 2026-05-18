@@ -161,13 +161,12 @@ if (tickerSearch.trim() !== "") {
       }
     })
 
-    const totalValue    = items.reduce((acc, i) => acc + i.curValue, 0)
     const totalInvested = items.reduce((acc, i) => acc + i.invested, 0)
 
     return items.map(item => ({
       ...item,
-      portfolioWeight:         totalValue    > 0 ? parseFloat((item.curValue / totalValue    * 100).toFixed(1)) : 0,
       portfolioWeightOriginal: totalInvested > 0 ? parseFloat((item.invested / totalInvested * 100).toFixed(1)) : 0,
+      portfolioWeight:         totalInvested > 0 ? parseFloat((item.curValue  / totalInvested * 100).toFixed(1)) : 0,
     }))
   }, [trades, selectedPortfolio, tickerSearch])
 
