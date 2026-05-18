@@ -119,7 +119,7 @@ if (!isMarketOpen && !singleTicker) {
       const item = list[i]
 
       if (i > 0) {
-        await sleep(10000)
+        await sleep(2000)
       }
 
       try {
@@ -143,10 +143,9 @@ if (!isMarketOpen && !singleTicker) {
           // Minutos desde la última actualización
           const minutesSinceUpdate = (now - lastUpdate) / 60000
 
-          // <= 5% del objetivo → actualizar cada 5 min
-          if (distPercent <= 5 && minutesSinceUpdate < 5) {
-            console.log(`⏭️ ${item.ticker} skip 5m`)
-            continue
+          // <= 5% del objetivo → SIEMPRE actualizar
+          if (distPercent <= 5) {
+            console.log(`🔥 ${item.ticker} EN ZONA`)
           }
 
           // >5% y <=10% → actualizar cada 30 min
@@ -162,17 +161,30 @@ if (!isMarketOpen && !singleTicker) {
           }
         }
         // ── TwelveData: historial de 100 días para RSI preciso ────────
-        const controller = new AbortController()
 
-          setTimeout(() => controller.abort(), 10000)
+        console.log(`🚀 Iniciando ${item.ticker}`)
 
-          const tsRes = await fetch(
-            `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
-            {
-              signal: controller.signal
-            }
-          )
-        const tsData = await tsRes.json();
+const controller = new AbortController()
+
+const timeout = setTimeout(() => controller.abort(), 10000)
+
+const tsRes = await fetch(
+  `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
+  {
+    signal: controller.signal
+  }
+)
+
+clearTimeout(timeout)
+
+if (!tsRes.ok) {
+  console.log(`❌ HTTP ERROR ${item.ticker}: ${tsRes.status}`)
+  continue
+}
+
+const tsData = await tsRes.json();
+
+console.log(`✅ TwelveData OK ${item.ticker}`)
 
         if (tsData.status === "error" || !tsData.values?.length) {
           console.log(`❌ ${item.ticker} ERROR:`, tsData);
@@ -250,9 +262,16 @@ if (!isMarketOpen && !singleTicker) {
 
         processed++;
 
-      } catch (err) {
-        console.error(`Error procesando ${item.ticker}:`, err);
+      } 
+      catch (err) {
+
+      if (err.name === "AbortError") {
+        console.error(`⏰ TIMEOUT ${item.ticker}`)
+      } else {
+        console.error(`❌ Error procesando ${item.ticker}:`, err)
       }
+
+    }
     }
 
     return new Response(`OK — ${processed}/${list.length} tickers procesados`, { headers: CORS });
