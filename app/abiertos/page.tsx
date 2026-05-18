@@ -161,10 +161,13 @@ if (tickerSearch.trim() !== "") {
       }
     })
 
-    const totalValue = items.reduce((acc, i) => acc + i.curValue, 0)
+    const totalValue    = items.reduce((acc, i) => acc + i.curValue, 0)
+    const totalInvested = items.reduce((acc, i) => acc + i.invested, 0)
+
     return items.map(item => ({
       ...item,
-      portfolioWeight: totalValue > 0 ? parseFloat((item.curValue / totalValue * 100).toFixed(2)) : 0
+      portfolioWeight:         totalValue    > 0 ? parseFloat((item.curValue / totalValue    * 100).toFixed(1)) : 0,
+      portfolioWeightOriginal: totalInvested > 0 ? parseFloat((item.invested / totalInvested * 100).toFixed(1)) : 0,
     }))
   }, [trades, selectedPortfolio, tickerSearch])
 
@@ -418,7 +421,14 @@ if (tickerSearch.trim() !== "") {
                     </td>
 
                     {/* % Cartera */}
-                    <td style={{ ...tdStyle, color: '#666' }}>{trade.portfolioWeight.toFixed(2)}%</td>
+                    <td style={{ ...tdStyle, color: '#666' }}>
+                      <span style={{ color: '#888' }}>{trade.portfolioWeightOriginal.toFixed(1)}</span>
+                      <span style={{ color: '#555', margin: '0 2px' }}>/</span>
+                      <span style={{ color: trade.portfolioWeight > trade.portfolioWeightOriginal ? '#4caf50' : trade.portfolioWeight < trade.portfolioWeightOriginal ? '#f43f5e' : '#666' }}>
+                        {trade.portfolioWeight.toFixed(1)}
+                      </span>
+                      <span style={{ color: '#444', fontSize: '0.6rem' }}>%</span>
+                    </td>
 
                     {/* Cantidad */}
                     <td style={tdStyle}>{shares(trade.quantity)}</td>
