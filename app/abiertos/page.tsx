@@ -322,7 +322,7 @@ if (tickerSearch.trim() !== "") {
                   { key: 'rsi',             label: 'RSI' },
                   { key: 'pnlPct',          label: 'PnL %' },
                   { key: 'pnl',             label: 'PnL $' },
-                  { key: 'portfolioWeight', label: '% Cartera' },
+                  { key: 'portfolioWeight', label: 'Inv/Act %' },
                   { key: 'quantity',        label: 'Cant.' },
                   { key: 'avgPrice',        label: 'AVG' },
                   { key: 'invested',        label: 'Invertido' },
