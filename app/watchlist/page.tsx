@@ -74,6 +74,7 @@ interface WatchItem {
   ai_signal:          string | null
   last_ai_alert_date: string | null
   last_alert_date:    string | null
+  favorite: boolean | null
 }
 
 interface EnrichedItem extends WatchItem {
@@ -227,6 +228,21 @@ const interval = setInterval(async () => {
     await supabase.from('watchlist').update({ buy_target: price }).eq('id', id)
     setList(prev => prev.map(i => i.id === id ? { ...i, buy_target: price } : i))
     setEditingId(null)
+  }
+
+  const toggleFavorite = async (id: number, current: boolean | null) => {
+    const newValue = !current
+
+    await supabase
+      .from('watchlist')
+      .update({ favorite: newValue })
+      .eq('id', id)
+
+    setList(prev =>
+      prev.map(i =>
+        i.id === id ? { ...i, favorite: newValue } : i
+      )
+    )
   }
 
   const enrichedList = useMemo<EnrichedItem[]>(() =>
@@ -509,13 +525,30 @@ const interval = setInterval(async () => {
                   return (
                     <tr key={item.id} style={{
                       borderBottom: '1px solid #0c0c0c',
-                      background: item.inZone ? 'rgba(34,197,94,0.05)' : 'transparent',
+                      background: item.favorite
+                        ? 'rgba(234,179,8,0.12)'   // amarillo
+                        : item.inZone
+                          ? 'rgba(34,197,94,0.05)'
+                          : 'transparent',
                     }}>
 
                       {/* Ticker */}
                       <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 14 }}>
-                        <div style={{ fontWeight: 700, color: item.inZone ? '#22c55e' : '#00bfff', fontSize: 14 }}>
-                          {item.ticker}
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          
+                          <a
+                            href={`https://es.tradingview.com/chart/?symbol=${item.ticker}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontWeight: 700,
+                              color: item.inZone ? '#22c55e' : '#00bfff',
+                              fontSize: 14,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            {item.ticker}
+                          </a>
                         </div>
                         {item.price_name && (
                           <div style={{ fontSize: 9, color: '#444', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -630,14 +663,24 @@ const interval = setInterval(async () => {
                         </span>
                       </td>
 
-                      {/* Eliminar */}
+                      {/* Estrella + Eliminar */}
                       <td style={tdStyle}>
-                        <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
-                          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
-                          <FaTrash style={{ fontSize: 11 }} />
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+                          <button
+                            onClick={() => toggleFavorite(item.id, item.favorite)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                              color: item.favorite ? '#ffd700' : '#333', fontSize: 14, transition: 'color 0.2s' }}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#ffd700')}
+                            onMouseLeave={e => (e.currentTarget.style.color = item.favorite ? '#ffd700' : '#333')}>
+                            ★
+                          </button>
+                          <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+                            onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                            <FaTrash style={{ fontSize: 11 }} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
