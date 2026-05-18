@@ -133,13 +133,32 @@ const updateData: Record<string, any> = {
           let alertMsg    = "";
           let alertTarget = 0;
 
-          if (trade.stop_loss && price <= Number(trade.stop_loss)) {
+          if (
+            trade.stop_loss &&
+            !trade.stop_hit &&
+            price <= Number(trade.stop_loss)
+          ) {
             alertMsg = "🚨 STOP LOSS ALCANZADO"; alertTarget = Number(trade.stop_loss);
-          } else if (trade.take_profit_3 && price >= Number(trade.take_profit_3)) {
+          } 
+          else if (
+            trade.take_profit_3 &&
+            !trade.tp3_hit &&
+            price >= Number(trade.take_profit_3)
+          ) {
             alertMsg = "💰 TAKE PROFIT 3 ALCANZADO"; alertTarget = Number(trade.take_profit_3);
-          } else if (trade.take_profit_2 && price >= Number(trade.take_profit_2)) {
+          } 
+          else if (
+            trade.take_profit_2 &&
+            !trade.tp2_hit &&
+            price >= Number(trade.take_profit_2)
+          ) {
             alertMsg = "💰 TAKE PROFIT 2 ALCANZADO"; alertTarget = Number(trade.take_profit_2);
-          } else if (trade.take_profit_1 && price >= Number(trade.take_profit_1)) {
+          } 
+          else if (
+            trade.take_profit_1 &&
+            !trade.tp1_hit &&
+            price >= Number(trade.take_profit_1)
+          ) {
             alertMsg = "💰 TAKE PROFIT 1 ALCANZADO"; alertTarget = Number(trade.take_profit_1);
           }
 

@@ -53,12 +53,6 @@ export default function TradesAbiertosPage() {
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
-
-  const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>(() => {
-    if (typeof window === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem('tradercat_targets_v2') || '{}') } catch { return {} }
-  })
-
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({
     key: 'ticker', direction: 'asc'
   })
@@ -67,12 +61,6 @@ export default function TradesAbiertosPage() {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000)
     return () => clearInterval(timer)
   }, [])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('tradercat_targets_v2', JSON.stringify(checkedTargets))
-    }
-  }, [checkedTargets])
 
   const fetchPortfolios = useCallback(async () => {
     const { data } = await supabase.from("portfolios").select("*")
@@ -102,8 +90,24 @@ export default function TradesAbiertosPage() {
   fetchPortfolios() 
 }, [])
   
-  const toggleTarget = (id: string) =>
-    setCheckedTargets(prev => ({ ...prev, [id]: !prev[id] }))
+  const toggleTarget = async (
+    tradeId: string,
+    field: 'tp1_hit' | 'tp2_hit' | 'tp3_hit' | 'stop_hit'
+  ) => {
+
+    const trade = trades.find(t => t.id === tradeId)
+
+    if (!trade) return
+
+    const newValue = !trade[field]
+
+    await supabase
+      .from("trades")
+      .update({ [field]: newValue })
+      .eq("id", tradeId)
+
+    fetchTrades()
+  }
 
   const handleDelete = async (trade: any) => {
     if (!confirm(`¿Eliminar el trade de ${trade.ticker}? Se revertirán todos los movimientos en la billetera.`)) return
@@ -426,11 +430,19 @@ if (tickerSearch.trim() !== "") {
                     <td style={{ ...tdStyle, fontWeight: 'bold' }}>{money(trade.invested)}</td>
 
                     {/* Stop */}
-                    <td style={tdStyle} onClick={() => toggleTarget(`${trade.id}-stop`)}>
-                      <button style={targetBtn(checkedTargets[`${trade.id}-stop`], '#f44336')}>
-                        {trade.stop_loss ? money(trade.stop_loss) : '—'}
-                      </button>
-                    </td>
+                      <td
+                        style={tdStyle}
+                        onClick={() => toggleTarget(trade.id, 'stop_hit')}
+                      >
+                        <button
+                          style={targetBtn(
+                            trade.stop_hit,
+                            '#f44336'
+                          )}
+                        >
+                          {trade.stop_loss ? money(trade.stop_loss) : '—'}
+                        </button>
+                      </td>
 
                     {/* Precio actual */}
                     <td style={{ ...tdStyle, color: '#fbbf24', fontWeight: 'bold' }}>
@@ -438,10 +450,31 @@ if (tickerSearch.trim() !== "") {
                     </td>
 
                     {/* TPs */}
-                    {['take_profit_1', 'take_profit_2', 'take_profit_3'].map((tp, i) => (
-                      <td key={tp} style={tdStyle} onClick={() => toggleTarget(`${trade.id}-tp${i + 1}`)}>
-                        <button style={targetBtn(checkedTargets[`${trade.id}-tp${i + 1}`], '#4caf50')}>
-                          {trade[tp] ? money(trade[tp]) : '—'}
+                    {[
+                      {
+                        field: 'take_profit_1',
+                        hit: 'tp1_hit' as const,
+                      },
+                      {
+                        field: 'take_profit_2',
+                        hit: 'tp2_hit' as const,
+                      },
+                      {
+                        field: 'take_profit_3',
+                        hit: 'tp3_hit' as const,
+                      },
+                    ].map((tp) => (
+                      <td
+                        key={tp.field}
+                        style={tdStyle}
+                        onClick={() => toggleTarget(trade.id, tp.hit)}
+                      >
+                        <button
+                          style={targetBtn(trade[tp.hit], '#4caf50')}
+                        >
+                          {trade[tp.field]
+                            ? money(trade[tp.field])
+                            : '—'}
                         </button>
                       </td>
                     ))}
