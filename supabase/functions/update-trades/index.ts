@@ -20,34 +20,24 @@ if (!isCron && !req.headers.get("apikey")) {
   return new Response("Unauthorized", { status: 401, headers: CORS });
 }
 
- // ── Hora México — forma correcta ───────────────────────────────────────
-const now = new Date();
+ // ── Hora México estable ───────────────────────────────────────────────
+const mexicoNow = new Date(
+  new Date().toLocaleString("en-US", {
+    timeZone: "America/Mexico_City",
+  })
+)
 
-const formatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Mexico_City",
-  weekday: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
+const day = mexicoNow.getDay()
 
-const parts = formatter.formatToParts(now);
+const time =
+  mexicoNow.getHours() +
+  mexicoNow.getMinutes() / 60
 
-const dayStr = parts.find(p => p.type === "weekday")?.value;
-const hour   = parseInt(parts.find(p => p.type === "hour")?.value || "0");
-const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0");
-
-const time = hour + minute / 60;
-
-const dayMap: Record<string, number> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6
-};
-
-const day = dayMap[dayStr || ""] ?? 0;
-
-// 👇 ESTE lo puedes activar/desactivar para pruebas
- const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15;
- (globalThis as any).isMarketOpen = isMarketOpen;
+const isMarketOpen =
+  day >= 1 &&
+  day <= 5 &&
+  time >= 8 &&
+  time < 15
 
 if (isCron && !isMarketOpen) {
   return new Response("Mercado cerrado (cron bloqueado)", { headers: CORS });
@@ -65,10 +55,11 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
   const FINNHUB_KEY  = Deno.env.get("FINNHUB_API_KEY")!;
 
   const headers = {
-    apikey:         SUPABASE_KEY,
-    Authorization:  `Bearer ${SUPABASE_KEY}`,
-    "Content-Type": "application/json",
-  };
+  apikey: SUPABASE_KEY,
+  Authorization: `Bearer ${SUPABASE_KEY}`,
+  "Content-Type": "application/json",
+  Prefer: "return=minimal",
+};
 
   try {
     // ── Trades abiertos ────────────────────────────────────────────────
@@ -86,9 +77,24 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
       try {
 
 // ── Traer precio actual ─────────────────────────────────
+const controller = new AbortController()
+
+setTimeout(() => controller.abort(), 4000)
+
 const quoteRes = await fetch(
-  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`
+  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`,
+  { signal: controller.signal }
 );
+
+if (!quoteRes.ok) {
+  const errorText = await quoteRes.text()
+
+  console.error(`Finnhub error ${trade.ticker}:`, errorText)
+
+  skipped++
+  continue
+}
+
 const quote = await quoteRes.json();
 
 let price = 0;
@@ -98,26 +104,52 @@ if (quote?.c && quote.c > 0) {
 } else if (quote?.pc && quote.pc > 0) {
   price = quote.pc;
 } else {
+
+  console.error(`Precio inválido ${trade.ticker}:`, quote)
+
   skipped++;
   continue;
 }
 
 const change = typeof quote.dp === "number" ? quote.dp : 0;
 
-// Calcular RSI desde velas diarias de Finnhub
-let rsi: number | null = null;
-try {
-  const from = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 40 // últimos 40 días
-  const to   = Math.floor(Date.now() / 1000)
-  const candleRes = await fetch(
-    `https://finnhub.io/api/v1/stock/candle?symbol=${trade.ticker}&resolution=D&from=${from}&to=${to}&token=${FINNHUB_KEY}`
-  )
-  const candles = await candleRes.json()
-  if (candles.s === 'ok' && Array.isArray(candles.c) && candles.c.length >= 15) {
-    rsi = calcRSI(candles.c)
+// ── RSI solo una vez cada 4 horas ──────────────────────
+let rsi = trade.rsi ?? null
+
+const currentHour = mexicoNow.getHours()
+
+const shouldUpdateRSI =
+  currentHour === 8 ||
+  currentHour === 12
+
+if (shouldUpdateRSI) {
+  try {
+
+    const from = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 40
+    const to   = Math.floor(Date.now() / 1000)
+
+    const candleRes = await fetch(
+      `https://finnhub.io/api/v1/stock/candle?symbol=${trade.ticker}&resolution=D&from=${from}&to=${to}&token=${FINNHUB_KEY}`,
+      { signal: controller.signal }
+    )
+
+    if (candleRes.ok) {
+
+      const candles = await candleRes.json()
+
+      if (
+        candles.s === 'ok' &&
+        Array.isArray(candles.c) &&
+        candles.c.length >= 15
+      ) {
+        rsi = calcRSI(candles.c)
+      }
+
+    }
+
+  } catch (e) {
+    console.error(`RSI candle error ${trade.ticker}:`, e)
   }
-} catch (e) {
-  console.error(`RSI candle error ${trade.ticker}:`, e)
 }
 
 const updateData: Record<string, any> = {
@@ -181,8 +213,6 @@ const updateData: Record<string, any> = {
         console.error(`Error en ${trade.ticker}:`, err);
         skipped++;
       }
-
-      await new Promise(r => setTimeout(r, 2000));
     }
 
     return new Response(`OK — ${updated} actualizados, ${alerted} alertas, ${skipped} saltados`, { headers: CORS });
@@ -233,7 +263,7 @@ async function sendAlert(payload: Record<string, any>): Promise<void> {
   const isMarketOpen =
     day >= 1 &&
     day <= 5 &&
-    time >= 8.05 &&
+    time >= 8 &&
     time < 15
 
   // ── Bloquear alertas fuera de horario ────────────────────────────

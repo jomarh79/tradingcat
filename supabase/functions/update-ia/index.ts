@@ -67,15 +67,36 @@ if (!isMarketOpen && !singleTicker) {
 
   // ── Lock — solo para ejecución completa (no para ticker individual) ───────
   if (!singleTicker) {
-    const lockRes  = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running`, { headers: dbHeaders });
-    const lockData = await lockRes.json();
-    if (lockData?.[0]?.running) {
-      return new Response("Skip — ocupado", { headers: CORS });
-    }
-    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-      method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: true }),
-    });
+
+  const lockRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`,
+    { headers: dbHeaders }
+  )
+
+  const lockData = await lockRes.json()
+
+  const lastRun = lockData?.[0]?.updated_at
+    ? new Date(lockData[0].updated_at).getTime()
+    : 0
+
+  const now = Date.now()
+
+  // Si la función corrió hace menos de 3 minutos
+  if (now - lastRun < 180000) {
+    return new Response("Skip — ejecución reciente", { headers: CORS })
   }
+
+  await fetch(
+    `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`,
+    {
+      method: "PATCH",
+      headers: dbHeaders,
+      body: JSON.stringify({
+        updated_at: new Date().toISOString()
+      }),
+    }
+  )
+}
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
@@ -93,9 +114,13 @@ if (!isMarketOpen && !singleTicker) {
 
     console.log(`📊 Procesando ${list.length} tickers`);
 
-    for (const item of list) {
-      // Sleep primero — garantiza delay incluso si se hace continue
-      if (list.indexOf(item) > 0) await sleep(8000);
+    for (let i = 0; i < list.length; i++) {
+
+      const item = list[i]
+
+      if (i > 0) {
+        await sleep(10000)
+      }
 
       try {
             // ── Control inteligente de frecuencia ─────────────────
@@ -137,9 +162,16 @@ if (!isMarketOpen && !singleTicker) {
           }
         }
         // ── TwelveData: historial de 100 días para RSI preciso ────────
-        const tsRes  = await fetch(
-          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
-        );
+        const controller = new AbortController()
+
+          setTimeout(() => controller.abort(), 10000)
+
+          const tsRes = await fetch(
+            `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
+            {
+              signal: controller.signal
+            }
+          )
         const tsData = await tsRes.json();
 
         if (tsData.status === "error" || !tsData.values?.length) {
@@ -227,15 +259,7 @@ if (!isMarketOpen && !singleTicker) {
 
   } catch (e: any) {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
-
-  } finally {
-    // Liberar lock solo si fue ejecución completa
-    if (!singleTicker) {
-      await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-        method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: false }),
-      });
-    }
-  }
+  } 
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
