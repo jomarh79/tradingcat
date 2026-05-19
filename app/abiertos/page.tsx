@@ -30,16 +30,6 @@ const Paw = ({ size = 14, color = '#333', opacity = 1 }: any) => (
   </svg>
 )
 
-// RSI color
-const rsiColor = (rsi: number | null) => {
-  if (rsi === null || rsi === undefined) return '#444'
-  if (rsi < 30) return '#22c55e'   // sobrevendido
-  if (rsi <= 45) return '#4caf50'
-  if (rsi >= 80) return '#ff4444'  // muy sobrecomprado
-  if (rsi >= 70) return '#f43f5e'  // sobrecomprado
-  return '#666'                    // neutro — gris oscuro
-}
-
 export default function TradesAbiertosPage() {
   const { money, shares } = usePrivacy()
 
@@ -151,13 +141,19 @@ if (tickerSearch.trim() !== "") {
       const nearStop = stopDist !== null && stopDist <= 2
       const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
 
-      // RSI desde watchlist — no requiere llamada extra a API
-     const rsi = trade.rsi ?? null
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
       return {
-        ...trade, curPrice, avgPrice, pnl, pnlPct,
-        invested, curValue, nearStop, nearTP, rsi, dayChange,
+        ...trade,
+        curPrice,
+        avgPrice,
+        pnl,
+        pnlPct,
+        invested,
+        curValue,
+        nearStop,
+        nearTP,
+        dayChange,
       }
     })
 
@@ -318,7 +314,6 @@ if (tickerSearch.trim() !== "") {
                   { key: 'open_date',       label: 'Fecha' },
                   { key: 'ticker',          label: 'Ticker' },
                   { key: 'dayChange',       label: 'Var día' },
-                  { key: 'rsi',             label: 'RSI' },
                   { key: 'pnlPct',          label: 'PnL %' },
                   { key: 'pnl',             label: 'PnL $' },
                   { key: 'portfolioWeight', label: 'Inv/Act %' },
@@ -344,7 +339,7 @@ if (tickerSearch.trim() !== "") {
             <tbody>
               {sortedTrades.length === 0 && (
                 <tr>
-                  <td colSpan={16} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                  <td colSpan={15} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                       <Paw size={28} color="#333" opacity={0.5} />
                       No hay trades abiertos.
@@ -400,13 +395,6 @@ if (tickerSearch.trim() !== "") {
                     {/* Var día */}
                     <td style={{ ...tdStyle, color: trade.dayChange >= 0 ? '#4caf50' : '#f43f5e' }}>
                       {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
-                    </td>
-
-                    {/* RSI */}
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: rsiColor(trade.rsi) }}>
-                     {trade.rsi !== null && trade.rsi !== undefined
-                        ? trade.rsi.toFixed(1)
-                        : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
                     {/* PnL % */}
@@ -520,7 +508,7 @@ if (tickerSearch.trim() !== "") {
 
         <div style={{ marginTop: 8, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
           <Paw size={9} color="#333" opacity={0.4} />
-          RSI y precios desde cron · actualiza cada 5min en horario de mercado
+          Precios desde cron · actualiza cada 5min en horario de mercado
         </div>
       </div>
 

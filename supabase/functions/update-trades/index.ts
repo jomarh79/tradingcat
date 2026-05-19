@@ -63,7 +63,10 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
 
   try {
     // ── Trades abiertos ────────────────────────────────────────────────
-    const res    = await fetch(`${SUPABASE_URL}/rest/v1/trades?status=eq.open`, { headers });
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/trades?status=eq.open&select=id,ticker,stop_loss,stop_hit,take_profit_1,tp1_hit,take_profit_2,tp2_hit,take_profit_3,tp3_hit,last_trade_alert_date`,
+      { headers }
+    );
     const trades = await res.json();
 
 
@@ -74,18 +77,21 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
     let updated = 0, alerted = 0, skipped = 0;
 
     for (const trade of trades) {
-      try {
+  try {
 
-// ── Traer precio actual ─────────────────────────────────
+    await new Promise(r => setTimeout(r, 250))
+
+    // ── Traer precio actual ─────────────────────────────────
 const controller = new AbortController()
 
-setTimeout(() => controller.abort(), 4000)
+const timeout = setTimeout(() => controller.abort(), 8000)
 
 const quoteRes = await fetch(
   `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`,
   { signal: controller.signal }
 );
 
+clearTimeout(timeout)
 if (!quoteRes.ok) {
   const errorText = await quoteRes.text()
 
@@ -113,49 +119,9 @@ if (quote?.c && quote.c > 0) {
 
 const change = typeof quote.dp === "number" ? quote.dp : 0;
 
-// ── RSI solo una vez cada 4 horas ──────────────────────
-let rsi = trade.rsi ?? null
-
-const currentHour = mexicoNow.getHours()
-
-const shouldUpdateRSI =
-  currentHour === 8 ||
-  currentHour === 12
-
-if (shouldUpdateRSI) {
-  try {
-
-    const from = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 40
-    const to   = Math.floor(Date.now() / 1000)
-
-    const candleRes = await fetch(
-      `https://finnhub.io/api/v1/stock/candle?symbol=${trade.ticker}&resolution=D&from=${from}&to=${to}&token=${FINNHUB_KEY}`,
-      { signal: controller.signal }
-    )
-
-    if (candleRes.ok) {
-
-      const candles = await candleRes.json()
-
-      if (
-        candles.s === 'ok' &&
-        Array.isArray(candles.c) &&
-        candles.c.length >= 15
-      ) {
-        rsi = calcRSI(candles.c)
-      }
-
-    }
-
-  } catch (e) {
-    console.error(`RSI candle error ${trade.ticker}:`, e)
-  }
-}
-
 const updateData: Record<string, any> = {
   last_price: parseFloat(price.toFixed(4)),
   day_change: parseFloat(change.toFixed(2)),
-  rsi: rsi,
 };
 
         // ── Alertas — 1 vez por día por trade ─────────────────────────
@@ -225,27 +191,6 @@ const updateData: Record<string, any> = {
   }
 });
 
-function calcRSI(prices: number[], period = 14): number {
-  if (prices.length <= period) return 50
-  const changes: number[] = []
-  for (let i = 1; i < prices.length; i++) {
-    changes.push(prices[i] - prices[i - 1])
-  }
-  let avgGain = 0, avgLoss = 0
-  for (let i = 0; i < period; i++) {
-    if (changes[i] > 0) avgGain += changes[i]
-    else avgLoss += Math.abs(changes[i])
-  }
-  avgGain /= period
-  avgLoss /= period
-  for (let i = period; i < changes.length; i++) {
-    avgGain = (avgGain * (period - 1) + (changes[i] > 0 ? changes[i] : 0)) / period
-    avgLoss = (avgLoss * (period - 1) + (changes[i] < 0 ? Math.abs(changes[i]) : 0)) / period
-  }
-  if (avgLoss === 0) return 100
-  if (avgGain === 0) return 0
-  return parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(1))
-}
 
 async function sendAlert(payload: Record<string, any>): Promise<void> {
   // ── Validar horario REAL al momento de enviar ─────────────────────
