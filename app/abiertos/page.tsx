@@ -136,10 +136,24 @@ if (tickerSearch.trim() !== "") {
       const pnlPct = avgPrice > 0 ? parseFloat(((curPrice - avgPrice) / avgPrice * 100).toFixed(2)) : 0
       const curValue = parseFloat((curPrice * qty).toFixed(2))
 
-      const stopDist = trade.stop_loss     ? Math.abs((curPrice - trade.stop_loss)     / curPrice * 100) : null
-      const tp1Dist  = trade.take_profit_1 ? Math.abs((curPrice - trade.take_profit_1) / curPrice * 100) : null
-      const nearStop = stopDist !== null && stopDist <= 2
-      const nearTP   = tp1Dist  !== null && tp1Dist  <= 2
+      const stopDist = trade.stop_loss
+        ? Math.abs((curPrice - trade.stop_loss) / curPrice * 100)
+        : null
+
+      const tp1Dist = trade.take_profit_1
+        ? Math.abs((curPrice - trade.take_profit_1) / curPrice * 100)
+        : null
+
+      // SOLO pintar si NO están marcados como completados
+      const nearStop =
+        stopDist !== null &&
+        stopDist <= 2 &&
+        !trade.stop_hit
+
+      const nearTP =
+        tp1Dist !== null &&
+        tp1Dist <= 2 &&
+        !trade.tp1_hit
 
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
