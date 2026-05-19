@@ -155,15 +155,15 @@ if (tickerSearch.trim() !== "") {
       // STOP cercano y NO marcado
       const nearStop =
         stopDist !== null &&
-        stopDist <= 2 &&
+        stopDist <= 1 &&
         !trade.stop_hit
 
       // CUALQUIER TP cercano y NO marcado
       const nearTP =
         (
-          (tp1Dist !== null && tp1Dist <= 2 && !trade.tp1_hit) ||
-          (tp2Dist !== null && tp2Dist <= 2 && !trade.tp2_hit) ||
-          (tp3Dist !== null && tp3Dist <= 2 && !trade.tp3_hit)
+          (tp1Dist !== null && tp1Dist <= 1 && !trade.tp1_hit) ||
+          (tp2Dist !== null && tp2Dist <= 1 && !trade.tp2_hit) ||
+          (tp3Dist !== null && tp3Dist <= 1 && !trade.tp3_hit)
         )
 
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))

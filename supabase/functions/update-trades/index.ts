@@ -79,12 +79,12 @@ const todayStr = new Intl.DateTimeFormat("en-CA", {
     for (const trade of trades) {
   try {
 
-    await new Promise(r => setTimeout(r, 250))
+    await new Promise(r => setTimeout(r, 1200))
 
     // ── Traer precio actual ─────────────────────────────────
 const controller = new AbortController()
 
-const timeout = setTimeout(() => controller.abort(), 8000)
+const timeout = setTimeout(() => controller.abort(), 4000)
 
 const quoteRes = await fetch(
   `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`,
@@ -102,6 +102,8 @@ if (!quoteRes.ok) {
 }
 
 const quote = await quoteRes.json();
+
+console.log("QUOTE:", trade.ticker, quote)
 
 let price = 0;
 
