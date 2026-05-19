@@ -144,16 +144,27 @@ if (tickerSearch.trim() !== "") {
         ? Math.abs((curPrice - trade.take_profit_1) / curPrice * 100)
         : null
 
-      // SOLO pintar si NO están marcados como completados
+      const tp2Dist = trade.take_profit_2
+        ? Math.abs((curPrice - trade.take_profit_2) / curPrice * 100)
+        : null
+
+      const tp3Dist = trade.take_profit_3
+        ? Math.abs((curPrice - trade.take_profit_3) / curPrice * 100)
+        : null
+
+      // STOP cercano y NO marcado
       const nearStop =
         stopDist !== null &&
         stopDist <= 2 &&
         !trade.stop_hit
 
+      // CUALQUIER TP cercano y NO marcado
       const nearTP =
-        tp1Dist !== null &&
-        tp1Dist <= 2 &&
-        !trade.tp1_hit
+        (
+          (tp1Dist !== null && tp1Dist <= 2 && !trade.tp1_hit) ||
+          (tp2Dist !== null && tp2Dist <= 2 && !trade.tp2_hit) ||
+          (tp3Dist !== null && tp3Dist <= 2 && !trade.tp3_hit)
+        )
 
       const dayChange = parseFloat(Number(trade.day_change || 0).toFixed(2))
 
