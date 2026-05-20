@@ -31,7 +31,7 @@ const day  = mexicoTime.getDay()
 const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
 
-const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
+const isMarketOpen = true
 
 //(globalThis as any).isMarketOpen = isMarketOpen;
 
@@ -45,9 +45,9 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
     }
   } catch { /* sin body está bien */ }
 
-if (!isMarketOpen && !singleTicker) {
-  return new Response("Mercado cerrado", { headers: CORS })
-}
+//if (!isMarketOpen && !singleTicker) {
+//  return new Response("Mercado cerrado", { headers: CORS })
+//}
 
   const authHeader = req.headers.get("Authorization");
   const isCron     = authHeader === "Bearer tradingcat-cron-2026";
@@ -65,38 +65,6 @@ if (!isMarketOpen && !singleTicker) {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
-  // ── Lock — solo para ejecución completa (no para ticker individual) ───────
-  if (!singleTicker) {
-
-  const lockRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`,
-    { headers: dbHeaders }
-  )
-
-  const lockData = await lockRes.json()
-
-  const lastRun = lockData?.[0]?.updated_at
-    ? new Date(lockData[0].updated_at).getTime()
-    : 0
-
-  const now = new Date().getTime()
-
-  // Si la función corrió hace menos de 3 minutos
-  if (now - lastRun < 180000) {
-    return new Response("Skip — ejecución reciente", { headers: CORS })
-  }
-
-  await fetch(
-    `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`,
-    {
-      method: "PATCH",
-      headers: dbHeaders,
-      body: JSON.stringify({
-        updated_at: new Date().toISOString()
-      }),
-    }
-  )
-}
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
@@ -119,47 +87,11 @@ if (!isMarketOpen && !singleTicker) {
       const item = list[i]
 
       if (i > 0) {
-        await sleep(2000)
+        await sleep(500)
       }
 
       try {
-            // ── Control inteligente de frecuencia ─────────────────
-
-        const currentPrice = item.current_price || 0
-
-        if (currentPrice > 0) {
-
-          // Distancia porcentual al target
-          const distPercent =
-            Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
-
-          // Última actualización guardada en DB
-          const lastUpdate = item.last_updated
-            ? new Date(item.last_updated).getTime()
-            : 0
-
-          const now = Date.now()
-
-          // Minutos desde la última actualización
-          const minutesSinceUpdate = (now - lastUpdate) / 60000
-
-          // <= 5% del objetivo → SIEMPRE actualizar
-          if (distPercent <= 5) {
-            console.log(`🔥 ${item.ticker} EN ZONA`)
-          }
-
-          // >5% y <=10% → actualizar cada 5 min
-          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 5) {
-            console.log(`⏭️ ${item.ticker} skip 5m`)
-            continue
-          }
-
-          // >10% → actualizar cada 10 min
-          if (distPercent > 10 && minutesSinceUpdate < 10) {
-            console.log(`⏭️ ${item.ticker} skip 10m`)
-            continue
-          }
-        }
+            
         // ── TwelveData: historial de 100 días para RSI preciso ────────
 
         console.log(`🚀 Iniciando ${item.ticker}`)
@@ -197,13 +129,38 @@ console.log(`✅ TwelveData OK ${item.ticker}`)
           .filter((p: number) => !isNaN(p) && p > 0)
           .reverse();
 
-        // Necesitamos al menos period + 1 precios para RSI válido
         if (prices.length < 15) continue;
 
-        const price     = prices[prices.length - 1];
-        const prevDay   = prices[prices.length - 2];
-        const change    = ((price - prevDay) / prevDay) * 100;
+        // ── Quote en tiempo real ─────────────────────────────
+
+        const quoteRes = await fetch(
+          `https://api.twelvedata.com/quote?symbol=${item.ticker}&apikey=${API_KEY}`
+        )
+
+        const quoteData = await quoteRes.json()
+
+        console.log("📈 QUOTE", item.ticker, quoteData)
+
+        const livePrice = parseFloat(quoteData.close)
+        const percentChange = parseFloat(quoteData.percent_change)
+
+        const prevDay = prices[prices.length - 2]
+
+        // Si quote falla, usar último close diario
+        const price =
+          !isNaN(livePrice) && livePrice > 0
+            ? livePrice
+            : prices[prices.length - 1]
+
+        // Cambio real intradía
+        const change =
+          !isNaN(percentChange)
+            ? percentChange
+            : ((price - prevDay) / prevDay) * 100
         const priceName = tsData.meta?.symbol || item.ticker;
+
+        // Reemplazar último close por precio live
+        prices[prices.length - 1] = price
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
@@ -310,11 +267,11 @@ async function sendAlert(payload: Record<string, any>) {
   const day  = mexicoTime.getDay()
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
-  const isMarketOpen =
-    day >= 1 &&
-    day <= 5 &&
-    time >= 8.05 &&
-    time < 15
+  const isMarketOpen = true
+    //day >= 1 &&
+    //day <= 5 &&
+    //time >= 8.05 &&
+    //time < 15
 
   // Bloquear alertas fuera de horario
   if (!isMarketOpen) {
