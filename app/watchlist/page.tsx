@@ -155,7 +155,7 @@ export default function WatchlistIAPage() {
       if (isMarketOpen()) {
         init()
       }
-    }, 120000)
+    }, 15000)
 
     return () => clearInterval(interval)
   }, [init])
@@ -251,7 +251,7 @@ const interval = setInterval(async () => {
       const dist = cur > 0 ? ((item.buy_target - cur) / cur) * 100 : 0
       const vs   = cur > 0 && item.analyst_target > 0 ? ((item.analyst_target - cur) / cur) * 100 : 0
       const zone = cur > 0 && Math.abs((cur - item.buy_target) / item.buy_target) <= 0.02
-      return { ...item, distancia: dist, vsAnalyst: vs, inZone: zone, stale: isStale(item.last_updated, 15) }
+      return { ...item, distancia: dist, vsAnalyst: vs, inZone: zone, stale: isStale(item.last_updated, 5) }
     })
   , [list])
 
@@ -313,7 +313,7 @@ const interval = setInterval(async () => {
   }
 
   const marketOpen   = isMarketOpen()
-  const staleTickers = list.filter(i => isStale(i.last_updated, 30)).length
+  const staleTickers = list.filter(i => isStale(i.last_updated, 5)).length
 
   return (
     <AppShell>

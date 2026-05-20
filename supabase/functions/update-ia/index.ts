@@ -79,7 +79,7 @@ if (!isMarketOpen && !singleTicker) {
     ? new Date(lockData[0].updated_at).getTime()
     : 0
 
-  const now = Date.now()
+  const now = new Date().getTime()
 
   // Si la función corrió hace menos de 3 minutos
   if (now - lastRun < 180000) {
@@ -148,15 +148,15 @@ if (!isMarketOpen && !singleTicker) {
             console.log(`🔥 ${item.ticker} EN ZONA`)
           }
 
-          // >5% y <=10% → actualizar cada 30 min
-          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 30) {
-            console.log(`⏭️ ${item.ticker} skip 30m`)
+          // >5% y <=10% → actualizar cada 5 min
+          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 5) {
+            console.log(`⏭️ ${item.ticker} skip 5m`)
             continue
           }
 
-          // >10% → actualizar cada 60 min
-          if (distPercent > 10 && minutesSinceUpdate < 60) {
-            console.log(`⏭️ ${item.ticker} skip 60m`)
+          // >10% → actualizar cada 10 min
+          if (distPercent > 10 && minutesSinceUpdate < 10) {
+            console.log(`⏭️ ${item.ticker} skip 10m`)
             continue
           }
         }
@@ -251,9 +251,23 @@ console.log(`✅ TwelveData OK ${item.ticker}`)
         }
 
         // ── Guardar en Supabase ────────────────────────────────────────
-        await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
-            method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
-          });
+        const updateRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              ...dbHeaders,
+              Prefer: "return=representation"
+            },
+            body: JSON.stringify(updateData),
+          }
+        )
+
+        if (!updateRes.ok) {
+          console.error(`❌ ERROR DB ${item.ticker}:`, await updateRes.text())
+        } else {
+          console.log(`✅ DB UPDATED ${item.ticker}`)
+        }
         // También actualizar RSI en trades abiertos con este ticker  
         await fetch(
           `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
