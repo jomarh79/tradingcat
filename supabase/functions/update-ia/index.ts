@@ -31,7 +31,11 @@ const day  = mexicoTime.getDay()
 const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
 
-const isMarketOpen = true
+const isMarketOpen =
+  day >= 1 &&
+  day <= 5 &&
+  time >= 8.05 &&
+  time < 15
 
 //(globalThis as any).isMarketOpen = isMarketOpen;
 
@@ -45,9 +49,9 @@ const isMarketOpen = true
     }
   } catch { /* sin body está bien */ }
 
-//if (!isMarketOpen && !singleTicker) {
-//  return new Response("Mercado cerrado", { headers: CORS })
-//}
+if (!isMarketOpen && !singleTicker) {
+  return new Response("Mercado cerrado", { headers: CORS })
+}
 
   const authHeader = req.headers.get("Authorization");
   const isCron     = authHeader === "Bearer tradingcat-cron-2026";
@@ -87,7 +91,7 @@ const isMarketOpen = true
       const item = list[i]
 
       if (i > 0) {
-        await sleep(500)
+        await sleep(2000)
       }
 
       try {
@@ -101,12 +105,11 @@ const controller = new AbortController()
 const timeout = setTimeout(() => controller.abort(), 10000)
 
 const tsRes = await fetch(
-  `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
+  `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=30min&outputsize=20&apikey=${API_KEY}`,
   {
     signal: controller.signal
   }
 )
-
 clearTimeout(timeout)
 
 if (!tsRes.ok) {
@@ -116,12 +119,12 @@ if (!tsRes.ok) {
 
 const tsData = await tsRes.json();
 
-console.log(`✅ TwelveData OK ${item.ticker}`)
-
         if (tsData.status === "error" || !tsData.values?.length) {
           console.log(`❌ ${item.ticker} ERROR:`, tsData);
           continue;
         }
+
+       console.log(`✅ TwelveData OK ${item.ticker}`) 
 
         // Invertir: TwelveData devuelve más reciente primero
         const prices: number[] = tsData.values
@@ -131,38 +134,15 @@ console.log(`✅ TwelveData OK ${item.ticker}`)
 
         if (prices.length < 15) continue;
 
-        // ── Quote en tiempo real ─────────────────────────────
+        const price = prices[prices.length - 1]
 
-        const quoteRes = await fetch(
-          `https://api.twelvedata.com/quote?symbol=${item.ticker}&apikey=${API_KEY}`
-        )
+const prevDay = prices[prices.length - 2]
 
-        const quoteData = await quoteRes.json()
+const change = ((price - prevDay) / prevDay) * 100
 
-        console.log("📈 QUOTE", item.ticker, quoteData)
+const priceName = tsData.meta?.symbol || item.ticker
 
-        const livePrice = parseFloat(quoteData.close)
-        const percentChange = parseFloat(quoteData.percent_change)
-
-        const prevDay = prices[prices.length - 2]
-
-        // Si quote falla, usar último close diario
-        const price =
-          !isNaN(livePrice) && livePrice > 0
-            ? livePrice
-            : prices[prices.length - 1]
-
-        // Cambio real intradía
-        const change =
-          !isNaN(percentChange)
-            ? percentChange
-            : ((price - prevDay) / prevDay) * 100
-        const priceName = tsData.meta?.symbol || item.ticker;
-
-        // Reemplazar último close por precio live
-        prices[prices.length - 1] = price
-
-        // ── Indicadores ────────────────────────────────────────────────
+// ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
         // Blindaje: si por cualquier razón sale fuera de rango, corregir
         if (!isFinite(rsi) || isNaN(rsi)) rsi = 50;
@@ -267,11 +247,11 @@ async function sendAlert(payload: Record<string, any>) {
   const day  = mexicoTime.getDay()
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
-  const isMarketOpen = true
-    //day >= 1 &&
-    //day <= 5 &&
-    //time >= 8.05 &&
-    //time < 15
+  const isMarketOpen = 
+    day >= 1 &&
+    day <= 5 &&
+    time >= 8.05 &&
+    time < 15
 
   // Bloquear alertas fuera de horario
   if (!isMarketOpen) {

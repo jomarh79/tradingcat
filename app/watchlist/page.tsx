@@ -233,16 +233,28 @@ const interval = setInterval(async () => {
   const toggleFavorite = async (id: number, current: boolean | null) => {
     const newValue = !current
 
-    await supabase
-      .from('watchlist')
-      .update({ favorite: newValue })
-      .eq('id', id)
-
+    // Actualización optimista inmediata
     setList(prev =>
       prev.map(i =>
         i.id === id ? { ...i, favorite: newValue } : i
       )
     )
+
+    const { error } = await supabase
+      .from('watchlist')
+      .update({ favorite: newValue })
+      .eq('id', id)
+
+    if (error) {
+      console.error('ERROR FAVORITE:', error)
+
+      // revertir si falla
+      setList(prev =>
+        prev.map(i =>
+          i.id === id ? { ...i, favorite: current } : i
+        )
+      )
+    }
   }
 
   const enrichedList = useMemo<EnrichedItem[]>(() =>
