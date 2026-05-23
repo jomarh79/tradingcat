@@ -37,18 +37,15 @@ Nombre completo y descripción breve en 2-3 líneas.
 - Producto o servicio 3
 
 📰 NOTICIAS RECIENTES
-- Catalizador o noticia relevante 1
-- Catalizador o noticia relevante 2
-- Catalizador o noticia relevante 3
+- fecha - Catalizador o noticia relevante 1
+- fecha - Catalizador o noticia relevante 2
+- fecha - Catalizador o noticia relevante 3
 
 🔗 TICKERS SIMILARES
 Devuelve entre 3 y 8 tickers similares, competidores o altamente correlacionados separados por coma.
 
 📊 SENTIMIENTO FINANCIERO
 Resumen del sentimiento actual, analistas, momentum y riesgos clave en 3-4 líneas.
-${rsi ? `
-💡 LECTURA RSI (${Number(rsi).toFixed(1)})
-Interpretación del RSI actual para este activo en 2 líneas.` : ''}
 
 Tono: profesional, directo, ejecutivo.
 

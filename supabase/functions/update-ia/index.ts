@@ -31,11 +31,7 @@ const day  = mexicoTime.getDay()
 const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
 
-const isMarketOpen =
-  day >= 1 &&
-  day <= 5 &&
-  time >= 8.05 &&
-  time < 15
+const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
 
 //(globalThis as any).isMarketOpen = isMarketOpen;
 
@@ -69,6 +65,17 @@ if (!isMarketOpen && !singleTicker) {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
+  // ── Lock — solo para ejecución completa (no para ticker individual) ───────
+  if (!singleTicker) {
+    const lockRes  = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running`, { headers: dbHeaders });
+    const lockData = await lockRes.json();
+    if (lockData?.[0]?.running) {
+      return new Response("Skip — ocupado", { headers: CORS });
+    }
+    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
+      method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: true }),
+    });
+  }
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
@@ -86,45 +93,59 @@ if (!isMarketOpen && !singleTicker) {
 
     console.log(`📊 Procesando ${list.length} tickers`);
 
-    for (let i = 0; i < list.length; i++) {
-
-      const item = list[i]
-
-      if (i > 0) {
-        await sleep(2000)
-      }
+    for (const item of list) {
+      // Sleep primero — garantiza delay incluso si se hace continue
+      if (list.indexOf(item) > 0) await sleep(8000);
 
       try {
-            
+            // ── Control inteligente de frecuencia ─────────────────
+
+        const currentPrice = item.current_price || 0
+
+        if (currentPrice > 0) {
+
+          // Distancia porcentual al target
+          const distPercent =
+            Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
+
+          // Última actualización guardada en DB
+          const lastUpdate = item.last_updated
+            ? new Date(item.last_updated).getTime()
+            : 0
+
+          const now = Date.now()
+
+          // Minutos desde la última actualización
+          const minutesSinceUpdate = (now - lastUpdate) / 60000
+
+          // <= 5% del objetivo → actualizar cada 5 min
+          if (distPercent <= 5 && minutesSinceUpdate < 5) {
+            console.log(`⏭️ ${item.ticker} skip 5m`)
+            continue
+          }
+
+          // >5% y <=10% → actualizar cada 15 min
+          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 15) {
+            console.log(`⏭️ ${item.ticker} skip 15m`)
+            continue
+          }
+
+          // >10% → actualizar cada 30 min
+          if (distPercent > 10 && minutesSinceUpdate < 30) {
+            console.log(`⏭️ ${item.ticker} skip 30m`)
+            continue
+          }
+        }
         // ── TwelveData: historial de 100 días para RSI preciso ────────
-
-        console.log(`🚀 Iniciando ${item.ticker}`)
-
-const controller = new AbortController()
-
-const timeout = setTimeout(() => controller.abort(), 10000)
-
-const tsRes = await fetch(
-  `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=30min&outputsize=20&apikey=${API_KEY}`,
-  {
-    signal: controller.signal
-  }
-)
-clearTimeout(timeout)
-
-if (!tsRes.ok) {
-  console.log(`❌ HTTP ERROR ${item.ticker}: ${tsRes.status}`)
-  continue
-}
-
-const tsData = await tsRes.json();
+        const tsRes  = await fetch(
+          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
+        );
+        const tsData = await tsRes.json();
 
         if (tsData.status === "error" || !tsData.values?.length) {
           console.log(`❌ ${item.ticker} ERROR:`, tsData);
           continue;
         }
-
-       console.log(`✅ TwelveData OK ${item.ticker}`) 
 
         // Invertir: TwelveData devuelve más reciente primero
         const prices: number[] = tsData.values
@@ -132,17 +153,15 @@ const tsData = await tsRes.json();
           .filter((p: number) => !isNaN(p) && p > 0)
           .reverse();
 
+        // Necesitamos al menos period + 1 precios para RSI válido
         if (prices.length < 15) continue;
 
-        const price = prices[prices.length - 1]
+        const price     = prices[prices.length - 1];
+        const prevDay   = prices[prices.length - 2];
+        const change    = ((price - prevDay) / prevDay) * 100;
+        const priceName = tsData.meta?.symbol || item.ticker;
 
-const prevDay = prices[prices.length - 2]
-
-const change = ((price - prevDay) / prevDay) * 100
-
-const priceName = tsData.meta?.symbol || item.ticker
-
-// ── Indicadores ────────────────────────────────────────────────
+        // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
         // Blindaje: si por cualquier razón sale fuera de rango, corregir
         if (!isFinite(rsi) || isNaN(rsi)) rsi = 50;
@@ -188,23 +207,9 @@ const priceName = tsData.meta?.symbol || item.ticker
         }
 
         // ── Guardar en Supabase ────────────────────────────────────────
-        const updateRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`,
-          {
-            method: "PATCH",
-            headers: {
-              ...dbHeaders,
-              Prefer: "return=representation"
-            },
-            body: JSON.stringify(updateData),
-          }
-        )
-
-        if (!updateRes.ok) {
-          console.error(`❌ ERROR DB ${item.ticker}:`, await updateRes.text())
-        } else {
-          console.log(`✅ DB UPDATED ${item.ticker}`)
-        }
+        await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
+            method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
+          });
         // También actualizar RSI en trades abiertos con este ticker  
         await fetch(
           `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
@@ -213,23 +218,24 @@ const priceName = tsData.meta?.symbol || item.ticker
 
         processed++;
 
-      } 
-      catch (err) {
-
-      if (err.name === "AbortError") {
-        console.error(`⏰ TIMEOUT ${item.ticker}`)
-      } else {
-        console.error(`❌ Error procesando ${item.ticker}:`, err)
+      } catch (err) {
+        console.error(`Error procesando ${item.ticker}:`, err);
       }
-
-    }
     }
 
     return new Response(`OK — ${processed}/${list.length} tickers procesados`, { headers: CORS });
 
   } catch (e: any) {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
-  } 
+
+  } finally {
+    // Liberar lock solo si fue ejecución completa
+    if (!singleTicker) {
+      await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
+        method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: false }),
+      });
+    }
+  }
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -247,7 +253,7 @@ async function sendAlert(payload: Record<string, any>) {
   const day  = mexicoTime.getDay()
   const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
-  const isMarketOpen = 
+  const isMarketOpen =
     day >= 1 &&
     day <= 5 &&
     time >= 8.05 &&
