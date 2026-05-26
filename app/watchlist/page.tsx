@@ -559,7 +559,7 @@ const interval = setInterval(async () => {
                               textDecoration: 'none',
                             }}
                           >
-                            {item.ticker}
+                            
                           </a>
                         </div>
                         {item.price_name && (
