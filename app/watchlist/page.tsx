@@ -559,14 +559,10 @@ const interval = setInterval(async () => {
                               textDecoration: 'none',
                             }}
                           >
-                            
+                            {item.ticker}
                           </a>
                         </div>
-                        {item.price_name && (
-                          <div style={{ fontSize: 9, color: '#444', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {item.price_name}
-                          </div>
-                        )}
+                        
                       </td>
 
                       {/* Var. día en % */}
