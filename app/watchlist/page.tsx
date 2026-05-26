@@ -673,7 +673,7 @@ const interval = setInterval(async () => {
                           <button
                             onClick={() => toggleFavorite(item.id, item.favorite)}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-                              color: item.favorite ? '#ffd700' : '#333', fontSize: 14, transition: 'color 0.2s' }}
+                              color: item.favorite ? '#ffd700' : '#333', fontSize: 16, transition: 'color 0.2s' }}
                             onMouseEnter={e => (e.currentTarget.style.color = '#ffd700')}
                             onMouseLeave={e => (e.currentTarget.style.color = item.favorite ? '#ffd700' : '#333')}>
                             ★
