@@ -153,13 +153,27 @@ if (!isMarketOpen && !singleTicker) {
           .filter((p: number) => !isNaN(p) && p > 0)
           .reverse();
 
-        // Necesitamos al menos period + 1 precios para RSI válido
         if (prices.length < 15) continue;
 
-        const price     = prices[prices.length - 1];
-        const prevDay   = prices[prices.length - 2];
-        const change    = ((price - prevDay) / prevDay) * 100;
-        const priceName = tsData.meta?.symbol || item.ticker;
+        const priceName  = tsData.meta?.symbol || item.ticker;
+        const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY")!;
+
+        // Precio y cambio del día en tiempo real desde Finnhub
+        let price  = prices[prices.length - 1]; // fallback: cierre de ayer
+        let change = ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100;
+        try {
+          const fRes  = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`);
+          const fData = await fRes.json();
+          if (fData?.c && fData.c > 0) {
+            price  = fData.c;
+            change = typeof fData.dp === 'number' ? fData.dp : change;
+          }
+        } catch (e) {
+          console.error(`Finnhub error ${item.ticker}:`, e);
+        }
+
+        // Reemplazar último precio en el array para que RSI use precio actual
+        prices[prices.length - 1] = price;
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);

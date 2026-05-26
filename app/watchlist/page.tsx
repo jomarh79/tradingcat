@@ -522,7 +522,7 @@ const interval = setInterval(async () => {
               </thead>
               <tbody>
                 {displayList.length === 0 && (
-                  <tr><td colSpan={12} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                  <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                       <Paw size={28} color="#333" opacity={0.5} />
                       No hay activos. Agrega uno arriba.
@@ -665,14 +665,6 @@ const interval = setInterval(async () => {
                               {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
                             </span>
                           : <span style={{ color: '#333' }}>—</span>}
-                      </td>
-
-                      {/* Actualizado */}
-                      <td style={{ ...tdStyle, fontSize: 10 }}>
-                        <span style={{ color: item.stale ? '#555' : '#888' }}>
-                          {fmtTime(item.last_updated)}
-                          {item.stale && <span style={{ color: '#444', marginLeft: 4 }}>●</span>}
-                        </span>
                       </td>
 
                       {/* Estrella + Eliminar */}
