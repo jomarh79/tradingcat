@@ -87,7 +87,7 @@ const controller = new AbortController()
 const timeout = setTimeout(() => controller.abort(), 4000)
 
 const quoteRes = await fetch(
-  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}:US&token=${FINNHUB_KEY}`,
+  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&exchange=US&token=${FINNHUB_KEY}`,
   { signal: controller.signal }
 );
 
