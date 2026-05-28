@@ -176,7 +176,7 @@ export default function WatchlistIAPage() {
   // ── Botón Actualizar — llama API route del servidor ────────────────────────
   const handleUpdate = async () => {
     setLoading(true)
-    await ejecutarUpdateIA()
+    await triggerIA()
     await new Promise(r => setTimeout(r, 3000))  // esperar ~3s a que empiece a guardar
     await init()               // refrescar la lista desde Supabase
     setLoading(false)
@@ -206,7 +206,7 @@ export default function WatchlistIAPage() {
 
     // Disparar análisis IA solo para este ticker en background de forma segura
     setAddingNew(true);
-    ejecutarUpdateIA(ticker)
+    triggerIA(ticker)
       .then(async () => {
         let attempts = 0;
         const maxAttempts = 10;
