@@ -12,9 +12,16 @@ serve(async (req) => {
     return new Response("ok", { headers: CORS });
   }
 
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const API_KEY      = Deno.env.get("TWELVEDATA_API_KEY")!;
+  // Crea una función para leer variables tanto en Deno (Supabase) como en Node.js (Render)
+const getEnv = (key: string) => {
+  return Deno.env.get(key) || (globalThis as any).process?.env?.[key] || "";
+};
+
+const SUPABASE_URL = getEnv("SUPABASE_URL");
+const SUPABASE_KEY = getEnv("SUPABASE_SERVICE_ROLE_KEY");
+const API_KEY      = getEnv("TWELVEDATA_API_KEY");
+// Agregamos la variable de Finnhub aquí arriba para tenerla disponible globalmente
+const FINNHUB_KEY  = getEnv("FINNHUB_API_KEY");
 
   const dbHeaders = {
     apikey:         SUPABASE_KEY,
@@ -79,7 +86,7 @@ if (!isMarketOpen && !singleTicker) {
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
-    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0`;
+    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0&order=last_updated.asc.nullsfirst&limit=5`;
     if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
 
     const res  = await fetch(url, { headers: dbHeaders });
@@ -93,62 +100,43 @@ if (!isMarketOpen && !singleTicker) {
 
     console.log(`📊 Procesando ${list.length} tickers`);
 
-    for (const item of list) {
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i]
+
+      // Delay garantizado entre tickers — SIEMPRE, antes de cualquier lógica
+      if (i > 0) await sleep(3500)
 
       try {
-            // ── Control inteligente de frecuencia ─────────────────
-
+        // ── Control inteligente de frecuencia ─────────────────
         const currentPrice = item.current_price || 0
-
+/*
         if (currentPrice > 0) {
+          const distPercent  = Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
+          const lastUpdate   = item.last_updated ? new Date(item.last_updated).getTime() : 0
+          const minutesSince = (Date.now() - lastUpdate) / 60000
 
-          // Distancia porcentual al target
-          const distPercent =
-            Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
-
-          const inZone = distPercent <= 2
-
-          // Última actualización guardada en DB
-          const lastUpdate = item.last_updated
-            ? new Date(item.last_updated).getTime()
-            : 0
-
-          const now = Date.now()
-
-          // Minutos desde la última actualización
-          const minutesSinceUpdate = (now - lastUpdate) / 60000
-
-          // EN ZONA → actualizar mucho más frecuente
-          if (inZone && minutesSinceUpdate < 1) {
-            console.log(`🔥 ${item.ticker} skip 1m EN ZONA`)
-            continue
-          }
-
-          // Cerca del objetivo → cada 5 min
-          else if (distPercent <= 5 && minutesSinceUpdate < 5) {
-            console.log(`⏭️ ${item.ticker} skip 5m`)
-            continue
-          }
-
-          // Media distancia → cada 15 min
-          else if (distPercent <= 10 && minutesSinceUpdate < 15) {
-            console.log(`⏭️ ${item.ticker} skip 15m`)
-            continue
-          }
-
-          // Lejos → cada 30 min
-          else if (minutesSinceUpdate < 30) {
-            console.log(`⏭️ ${item.ticker} skip 30m`)
-            continue
-          }
-
-          // Delay SOLO para tickers que sí se procesarán
-          await sleep(1200)
+          if (distPercent <= 2  && minutesSince < 1)  { console.log(`⏭️ ${item.ticker} skip 1m zona`);  continue }
+          if (distPercent <= 5  && minutesSince < 5)  { console.log(`⏭️ ${item.ticker} skip 5m`);       continue }
+          if (distPercent <= 10 && minutesSince < 10) { console.log(`⏭️ ${item.ticker} skip 10m`);      continue }
+          if (minutesSince < 15)                      { console.log(`⏭️ ${item.ticker} skip 15m`);      continue }
         }
+*/
         // ── TwelveData: historial de 100 días para RSI preciso ────────
-        const tsRes  = await fetch(
-          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
-        );
+        const controller = new AbortController()
+
+        const timeout = setTimeout(() => controller.abort(), 8000)
+        const tsRes = await fetch(
+          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
+          { signal: controller.signal }
+        )
+
+        clearTimeout(timeout)
+
+        if (!tsRes.ok) {
+          console.error(`❌ TwelveData HTTP ${item.ticker}:`, tsRes.status)
+          continue
+        }
+
         const tsData = await tsRes.json();
 
         if (tsData.status === "error" || !tsData.values?.length) {
@@ -164,38 +152,67 @@ if (!isMarketOpen && !singleTicker) {
         if (prices.length < 15) continue;
 
         const priceName   = tsData.meta?.symbol || item.ticker;
-        const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY")!;
-
-        // Precio y cambio del día en tiempo real desde Finnhub
+                // ── Finnhub: Precio y cambio del día en tiempo real ────────
+      
+        // 1. Establecemos valores iniciales basados en TwelveData por si Finnhub falla
         let price  = prices[prices.length - 1];
-        let change = ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100;
+        let change = prices.length >= 2 ? ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100 : 0;
+        let finnhubSuccess = false;
+
         try {
-          const fRes  = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`);
-          const fData = await fRes.json();
-          console.log(`📈 Finnhub ${item.ticker}:`, JSON.stringify(fData))
-          if (
-            typeof fData?.c === "number" &&
-            fData.c > 0
-          ) {
-            price = Number(fData.c);
+          // 2. Controlamos el tiempo de espera para que Render no se quede colgado
+          const fController = new AbortController();
+          const fTimeout = setTimeout(() => fController.abort(), 5000);
 
-            if (
-              typeof fData.dp === "number" &&
-              !isNaN(fData.dp)
-            ) {
-              change = Number(fData.dp);
+          const fRes = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`,
+            { signal: fController.signal }
+          );
+
+          clearTimeout(fTimeout);
+
+          if (fRes.ok) {
+            const fData = await fRes.json();
+            console.log(`📈 Finnhub ${item.ticker}:`, JSON.stringify(fData));
+            
+            // 3. Si Finnhub responde con éxito, extraemos el precio actual ('c')
+            if (typeof fData?.c === "number" && fData.c > 0) {
+              price = Number(fData.c);
+              finnhubSuccess = true;
+              
+              // 4. Extraemos la variación diaria ('dp'). Si no existe, la calculamos matemáticamente
+              if (typeof fData.dp === "number" && !isNaN(fData.dp)) {
+                change = Number(fData.dp);
+              } else if (typeof fData.d === "number" && typeof fData.pc === "number" && fData.pc > 0) {
+                change = (fData.d / fData.pc) * 100;
+              }
+              console.log(`✅ ${item.ticker} en tiempo real: ${price} (${change}%)`);
             }
-
-            console.log(`✅ ${item.ticker} realtime OK: ${price} (${change}%)`);
           } else {
-            console.log(`⚠️ ${item.ticker} sin realtime Finnhub`);
+            console.error(`⚠️ Finnhub HTTP Error ${item.ticker}: ${fRes.status}`);
           }
-        } catch (e) {
-          console.error(`Finnhub error ${item.ticker}:`, e);
+        } catch (e: any) {
+          console.error(`❌ Finnhub falló para ${item.ticker}:`, e?.name === "AbortError" ? "Timeout de 5s" : e.message);
         }
 
-        // Inyectar precio actual en array para RSI más preciso
+        // 5. SISTEMA DE RESPALDO: Si Finnhub falló (por límite de uso en la nube), calculamos los datos con TwelveData
+        if (!finnhubSuccess && tsData.values?.length > 0) {
+          console.log(`🔄 Fallback: Extrayendo variación diaria desde TwelveData para ${item.ticker}`);
+          const latestValue = tsData.values[0]; // Tomamos el día de hoy
+          const openPrice = parseFloat(latestValue.open);
+          const closePrice = parseFloat(latestValue.close);
+          
+          if (!isNaN(closePrice) && closePrice > 0) {
+            price = closePrice;
+            // Variación diaria = ((Cierre de hoy - Apertura de hoy) / Apertura de hoy) * 100
+            change = !isNaN(openPrice) && openPrice > 0 ? ((closePrice - openPrice) / openPrice) * 100 : change;
+          }
+        }
+
+        // 6. Sincronizamos el precio final en el historial para los indicadores técnicos
         prices[prices.length - 1] = price;
+    
+
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
@@ -249,12 +266,17 @@ if (!isMarketOpen && !singleTicker) {
           `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`,
           {
             method: "PATCH",
-            headers: dbHeaders,
+            headers: {
+              ...dbHeaders,
+              "Prefer": "return=representation" // <-- Obliga a Supabase a retornar el registro cambiado
+            },
             body: JSON.stringify(updateData),
           }
         )
 
-        console.log(`📝 PATCH ${item.ticker}: ${patchRes.status}`)
+        const patchData = await patchRes.json();
+        console.log(`📝 PATCH ${item.ticker} Estado: ${patchRes.status}`, patchData);
+
 
         if (!patchRes.ok) {
           const errText = await patchRes.text()
