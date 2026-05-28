@@ -143,9 +143,7 @@ export default function WatchlistIAPage() {
       .select('*')
       .gt('buy_target', 0)
       .order('ai_probability', { ascending: false })
-      // 2. Adjuntamos el parámetro fantasma a la consulta de Supabase para forzar datos nuevos
-      .abortSignal(null); // Esto limpia referencias de solicitudes anteriores en Next.js
-
+      
     if (error) { 
       console.error(error); 
       return []; 
