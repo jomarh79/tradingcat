@@ -178,7 +178,7 @@ export default function WatchlistIAPage() {
   // ── Botón Actualizar — llama API route del servidor ────────────────────────
   const handleUpdate = async () => {
     setLoading(true)
-    await ejecutarUpdateIA() Edge Function desde el servidor
+    await ejecutarUpdateIA()
     await new Promise(r => setTimeout(r, 3000))  // esperar ~3s a que empiece a guardar
     await init()               // refrescar la lista desde Supabase
     setLoading(false)
