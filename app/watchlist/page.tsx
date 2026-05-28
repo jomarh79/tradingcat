@@ -155,7 +155,7 @@ export default function WatchlistIAPage() {
       if (isMarketOpen()) {
         init()
       }
-    }, 15000)
+    }, 60000)
 
     return () => clearInterval(interval)
   }, [init])

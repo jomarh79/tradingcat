@@ -502,7 +502,7 @@ export default function CerradosPage() {
                   { key: 'open_date',  label: 'Apertura' },
                   { key: 'close_date', label: 'Cierre' },
                   { key: 'diffDays',   label: 'Días' },
-                  { key: null,         label: 'Razón' },
+                  { key: null,         label: 'Razón de cierre' },
                   { key: 'sector',     label: 'Sector' },
                   { key: null,         label: 'Invertido' },
                   { key: null,         label: 'Recuperado' },

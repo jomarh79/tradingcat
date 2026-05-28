@@ -31,7 +31,7 @@ const day  = mexicoTime.getDay()
 const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60
 
 
-const isMarketOpen = day >= 1 && day <= 5 && time >= 8.05 && time < 15
+const isMarketOpen = day >= 1 && day <= 5 && time >= 7 && time < 15
 
 //(globalThis as any).isMarketOpen = isMarketOpen;
 
@@ -94,8 +94,6 @@ if (!isMarketOpen && !singleTicker) {
     console.log(`📊 Procesando ${list.length} tickers`);
 
     for (const item of list) {
-      // Sleep primero — garantiza delay incluso si se hace continue
-      if (list.indexOf(item) > 0) await sleep(8000);
 
       try {
             // ── Control inteligente de frecuencia ─────────────────
@@ -108,6 +106,8 @@ if (!isMarketOpen && !singleTicker) {
           const distPercent =
             Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
 
+          const inZone = distPercent <= 2
+
           // Última actualización guardada en DB
           const lastUpdate = item.last_updated
             ? new Date(item.last_updated).getTime()
@@ -118,23 +118,32 @@ if (!isMarketOpen && !singleTicker) {
           // Minutos desde la última actualización
           const minutesSinceUpdate = (now - lastUpdate) / 60000
 
-          // <= 5% del objetivo → actualizar cada 5 min
-          if (distPercent <= 5 && minutesSinceUpdate < 5) {
+          // EN ZONA → actualizar mucho más frecuente
+          if (inZone && minutesSinceUpdate < 1) {
+            console.log(`🔥 ${item.ticker} skip 1m EN ZONA`)
+            continue
+          }
+
+          // Cerca del objetivo → cada 5 min
+          else if (distPercent <= 5 && minutesSinceUpdate < 5) {
             console.log(`⏭️ ${item.ticker} skip 5m`)
             continue
           }
 
-          // >5% y <=10% → actualizar cada 15 min
-          if (distPercent > 5 && distPercent <= 10 && minutesSinceUpdate < 15) {
+          // Media distancia → cada 15 min
+          else if (distPercent <= 10 && minutesSinceUpdate < 15) {
             console.log(`⏭️ ${item.ticker} skip 15m`)
             continue
           }
 
-          // >10% → actualizar cada 30 min
-          if (distPercent > 10 && minutesSinceUpdate < 30) {
+          // Lejos → cada 30 min
+          else if (minutesSinceUpdate < 30) {
             console.log(`⏭️ ${item.ticker} skip 30m`)
             continue
           }
+
+          // Delay SOLO para tickers que sí se procesarán
+          await sleep(1200)
         }
         // ── TwelveData: historial de 100 días para RSI preciso ────────
         const tsRes  = await fetch(
@@ -147,7 +156,6 @@ if (!isMarketOpen && !singleTicker) {
           continue;
         }
 
-        // Invertir: TwelveData devuelve más reciente primero
         const prices: number[] = tsData.values
           .map((v: any) => parseFloat(v.close))
           .filter((p: number) => !isNaN(p) && p > 0)
@@ -155,24 +163,38 @@ if (!isMarketOpen && !singleTicker) {
 
         if (prices.length < 15) continue;
 
-        const priceName  = tsData.meta?.symbol || item.ticker;
+        const priceName   = tsData.meta?.symbol || item.ticker;
         const FINNHUB_KEY = Deno.env.get("FINNHUB_API_KEY")!;
 
         // Precio y cambio del día en tiempo real desde Finnhub
-        let price  = prices[prices.length - 1]; // fallback: cierre de ayer
+        let price  = prices[prices.length - 1];
         let change = ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100;
         try {
           const fRes  = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`);
           const fData = await fRes.json();
-          if (fData?.c && fData.c > 0) {
-            price  = fData.c;
-            change = typeof fData.dp === 'number' ? fData.dp : change;
+          console.log(`📈 Finnhub ${item.ticker}:`, JSON.stringify(fData))
+          if (
+            typeof fData?.c === "number" &&
+            fData.c > 0
+          ) {
+            price = Number(fData.c);
+
+            if (
+              typeof fData.dp === "number" &&
+              !isNaN(fData.dp)
+            ) {
+              change = Number(fData.dp);
+            }
+
+            console.log(`✅ ${item.ticker} realtime OK: ${price} (${change}%)`);
+          } else {
+            console.log(`⚠️ ${item.ticker} sin realtime Finnhub`);
           }
         } catch (e) {
           console.error(`Finnhub error ${item.ticker}:`, e);
         }
 
-        // Reemplazar último precio en el array para que RSI use precio actual
+        // Inyectar precio actual en array para RSI más preciso
         prices[prices.length - 1] = price;
 
         // ── Indicadores ────────────────────────────────────────────────
@@ -221,9 +243,23 @@ if (!isMarketOpen && !singleTicker) {
         }
 
         // ── Guardar en Supabase ────────────────────────────────────────
-        await fetch(`${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`, {
-            method: "PATCH", headers: dbHeaders, body: JSON.stringify(updateData),
-          });
+        console.log(`💾 Guardando ${item.ticker}:`, updateData)
+
+        const patchRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`,
+          {
+            method: "PATCH",
+            headers: dbHeaders,
+            body: JSON.stringify(updateData),
+          }
+        )
+
+        console.log(`📝 PATCH ${item.ticker}: ${patchRes.status}`)
+
+        if (!patchRes.ok) {
+          const errText = await patchRes.text()
+          console.error(`❌ PATCH ERROR ${item.ticker}:`, errText)
+        }
         // También actualizar RSI en trades abiertos con este ticker  
         await fetch(
           `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
@@ -270,7 +306,7 @@ async function sendAlert(payload: Record<string, any>) {
   const isMarketOpen =
     day >= 1 &&
     day <= 5 &&
-    time >= 8.05 &&
+    time >= 7 &&
     time < 15
 
   // Bloquear alertas fuera de horario

@@ -87,7 +87,7 @@ const controller = new AbortController()
 const timeout = setTimeout(() => controller.abort(), 4000)
 
 const quoteRes = await fetch(
-  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}&token=${FINNHUB_KEY}`,
+  `https://finnhub.io/api/v1/quote?symbol=${trade.ticker}:US&token=${FINNHUB_KEY}`,
   { signal: controller.signal }
 );
 
@@ -104,6 +104,7 @@ if (!quoteRes.ok) {
 const quote = await quoteRes.json();
 
 console.log("QUOTE:", trade.ticker, quote)
+console.log("CHANGE:", trade.ticker, quote.dp)
 
 let price = 0;
 
@@ -119,7 +120,20 @@ if (quote?.c && quote.c > 0) {
   continue;
 }
 
-const change = typeof quote.dp === "number" ? quote.dp : 0;
+let change = 0
+
+// Fallback usando precio previo
+if (quote?.pc && quote.pc > 0) {
+  change = ((price - quote.pc) / quote.pc) * 100
+}
+
+// Realtime Finnhub tiene prioridad
+if (
+  typeof quote.dp === "number" &&
+  !isNaN(quote.dp)
+) {
+  change = Number(quote.dp)
+}
 
 const updateData: Record<string, any> = {
   last_price: parseFloat(price.toFixed(4)),
