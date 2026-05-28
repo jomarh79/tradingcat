@@ -35,8 +35,8 @@ Nombre completo de la empresa y descripción ejecutiva en 2-3 líneas.
 - Producto o servicio principal
 
 📰 NOTICIAS RECIENTES
-- Catalizador reciente
-- Riesgo o noticia relevante
+- fecha - Catalizador reciente
+- fecha - Riesgo o noticia relevante
 - Tendencia importante
 
 📊 SENTIMIENTO FINANCIERO

@@ -103,7 +103,7 @@ const rsiColor = (rsi: number | null) => {
 // Crea la conexión real con tu API de Render para procesar la IA
 async function triggerIA(ticker?: string): Promise<void> {
   try {
-    await fetch('/api/update-ia', {
+    await fetch('/api/trigger-ia', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(ticker ? { ticker } : {}),
@@ -311,12 +311,6 @@ export default function WatchlistIAPage() {
     if (pa !== pb) return pa - pb
   }
 
-  // En zona siempre primero cuando se ordena por distancia
-  if (sortField === 'distancia') {
-    if (a.inZone && !b.inZone) return -1
-    if (!a.inZone && b.inZone) return 1
-  }
-
   let av: any = a[sortField] ?? 0
   let bv: any = b[sortField] ?? 0
   if (typeof av === 'string') av = av.toLowerCase()
@@ -454,10 +448,9 @@ export default function WatchlistIAPage() {
                       </div>
                       <div>
                         <div style={{ color: '#666' }}>Dist.</div>
-                        <div style={{ color: item.inZone ? '#22c55e' : '#aaa', fontWeight: 700 }}>
+                        <div style={{ color: '#aaa', fontWeight: 700 }}>
                           {item.current_price
-                            ? item.inZone ? '✓zona'
-                            : `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
+                            ? `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
                             : '—'}
                         </div>
                       </div>
@@ -618,11 +611,13 @@ export default function WatchlistIAPage() {
                       {/* Distancia */}
                       <td style={tdStyle}>
                         {item.current_price
-                          ? item.inZone
-                            ? <span style={{ color: '#22c55e', fontWeight: 700, fontSize: 11, background: 'rgba(34,197,94,0.1)', padding: '2px 7px', borderRadius: 3 }}>En zona</span>
-                            : <span style={{ color: item.distancia < 0 ? '#f43f5e' : item.distancia < 10 ? '#ffd700' : '#666', fontWeight: 600, fontSize: 12 }}>
-                                {item.distancia > 0 ? '+' : ''}{item.distancia.toFixed(2)}%
-                              </span>
+                          ? <span style={{
+                              color: item.distancia < 0 ? '#f43f5e' : item.distancia < 10 ? '#ffd700' : '#666',
+                              fontWeight: 600,
+                              fontSize: 12
+                            }}>
+                              {item.distancia > 0 ? '+' : ''}{item.distancia.toFixed(2)}%
+                            </span>
                           : <span style={{ color: '#333' }}>—</span>}
                       </td>
 
