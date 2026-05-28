@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 
       try {
         const tsRes = await fetch(
-          `https://twelvedata.com{item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
+            `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`
         );
 
         if (!tsRes.ok) continue;
@@ -99,7 +99,9 @@ export async function POST(req: Request) {
         let finnhubSuccess = false;
 
         try {
-          const fRes = await fetch(`https://finnhub.io{item.ticker}&token=${FINNHUB_KEY}`);
+          const fRes = await fetch(
+            `https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`
+            );
           if (fRes.ok) {
             const fData = await fRes.json();
             if (typeof fData?.c === "number" && fData.c > 0) {
