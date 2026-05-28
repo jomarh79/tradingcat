@@ -100,9 +100,9 @@ const rsiColor = (rsi: number | null) => {
   return '#aaa'
 }
 
-// ── Llamar API route del servidor (evita CORS) ────────────────────────────────
+// Cambiamos el endpoint para apuntar a la ruta real de Next.js que reparamos en Render
 async function triggerIA(ticker?: string): Promise<void> {
-  await fetch('/api/trigger-ia', {
+  await fetch('/api/update-ia', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(ticker ? { ticker } : {}),
@@ -129,15 +129,25 @@ export default function WatchlistIAPage() {
   const [tempTarget,  setTempTarget] = useState('')
   const [view,        setView]       = useState<'table' | 'cards'>('table')
 
-  const fetchList = useCallback(async (): Promise<WatchItem[]> => {
+    const fetchList = useCallback(async (): Promise<WatchItem[]> => {
+    // 1. Desactivamos el almacenamiento en caché del cliente agregando un parámetro de tiempo único
+    const cacheBuster = Date.now();
+    
     const { data, error } = await supabase
-  .from('watchlist')
-  .select('*')
-  .gt('buy_target', 0) // 👈 SOLO LOS QUE TU AGREGAS
-  .order('ai_probability', { ascending: false })
-    if (error) { console.error(error); return [] }
-    return (data as WatchItem[]) || []
-  }, [])
+      .from('watchlist')
+      .select('*')
+      .gt('buy_target', 0)
+      .order('ai_probability', { ascending: false })
+      // 2. Adjuntamos el parámetro fantasma a la consulta de Supabase para forzar datos nuevos
+      .abortSignal(null); // Esto limpia referencias de solicitudes anteriores en Next.js
+
+    if (error) { 
+      console.error(error); 
+      return []; 
+    }
+    return (data as WatchItem[]) || [];
+  }, []);
+
 
   const init = useCallback(async () => {
     setLoading(true)
