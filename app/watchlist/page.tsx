@@ -206,47 +206,31 @@ export default function WatchlistIAPage() {
       setList(prev => [newItem, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
     }
 
-        // Disparar análisis IA solo para este ticker en background
+    // Disparar análisis IA solo para este ticker en background de forma segura
     setAddingNew(true);
-    ejecutarUpdateIA(ticker).then(async () => {
-      let attempts = 0;
-      const maxAttempts = 10;
+    ejecutarUpdateIA(ticker)
+      .then(async () => {
+        let attempts = 0;
+        const maxAttempts = 10;
 
-      // 1. Creamos un temporizador que revisa la base de datos cada 3 segundos
-      const interval = setInterval(async () => {
-        const updated = await fetchList();
-        // 2. Busca si la base de datos ya guardó el precio real que calculó la IA
-        const found = updated.find(i => i.ticker === ticker && i.current_price !== null);
+        const interval = setInterval(async () => {
+          const updated = await fetchList();
+          const found = updated.find(i => i.ticker === ticker && i.current_price !== null);
 
-        // 3. Si ya encontró el precio, o pasaron los 30 segundos máximos, detiene la carga
-        if (found || attempts >= maxAttempts) {
-          clearInterval(interval);
-          setList(updated);
-          setAddingNew(false);
-        }
-        attempts++;
-      }, 3000);
-    }).catch(() => setAddingNew(false));
-  };
+          if (found || attempts >= maxAttempts) {
+            clearInterval(interval);
+            setList(updated);
+            setAddingNew(false);
+          }
+          attempts++;
+        }, 3000);
+      })
+      .catch((err) => {
+        console.error("Error al procesar ticker nuevo:", err);
+        setAddingNew(false);
+      });
+  } 
 
-
-const interval = setInterval(async () => {
-  const updated = await fetchList()
-
-  const found = updated.find(i => i.ticker === ticker && i.current_price !== null)
-
-  if (found || attempts >= maxAttempts) {
-    clearInterval(interval)
-    setList(updated)
-    setAddingNew(false)
-  }
-
-  attempts++
-}, 3000)
-
-      setAddingNew(false)
-    }).catch(() => setAddingNew(false))
-  }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
