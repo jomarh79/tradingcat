@@ -100,14 +100,19 @@ const rsiColor = (rsi: number | null) => {
   return '#aaa'
 }
 
-// Cambiamos el endpoint para apuntar a la ruta real de Next.js que reparamos en Render
+// Crea la conexión real con tu API de Render para procesar la IA
 async function triggerIA(ticker?: string): Promise<void> {
-  await fetch('/api/update-ia', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(ticker ? { ticker } : {}),
-  })
+  try {
+    await fetch('/api/update-ia', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(ticker ? { ticker } : {}),
+    });
+  } catch (error) {
+    console.error("Error al disparar la IA:", error);
+  }
 }
+
 
 export default function WatchlistIAPage() {
   const { money } = usePrivacy()
@@ -173,7 +178,7 @@ export default function WatchlistIAPage() {
   // ── Botón Actualizar — llama API route del servidor ────────────────────────
   const handleUpdate = async () => {
     setLoading(true)
-    await triggerIA()          // dispara la Edge Function desde el servidor
+    await ejecutarUpdateIA() Edge Function desde el servidor
     await new Promise(r => setTimeout(r, 3000))  // esperar ~3s a que empiece a guardar
     await init()               // refrescar la lista desde Supabase
     setLoading(false)
@@ -201,12 +206,29 @@ export default function WatchlistIAPage() {
       setList(prev => [newItem, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
     }
 
-    // Disparar análisis IA solo para este ticker en background
-    setAddingNew(true)
-    triggerIA(ticker).then(async () => {
-      // Esperar que termine (aprox 10s por el rate limit) y refrescar
-      let attempts = 0
-const maxAttempts = 10
+        // Disparar análisis IA solo para este ticker en background
+    setAddingNew(true);
+    ejecutarUpdateIA(ticker).then(async () => {
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      // 1. Creamos un temporizador que revisa la base de datos cada 3 segundos
+      const interval = setInterval(async () => {
+        const updated = await fetchList();
+        // 2. Busca si la base de datos ya guardó el precio real que calculó la IA
+        const found = updated.find(i => i.ticker === ticker && i.current_price !== null);
+
+        // 3. Si ya encontró el precio, o pasaron los 30 segundos máximos, detiene la carga
+        if (found || attempts >= maxAttempts) {
+          clearInterval(interval);
+          setList(updated);
+          setAddingNew(false);
+        }
+        attempts++;
+      }, 3000);
+    }).catch(() => setAddingNew(false));
+  };
+
 
 const interval = setInterval(async () => {
   const updated = await fetchList()
