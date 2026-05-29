@@ -120,6 +120,21 @@ if (quote?.c && quote.c > 0) {
   continue;
 }
 
+// ── CONVERSIÓN MXN → USD SOLO IVV ──
+if (trade.ticker === "IVV") {
+  const fxRes = await fetch(
+    `https://finnhub.io/api/v1/forex/rates?base=USD&token=${FINNHUB_KEY}`
+  );
+
+  const fxData = await fxRes.json();
+
+  const usdMxn = fxData?.quote?.MXN;
+
+  if (usdMxn && usdMxn > 0) {
+    price = price / usdMxn;
+  }
+}
+
 let change = 0
 
 // Fallback usando precio previo

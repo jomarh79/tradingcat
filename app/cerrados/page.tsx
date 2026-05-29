@@ -82,6 +82,7 @@ export default function CerradosPage() {
   const [filterTicker,      setFilterTicker]      = useState('')
   const [filterReason,      setFilterReason]      = useState('all')
   const [filterSector,      setFilterSector]      = useState('all')
+  const [dividendsByTicker, setDividendsByTicker] = useState<Record<string, number>>({})
   const [viewingTrade,      setViewingTrade]      = useState<any>(null)
   const [sortConfig,        setSortConfig]        = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'close_date', direction: 'desc',
@@ -105,6 +106,22 @@ export default function CerradosPage() {
     ])
     if (pData) setPortfolios(pData)
     if (tData) setTrades(tData)
+
+    // Cargar dividendos agrupados por ticker
+    const { data: divData } = await supabase
+      .from('wallet_movements')
+      .select('ticker, amount')
+      .eq('is_dividend', true)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id || '')
+
+    const divMap: Record<string, number> = {}
+    if (divData) {
+      divData.forEach((d: any) => {
+        if (!d.ticker) return
+        divMap[d.ticker] = parseFloat(((divMap[d.ticker] || 0) + Number(d.amount)).toFixed(2))
+      })
+    }
+    setDividendsByTicker(divMap)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -506,6 +523,7 @@ export default function CerradosPage() {
                   { key: 'sector',     label: 'Sector' },
                   { key: null,         label: 'Invertido' },
                   { key: null,         label: 'Recuperado' },
+                  { key: null,         label: 'Dividendos' },
                   { key: 'pnlCash',    label: 'PnL $' },
                   { key: 'pnlPct',     label: 'PnL %' },
                   { key: 'annualPct',  label: 'Anual %' },
@@ -523,7 +541,7 @@ export default function CerradosPage() {
             <tbody>
               {filteredAndSorted.length === 0 && (
                 <tr>
-                  <td colSpan={12} style={{ padding: 40, textAlign: 'center', color: '#666' }}>
+                  <td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#666' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
                       <Paw size={30} color="#444" opacity={0.5} />
                       No hay trades cerrados para este filtro.
@@ -554,11 +572,21 @@ export default function CerradosPage() {
                     </td>
                     <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalInvested)}</td>
                     <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalSells)}</td>
-                    <td style={{ ...tdStyle, color: d.pnlCash >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 'bold' }}>
-                      {money(d.pnlCash)}
+                    <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
+                      {(() => {
+                        const div = dividendsByTicker[t.ticker] || 0
+                        return div > 0 ? money(div) : <span style={{ color: '#333' }}>—</span>
+                      })()}
+                    </td>
+                    <td style={{ ...tdStyle, color: (d.pnlCash + (dividendsByTicker[t.ticker] || 0)) >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 'bold' }}>
+                      {money(d.pnlCash + (dividendsByTicker[t.ticker] || 0))}
                     </td>
                     <td style={{ ...tdStyle, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                      {d.pnlPct >= 0 ? '+' : ''}{d.pnlPct.toFixed(2)}%
+                      {(() => {
+                        const div = dividendsByTicker[t.ticker] || 0
+                        const pct = d.totalInvested > 0 ? ((d.pnlCash + div) / d.totalInvested * 100) : 0
+                        return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
+                      })()}
                     </td>
                     <td style={{ ...tdStyle, color: d.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
                       {d.annualPct > 500 ? '>500' : `${d.annualPct >= 0 ? '+' : ''}${d.annualPct.toFixed(1)}`}%
@@ -734,6 +762,20 @@ export default function CerradosPage() {
                 </div>
               )}
 
+              {/* Dividendos del ticker */}
+              {(() => {
+                const div = dividendsByTicker[viewingTrade.ticker] || 0
+                if (div <= 0) return null
+                return (
+                  <div style={{ marginTop: 10, background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#eab308', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      💰 Dividendos históricos recibidos de {viewingTrade.ticker}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#eab308' }}>{money(div)}</span>
+                  </div>
+                )
+              })()}
+
               {/* Resumen del trade */}
               {(() => {
                 const d = calculateTradeData(viewingTrade)
@@ -742,7 +784,7 @@ export default function CerradosPage() {
                     {[
                       { label: 'Invertido',  value: money(d.totalInvested), color: '#aaa' },
                       { label: 'Recuperado', value: money(d.totalSells),    color: '#aaa' },
-                      { label: 'PnL',        value: money(d.pnlCash),       color: d.pnlCash >= 0 ? '#22c55e' : '#f43f5e' },
+                      { label: 'PnL',        value: money(d.pnlCash + (dividendsByTicker[viewingTrade.ticker] || 0)), color: (d.pnlCash + (dividendsByTicker[viewingTrade.ticker] || 0)) >= 0 ? '#22c55e' : '#f43f5e' },
                       { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
                       { label: 'Duración',   value: `${d.diffDays} días`,   color: '#aaa' },
                     ].map(item => (
