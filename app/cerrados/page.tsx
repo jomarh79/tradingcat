@@ -82,7 +82,7 @@ export default function CerradosPage() {
   const [filterTicker,      setFilterTicker]      = useState('')
   const [filterReason,      setFilterReason]      = useState('all')
   const [filterSector,      setFilterSector]      = useState('all')
-  const [dividendsByTicker, setDividendsByTicker] = useState<Record<string, number>>({})
+  const [allDividends, setAllDividends] = useState<any[]>([])
   const [viewingTrade,      setViewingTrade]      = useState<any>(null)
   const [sortConfig,        setSortConfig]        = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'close_date', direction: 'desc',
@@ -107,21 +107,14 @@ export default function CerradosPage() {
     if (pData) setPortfolios(pData)
     if (tData) setTrades(tData)
 
-    // Cargar dividendos agrupados por ticker
+    // Cargar todos los dividendos con fecha para filtrar por rango del trade
     const { data: divData } = await supabase
       .from('wallet_movements')
-      .select('ticker, amount')
+      .select('ticker, amount, date')
       .eq('is_dividend', true)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id || '')
+      .eq('user_id', user.id)
 
-    const divMap: Record<string, number> = {}
-    if (divData) {
-      divData.forEach((d: any) => {
-        if (!d.ticker) return
-        divMap[d.ticker] = parseFloat(((divMap[d.ticker] || 0) + Number(d.amount)).toFixed(2))
-      })
-    }
-    setDividendsByTicker(divMap)
+    setAllDividends(divData || [])
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -177,6 +170,16 @@ export default function CerradosPage() {
 
     return { diffDays, totalInvested, totalSells, pnlCash, pnlPct, annualPct }
   }, [])
+
+  const getDividendsForTrade = useCallback((ticker: string, openDate: string, closeDate: string) => {
+    const open  = new Date(openDate  + 'T00:00:00').getTime()
+    const close = new Date((closeDate || openDate) + 'T23:59:59').getTime()
+    return allDividends.filter(d =>
+      d.ticker === ticker &&
+      new Date(d.date + 'T00:00:00').getTime() >= open &&
+      new Date(d.date + 'T00:00:00').getTime() <= close
+    )
+  }, [allDividends])
 
   const handleSort = (key: string) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }))
@@ -574,18 +577,25 @@ export default function CerradosPage() {
                     <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalSells)}</td>
                     <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
                       {(() => {
-                        const div = dividendsByTicker[t.ticker] || 0
-                        return div > 0 ? money(div) : <span style={{ color: '#333' }}>—</span>
+                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
+                        const total = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
+                        return total > 0 ? money(total) : <span style={{ color: '#333' }}>—</span>
                       })()}
                     </td>
-                    <td style={{ ...tdStyle, color: (d.pnlCash + (dividendsByTicker[t.ticker] || 0)) >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 'bold' }}>
-                      {money(d.pnlCash + (dividendsByTicker[t.ticker] || 0))}
-                    </td>
-                    <td style={{ ...tdStyle, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                    <td style={{ ...tdStyle, fontWeight: 'bold' }}>
                       {(() => {
-                        const div = dividendsByTicker[t.ticker] || 0
-                        const pct = d.totalInvested > 0 ? ((d.pnlCash + div) / d.totalInvested * 100) : 0
-                        return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
+                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
+                        const divTotal = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
+                        const total = d.pnlCash + divTotal
+                        return <span style={{ color: total >= 0 ? '#22c55e' : '#f43f5e' }}>{money(total)}</span>
+                      })()}
+                    </td>
+                    <td style={{ ...tdStyle }}>
+                      {(() => {
+                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
+                        const divTotal = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
+                        const pct = d.totalInvested > 0 ? ((d.pnlCash + divTotal) / d.totalInvested * 100) : 0
+                        return <span style={{ color: pct >= 0 ? '#22c55e' : '#f43f5e' }}>{`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`}</span>
                       })()}
                     </td>
                     <td style={{ ...tdStyle, color: d.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
@@ -762,19 +772,29 @@ export default function CerradosPage() {
                 </div>
               )}
 
-              {/* Dividendos del ticker */}
-              {(() => {
-                const div = dividendsByTicker[viewingTrade.ticker] || 0
-                if (div <= 0) return null
-                return (
-                  <div style={{ marginTop: 10, background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, color: '#eab308', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      💰 Dividendos históricos recibidos de {viewingTrade.ticker}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#eab308' }}>{money(div)}</span>
-                  </div>
-                )
-              })()}
+              {/* ── FILAS DE DIVIDENDOS ── */}
+                    {getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
+                      .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                      .map((div: any, idx: number) => (
+                        <tr key={`div-${idx}`} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
+                          <td style={modalTd}>
+                            {parseDate(div.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td style={{ ...modalTd, color: '#eab308', fontWeight: 700 }}>Dividendo</td>
+                          <td style={{ ...modalTd, color: '#555' }}>—</td>
+                          <td style={{ ...modalTd, color: '#555' }}>—</td>
+                          <td style={{ ...modalTd, color: '#555' }}>—</td>
+                          <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>
+                            +{money(Number(div.amount))}
+                          </td>
+                          <td style={modalTd} />
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Error de edición */}
 
               {/* Resumen del trade */}
               {(() => {
@@ -784,7 +804,7 @@ export default function CerradosPage() {
                     {[
                       { label: 'Invertido',  value: money(d.totalInvested), color: '#aaa' },
                       { label: 'Recuperado', value: money(d.totalSells),    color: '#aaa' },
-                      { label: 'PnL',        value: money(d.pnlCash + (dividendsByTicker[viewingTrade.ticker] || 0)), color: (d.pnlCash + (dividendsByTicker[viewingTrade.ticker] || 0)) >= 0 ? '#22c55e' : '#f43f5e' },
+                      { label: 'PnL', value: (() => { const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date).reduce((a: number, d: any) => a + Number(d.amount), 0); const total = d.pnlCash + divTotal; return money(total) })(), color: (() => { const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date).reduce((a: number, d: any) => a + Number(d.amount), 0); return (d.pnlCash + divTotal) >= 0 ? '#22c55e' : '#f43f5e' })() },
                       { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
                       { label: 'Duración',   value: `${d.diffDays} días`,   color: '#aaa' },
                     ].map(item => (
