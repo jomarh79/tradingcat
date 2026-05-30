@@ -761,9 +761,6 @@ export default function CerradosPage() {
                           </tr>
                         )
                       })}
-                  </tbody>
-                </table>
-              </div>
 
               {/* Error de edición */}
               {editError && (
