@@ -709,17 +709,50 @@ export default function CerradosPage() {
                       )
                     })()}
 
-                    {/* ── FILAS DE EJECUCIONES ── */}
-                    {viewingTrade.trade_executions
-                      ?.slice()
-                      .sort((a: any, b: any) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime())
-                      .map((ex: any) => {
-                        const type    = ex.execution_type?.toLowerCase()
-                        const isBuy   = type === 'buy'
-                        const isClose = type === 'close'
-                        const comm    = Number(ex.commission || 0)
-                        const gross   = Number(ex.quantity) * Number(ex.price)
-                        const net     = isBuy ? -(gross + comm) : gross - comm
+                    {/* ── TODAS LAS FILAS ORDENADAS POR FECHA ── */}
+                    {[
+                      // Ejecuciones normalizadas
+                      ...(viewingTrade.trade_executions || []).map((ex: any) => ({
+                        _type: 'exec',
+                        _date: new Date((ex.executed_at || '').split('T')[0] + 'T00:00:00').getTime(),
+                        ex,
+                      })),
+                      // Dividendos normalizados
+                      ...getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
+                        .map((div: any, idx: number) => ({
+                          _type: 'div',
+                          _date: new Date(div.date + 'T00:00:00').getTime(),
+                          div,
+                          idx,
+                        })),
+                    ]
+                      .sort((a, b) => a._date - b._date)
+                      .map(row => {
+                        if (row._type === 'div') {
+                          const { div, idx } = row
+                          return (
+                            <tr key={`div-${idx}`} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
+                              <td style={modalTd}>
+                                {parseDate(div.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </td>
+                              <td style={{ ...modalTd, color: '#eab308', fontWeight: 700 }}>Dividendo</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>+{money(Number(div.amount))}</td>
+                              <td style={modalTd} />
+                            </tr>
+                          )
+                        }
+
+                        // Ejecución normal
+                        const { ex } = row
+                        const type      = ex.execution_type?.toLowerCase()
+                        const isBuy     = type === 'buy'
+                        const isClose   = type === 'close'
+                        const comm      = Number(ex.commission || 0)
+                        const gross     = Number(ex.quantity) * Number(ex.price)
+                        const net       = isBuy ? -(gross + comm) : gross - comm
                         const typeLabel = isBuy ? 'Recompra' : isClose ? 'Cierre' : 'Venta parcial'
                         const typeColor = isBuy ? '#22c55e' : isClose ? '#00bfff' : '#f43f5e'
                         const isEditing = editingRow?.executionId === ex.id
@@ -761,32 +794,6 @@ export default function CerradosPage() {
                           </tr>
                         )
                       })}
-
-              {/* Error de edición */}
-              {editError && (
-                <div style={{ marginTop: 10, background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.3)', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#f43f5e', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <AlertTriangle size={12} /> {editError}
-                </div>
-              )}
-
-              {/* ── FILAS DE DIVIDENDOS ── */}
-                    {getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
-                      .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                      .map((div: any, idx: number) => (
-                        <tr key={`div-${idx}`} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
-                          <td style={modalTd}>
-                            {parseDate(div.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </td>
-                          <td style={{ ...modalTd, color: '#eab308', fontWeight: 700 }}>Dividendo</td>
-                          <td style={{ ...modalTd, color: '#555' }}>—</td>
-                          <td style={{ ...modalTd, color: '#555' }}>—</td>
-                          <td style={{ ...modalTd, color: '#555' }}>—</td>
-                          <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>
-                            +{money(Number(div.amount))}
-                          </td>
-                          <td style={modalTd} />
-                        </tr>
-                      ))}
                   </tbody>
                 </table>
               </div>
