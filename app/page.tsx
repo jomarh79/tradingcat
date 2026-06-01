@@ -466,7 +466,7 @@ return (
               ...card,
               position: 'relative',
               overflow: 'hidden',
-              gridColumn: '2'
+              gridColumn: '1'
             }}>
             {/* Gato decorativo dentro de la tarjeta */}
             <div style={{ position: 'absolute', bottom: 0, right: -8, pointerEvents: 'none' }}>
