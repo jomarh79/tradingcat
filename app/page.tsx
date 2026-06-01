@@ -237,14 +237,35 @@ export default function HomePage() {
       return a + (cur - avg) * Number(t.quantity || 0)
     }, 0)
 
+    const closedThisMonth = closed.filter(t => {
+      const d = parseDate(t.close_date || t.open_date)
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    })
+    const pnlMonth     = parseFloat(closedThisMonth.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+    const winsMonth    = closedThisMonth.filter(t => Number(t.realized_pnl) > 0).length
+    const winRateMonth = closedThisMonth.length ? parseFloat((winsMonth / closedThisMonth.length * 100).toFixed(1)) : 0
+
+    // Mes anterior para comparar
+    const prevMonth = closed.filter(t => {
+      const d = parseDate(t.close_date || t.open_date)
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear()
+    })
+    const pnlPrevMonth = parseFloat(prevMonth.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+
     return {
       capital: parseFloat((deposited + invested).toFixed(2)),
       pnl, wins, winRate, avgPnl,
-      openCount:    open.length,
-      closedCount:  closed.length,
-      invested:     parseFloat(invested.toFixed(2)),
-      openPnl:      parseFloat(openPnl.toFixed(2)),
+      openCount:      open.length,
+      closedCount:    closed.length,
+      invested:       parseFloat(invested.toFixed(2)),
+      openPnl:        parseFloat(openPnl.toFixed(2)),
       dividendsMonth: parseFloat(dividendsMonth.toFixed(2)),
+      pnlMonth,
+      winsMonth,
+      winRateMonth,
+      closedMonthCount: closedThisMonth.length,
+      pnlPrevMonth,
     }
   }, [allTrades, movements])
 
@@ -275,6 +296,30 @@ export default function HomePage() {
       }
     })
   }, [allTrades, portfolios])
+
+const sectorDistribution = useMemo(() => {
+    const open = allTrades.filter(t => t.status === 'open')
+    const totalInv = open.reduce((a, t) => a + Number(t.total_invested || 0), 0)
+    const map: Record<string, number> = {}
+    open.forEach(t => {
+      const s = t.sector || 'Sin sector'
+      map[s] = (map[s] || 0) + Number(t.total_invested || 0)
+    })
+    return Object.entries(map)
+      .map(([sector, amount]) => ({
+        sector,
+        amount: parseFloat(amount.toFixed(2)),
+        pct: totalInv > 0 ? parseFloat((amount / totalInv * 100).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+  }, [allTrades])
+
+const lastClosedTrades = useMemo(() =>
+    allTrades
+      .filter(t => t.status === 'closed' && t.close_date)
+      .sort((a, b) => parseDate(b.close_date).getTime() - parseDate(a.close_date).getTime())
+      .slice(0, 5)
+  , [allTrades])
 
   // ── Curva de equity global con filtro de período ──────────────────────────
   const equityCurveAll = useMemo(() => {
@@ -390,7 +435,6 @@ export default function HomePage() {
       return point
     })
   }, [compChartAll, period, portfolios, sp500Data])
-
 
 
   // ── Watchlist en zona ─────────────────────────────────────────────────────
@@ -562,8 +606,10 @@ return (
                     })
                     const top5    = [...open].sort((a, b) => b.pnlCash - a.pnlCash).slice(0, 5)
                     const bottom5 = [...open].sort((a, b) => a.pnlCash - b.pnlCash).slice(0, 5)
-                    const shown   = [...top5, ...bottom5.filter(b => !top5.find(t => t.id === b.id))]
-                    return shown.map(t => {
+                    const uniqueBottom = bottom5.filter(b => !top5.find(t => t.id === b.id))
+                    const shown = [...top5, ...uniqueBottom]
+                    return shown.map((t, idx) => {
+                      const isFirstLoss = idx === top5.length && uniqueBottom.length > 0
                     const qty     = Number(t.quantity || 0)
                     const cur     = Number(t.last_price || t.entry_price || 0)
                     const day     = Number(t.day_change || 0)
@@ -574,25 +620,36 @@ return (
                     }, 0)
                     const weight  = totalCurVal > 0 ? (cur * qty / totalCurVal * 100) : 0
                     return (
+                    <>
+                      {isFirstLoss && (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 8,
+                              color: '#333',
+                              background: '#050505',
+                              letterSpacing: 0.5
+                            }}
+                          >
+                            ── MAYORES PÉRDIDAS ──
+                          </td>
+                        </tr>
+                      )}
+
                       <tr key={t.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
                         <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 700, color: '#00bfff' }}>
                           {t.ticker}
-                          <div style={{ fontSize: 8, color: '#333' }}>{portfolios.find(p => p.id === t.portfolio_id)?.name}</div>
+                          <div style={{ fontSize: 8, color: '#333' }}>
+                            {portfolios.find(p => p.id === t.portfolio_id)?.name}
+                          </div>
                         </td>
-                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: day >= 0 ? '#22c55e' : '#f43f5e' }}>
-                          {day >= 0 ? '+' : ''}{day.toFixed(2)}%
-                        </td>
-                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', fontWeight: 700, color: pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                          {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
-                        </td>
-                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: pnlCash >= 0 ? '#22c55e' : '#f43f5e' }}>
-                          {money(pnlCash)}
-                        </td>
-                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: '#666' }}>
-                          {weight.toFixed(1)}%
-                        </td>
+
+                        ...
                       </tr>
-                    )
+                    </>
+                  )
                   })
                   })()}
                 </tbody>
@@ -660,6 +717,135 @@ return (
           </div>
         </div>
 
+        {/* ═══ FILA 3 — RESUMEN MES + ÚLTIMOS CERRADOS + SECTORES ══════════ */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+
+          {/* ── Resumen del mes ── */}
+          <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
+              <CatFull size={60} color="#a78bfa" opacity={0.04} />
+            </div>
+            <div style={{ ...cardHeader, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Paw size={11} color="#a78bfa" opacity={0.6} />
+                <span style={cardLabel}>RESUMEN DEL MES</span>
+              </div>
+              <span style={{ fontSize: 9, color: '#444' }}>
+                {new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              {[
+                { label: 'PnL del mes',    value: money(stats.pnlMonth),        color: stats.pnlMonth >= 0 ? '#22c55e' : '#f43f5e' },
+                { label: 'Trades cerrados', value: stats.closedMonthCount,       color: '#fff' },
+                { label: 'Win rate mes',   value: `${stats.winRateMonth}%`,      color: stats.winRateMonth >= 50 ? '#22c55e' : '#f43f5e' },
+                { label: 'Dividendos',     value: money(stats.dividendsMonth),   color: '#eab308' },
+              ].map(k => (
+                <div key={k.label} style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
+                  <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>{k.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: k.color }}>{k.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* vs mes anterior */}
+            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
+              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>VS MES ANTERIOR</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#666' }}>Mes anterior: {money(stats.pnlPrevMonth)}</span>
+                {stats.pnlPrevMonth !== 0 && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    color: stats.pnlMonth >= stats.pnlPrevMonth ? '#22c55e' : '#f43f5e',
+                  }}>
+                    {stats.pnlMonth >= stats.pnlPrevMonth ? '▲' : '▼'}{' '}
+                    {Math.abs(((stats.pnlMonth - stats.pnlPrevMonth) / Math.abs(stats.pnlPrevMonth || 1)) * 100).toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Últimos 5 trades cerrados ── */}
+          <div style={{ ...card, overflow: 'hidden' }}>
+            <div style={{ ...cardHeader, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Paw size={11} color="#00bfff" opacity={0.6} />
+                <span style={cardLabel}>ÚLTIMOS CIERRES</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {lastClosedTrades.length === 0 && (
+                <span style={{ fontSize: 11, color: '#333' }}>Sin trades cerrados aún.</span>
+              )}
+              {lastClosedTrades.map(t => {
+                const pnl   = Number(t.realized_pnl || 0)
+                const inv   = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+                const pct   = inv > 0 ? (pnl / inv * 100) : 0
+                return (
+                  <div key={t.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: '#050505', borderRadius: 8, padding: '8px 12px',
+                    border: `1px solid ${pnl >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)'}`,
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</div>
+                      <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>
+                        {parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        {t.close_reason ? ` · ${t.close_reason}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: pnl >= 0 ? '#22c55e' : '#f43f5e' }}>
+                        {pnl >= 0 ? '+' : ''}{money(pnl)}
+                      </div>
+                      <div style={{ fontSize: 9, color: pnl >= 0 ? '#22c55e' : '#f43f5e', opacity: 0.7 }}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Distribución por sector ── */}
+          <div style={{ ...card, overflow: 'hidden' }}>
+            <div style={{ ...cardHeader, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Paw size={11} color="#fb923c" opacity={0.6} />
+                <span style={cardLabel}>CARTERA POR SECTOR</span>
+              </div>
+              <span style={{ fontSize: 9, color: '#444' }}>{sectorDistribution.length} sectores</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {sectorDistribution.map((s, i) => {
+                const colors = ['#00bfff','#a78bfa','#34d399','#fb923c','#f472b6','#eab308','#22c55e','#f43f5e']
+                const color  = colors[i % colors.length]
+                return (
+                  <div key={s.sector}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, color: '#aaa' }}>{s.sector}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color }}>
+                        {s.pct}% · {money(s.amount)}
+                      </span>
+                    </div>
+                    <div style={{ height: 4, background: '#111', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${s.pct}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.6s ease' }} />
+                    </div>
+                  </div>
+                )
+              })}
+              {sectorDistribution.length === 0 && (
+                <span style={{ fontSize: 11, color: '#333' }}>Sin posiciones abiertas.</span>
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        
         {/* ═══ FILA 3 — WATCHLIST EN ZONA ══════════════════════════════════ */}
         <div style={{ ...card, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
           {/* Decoración interna */}
@@ -781,12 +967,4 @@ const cardLabel: React.CSSProperties = {
 const kpiGroup: React.CSSProperties = {
   background: '#080808', border: '1px solid #1a1a1a', borderRadius: 14,
   padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 6,
-}
-const kpiGroupHeader: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 5, fontSize: 9,
-  fontWeight: 700, letterSpacing: 0.8, paddingBottom: 8,
-  borderBottom: '1px solid #111',
-}
-const kpiRow: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 }
