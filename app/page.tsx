@@ -567,6 +567,8 @@ return (
                     const qty     = Number(t.quantity || 0)
                     const cur     = Number(t.last_price || t.entry_price || 0)
                     const day     = Number(t.day_change || 0)
+                    const pnlPct = Number(t.pnlPct || 0)
+                    const pnlCash = Number(t.pnlCash || 0)
                     const totalCurVal = allTrades.filter(x => x.status === 'open').reduce((a, x) => {
                       const q = Number(x.quantity || 0); const p = Number(x.last_price || x.entry_price || 0); return a + q * p
                     }, 0)
