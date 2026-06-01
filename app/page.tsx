@@ -454,62 +454,13 @@ return (
         {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
         <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '280px 1fr 180px 180px 180px 180px',
+            gridTemplateColumns: '1fr 180px 180px 180px 180px',
             gap: 12,
             marginBottom: 16, 
             position: 'relative', 
             zIndex: 1 
           }}>
 
-          {/* ── Tarjeta TRADERCAT ── */}
-          <div style={{
-            background: 'linear-gradient(135deg, #060810 0%, #0a1428 50%, #080810 100%)',
-            border: '1px solid #1a2a4a', borderRadius: 20, padding: '16px 20px',
-            position: 'relative', overflow: 'hidden',
-            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          }}>
-            {/* Gato decorativo de fondo */}
-            <div style={{ position: 'absolute', bottom: -12, right: -12, pointerEvents: 'none' }}>
-              <CatFull size={110} color="#00bfff" opacity={0.06} />
-            </div>
-            <div style={{ position: 'absolute', top: 10, right: 14, pointerEvents: 'none' }}>
-              <Whiskers color="#00bfff" opacity={0.1} width={90} />
-            </div>
-
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <Paw size={18} color="#00bfff" opacity={0.9} />
-              <Paw size={13} color="#00bfff" opacity={0.5} />
-              <Paw size={9}  color="#00bfff" opacity={0.25} />
-              <span style={{ fontSize: 9, color: '#1a4a7a', fontWeight: 900, letterSpacing: 2, marginLeft: 4 }}>
-                TRADERCAT TERMINAL
-              </span>
-            </div>
-
-            {/* Capital */}
-            <div>
-              <div style={{ fontSize: 10, color: '#1a3a5a', marginBottom: 4, fontWeight: 700, letterSpacing: 1 }}>
-                CAPITAL TOTAL
-              </div>
-              <div style={{ fontSize: 26, fontWeight: 900, color: '#00bfff', letterSpacing: -1, lineHeight: 1, marginBottom: 10 }}>
-                {money(stats.capital)}
-              </div>
-
-              {/* KPIs mini */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {[
-                  { label: 'PNL',      value: money(stats.pnl),        color: pnlColor },
-                  { label: 'WIN RATE', value: `${stats.winRate}%`,      color: stats.winRate >= 50 ? '#22c55e' : '#f43f5e' },
-                  { label: 'ABIERTOS', value: stats.openCount,          color: '#fff' },
-                ].map(k => (
-                  <div key={k.label} style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '8px 10px' }}>
-                    <div style={{ fontSize: 8, color: '#2a4a6a', marginBottom: 3, fontWeight: 700 }}>{k.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: k.color }}>{k.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
 {/* Curva de equity CON filtro de período */}
           <div style={{
               ...card,
@@ -599,13 +550,22 @@ return (
                   </tr>
                 </thead>
                 <tbody>
-                  {allTrades.filter(t => t.status === 'open').map(t => {
+                  {(() => {
+                    const open = allTrades.filter(t => t.status === 'open').map(t => {
+                      const qty     = Number(t.quantity || 0)
+                      const inv     = Number(t.total_invested || 0)
+                      const cur     = Number(t.last_price || t.entry_price || 0)
+                      const avg     = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+                      const pnlPct  = avg > 0 ? ((cur - avg) / avg * 100) : 0
+                      const pnlCash = (cur - avg) * qty
+                      return { ...t, pnlPct, pnlCash }
+                    })
+                    const top5    = [...open].sort((a, b) => b.pnlCash - a.pnlCash).slice(0, 5)
+                    const bottom5 = [...open].sort((a, b) => a.pnlCash - b.pnlCash).slice(0, 5)
+                    const shown   = [...top5, ...bottom5.filter(b => !top5.find(t => t.id === b.id))]
+                    return shown.map(t => {
                     const qty     = Number(t.quantity || 0)
-                    const inv     = Number(t.total_invested || 0)
                     const cur     = Number(t.last_price || t.entry_price || 0)
-                    const avg     = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-                    const pnlPct  = avg > 0 ? ((cur - avg) / avg * 100) : 0
-                    const pnlCash = (cur - avg) * qty
                     const day     = Number(t.day_change || 0)
                     const totalCurVal = allTrades.filter(x => x.status === 'open').reduce((a, x) => {
                       const q = Number(x.quantity || 0); const p = Number(x.last_price || x.entry_price || 0); return a + q * p
@@ -631,7 +591,8 @@ return (
                         </td>
                       </tr>
                     )
-                  })}
+                  })
+                  })()}
                 </tbody>
               </table>
             </div>
