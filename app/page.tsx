@@ -148,7 +148,7 @@ export default function HomePage() {
     const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
       supabase.from('trades').select('*'),
       supabase.from('portfolios').select('*'),
-      supabase.from('wallet_movements').select('amount, date, wallet_id'),
+      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend'),
       supabase.from('watchlist').select('*'),
     ])
     if (t) setAllTrades(t)
@@ -224,11 +224,27 @@ export default function HomePage() {
     const winRate   = closed.length ? parseFloat((wins / closed.length * 100).toFixed(1)) : 0
     const avgPnl    = closed.length ? parseFloat((pnl / closed.length).toFixed(2)) : 0
 
+    const now = new Date()
+    const dividendsMonth = movements.filter(m => {
+      const d = parseDate(m.date)
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+        && (m as any).is_dividend
+    }).reduce((a, m) => a + Number(m.amount), 0)
+
+    const openPnl = open.reduce((a, t) => {
+      const cur  = Number(t.last_price || t.entry_price || 0)
+      const avg  = t.total_invested > 0 && t.quantity > 0 ? t.total_invested / t.quantity : Number(t.entry_price || 0)
+      return a + (cur - avg) * Number(t.quantity || 0)
+    }, 0)
+
     return {
       capital: parseFloat((deposited + invested).toFixed(2)),
       pnl, wins, winRate, avgPnl,
-      openCount:   open.length,
-      closedCount: closed.length,
+      openCount:    open.length,
+      closedCount:  closed.length,
+      invested:     parseFloat(invested.toFixed(2)),
+      openPnl:      parseFloat(openPnl.toFixed(2)),
+      dividendsMonth: parseFloat(dividendsMonth.toFixed(2)),
     }
   }, [allTrades, movements])
 
@@ -541,137 +557,85 @@ return (
             )}
           </div>
           {/* ── KPIs por portafolio — 4 secciones ── */}
-          <div style={{
-              display: 'contents',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10
-            }}>
-
-            {/* CERRADOS por portafolio */}
-            <div style={{ ...kpiGroup, borderColor: '#1a1a2a' }}>
-              <div style={kpiGroupHeader}>
-                <BarChart2 size={12} color="#a78bfa" />
-                <span style={{ color: '#a78bfa' }}>CERRADOS</span>
-                <span style={{ marginLeft: 'auto', color: '#555' }}>{stats.closedCount} total</span>
+          {[
+            { label: 'INVERTIDO',     value: money(stats.invested),       color: '#fff',     sub: `${stats.openCount} posiciones` },
+            { label: 'PnL ABIERTOS',  value: money(stats.openPnl),        color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e', sub: stats.openPnl >= 0 ? 'en positivo' : 'en negativo' },
+            { label: 'PnL CERRADOS',  value: money(stats.pnl),            color: stats.pnl >= 0 ? '#22c55e' : '#f43f5e',    sub: `${stats.closedCount} trades` },
+            { label: 'DIVIDENDOS MES',value: money(stats.dividendsMonth), color: '#eab308',  sub: 'este mes' },
+          ].map(k => (
+            <div key={k.label} style={{ ...kpiGroup, borderColor: '#1a1a1a', justifyContent: 'center' }}>
+              <div style={{ fontSize: 9, color: '#555', fontWeight: 700, letterSpacing: 0.8, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Paw size={8} color={k.color} opacity={0.6} />
+                {k.label}
               </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {portfolioStats.map(ps => (
-                  <div key={ps.id} style={kpiRow}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Paw size={8} color={ps.color} opacity={0.7} />
-                      <span style={{ fontSize: 10, color: '#888', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ps.name}</span>
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: ps.color }}>{ps.closedCount}</span>
-                  </div>
-                ))}
-                {portfolioStats.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin datos</span>}
-              </div>
-              <div style={{ borderTop: '1px solid #111', paddingTop: 6, fontSize: 9, color: '#555' }}>
-                ~{money(stats.avgPnl)} / trade
-              </div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: k.color, marginBottom: 4 }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: '#444' }}>{k.sub}</div>
             </div>
-
-            {/* GANANCIAS por portafolio */}
-            <div style={{ ...kpiGroup, borderColor: 'rgba(34,197,94,0.15)' }}>
-              <div style={kpiGroupHeader}>
-                <TrendingUp size={12} color="#22c55e" />
-                <span style={{ color: '#22c55e' }}>GANANCIAS</span>
-                <span style={{ marginLeft: 'auto', color: '#555' }}>{stats.wins} total</span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {portfolioStats.map(ps => {
-                  const wr = ps.closedCount > 0 ? Math.round(ps.wins / ps.closedCount * 100) : 0
-                  return (
-                    <div key={ps.id} style={kpiRow}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Paw size={8} color={ps.color} opacity={0.7} />
-                        <span style={{ fontSize: 10, color: '#888', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ps.name}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: '#22c55e' }}>{ps.wins}</span>
-                        <span style={{ fontSize: 9, color: wr >= 50 ? '#22c55e' : '#f43f5e' }}>{wr}%</span>
-                      </div>
-                    </div>
-                  )
-                })}
-                {portfolioStats.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin datos</span>}
-              </div>
-              <div style={{ borderTop: '1px solid #111', paddingTop: 6, fontSize: 9, color: '#555' }}>
-                de {stats.closedCount} trades totales
-              </div>
-            </div>
-
-            {/* MEJOR TRADE del mes por portafolio */}
-            <div style={{ ...kpiGroup, borderColor: 'rgba(234,179,8,0.15)' }}>
-              <div style={kpiGroupHeader}>
-                <Zap size={12} color="#eab308" />
-                <span style={{ color: '#eab308' }}>MEJOR MES</span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {portfolioStats.map(ps => (
-                  <div key={ps.id} style={kpiRow}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Paw size={8} color={ps.color} opacity={0.7} />
-                      <span style={{ fontSize: 10, color: '#888', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ps.name}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: '#eab308' }}>
-                        {ps.bestTrade?.ticker || '—'}
-                      </div>
-                      {ps.bestTrade && (
-                        <div style={{ fontSize: 9, color: '#22c55e' }}>
-                          {money(Number(ps.bestTrade.realized_pnl))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {portfolioStats.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin datos</span>}
-              </div>
-              <div style={{ borderTop: '1px solid #111', paddingTop: 6, fontSize: 9, color: '#555' }}>
-                mejores cierres este mes
-              </div>
-            </div>
-
-            {/* PEOR TRADE del mes por portafolio */}
-            <div style={{ ...kpiGroup, borderColor: 'rgba(244,63,94,0.15)' }}>
-              <div style={kpiGroupHeader}>
-                <TrendingDown size={12} color="#f43f5e" />
-                <span style={{ color: '#f43f5e' }}>PEOR MES</span>
-              </div>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {portfolioStats.map(ps => (
-                  <div key={ps.id} style={kpiRow}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Paw size={8} color={ps.color} opacity={0.7} />
-                      <span style={{ fontSize: 10, color: '#888', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ps.name}</span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: '#f43f5e' }}>
-                        {ps.worstTrade?.ticker || '—'}
-                      </div>
-                      {ps.worstTrade && (
-                        <div style={{ fontSize: 9, color: '#f43f5e' }}>
-                          {money(Number(ps.worstTrade.realized_pnl))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {portfolioStats.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin datos</span>}
-              </div>
-              <div style={{ borderTop: '1px solid #111', paddingTop: 6, fontSize: 9, color: '#555' }}>
-                peores cierres este mes
-              </div>
-            </div>
-
-          </div>
+          ))}
         </div>
 
-        {/* ═══ FILA 2 — EQUITY (con período) + COMPARATIVO ════════════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+        {/* ═══ FILA 2 — POSICIONES ABIERTAS + EQUITY ══════════════════════ */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
-          
+          {/* ── Posiciones abiertas ── */}
+          <div style={{ ...card, overflow: 'hidden' }}>
+            <div style={{ ...cardHeader, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <Paw size={11} color="#22c55e" opacity={0.6} />
+                <span style={cardLabel}>POSICIONES ABIERTAS</span>
+                <span style={{ fontSize: 10, color: '#555', marginLeft: 4 }}>({stats.openCount})</span>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e' }}>
+                {stats.openPnl >= 0 ? '+' : ''}{money(stats.openPnl)}
+              </span>
+            </div>
+            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#050505' }}>
+                    {['Ticker', 'Var día', 'PnL %', 'PnL $', '% Cart.'].map(h => (
+                      <th key={h} style={{ padding: '6px 8px', fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, textAlign: h === 'Ticker' ? 'left' : 'right', borderBottom: '1px solid #111' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allTrades.filter(t => t.status === 'open').map(t => {
+                    const qty     = Number(t.quantity || 0)
+                    const inv     = Number(t.total_invested || 0)
+                    const cur     = Number(t.last_price || t.entry_price || 0)
+                    const avg     = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+                    const pnlPct  = avg > 0 ? ((cur - avg) / avg * 100) : 0
+                    const pnlCash = (cur - avg) * qty
+                    const day     = Number(t.day_change || 0)
+                    const totalCurVal = allTrades.filter(x => x.status === 'open').reduce((a, x) => {
+                      const q = Number(x.quantity || 0); const p = Number(x.last_price || x.entry_price || 0); return a + q * p
+                    }, 0)
+                    const weight  = totalCurVal > 0 ? (cur * qty / totalCurVal * 100) : 0
+                    return (
+                      <tr key={t.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                        <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 700, color: '#00bfff' }}>
+                          {t.ticker}
+                          <div style={{ fontSize: 8, color: '#333' }}>{portfolios.find(p => p.id === t.portfolio_id)?.name}</div>
+                        </td>
+                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: day >= 0 ? '#22c55e' : '#f43f5e' }}>
+                          {day >= 0 ? '+' : ''}{day.toFixed(2)}%
+                        </td>
+                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', fontWeight: 700, color: pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                          {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                        </td>
+                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: pnlCash >= 0 ? '#22c55e' : '#f43f5e' }}>
+                          {money(pnlCash)}
+                        </td>
+                        <td style={{ padding: '6px 8px', fontSize: 11, textAlign: 'right', color: '#666' }}>
+                          {weight.toFixed(1)}%
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* Comparativo vs SP500 */}
           <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
