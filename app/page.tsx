@@ -496,8 +496,9 @@ const lastClosedTrades = useMemo(() =>
     </AppShell>
   )
 
- const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
+const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
 const lastEquityPt = equityCurve[equityCurve.length - 1]
+const currentYear = new Date().getFullYear()
 
 return (
     <AppShell>
@@ -791,7 +792,7 @@ return (
                 <Paw size={11} color="#22c55e" opacity={0.6} />
                 <span style={cardLabel}>RESUMEN DEL AÑO</span>
               </div>
-              <span style={{ fontSize: 9, color: '#444' }}>{now.getFullYear()}</span>
+              <span style={{ fontSize: 9, color: '#444' }}>{currentYear}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               {[
