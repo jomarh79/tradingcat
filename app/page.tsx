@@ -143,18 +143,36 @@ export default function HomePage() {
   const [period,     setPeriod]     = useState<Period>('YTD')
   const [equityPeriod, setEquityPeriod] = useState<Period>('YTD')
   const [sp500Data, setSp500Data] = useState<any[]>([])
+  const [dividends, setDividends] = useState<any[]>([])
 
   const fetchData = useCallback(async () => {
     const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
       supabase.from('trades').select('*'),
       supabase.from('portfolios').select('*'),
-      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend, movement_type'),
+      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend, movement_type').order('date', { ascending: false }).limit(5000),
       supabase.from('watchlist').select('*'),
     ])
     if (t) setAllTrades(t)
     if (p) setPortfolios(p)
     if (m) setMovements(m)
     if (w) setWatchlist(w)
+
+    // Traer TODOS los dividendos sin límite de paginación
+    let allDivs: any[] = []
+    let from = 0
+    while (true) {
+      const { data: chunk } = await supabase
+        .from('wallet_movements')
+        .select('amount, date, wallet_id, is_dividend, movement_type')
+        .or('is_dividend.eq.true,movement_type.eq.dividend')
+        .range(from, from + 999)
+      if (!chunk?.length) break
+      allDivs = [...allDivs, ...chunk]
+      if (chunk.length < 1000) break
+      from += 1000
+    }
+    setDividends(allDivs)
+
     setLoading(false)
   }, [])
 
@@ -225,27 +243,17 @@ export default function HomePage() {
     const avgPnl    = closed.length ? parseFloat((pnl / closed.length).toFixed(2)) : 0
 
     const now = new Date()
-    const isDividend = (m: any) =>
-      m.is_dividend === true ||
-      m.is_dividend === 'true' ||
-      m.movement_type === 'dividend'
-
-    const dividendsMonth = movements.filter(m => {
-      if (!m.date || !isDividend(m)) return false
+    const dividendsMonth = dividends.filter(m => {
+      if (!m.date) return false
       const d = parseDate(String(m.date))
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).reduce((a, m) => a + Number(m.amount), 0)
 
-    const dividendsYear = movements.filter(m => {
-      if (!m.date || !isDividend(m)) return false
+    const dividendsYear = dividends.filter(m => {
+      if (!m.date) return false
       const d = parseDate(String(m.date))
       return d.getFullYear() === now.getFullYear()
     }).reduce((a, m) => a + Number(m.amount), 0)
-
-    // Debug temporal — quitar después de confirmar
-    console.log('💰 Todos los movimientos:', movements.length)
-    console.log('💰 Dividendos encontrados:', movements.filter(isDividend).map(m => ({ date: m.date, amount: m.amount, is_dividend: m.is_dividend, movement_type: m.movement_type })))
-    console.log('💰 Dividendos mes:', dividendsMonth, '| año:', dividendsYear)
 
     const openPnl = open.reduce((a, t) => {
       const cur  = Number(t.last_price || t.entry_price || 0)
@@ -302,7 +310,7 @@ export default function HomePage() {
       winRateYear,
       closedYearCount: closedThisYear.length,
     }
-  }, [allTrades, movements])
+  }, [allTrades, movements, dividends])
 
   // ── Stats por portafolio ─────────────────────────────────────────────────
   const portfolioStats = useMemo(() => {
