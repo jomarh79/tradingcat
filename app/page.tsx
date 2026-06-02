@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from './AppShell'
-import { TrendingUp, TrendingDown, Zap, Target, BarChart2 } from 'lucide-react'
+import { Target } from 'lucide-react'
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -148,7 +148,7 @@ export default function HomePage() {
     const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
       supabase.from('trades').select('*'),
       supabase.from('portfolios').select('*'),
-      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend'),
+      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend, movement_type'),
       supabase.from('watchlist').select('*'),
     ])
     if (t) setAllTrades(t)
@@ -266,6 +266,11 @@ export default function HomePage() {
       return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear()
     })
     const pnlPrevMonth = parseFloat(prevMonth.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+    const closedPrevYear = closed.filter(t => {
+      const d = parseDate(t.close_date || t.open_date)
+      return d.getFullYear() === now.getFullYear() - 1
+    })
+    const pnlPrevYear = parseFloat(closedPrevYear.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
 
     return {
       capital: parseFloat((deposited + invested).toFixed(2)),
@@ -282,6 +287,7 @@ export default function HomePage() {
       closedMonthCount: closedThisMonth.length,
       pnlPrevMonth,
       pnlYear,
+      pnlPrevYear,
       winsYear,
       winRateYear,
       closedYearCount: closedThisYear.length,
@@ -524,12 +530,98 @@ return (
         {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
         <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 180px 180px 180px 180px',
+            gridTemplateColumns: '1fr 1fr 160px 160px 160px 160px',
             gap: 12,
             marginBottom: 16, 
             position: 'relative', 
             zIndex: 1 
           }}>
+
+{/* ── Top 5 ganancias ── */}
+          {(() => {
+            const open = allTrades.filter(t => t.status === 'open').map(t => {
+              const qty = Number(t.quantity || 0)
+              const inv = Number(t.total_invested || 0)
+              const cur = Number(t.last_price || t.entry_price || 0)
+              const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+              const pnlPct = avg > 0 ? ((cur - avg) / avg * 100) : 0
+              return { ...t, pnlPct }
+            })
+            const top5 = [...open].sort((a, b) => b.pnlPct - a.pnlPct).slice(0, 5)
+            return (
+              <div style={{ ...card, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <Paw size={10} color="#22c55e" opacity={0.7} />
+                  <span style={cardLabel}>TOP GANANCIAS</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {top5.map(t => (
+                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#22c55e' }}>
+                        +{t.pnlPct.toFixed(2)}%
+                      </span>
+                    </div>
+                  ))}
+                  {top5.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin posiciones</span>}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* ── Top 5 pérdidas ── */}
+          {(() => {
+            const open = allTrades.filter(t => t.status === 'open').map(t => {
+              const qty = Number(t.quantity || 0)
+              const inv = Number(t.total_invested || 0)
+              const cur = Number(t.last_price || t.entry_price || 0)
+              const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+              const pnlPct = avg > 0 ? ((cur - avg) / avg * 100) : 0
+              return { ...t, pnlPct }
+            })
+            const bottom5 = [...open].sort((a, b) => a.pnlPct - b.pnlPct).slice(0, 5)
+            return (
+              <div style={{ ...card, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <Paw size={10} color="#f43f5e" opacity={0.7} />
+                  <span style={cardLabel}>TOP PÉRDIDAS</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {bottom5.map(t => (
+                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#f43f5e' }}>
+                        {t.pnlPct.toFixed(2)}%
+                      </span>
+                    </div>
+                  ))}
+                  {bottom5.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin posiciones</span>}
+                </div>
+              </div>
+            )
+          })()}
+
+
+          {/* ── KPIs por portafolio — 4 secciones ── */}
+          {[
+            { label: 'INVERTIDO',     value: money(stats.invested),       color: '#fff',     sub: `${stats.openCount} posiciones` },
+            { label: 'PnL ABIERTOS',  value: money(stats.openPnl),        color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e', sub: stats.openPnl >= 0 ? 'en positivo' : 'en negativo' },
+            { label: 'PnL CERRADOS',  value: money(stats.pnl),            color: stats.pnl >= 0 ? '#22c55e' : '#f43f5e',    sub: `${stats.closedCount} trades` },
+            { label: 'DIVIDENDOS',value: `${money(stats.dividendsMonth)} / ${money(stats.dividendsYear)}`, color: '#eab308', sub: 'mes / año' },
+          ].map(k => (
+            <div key={k.label} style={{ ...kpiGroup, borderColor: '#1a1a1a', justifyContent: 'center' }}>
+              <div style={{ fontSize: 9, color: '#555', fontWeight: 700, letterSpacing: 0.8, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Paw size={8} color={k.color} opacity={0.6} />
+                {k.label}
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: k.color, marginBottom: 4 }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: '#444' }}>{k.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ═══ FILA 2 — POSICIONES ABIERTAS + EQUITY ══════════════════════ */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
 {/* Curva de equity CON filtro de período */}
           <div style={{
@@ -576,100 +668,6 @@ return (
             ) : (
               <EmptyState msg="Cierra trades para ver la curva" height={210} />
             )}
-          </div>
-          {/* ── KPIs por portafolio — 4 secciones ── */}
-          {[
-            { label: 'INVERTIDO',     value: money(stats.invested),       color: '#fff',     sub: `${stats.openCount} posiciones` },
-            { label: 'PnL ABIERTOS',  value: money(stats.openPnl),        color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e', sub: stats.openPnl >= 0 ? 'en positivo' : 'en negativo' },
-            { label: 'PnL CERRADOS',  value: money(stats.pnl),            color: stats.pnl >= 0 ? '#22c55e' : '#f43f5e',    sub: `${stats.closedCount} trades` },
-            { label: 'DIVIDENDOS',value: `${money(stats.dividendsMonth)} / ${money(stats.dividendsYear)}`, color: '#eab308', sub: 'mes / año' },
-          ].map(k => (
-            <div key={k.label} style={{ ...kpiGroup, borderColor: '#1a1a1a', justifyContent: 'center' }}>
-              <div style={{ fontSize: 9, color: '#555', fontWeight: 700, letterSpacing: 0.8, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Paw size={8} color={k.color} opacity={0.6} />
-                {k.label}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: k.color, marginBottom: 4 }}>{k.value}</div>
-              <div style={{ fontSize: 9, color: '#444' }}>{k.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ═══ FILA 2 — POSICIONES ABIERTAS + EQUITY ══════════════════════ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
-
-          {/* ── Posiciones abiertas ── */}
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <div style={{ ...cardHeader, marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Paw size={11} color="#22c55e" opacity={0.6} />
-                <span style={cardLabel}>POSICIONES ABIERTAS</span>
-                <span style={{ fontSize: 10, color: '#555', marginLeft: 4 }}>({stats.openCount})</span>
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e' }}>
-                {stats.openPnl >= 0 ? '+' : ''}{money(stats.openPnl)}
-              </span>
-            </div>
-            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#050505' }}>
-                    {['Ticker', 'PnL %'].map(h => (
-                      <th key={h} style={{ padding: '6px 8px', fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, textAlign: h === 'Ticker' ? 'left' : 'right', borderBottom: '1px solid #111' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const open = allTrades.filter(t => t.status === 'open').map(t => {
-                      const qty     = Number(t.quantity || 0)
-                      const inv     = Number(t.total_invested || 0)
-                      const cur     = Number(t.last_price || t.entry_price || 0)
-                      const avg     = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-                      const pnlPct  = avg > 0 ? ((cur - avg) / avg * 100) : 0
-                      const pnlCash = (cur - avg) * qty
-                      return { ...t, pnlPct, pnlCash }
-                    })
-                    const top5    = [...open].sort((a, b) => b.pnlCash - a.pnlCash).slice(0, 5)
-                    const bottom5 = [...open].sort((a, b) => a.pnlCash - b.pnlCash).slice(0, 5)
-                    const uniqueBottom = bottom5.filter(b => !top5.find(t => t.id === b.id))
-                    const shown = [...top5, ...uniqueBottom]
-                    return shown.map((t, idx) => {
-                    const isFirstLoss = idx === top5.length && uniqueBottom.length > 0
-                    const qty     = Number(t.quantity || 0)
-                    const cur     = Number(t.last_price || t.entry_price || 0)
-                    const day     = Number(t.day_change || 0)
-                    const pnlPct = Number(t.pnlPct || 0)
-                    const pnlCash = Number(t.pnlCash || 0)
-                    const totalCurVal = allTrades.filter(x => x.status === 'open').reduce((a, x) => {
-                      const q = Number(x.quantity || 0); const p = Number(x.last_price || x.entry_price || 0); return a + q * p
-                    }, 0)
-                    const weight  = totalCurVal > 0 ? (cur * qty / totalCurVal * 100) : 0
-                    return (
-                        <>
-                          {isFirstLoss && (
-                            <tr>
-                              <td colSpan={2} style={{ padding: '4px 8px', fontSize: 8, color: '#333', background: '#050505', letterSpacing: 0.5 }}>
-                                ── MAYORES PÉRDIDAS ──
-                              </td>
-                            </tr>
-                          )}
-                          <tr key={t.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                            <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 700, color: '#00bfff' }}>
-                              {t.ticker}
-                              <div style={{ fontSize: 8, color: '#333' }}>{portfolios.find(p => p.id === t.portfolio_id)?.name}</div>
-                            </td>
-                            <td style={{ padding: '6px 8px', fontSize: 13, textAlign: 'right', fontWeight: 800, color: pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                              {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
-                            </td>
-                          </tr>
-                        </>
-                      )
-                  })
-                  })()}
-                </tbody>
-              </table>
-            </div>
           </div>
 
           {/* Comparativo vs SP500 */}
@@ -764,6 +762,19 @@ return (
               ))}
             </div>
 
+            {/* rendimiento real mes */}
+            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 10 }}>
+              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>RENDIMIENTO REAL</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#666' }}>
+                  {stats.closedMonthCount} trades · {stats.winsMonth} ganadores {stats.winRateMonth}%
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: stats.pnlMonth >= 0 ? '#22c55e' : '#f43f5e' }}>
+                  {stats.invested > 0 ? `${((stats.pnlMonth / stats.invested) * 100).toFixed(2)}%` : '—'}
+                </span>
+              </div>
+            </div>
+
             {/* vs mes anterior */}
             <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
               <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>VS MES ANTERIOR</div>
@@ -807,15 +818,33 @@ return (
                 </div>
               ))}
             </div>
-            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
+            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 10 }}>
               <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>RENDIMIENTO REAL</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: '#666' }}>
-                  {stats.closedYearCount} trades · {stats.winsYear} ganadores
+                  {stats.closedYearCount} trades · {stats.winsYear} ganadores {stats.winRateYear}%
                 </span>
                 <span style={{ fontSize: 13, fontWeight: 800, color: stats.pnlYear >= 0 ? '#22c55e' : '#f43f5e' }}>
                   {stats.invested > 0 ? `${((stats.pnlYear / stats.invested) * 100).toFixed(2)}%` : '—'}
                 </span>
+              </div>
+            </div>
+
+            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
+              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>VS AÑO ANTERIOR</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#666' }}>
+                  Año anterior: {money(stats.pnlPrevYear)}
+                </span>
+                {stats.pnlPrevYear !== 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: stats.pnlYear >= stats.pnlPrevYear ? '#22c55e' : '#f43f5e' }}>
+                    {stats.pnlYear >= stats.pnlPrevYear ? '▲' : '▼'}{' '}
+                    {Math.abs(((stats.pnlYear - stats.pnlPrevYear) / Math.abs(stats.pnlPrevYear)) * 100).toFixed(1)}%
+                  </span>
+                )}
+                {stats.pnlPrevYear === 0 && (
+                  <span style={{ fontSize: 11, color: '#444' }}>Sin datos</span>
+                )}
               </div>
             </div>
           </div>
@@ -1020,4 +1049,7 @@ const cardLabel: React.CSSProperties = {
 const kpiGroup: React.CSSProperties = {
   background: '#080808', border: '1px solid #1a1a1a', borderRadius: 14,
   padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 6,
+}
+const kpiRow: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 }
