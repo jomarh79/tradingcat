@@ -225,17 +225,27 @@ export default function HomePage() {
     const avgPnl    = closed.length ? parseFloat((pnl / closed.length).toFixed(2)) : 0
 
     const now = new Date()
-    const isDividend = (m: any) => m.is_dividend === true || m.movement_type === 'dividend'
+    const isDividend = (m: any) =>
+      m.is_dividend === true ||
+      m.is_dividend === 'true' ||
+      m.movement_type === 'dividend'
 
     const dividendsMonth = movements.filter(m => {
-      const d = parseDate(m.date)
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && isDividend(m)
+      if (!m.date || !isDividend(m)) return false
+      const d = parseDate(String(m.date))
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).reduce((a, m) => a + Number(m.amount), 0)
 
     const dividendsYear = movements.filter(m => {
-      const d = parseDate(m.date)
-      return d.getFullYear() === now.getFullYear() && isDividend(m)
+      if (!m.date || !isDividend(m)) return false
+      const d = parseDate(String(m.date))
+      return d.getFullYear() === now.getFullYear()
     }).reduce((a, m) => a + Number(m.amount), 0)
+
+    // Debug temporal — quitar después de confirmar
+    console.log('💰 Todos los movimientos:', movements.length)
+    console.log('💰 Dividendos encontrados:', movements.filter(isDividend).map(m => ({ date: m.date, amount: m.amount, is_dividend: m.is_dividend, movement_type: m.movement_type })))
+    console.log('💰 Dividendos mes:', dividendsMonth, '| año:', dividendsYear)
 
     const openPnl = open.reduce((a, t) => {
       const cur  = Number(t.last_price || t.entry_price || 0)
