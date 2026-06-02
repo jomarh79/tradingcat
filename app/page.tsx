@@ -880,9 +880,9 @@ return (
                 <span style={{ fontSize: 11, color: '#333' }}>Sin trades cerrados aún.</span>
               )}
               {lastClosedTrades.map(t => {
-                const pnl   = Number(t.realized_pnl || 0)
-                const inv   = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-                const pct   = inv > 0 ? (pnl / inv * 100) : 0
+                const pnl = Number(t.realized_pnl || 0)
+                const inv = Number(t.total_invested || 0)
+                const pct = inv > 0 ? (pnl / inv * 100) : 0
                 return (
                   <div key={t.id} style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
