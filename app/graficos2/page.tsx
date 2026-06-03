@@ -165,9 +165,6 @@ export default function Graficos2Page() {
     sorted.forEach((t, i) => {
       const pnl      = Number(t.realized_pnl) || 0
       const thisDate = parseDate(t.close_date)
-      const days     = i === 0 ? 1 : Math.max(1, Math.ceil(
-        (thisDate.getTime() - prevDate.getTime()) / 86400000
-      ))
       const tradeDays = Math.max(1, Math.ceil(
         Math.abs(parseDate(t.close_date).getTime() - parseDate(t.open_date).getTime()) / 86400000
       ))
