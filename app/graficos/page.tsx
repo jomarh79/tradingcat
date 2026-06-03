@@ -471,27 +471,6 @@ const tradesWithUnrealizedPnl = trades.map(t => {
               )}
             </ChartCard>
 
-            {/* ── TIEMPO EN POSICIÓN ── */}
-            <ChartCard title="Tiempo en posición por trade" sub="Días desde apertura — rojo = pérdida latente, verde = ganancia latente" mb={14}>
-              {charts.daysInPosition.length > 0 ? (
-                <ResponsiveContainer width="100%" height={Math.max(180, charts.daysInPosition.length * 28)}>
-                  <BarChart data={charts.daysInPosition} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
-                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
-                    <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={52} />
-                    <Tooltip content={<CustomTooltip formatter={(v: number, name: string) =>
-                      name === 'Días' ? `${v} días` : `${v}%`
-                    } />} />
-                    <Bar dataKey="days" name="Días" radius={[0, 6, 6, 0]}>
-                      {charts.daysInPosition.map((e, i) => (
-                        <Cell key={i} fill={e.pnlPct >= 0 ? C.success : C.danger} fillOpacity={0.75} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : <EmptyChart message="Sin trades abiertos" height={180} />}
-            </ChartCard>
-
             {/* ── MAPA DE CALOR SECTOR / MES ── */}
             <ChartCard title="Rendimiento por sector y mes" sub="PnL de trades cerrados — últimos 12 meses" mb={14}>
               {charts.heatmapData.length > 0 && charts.sectors.length > 0 ? (
@@ -602,6 +581,26 @@ const tradesWithUnrealizedPnl = trades.map(t => {
                 ) : <EmptyChart message="Sin pérdidas realizadas" height={180} />}
               </ChartCard>
             </div>
+            {/* ── TIEMPO EN POSICIÓN ── */}
+            <ChartCard title="Tiempo en posición por trade" sub="Días desde apertura — rojo = pérdida latente, verde = ganancia latente" mb={0}>
+              {charts.daysInPosition.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(180, charts.daysInPosition.length * 28)}>
+                  <BarChart data={charts.daysInPosition} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
+                    <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={52} />
+                    <Tooltip content={<CustomTooltip formatter={(v: number, name: string) =>
+                      name === 'Días' ? `${v} días` : `${v}%`
+                    } />} />
+                    <Bar dataKey="days" name="Días" radius={[0, 6, 6, 0]}>
+                      {charts.daysInPosition.map((e, i) => (
+                        <Cell key={i} fill={e.pnlPct >= 0 ? C.success : C.danger} fillOpacity={0.75} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <EmptyChart message="Sin trades abiertos" height={180} />}
+            </ChartCard>
           </>
         )}
       </div>
