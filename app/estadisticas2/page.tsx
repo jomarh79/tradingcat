@@ -69,7 +69,7 @@ export default function EstadisticasCerradosPage() {
   const fetchData = useCallback(async () => {
     const [{ data: pData }, { data: tData }] = await Promise.all([
       supabase.from('portfolios').select('*'),
-      supabase.from('trades').select('*, portfolios(name, id)').eq('status', 'closed'),
+      supabase.from('trades').select('*, portfolios(name, id), trade_executions(quantity, price, commission, execution_type)').eq('status', 'closed'),
     ])
     if (pData) setPortfolios(pData)
     if (tData) setTrades(tData)
@@ -89,6 +89,14 @@ export default function EstadisticasCerradosPage() {
     return matchP && matchY
   }), [trades, selectedPortfolio, selectedYear])
 
+  const calcInvested = (t: any): number => {
+    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+    const buyExtra = (t.trade_executions || [])
+      .filter((e: any) => e.execution_type === 'buy')
+      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+    return parseFloat((initialInv + buyExtra).toFixed(2))
+  }
+
   const stats = useMemo(() => {
     if (!filteredTrades.length) return null
 
@@ -102,10 +110,7 @@ export default function EstadisticasCerradosPage() {
     const breakEven = sorted.filter(t => Number(t.realized_pnl) === 0)
 
     const totalPnL  = parseFloat(sorted.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const totalInvestedPnL = sorted.reduce(
-      (acc, t) => acc + Number(t.total_invested || 0),
-      0
-    )
+    const totalInvestedPnL = sorted.reduce((acc, t) => acc + calcInvested(t), 0)
 
     const totalPnLPct =
       totalInvestedPnL > 0
@@ -154,14 +159,9 @@ export default function EstadisticasCerradosPage() {
 
 // Rendimiento % ponderado por capital
     const tradesWithPct = sorted.map(t => {
-      const invested = Number(t.total_invested || 0)
+      const invested = calcInvested(t)
       const pnl = Number(t.realized_pnl || 0)
-
-      const pct =
-        invested > 0
-          ? (pnl / invested) * 100
-          : 0
-
+      const pct = invested > 0 ? (pnl / invested) * 100 : 0
       return pct
     })
 
@@ -178,7 +178,7 @@ export default function EstadisticasCerradosPage() {
     // Mejor y peor trade en %
     const withPct = sorted.map(t => ({
       ...t,
-      pct: Number(t.total_invested) > 0 ? (Number(t.realized_pnl) / Number(t.total_invested)) * 100 : 0,
+      pct: calcInvested(t) > 0 ? (Number(t.realized_pnl) / calcInvested(t)) * 100 : 0,
     }))
     const bestTradePct  = [...withPct].sort((a, b) => b.pct - a.pct)[0]
     const worstTradePct = [...withPct].sort((a, b) => a.pct - b.pct)[0]
@@ -319,9 +319,11 @@ export default function EstadisticasCerradosPage() {
                   : 'Sin drawdown registrado'}
                 color={stats.calmarRatio !== null ? (stats.calmarRatio >= 2 ? '#22c55e' : stats.calmarRatio >= 1 ? '#eab308' : '#f43f5e') : '#888'}
                 pawColor="#a78bfa" />
-              <StatCard label="Trades para recuperar racha"
+              <StatCard label="Trades para cubrir racha perdedora"
                 value={stats.recoveryRate !== null ? `${stats.recoveryRate} trades` : '—'}
-                desc={stats.recoveryRate !== null ? `Para recuperar la racha de ${stats.maxLossStrk} pérdidas` : ''}
+                desc={stats.recoveryRate !== null
+                  ? `Necesitas ganar ${stats.recoveryRate} trades seguidos para cubrir tu peor racha de ${stats.maxLossStrk} pérdidas consecutivas`
+                  : 'Sin rachas perdedoras'}
                 color="#eab308" pawColor="#eab308" />
               <StatCard label="Duración promedio" value={`${stats.avgDuration} días`}
                 desc="En cerrar una posición" color="#888" pawColor="#888" />
@@ -464,16 +466,10 @@ export default function EstadisticasCerradosPage() {
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 12 }}>
                         +{money(Number(t.realized_pnl))}
-
-                        {Number(t.total_invested) > 0 && (
-                          <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>
-                            +{((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
-                          </span>
-                        )}
                       </div>
-                      {Number(t.total_invested) > 0 && (
-                        <div style={{ color: '#888', fontSize: 9 }}>
-                          +{((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
+                      {calcInvested(t) > 0 && (
+                        <div style={{ color: '#22c55e', fontSize: 10, opacity: 0.8 }}>
+                          +{((Number(t.realized_pnl) / calcInvested(t)) * 100).toFixed(2)}%
                         </div>
                       )}
                     </div>
@@ -496,16 +492,10 @@ export default function EstadisticasCerradosPage() {
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: '#f43f5e', fontWeight: 700, fontSize: 12 }}>
                         {money(Number(t.realized_pnl))}
-
-                        {Number(t.total_invested) > 0 && (
-                          <span style={{ color: '#888', fontSize: 9, marginLeft: 6 }}>
-                            {((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
-                          </span>
-                        )}
                       </div>
-                      {Number(t.total_invested) > 0 && (
-                        <div style={{ color: '#888', fontSize: 9 }}>
-                          {((Number(t.realized_pnl) / Number(t.total_invested)) * 100).toFixed(1)}%
+                      {calcInvested(t) > 0 && (
+                        <div style={{ color: '#f43f5e', fontSize: 10, opacity: 0.8 }}>
+                          {((Number(t.realized_pnl) / calcInvested(t)) * 100).toFixed(2)}%
                         </div>
                       )}
                     </div>
