@@ -177,6 +177,8 @@ setWalletPnL(pnlMap)
 
   const totalSaldo    = useMemo(() => portfolios.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0), [portfolios, walletSaldos])
   const totalDeposito = useMemo(() => portfolios.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0), [portfolios, walletDepositos])
+  const totalPnL      = useMemo(() => portfolios.reduce((a, p) => a + (walletPnL[p.id]      || 0), 0), [portfolios, walletPnL])
+  const totalPnLPct   = useMemo(() => totalDeposito !== 0 ? (totalPnL / Math.abs(totalDeposito)) * 100 : 0, [totalPnL, totalDeposito])
 
   const handleCreate = async () => {
     if (!newName || !newDate) return alert('Completa todos los campos')
@@ -343,6 +345,20 @@ setWalletPnL(pnlMap)
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>CAPITAL DEPOSITADO TOTAL</div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: '#00bfff' }}>{money(totalDeposito)}</div>
               </div>
+              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>GANANCIA / PÉRDIDA TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: Math.abs(totalPnL) < 0.5 ? '#00bfff' : totalPnL > 0 ? '#22c55e' : '#f43f5e' }}>
+                  {money(totalPnL)}
+                </div>
+              </div>
+              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>RENDIMIENTO TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: Math.abs(totalPnLPct) < 0.5 ? '#00bfff' : totalPnLPct > 0 ? '#22c55e' : '#f43f5e' }}>
+                  {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
+                </div>
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -393,6 +409,7 @@ setWalletPnL(pnlMap)
                       <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
                       <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
                       <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Rendimiento</th>
                       <th style={{ ...th, textAlign: 'right' }}>Último movimiento</th>
                       <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
                     </tr>
@@ -428,6 +445,20 @@ setWalletPnL(pnlMap)
                                   <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
                                   {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
                                 </div>
+                              )
+                            })()}
+                          </td>
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            {(() => {
+                              const pnl = walletPnL[p.id] ?? 0
+                              const dep = walletDepositos[p.id] || 0
+                              if (dep === 0) return <span style={{ color: '#333' }}>—</span>
+                              const pct = (pnl / Math.abs(dep)) * 100
+                              const color = Math.abs(pct) < 0.5 ? '#00bfff' : pct > 0 ? '#22c55e' : '#f43f5e'
+                              return (
+                                <span style={{ fontWeight: 700, color, fontSize: 13 }}>
+                                  {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                                </span>
                               )
                             })()}
                           </td>
