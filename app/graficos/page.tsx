@@ -184,29 +184,6 @@ export default function GraficosAbiertosPage() {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, pnl]) => ({ month, pnl: parseFloat(pnl.toFixed(2)) }))
 
-    // Volatilidad semanal
-    const weeklyPrices: Record<string, number[]> = {}
-    allExecutions.filter(e => tradeIds.has(e.trade_id)).forEach(e => {
-      const week = getWeekKey(parseDate((e.executed_at || '').split('T')[0]))
-      if (!weeklyPrices[week]) weeklyPrices[week] = []
-      weeklyPrices[week].push(Number(e.price || 0))
-    })
-    trades.forEach(t => {
-      const week = getWeekKey(parseDate(t.open_date))
-      if (!weeklyPrices[week]) weeklyPrices[week] = []
-      weeklyPrices[week].push(Number(t.entry_price || 0))
-    })
-    const weeklyData = Object.entries(weeklyPrices)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([week, prices]) => {
-        if (prices.length < 2) return { week, volatilidad: 0, rendimiento: 0 }
-        const returns    = prices.slice(1).map((p, i) => (p - prices[i]) / prices[i] * 100)
-        const avgReturn  = returns.reduce((a, b) => a + b, 0) / returns.length
-        const variance   = returns.reduce((a, r) => a + Math.pow(r - avgReturn, 2), 0) / returns.length
-        return { week, volatilidad: parseFloat(Math.sqrt(variance).toFixed(2)), rendimiento: parseFloat(avgReturn.toFixed(2)) }
-      })
-      .filter(w => w.volatilidad > 0 || w.rendimiento !== 0)
-
     // ── Portafolio vs SP500 ──────────────────────────────────────────────
     // Base: capital total invertido como punto de partida = 100%
     const sortedByDate = [...trades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
@@ -264,7 +241,51 @@ const tradesWithUnrealizedPnl = trades.map(t => {
     const top5Losses = [...tradesWithUnrealizedPnl].sort((a, b) => a.unrealizedPnl - b.unrealizedPnl)
       .filter(t => t.unrealizedPnl < 0).slice(0, 5)
       .map(t => ({ ticker: t.ticker, pnl: t.unrealizedPnl, pct: t.unrealizedPct }))
-    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, vsData, totalInvested, totalActual, top5Gains, top5Losses, tradesWithUnrealizedPnl }
+    // ── Tiempo en posición ────────────────────────────────────────────────
+    const today = new Date()
+    const daysInPosition = trades.map(t => {
+      const days = Math.floor((today.getTime() - parseDate(t.open_date).getTime()) / 86400000)
+      const pnlPct = (() => {
+        const qty = Number(t.quantity || 0)
+        const inv = Number(t.total_invested || 0)
+        const cur = Number(t.last_price || t.entry_price || 0)
+        const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+        return avg > 0 ? ((cur - avg) / avg * 100) : 0
+      })()
+      return {
+        ticker: t.ticker,
+        days,
+        pnlPct: parseFloat(pnlPct.toFixed(2)),
+        color: pnlPct >= 0 ? C.success : C.danger,
+        label: days > 365 ? `${Math.floor(days/365)}a ${Math.floor((days%365)/30)}m` : days > 30 ? `${Math.floor(days/30)}m ${days%30}d` : `${days}d`,
+      }
+    }).sort((a, b) => b.days - a.days)
+
+    // ── Mapa de calor sector/mes ──────────────────────────────────────────
+    // Usamos trades cerrados del allTrades para tener datos históricos reales
+    const closedTrades = allTrades.filter(t => t.status === 'closed' && t.close_date && t.sector)
+    const sectors = Array.from(new Set(closedTrades.map(t => t.sector || 'Otros'))).sort()
+    const months  = Array.from(new Set(closedTrades.map(t =>
+      parseDate(t.close_date).toLocaleDateString('es-MX', { month: 'short', year: '2-digit' })
+    ))).sort((a, b) => {
+      const [ma, ya] = a.split(' '); const [mb, yb] = b.split(' ')
+      return new Date(`01 ${ma} 20${ya}`).getTime() - new Date(`01 ${mb} 20${yb}`).getTime()
+    }).slice(-12) // últimos 12 meses
+
+    const heatmapData = months.map(month => {
+      const point: Record<string, any> = { month }
+      sectors.forEach(sector => {
+        const tradesInCell = closedTrades.filter(t => {
+          const m = parseDate(t.close_date).toLocaleDateString('es-MX', { month: 'short', year: '2-digit' })
+          return m === month && (t.sector || 'Otros') === sector
+        })
+        const totalPnl = tradesInCell.reduce((a, t) => a + Number(t.realized_pnl || 0), 0)
+        point[sector] = tradesInCell.length > 0 ? parseFloat(totalPnl.toFixed(2)) : null
+      })
+      return point
+    })
+
+    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, vsData, totalInvested, totalActual, top5Gains, top5Losses, tradesWithUnrealizedPnl, daysInPosition, heatmapData, sectors, months }
   }, [trades, allExecutions, tradeIds, sp500Data])
 
   const tooltipStyle = { background: '#0d0d0d', border: '1px solid #333', fontSize: 11, borderRadius: 8 }
@@ -450,39 +471,82 @@ const tradesWithUnrealizedPnl = trades.map(t => {
               )}
             </ChartCard>
 
-            {/* ── FILA 3: Volatilidad + Rendimiento semanal ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14, marginTop: 14 }}>
-              <ChartCard title="Volatilidad semanal" sub="Desviación estándar de precios de ejecución">
-                {charts.weeklyData.length > 1 ? (
-                  <ResponsiveContainer width="100%" height={190}>
-                    <BarChart data={charts.weeklyData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="week" tick={{ fill: '#aaa', fontSize: 8 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => `${v}%`} />} />
-                      <Bar dataKey="volatilidad" name="Volatilidad" radius={[4,4,0,0]} fill={C.warning} fillOpacity={0.75} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Se necesitan más ejecuciones" height={190} />}
-              </ChartCard>
+            {/* ── TIEMPO EN POSICIÓN ── */}
+            <ChartCard title="Tiempo en posición por trade" sub="Días desde apertura — rojo = pérdida latente, verde = ganancia latente" mb={14}>
+              {charts.daysInPosition.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(180, charts.daysInPosition.length * 28)}>
+                  <BarChart data={charts.daysInPosition} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
+                    <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={52} />
+                    <Tooltip content={<CustomTooltip formatter={(v: number, name: string) =>
+                      name === 'Días' ? `${v} días` : `${v}%`
+                    } />} />
+                    <Bar dataKey="days" name="Días" radius={[0, 6, 6, 0]}>
+                      {charts.daysInPosition.map((e, i) => (
+                        <Cell key={i} fill={e.pnlPct >= 0 ? C.success : C.danger} fillOpacity={0.75} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <EmptyChart message="Sin trades abiertos" height={180} />}
+            </ChartCard>
 
-              <ChartCard title="Rendimiento semanal promedio" sub="Variación % promedio de precios por semana">
-                {charts.weeklyData.length > 1 ? (
-                  <ResponsiveContainer width="100%" height={190}>
-                    <BarChart data={charts.weeklyData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="week" tick={{ fill: '#aaa', fontSize: 8 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => `${v}%`} />} />
-                      <ReferenceLine y={0} stroke="#333" />
-                      <Bar dataKey="rendimiento" name="Rendimiento" radius={[4,4,0,0]}>
-                        {charts.weeklyData.map((e, i) => <Cell key={i} fill={e.rendimiento >= 0 ? C.success : C.danger} fillOpacity={0.8} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Se necesitan más ejecuciones" height={190} />}
-              </ChartCard>
-            </div>
+            {/* ── MAPA DE CALOR SECTOR / MES ── */}
+            <ChartCard title="Rendimiento por sector y mes" sub="PnL de trades cerrados — últimos 12 meses" mb={14}>
+              {charts.heatmapData.length > 0 && charts.sectors.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 10 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', color: '#555', fontWeight: 700, fontSize: 9, letterSpacing: 0.5 }}>SECTOR</th>
+                        {charts.months.map(m => (
+                          <th key={m} style={{ padding: '6px 8px', textAlign: 'center', color: '#555', fontWeight: 700, fontSize: 9, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+                            {m.toUpperCase()}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {charts.sectors.map(sector => (
+                        <tr key={sector}>
+                          <td style={{ padding: '6px 10px', color: '#aaa', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap', borderBottom: '1px solid #0f0f0f' }}>
+                            {sector}
+                          </td>
+                          {charts.months.map(month => {
+                            const row = charts.heatmapData.find(r => r.month === month)
+                            const val = row?.[sector] ?? null
+                            const maxAbs = Math.max(...charts.heatmapData.flatMap(r =>
+                              charts.sectors.map(s => Math.abs(r[s] ?? 0))
+                            ).filter(Boolean))
+                            const intensity = val !== null && maxAbs > 0 ? Math.abs(val) / maxAbs : 0
+                            const bg = val === null
+                              ? '#0a0a0a'
+                              : val > 0
+                                ? `rgba(34,197,94,${0.08 + intensity * 0.55})`
+                                : `rgba(244,63,94,${0.08 + intensity * 0.55})`
+                            return (
+                              <td key={month} style={{
+                                padding: '6px 8px', textAlign: 'center',
+                                background: bg, borderRadius: 4,
+                                borderBottom: '1px solid #0a0a0a',
+                                color: val === null ? '#333' : val > 0 ? '#22c55e' : '#f43f5e',
+                                fontWeight: val !== null ? 700 : 400,
+                                fontSize: 10, cursor: 'default',
+                              }}
+                                title={val !== null ? `${sector} · ${month}: ${val > 0 ? '+' : ''}$${val.toFixed(2)}` : '—'}
+                              >
+                                {val !== null ? (val > 0 ? `+$${val.toFixed(0)}` : `-$${Math.abs(val).toFixed(0)}`) : '—'}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <EmptyChart message="Se necesitan trades cerrados con sector asignado" height={180} />}
+            </ChartCard>
 
             {/* ── PnL NO REALIZADO POR TICKER ── */}
             <ChartCard title="PnL no realizado por posición" sub="Ganancia o pérdida latente de cada trade abierto" mb={0}>
