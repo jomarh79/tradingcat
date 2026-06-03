@@ -84,6 +84,7 @@ export default function GraficosAbiertosPage() {
   const [selectedPortfolio, setSelectedPortfolio]  = useState('all')
   const [loading,           setLoading]            = useState(true)
   const [sp500Data,         setSp500Data]          = useState<Record<string, number>>({})
+  const [sp500Loaded, setSp500Loaded] = useState(false)
 
   const fetchData = useCallback(async () => {
     const [{ data: tData }, { data: pData }, { data: eData }] = await Promise.all([
@@ -97,29 +98,20 @@ export default function GraficosAbiertosPage() {
     setLoading(false)
   }, [])
 
-  // Obtener datos SP500 históricos desde Yahoo Finance via API pública
-  const fetchSP500 = useCallback(async (fromDate: string) => {
+  const loadSP500 = useCallback(() => {
     try {
-      const from = Math.floor(new Date(fromDate).getTime() / 1000)
-      const to   = Math.floor(Date.now() / 1000)
-      const res  = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&period1=${from}&period2=${to}`
-      )
-      const json = await res.json()
-      const timestamps: number[] = json?.chart?.result?.[0]?.timestamp || []
-      const closes: number[]     = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []
-      const map: Record<string, number> = {}
-      timestamps.forEach((ts, i) => {
-        if (closes[i] != null) {
-          const dateStr = new Date(ts * 1000).toISOString().split('T')[0]
-          map[dateStr] = closes[i]
-        }
-      })
-      setSp500Data(map)
-    } catch (e) { console.error('SP500 fetch error:', e) }
+      const cached = localStorage.getItem('sp500')
+      if (cached) {
+        const parsed: { date: string, close: number }[] = JSON.parse(cached)
+        const map: Record<string, number> = {}
+        parsed.forEach(d => { map[d.date] = d.close })
+        setSp500Data(map)
+        setSp500Loaded(true)
+      }
+    } catch (e) { console.error('SP500 cache error:', e) }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { fetchData(); loadSP500() }, [fetchData, loadSP500])
 
   const trades = useMemo(() =>
     selectedPortfolio === 'all'
@@ -127,12 +119,6 @@ export default function GraficosAbiertosPage() {
       : allTrades.filter(t => t.portfolio_id === selectedPortfolio)
   , [allTrades, selectedPortfolio])
 
-  // Cargar SP500 cuando cambian los trades
-  useEffect(() => {
-    if (!trades.length) return
-    const sorted = [...trades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
-    if (sorted[0]?.open_date) fetchSP500(sorted[0].open_date)
-  }, [trades, fetchSP500])
 
   const tradeIds = useMemo(() => new Set(trades.map(t => t.id)), [trades])
 
@@ -146,7 +132,7 @@ export default function GraficosAbiertosPage() {
       return acc + qty * cur
     }, 0)
 
-    const totalInvestedGlobal = trades.reduce(
+    const totalInvestedGlobal = allTrades.reduce(
       (acc, t) => acc + Number(t.total_invested || 0),
       0
     )
@@ -163,7 +149,7 @@ export default function GraficosAbiertosPage() {
     // Capital por portafolio
     const portfolioMap: Record<string, { name: string, value: number }> = {}
 
-    trades.forEach(t => {
+    allTrades.forEach(t => {
       const id = t.portfolio_id
       if (!portfolioMap[id]) portfolioMap[id] = { name: t.portfolios?.name || id, value: 0 }
       portfolioMap[id].value += Number(t.total_invested || 0)
@@ -175,7 +161,7 @@ export default function GraficosAbiertosPage() {
     // Horizonte (SIEMPRE GLOBAL)
     let long = 0, mid = 0, short = 0
 
-    trades.forEach(t => {
+    allTrades.forEach(t => {
       const name = (t.portfolios?.name || '').toLowerCase()
       const inv  = Number(t.total_invested || 0)
       if (name.includes('largo'))      long  += inv
@@ -263,13 +249,22 @@ export default function GraficosAbiertosPage() {
       }
     })
 
-const sorted = [...trades].sort((a, b) => Number(b.realized_pnl || 0) - Number(a.realized_pnl || 0))
-    const top5Gains  = sorted.filter(t => Number(t.realized_pnl || 0) > 0).slice(0, 5)
-      .map(t => ({ ticker: t.ticker, pnl: parseFloat(Number(t.realized_pnl).toFixed(2)) }))
-    const top5Losses = sorted.filter(t => Number(t.realized_pnl || 0) < 0).slice(-5).reverse()
-      .map(t => ({ ticker: t.ticker, pnl: parseFloat(Number(t.realized_pnl).toFixed(2)) }))
-
-    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, drawdownData, vsData, totalInvested, totalActual, top5Gains, top5Losses }
+const tradesWithUnrealizedPnl = trades.map(t => {
+      const qty = Number(t.quantity || 0)
+      const inv = Number(t.total_invested || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+      const unrealizedPnl = parseFloat(((cur - avg) * qty).toFixed(2))
+      const unrealizedPct = avg > 0 ? parseFloat(((cur - avg) / avg * 100).toFixed(2)) : 0
+      return { ...t, unrealizedPnl, unrealizedPct }
+    })
+    const top5Gains  = [...tradesWithUnrealizedPnl].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl)
+      .filter(t => t.unrealizedPnl > 0).slice(0, 5)
+      .map(t => ({ ticker: t.ticker, pnl: t.unrealizedPnl, pct: t.unrealizedPct }))
+    const top5Losses = [...tradesWithUnrealizedPnl].sort((a, b) => a.unrealizedPnl - b.unrealizedPnl)
+      .filter(t => t.unrealizedPnl < 0).slice(0, 5)
+      .map(t => ({ ticker: t.ticker, pnl: t.unrealizedPnl, pct: t.unrealizedPct }))
+    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, vsData, totalInvested, totalActual, top5Gains, top5Losses, tradesWithUnrealizedPnl }
   }, [trades, allExecutions, tradeIds, sp500Data])
 
   const tooltipStyle = { background: '#0d0d0d', border: '1px solid #333', fontSize: 11, borderRadius: 8 }
@@ -489,45 +484,33 @@ const sorted = [...trades].sort((a, b) => Number(b.realized_pnl || 0) - Number(a
               </ChartCard>
             </div>
 
-            {/* ── DRAWDOWN VS PNL ── */}
-            <ChartCard title="Drawdown vs PnL acumulado" sub="Caída máxima desde el pico (rojo) sobre el PnL acumulado (azul)">
-              {charts.drawdownData.length > 1 ? (
-                <>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <ComposedChart data={charts.drawdownData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
-                      <defs>
-                        <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={C.danger} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={C.danger} stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="left"  tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number, name: string) =>
-                        name === 'PnL acumulado' ? money(v) : `${v}%`}
-                      />} />
-                      <ReferenceLine yAxisId="left" y={0} stroke="#333" strokeDasharray="3 3" />
-                      <Area yAxisId="right" type="monotone" dataKey="drawdown" name="Drawdown" stroke={C.danger} fill="url(#ddGrad)" strokeWidth={1.5} dot={false} />
-                      <Line yAxisId="left"  type="monotone" dataKey="pnl"      name="PnL acumulado" stroke={C.accent} strokeWidth={2.5} dot={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                  <div style={{ display: 'flex', gap: 20, marginTop: 8, fontSize: 9, color: '#666' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ width: 16, height: 2, background: C.accent, display: 'inline-block' }} /> PnL acumulado (eje izq.)
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <span style={{ width: 16, height: 8, background: C.danger, opacity: 0.4, display: 'inline-block', borderRadius: 2 }} /> Drawdown % (eje der.)
-                    </span>
-                  </div>
-                </>
-              ) : <EmptyChart message="Se necesitan más trades para calcular drawdown" height={240} />}
+            {/* ── PnL NO REALIZADO POR TICKER ── */}
+            <ChartCard title="PnL no realizado por posición" sub="Ganancia o pérdida latente de cada trade abierto" mb={0}>
+              {charts.top5Gains.length > 0 || charts.top5Losses.length > 0 ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart
+                    data={[...charts.top5Losses, ...charts.top5Gains].sort((a, b) => a.pnl - b.pnl)}
+                    margin={{ top: 4, right: 16, left: 10, bottom: 4 }}
+                    layout="vertical"
+                  >
+                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
+                    <Tooltip content={<CustomTooltip formatter={(v: number, name: string) => name === 'PnL $' ? money(v) : `${v}%`} />} />
+                    <ReferenceLine x={0} stroke="#333" />
+                    <Bar dataKey="pnl" name="PnL $" radius={[0, 6, 6, 0]}>
+                      {[...charts.top5Losses, ...charts.top5Gains].sort((a, b) => a.pnl - b.pnl).map((e, i) => (
+                        <Cell key={i} fill={e.pnl >= 0 ? C.success : C.danger} fillOpacity={0.85} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <EmptyChart message="Sin datos de PnL no realizado" height={240} />}
             </ChartCard>
 
             {/* ── TOP 5 GANANCIAS Y PÉRDIDAS ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-              <ChartCard title="Top 5 mayores ganancias" sub="Trades abiertos con mayor PnL realizado">
+              <ChartCard title="Top 5 mayores ganancias" sub="PnL no realizado — posiciones con mayor ganancia latente">
                 {charts.top5Gains.length > 0 ? (
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={charts.top5Gains} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
@@ -541,7 +524,7 @@ const sorted = [...trades].sort((a, b) => Number(b.realized_pnl || 0) - Number(a
                 ) : <EmptyChart message="Sin ganancias realizadas aún" height={180} />}
               </ChartCard>
 
-              <ChartCard title="Top 5 mayores pérdidas" sub="Trades abiertos con mayor PnL negativo">
+              <ChartCard title="Top 5 mayores pérdidas" sub="PnL no realizado — posiciones con mayor pérdida latente">
                 {charts.top5Losses.length > 0 ? (
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={charts.top5Losses} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
