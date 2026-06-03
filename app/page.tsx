@@ -147,7 +147,7 @@ export default function HomePage() {
 
   const fetchData = useCallback(async () => {
     const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
-      supabase.from('trades').select('*'),
+      supabase.from('trades').select('*, trade_executions(quantity, price, commission, execution_type)'),
       supabase.from('portfolios').select('*'),
       supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend, movement_type').order('date', { ascending: false }).limit(5000),
       supabase.from('watchlist').select('*'),
@@ -880,9 +880,14 @@ return (
                 <span style={{ fontSize: 11, color: '#333' }}>Sin trades cerrados aún.</span>
               )}
               {lastClosedTrades.map(t => {
-                const pnl = Number(t.realized_pnl || 0)
-                const inv = Number(t.total_invested || 0)
-                const pct = inv > 0 ? (pnl / inv * 100) : 0
+                const pnl  = Number(t.realized_pnl || 0)
+                const execs = t.trade_executions || []
+                const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+                const buyExtraInv = execs
+                  .filter((e: any) => e.execution_type === 'buy')
+                  .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+                const inv  = parseFloat((initialInv + buyExtraInv).toFixed(2))
+                const pct  = inv > 0 ? (pnl / inv * 100) : 0
                 return (
                   <div key={t.id} style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
