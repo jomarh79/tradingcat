@@ -285,7 +285,7 @@ const tradesWithUnrealizedPnl = trades.map(t => {
       return point
     })
 
-    return { sectorData, portfolioData, horizonData, monthlyData, weeklyData, vsData, totalInvested, totalActual, top5Gains, top5Losses, tradesWithUnrealizedPnl, daysInPosition, heatmapData, sectors, months }
+    return { sectorData, portfolioData, horizonData, monthlyData, vsData, totalInvested, totalActual, top5Gains, top5Losses, tradesWithUnrealizedPnl, daysInPosition, heatmapData, sectors, months }
   }, [trades, allExecutions, tradeIds, sp500Data])
 
   const tooltipStyle = { background: '#0d0d0d', border: '1px solid #333', fontSize: 11, borderRadius: 8 }
