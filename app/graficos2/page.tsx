@@ -12,7 +12,6 @@ import {
 } from 'recharts'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const SP500_DAILY = 0.0003
 
 const C = {
   gain:    '#22c55e',
@@ -87,10 +86,11 @@ export default function Graficos2Page() {
   const [selectedPortfolio, setSelectedPortfolio] = useState('all')
   const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
   const [loading,           setLoading]           = useState(true)
+  const [sp500Map, setSp500Map] = useState<Record<string, number>>({})
 
   const fetchData = useCallback(async () => {
     const [{ data: tData }, { data: pData }] = await Promise.all([
-      supabase.from('trades').select('*').eq('status','closed'),
+      supabase.from('trades').select('*, trade_executions(quantity, price, commission, execution_type)').eq('status','closed'),
       supabase.from('portfolios').select('*'),
     ])
     if (tData) setAllTrades(tData)
@@ -98,7 +98,18 @@ export default function Graficos2Page() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    fetchData()
+    try {
+      const cached = localStorage.getItem('sp500')
+      if (cached) {
+        const parsed: { date: string, close: number }[] = JSON.parse(cached)
+        const map: Record<string, number> = {}
+        parsed.forEach(d => { map[d.date] = d.close })
+        setSp500Map(map)
+      }
+    } catch (e) { console.error('SP500 cache:', e) }
+  }, [fetchData])
 
   const availableYears = useMemo(() => {
     const years = allTrades.map(t => parseDate(t.close_date || t.open_date).getFullYear().toString())
@@ -111,6 +122,14 @@ export default function Graficos2Page() {
     return filtered
   }, [allTrades, selectedPortfolio, selectedYear])
 
+  const calcInvested = (t: any): number => {
+    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+    const buyExtra = (t.trade_executions || [])
+      .filter((e: any) => e.execution_type === 'buy')
+      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+    return parseFloat((initialInv + buyExtra).toFixed(2))
+  }
+
   const charts = useMemo(() => {
     if (!trades.length) return null
 
@@ -118,11 +137,15 @@ export default function Graficos2Page() {
       (a, b) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime()
     )
 
-    let equity = 0, peak = 0, sp500 = 0
+    let equity = 0, peak = 0
     let wins = 0, losses = 0, totalWin = 0, totalLoss = 0
-    let prevDate = parseDate(sorted[0].close_date)
     let cumCapital = 0
-    const base = 10000
+
+    // SP500 real: buscar el precio base en la fecha del primer trade
+    const firstDateStr = sorted[0].close_date
+    const sp500Prices  = Object.entries(sp500Map).sort(([a], [b]) => a.localeCompare(b))
+    const sp500Base    = sp500Map[firstDateStr] ||
+      sp500Prices.reverse().find(([d]) => d <= firstDateStr)?.[1] || null
 
     const equityCurve: any[]   = []
     const drawdownCurve: any[] = []
@@ -155,10 +178,9 @@ export default function Graficos2Page() {
       else if (tradeDays <= 90) durationBuckets['31-90 días']++
       else                      durationBuckets['+90 días']++
 
-      equity    += pnl
-      sp500     += base * (Math.pow(1 + SP500_DAILY, days) - 1)
+      const inv = calcInvested(t)
+      equity     += pnl
       cumCapital += inv
-      prevDate   = thisDate
 
       if (equity > peak) peak = equity
       const dd = peak > 0 ? ((peak - equity) / peak) * 100 : 0
@@ -166,10 +188,17 @@ export default function Graficos2Page() {
       const label = thisDate.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
       equityCurve.push({ date: label, equity: parseFloat(equity.toFixed(2)) })
       drawdownCurve.push({ date: label, drawdown: parseFloat((-dd).toFixed(2)) })
+      const closeDateStr = t.close_date
+      const sp500Current = sp500Map[closeDateStr] ||
+        Object.entries(sp500Map).sort(([a],[b]) => b.localeCompare(a)).find(([d]) => d <= closeDateStr)?.[1] || null
+      const sp500Pct = sp500Base && sp500Current
+        ? parseFloat(((sp500Current - sp500Base) / sp500Base * equity).toFixed(2))
+        : null
+
       sp500Curve.push({
         date: label,
         Portafolio: parseFloat(equity.toFixed(2)),
-        'S&P 500':  parseFloat(sp500.toFixed(2)),
+        'S&P 500':  sp500Pct,
       })
       capitalAccum.push({ date: label, capital: parseFloat(cumCapital.toFixed(2)), pnl: parseFloat(equity.toFixed(2)) })
 
@@ -178,7 +207,7 @@ export default function Graficos2Page() {
       const m = thisDate.toLocaleDateString('es-MX', { year: 'numeric', month: 'short' })
       if (!monthly[m]) monthly[m] = { pnl: 0, sp500: 0, wins: 0, trades: 0 }
       monthly[m].pnl  += pnl
-      monthly[m].sp500 += base * (Math.pow(1 + SP500_DAILY, days) - 1)
+      monthly[m].sp500 += 0 // se calcula abajo con SP500 real
       monthly[m].trades++
       if (pnl > 0) monthly[m].wins++
 
@@ -195,7 +224,8 @@ export default function Graficos2Page() {
       closeReason[r].pnl   += pnl
       closeReason[r].count++
 
-      const pnlPct = inv > 0 ? parseFloat(((pnl / inv) * 100).toFixed(1)) : 0
+      const invReal = calcInvested(t)
+      const pnlPct  = invReal > 0 ? parseFloat(((pnl / invReal) * 100).toFixed(1)) : 0
       pnlDistribution.push({ ticker: t.ticker, pnlPct, color: pnl >= 0 ? C.gain : C.loss })
     })
 
@@ -255,7 +285,7 @@ export default function Graficos2Page() {
       totalTrades: sorted.length,
       wins, losses,
     }
-  }, [trades])
+  }, [trades, sp500Map, calcInvested])
 
   if (loading) return (
     <AppShell>
@@ -491,23 +521,24 @@ export default function Graficos2Page() {
               </ChartCard>
             </div>
 
-            {/* ── Capital acumulado ── */}
-            <ChartCard title="Capital invertido acumulado vs PnL" sub="Área = capital puesto en el mercado · línea = PnL acumulado" mb={14}>
-              <ResponsiveContainer width="100%" height={230}>
-                <ComposedChart data={charts.capitalAccum} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
-                  <defs>
-                    <linearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={C.sp500} stopOpacity={0.2} />
-                      <stop offset="95%" stopColor={C.sp500} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+            {/* ── Waterfall PnL mensual acumulado ── */}
+            <ChartCard title="Acumulado mensual de PnL" sub="Construcción progresiva del PnL — verde sube, rojo baja" mb={14}>
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={charts.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                   <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="left"  tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                  <Area yAxisId="left" type="monotone" dataKey="capital" name="Capital" stroke={C.sp500} fill="url(#capGrad)" strokeWidth={1.5} dot={false} />
-                  <Line yAxisId="right" type="monotone" dataKey="pnl" name="PnL" stroke={C.accent} strokeWidth={2.5} dot={false} />
+                  <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                  <Tooltip content={<CatTooltip formatter={(v: number, n: string) =>
+                    n === 'Acumulado' ? fmtMoney(v) : fmtMoney(v)
+                  } />} />
+                  <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
+                  <Bar dataKey="base" stackId="a" fill="transparent" stroke="none" />
+                  <Bar dataKey="value" stackId="a" name="PnL mes" radius={[3,3,0,0]}>
+                    {charts.monthlyWaterfall.map((e, i) => (
+                      <Cell key={i} fill={e.fill} fillOpacity={0.85} />
+                    ))}
+                  </Bar>
+                  <Line type="monotone" dataKey="cumPnl" name="Acumulado" stroke={C.accent} strokeWidth={2} dot={{ fill: C.accent, r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </ChartCard>
