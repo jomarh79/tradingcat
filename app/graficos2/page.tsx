@@ -87,6 +87,7 @@ export default function Graficos2Page() {
   const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
   const [loading,           setLoading]           = useState(true)
   const [sp500Map, setSp500Map] = useState<Record<string, number>>({})
+  const [equityPeriod, setEquityPeriod] = useState<'YTD' | '1Y' | '5Y' | 'MAX'>('YTD')
 
   const fetchData = useCallback(async () => {
     const [{ data: tData }, { data: pData }] = await Promise.all([
@@ -182,8 +183,8 @@ export default function Graficos2Page() {
       const dd = peak > 0 ? ((peak - equity) / peak) * 100 : 0
 
       const label = thisDate.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
-      equityCurve.push({ date: label, equity: parseFloat(equity.toFixed(2)) })
-      drawdownCurve.push({ date: label, drawdown: parseFloat((-dd).toFixed(2)) })
+      equityCurve.push({ date: label, rawDate: t.close_date, equity: parseFloat(equity.toFixed(2)) })
+      drawdownCurve.push({ date: label, rawDate: t.close_date, drawdown: parseFloat((-dd).toFixed(2)) })
       const closeDateStr = t.close_date
       const sp500Current = sp500Map[closeDateStr] ||
         Object.entries(sp500Map).sort(([a],[b]) => b.localeCompare(a)).find(([d]) => d <= closeDateStr)?.[1] || null
@@ -193,6 +194,7 @@ export default function Graficos2Page() {
 
       sp500Curve.push({
         date: label,
+        rawDate: t.close_date,
         Portafolio: parseFloat(equity.toFixed(2)),
         'S&P 500':  sp500Pct,
       })
@@ -280,6 +282,23 @@ export default function Graficos2Page() {
       totalPnL: parseFloat(equity.toFixed(2)),
       totalTrades: sorted.length,
       wins, losses,
+      scatterData: sorted.map(t => {
+        const inv = calcInvested(t)
+        const pnl = Number(t.realized_pnl || 0)
+        const days = Math.max(1, Math.ceil(
+          Math.abs(parseDate(t.close_date).getTime() - parseDate(t.open_date).getTime()) / 86400000
+        ))
+        const pnlPct = inv > 0 ? parseFloat(((pnl / inv) * 100).toFixed(2)) : 0
+        return { ticker: t.ticker, days, pnlPct, pnl: parseFloat(pnl.toFixed(2)), color: pnl >= 0 ? C.gain : C.loss }
+      }),
+      monthlyTable: monthlyEntries.map(([month, d]) => ({
+        month,
+        pnl: parseFloat(d.pnl.toFixed(2)),
+        trades: d.trades,
+        wins: d.wins,
+        losses: d.trades - d.wins,
+        winRate: d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0,
+      })).sort((a, b) => b.pnl - a.pnl),
     }
   }, [trades, sp500Map, calcInvested])
 
@@ -293,6 +312,41 @@ export default function Graficos2Page() {
 
   const fmtMoney = (v: number) => money(v)
 
+  const periodCutoff = (p: 'YTD' | '1Y' | '5Y' | 'MAX'): Date => {
+    const now = new Date()
+    if (p === 'YTD') return new Date(now.getFullYear(), 0, 1)
+    if (p === '1Y')  return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+    if (p === '5Y')  return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate())
+    return new Date(2000, 0, 1)
+  }
+
+  const cutoff = periodCutoff(equityPeriod)
+  const filterCurve = (data: any[]) => data.filter(d => !d.rawDate || new Date(d.rawDate + 'T00:00:00') >= cutoff)
+  const equityFiltered   = charts ? filterCurve(charts.equityCurve)   : []
+  const drawdownFiltered = charts ? filterCurve(charts.drawdownCurve) : []
+  const sp500Filtered    = charts ? filterCurve(charts.sp500Curve)    : []
+
+  const PeriodSelector = () => (
+    <div style={{ display: 'flex', gap: 2, background: '#050505', padding: 3, borderRadius: 8, border: '1px solid #111' }}>
+      {(['YTD', '1Y', '5Y', 'MAX'] as const).map(p => (
+        <button key={p} onClick={() => setEquityPeriod(p)} style={{
+          background: equityPeriod === p ? '#1a1a1a' : 'transparent',
+          border: equityPeriod === p ? '1px solid #2a2a2a' : '1px solid transparent',
+          color: equityPeriod === p ? '#fff' : '#444',
+          padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+          fontSize: 11, fontWeight: equityPeriod === p ? 700 : 400,
+        }}>{p}</button>
+      ))}
+    </div>
+  )
+
+  const filterByPeriod = (data: any[]) => {
+    if (!data.length) return data
+    // data tiene campo 'date' como string formateado, necesitamos filtrar por índice
+    // usamos equityCurveAll para filtrar por fecha real
+    return data
+  }
+  
   return (
     <AppShell>
       <div style={{ padding: '22px 28px', color: 'white', maxWidth: 1400, margin: '0 auto', position: 'relative' }}>
@@ -361,9 +415,9 @@ export default function Graficos2Page() {
             </div>
 
             {/* ── Equity curve ── */}
-            <ChartCard title="Curva de equity" sub="PnL acumulado · trades cerrados" mb={14}>
+            <ChartCard title="Curva de equity" sub="PnL acumulado · trades cerrados" mb={14} extra={<PeriodSelector />}>
               <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={charts.equityCurve} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <AreaChart data={equityFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                   <defs>
                     <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%"  stopColor={C.accent} stopOpacity={0.25} />
@@ -382,9 +436,9 @@ export default function Graficos2Page() {
 
             {/* ── Drawdown + SP500 ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-              <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0}>
+              <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
                 <ResponsiveContainer width="100%" height={210}>
-                  <AreaChart data={charts.drawdownCurve} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <AreaChart data={drawdownFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <defs>
                       <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%"  stopColor={C.loss} stopOpacity={0.3} />
@@ -401,9 +455,9 @@ export default function Graficos2Page() {
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Portafolio vs S&P 500" sub="PnL acumulado real vs benchmark estimado" mb={0}>
+              <ChartCard title="Portafolio vs S&P 500" sub="PnL acumulado real vs benchmark estimado" mb={0} extra={<PeriodSelector />}>
                 <ResponsiveContainer width="100%" height={210}>
-                  <LineChart data={charts.sp500Curve} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <LineChart data={sp500Filtered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
@@ -451,21 +505,59 @@ export default function Graficos2Page() {
               </ChartCard>
             </div>
 
-            {/* ── Win rate mensual heatmap + Razones de cierre ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-              <ChartCard title="Win rate mensual" sub="% de trades ganadores por mes" mb={0}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                  {charts.winRateHeatmap.map(m => (
-                    <div key={m.month} style={{
-                      background: m.color + '22',
-                      border: `1px solid ${m.color}55`,
-                      borderRadius: 6, padding: '8px 10px', minWidth: 80, textAlign: 'center',
-                    }}>
-                      <div style={{ fontSize: 9, color: '#888', marginBottom: 4 }}>{m.month}</div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: m.color }}>{m.winRate}%</div>
+            {/* ── Scatter riesgo/recompensa + Razones de cierre ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginBottom: 14 }}>
+              <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
+                {charts.scatterData.length > 0 ? (
+                  <div style={{ position: 'relative', height: 220 }}>
+                    <svg width="100%" height={220} style={{ overflow: 'visible' }}>
+                      {(() => {
+                        const data = charts.scatterData
+                        const maxDays = Math.max(...data.map(d => d.days), 1)
+                        const maxPct  = Math.max(...data.map(d => Math.abs(d.pnlPct)), 1)
+                        const padX = 40, padY = 20, padR = 16, padB = 30
+                        const W = 600, H = 220
+                        const toX = (days: number) => padX + (days / maxDays) * (W - padX - padR)
+                        const toY = (pct: number)  => padY + ((maxPct - pct) / (maxPct * 2)) * (H - padY - padB)
+                        const zeroY = toY(0)
+                        return (
+                          <>
+                            {/* Ejes */}
+                            <line x1={padX} y1={padY} x2={padX} y2={H - padB} stroke="#222" strokeWidth={1} />
+                            <line x1={padX} y1={zeroY} x2={W - padR} y2={zeroY} stroke="#333" strokeWidth={1} strokeDasharray="4 4" />
+                            {/* Labels Y */}
+                            {[-maxPct, -maxPct/2, 0, maxPct/2, maxPct].map(v => (
+                              <text key={v} x={padX - 4} y={toY(v) + 4} textAnchor="end" fill="#555" fontSize={8}>
+                                {v.toFixed(0)}%
+                              </text>
+                            ))}
+                            {/* Labels X */}
+                            {[0, Math.round(maxDays/4), Math.round(maxDays/2), Math.round(maxDays*3/4), maxDays].map(v => (
+                              <text key={v} x={toX(v)} y={H - padB + 14} textAnchor="middle" fill="#555" fontSize={8}>
+                                {v}d
+                              </text>
+                            ))}
+                            {/* Puntos */}
+                            {data.map((d, i) => (
+                              <g key={i}>
+                                <circle
+                                  cx={toX(d.days)} cy={toY(d.pnlPct)}
+                                  r={5} fill={d.color} fillOpacity={0.75}
+                                  stroke={d.color} strokeWidth={1}
+                                />
+                                <title>{d.ticker} · {d.days}d · {d.pnlPct}%</title>
+                              </g>
+                            ))}
+                          </>
+                        )
+                      })()}
+                    </svg>
+                    <div style={{ position: 'absolute', bottom: 4, right: 8, fontSize: 8, color: '#444', display: 'flex', gap: 12 }}>
+                      <span style={{ color: C.gain }}>● ganancia</span>
+                      <span style={{ color: C.loss }}>● pérdida</span>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
               </ChartCard>
 
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
@@ -474,9 +566,7 @@ export default function Graficos2Page() {
                     <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
                     <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
                     <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={55} />
-                    <Tooltip content={<CatTooltip formatter={(v: number, name: string) =>
-                      name === 'pnl' ? fmtMoney(v) : String(v)
-                    } />} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
                     <Bar dataKey="pnl" name="PnL" radius={[0,4,4,0]}>
                       {charts.closeReasonData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
                     </Bar>
@@ -484,6 +574,64 @@ export default function Graficos2Page() {
                 </ResponsiveContainer>
               </ChartCard>
             </div>
+
+            {/* ── Tabla mejores y peores meses ── */}
+            <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={14}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {/* Top mejores */}
+                <div>
+                  <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>MEJORES MESES</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: '#050505' }}>
+                        {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
+                          <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {charts.monthlyTable.filter(m => m.pnl >= 0).slice(0, 6).map(m => (
+                        <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                          <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Peores */}
+                <div>
+                  <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PEORES MESES</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: '#050505' }}>
+                        {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
+                          <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {charts.monthlyTable.filter(m => m.pnl < 0).slice(-6).reverse().map(m => (
+                        <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                          <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </ChartCard>
+
+            
 
             {/* ── Distribución PnL % + Duración ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginBottom: 14 }}>
@@ -607,21 +755,23 @@ export default function Graficos2Page() {
   )
 }
 
-function ChartCard({ title, sub, children, mb = 14 }: any) {
+function ChartCard({ title, sub, children, mb = 14, extra }: any) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', marginBottom: mb }}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase' as const, display: 'flex', alignItems: 'center', gap: 7 }}>
-          <Paw size={10} color="#666" opacity={0.5} />
-          {title}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase' as const, display: 'flex', alignItems: 'center', gap: 7 }}>
+            <Paw size={10} color="#666" opacity={0.5} />
+            {title}
+          </div>
+          {sub && <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>{sub}</div>}
         </div>
-        {sub && <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>{sub}</div>}
+        {extra && <div>{extra}</div>}
       </div>
       {children}
     </div>
   )
 }
-
 const selectStyle: React.CSSProperties = { background: C.card, color: '#ccc', border: '1px solid #333', padding: '6px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
 const filterBtn = (active: boolean): React.CSSProperties => ({
   padding: '6px 14px', borderRadius: 6, border: 'none',
