@@ -342,22 +342,9 @@ setWalletPnL(pnlMap)
       priceNew:    parseFloat(spinoffNewPrice || '0'),
       totalInvested: tr.total_invested,
       // Si es con reducción, el precio original se ajusta
-      priceOriginalAfter: (() => {
-        if (spinoffType !== 'with_reduction') return Number(tr.entry_price)
-        const priceOrig = parseFloat(spinoffOriginalNewPrice || '0')
-        const priceNew  = parseFloat(spinoffNewPrice || '0')
-        if (priceOrig > 0 && priceNew > 0) {
-          // Redistribuir capital proporcionalmente al valor de mercado post spin-off
-          const qtyOrig  = Number(tr.quantity)
-          const qtyNew   = qtyOrig * ratio
-          const valOrig  = qtyOrig * priceOrig
-          const valNew   = qtyNew  * priceNew
-          const total    = valOrig + valNew
-          const invOrig  = Number(tr.total_invested) * (valOrig / total)
-          return parseFloat((invOrig / qtyOrig).toFixed(4))
-        }
-        return Number(tr.entry_price)
-      })(),
+      priceOriginalAfter: spinoffType === 'with_reduction' && spinoffOriginalNewPrice
+        ? parseFloat(parseFloat(spinoffOriginalNewPrice).toFixed(4))
+        : Number(tr.entry_price),
     })))
     setSpinoffLoading(false)
   }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType])
@@ -901,8 +888,8 @@ setWalletPnL(pnlMap)
               <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
                 onChange={e => { setSpinoffNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
-              <label style={lbl}>Precio de la empresa original post spin-off (USD)</label>
-              <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (precio de HON después del spin-off)"
+              <label style={lbl}>Costo promedio de {spinoffOriginal || 'la empresa original'} después del spin-off (según tu broker)</label>
+              <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (costo promedio según el Broker)"
                 value={spinoffOriginalNewPrice || ''}
                 onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
