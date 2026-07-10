@@ -347,7 +347,7 @@ setWalletPnL(pnlMap)
         : Number(tr.entry_price),
     })))
     setSpinoffLoading(false)
-  }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType])
+  }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType, spinoffOriginalNewPrice])
 
   const applySpinoff = async () => {
     if (!spinoffPreview.length) return
