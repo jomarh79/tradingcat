@@ -914,7 +914,7 @@ setWalletPnL(pnlMap)
                 ))}
               </div>
 
-              <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
+             <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
               {!spinoffNoOrigin && (
                 <select value={spinoffOriginal} onChange={e => { setSpinoffOriginal(e.target.value); setSpinoffPreview([]) }} style={inp}>
                   <option value="">Selecciona ticker...</option>
@@ -923,7 +923,14 @@ setWalletPnL(pnlMap)
               )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 11, color: '#666', marginBottom: 12 }}>
                 <input type="checkbox" checked={spinoffNoOrigin} onChange={e => {
-                  {spinoffNoOrigin && (
+                  setSpinoffNoOrigin(e.target.checked)
+                  setSpinoffOriginal('')
+                  setSpinoffPreview([])
+                }} />
+                Se desconoce la empresa origen
+              </label>
+
+              {spinoffNoOrigin && (
                 <>
                   <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
                   <select value={spinoffPortfolio} onChange={e => setSpinoffPortfolio(e.target.value)} style={inp}>
@@ -932,14 +939,6 @@ setWalletPnL(pnlMap)
                   </select>
                 </>
               )}
-              <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
-
-                  setSpinoffNoOrigin(e.target.checked)
-                  setSpinoffOriginal('')
-                  setSpinoffPreview([])
-                }} />
-                Se desconoce la empresa origen
-              </label>
 
               <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
               <input placeholder="Ej: HONA" value={spinoffNew}
