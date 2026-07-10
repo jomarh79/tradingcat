@@ -358,11 +358,14 @@ setWalletPnL(pnlMap)
       if (!user) throw new Error('No autenticado')
 
       for (const tr of spinoffPreview) {
-        // Si es con reducción, ajustar precio de la posición original
+        // Si es con reducción, ajustar precio Y cantidad de la posición original
         if (spinoffType === 'with_reduction' && tr.priceOriginalAfter > 0) {
           await supabase.from('trades').update({
-            entry_price: tr.priceOriginalAfter,
+            entry_price:         tr.priceOriginalAfter,
             initial_entry_price: tr.priceOriginalAfter,
+            quantity:            tr.qtyNew, // misma cantidad que HONA
+            initial_quantity:    tr.qtyNew,
+            total_invested:      parseFloat((tr.qtyNew * tr.priceOriginalAfter).toFixed(2)),
           }).eq('id', tr.id)
         }
 
