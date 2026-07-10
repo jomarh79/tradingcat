@@ -93,6 +93,8 @@ export default function PortafoliosPage() {
   const [spinoffLoading,    setSpinoffLoading]    = useState(false)
   const [spinoffSaving,     setSpinoffSaving]     = useState(false)
   const [spinoffOriginalNewPrice, setSpinoffOriginalNewPrice] = useState('')
+  const [spinoffNoOrigin, setSpinoffNoOrigin] = useState(false)
+  const [spinoffPortfolio, setSpinoffPortfolio] = useState('')
 
   // Cambio de ticker
   const [showTickerChange,  setShowTickerChange]  = useState(false)
@@ -323,11 +325,29 @@ setWalletPnL(pnlMap)
 
 // ── Spin-off preview ─────────────────────────────────────────────────────
   const previewSpinoff = useCallback(async () => {
-    const original = spinoffOriginal.trim().toUpperCase()
     const newTick  = spinoffNew.trim().toUpperCase()
     const ratio    = parseFloat(spinoffRatio)
-    if (!original || !newTick || isNaN(ratio) || ratio <= 0) return
+    if (!newTick || isNaN(ratio) || ratio <= 0) return
     setSpinoffLoading(true)
+
+    // Caso sin empresa origen — crear preview sintético
+    if (spinoffNoOrigin) {
+      setSpinoffPreview([{
+        id: null,
+        ticker: '—',
+        qtyOriginal: 0,
+        qtyNew: ratio, // aquí ratio ES la cantidad directa
+        priceNew: parseFloat(spinoffNewPrice || '0'),
+        totalInvested: 0,
+        priceOriginalAfter: 0,
+        noOrigin: true,
+      }])
+      setSpinoffLoading(false)
+      return
+    }
+
+    const original = spinoffOriginal.trim().toUpperCase()
+    if (!original) { setSpinoffLoading(false); return }
     const { data: trades } = await supabase
       .from('trades')
       .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested')
@@ -358,6 +378,27 @@ setWalletPnL(pnlMap)
       if (!user) throw new Error('No autenticado')
 
       for (const tr of spinoffPreview) {
+        // Caso sin origen — solo crear el nuevo trade sin modificar nada
+        if (tr.noOrigin) {
+          const totalInvNew = parseFloat((tr.qtyNew * tr.priceNew).toFixed(2))
+          const { data: anyTrade } = await supabase.from('trades').select('portfolio_id').eq('user_id', user.id).limit(1).single()
+          await supabase.from('trades').insert({
+            user_id:             user.id,
+            portfolio_id: spinoffPortfolio,
+            ticker:              spinoffNew.trim().toUpperCase(),
+            type:                'long',
+            status:              'open',
+            quantity:            tr.qtyNew,
+            entry_price:         tr.priceNew,
+            initial_quantity:    tr.qtyNew,
+            initial_entry_price: tr.priceNew,
+            total_invested:      totalInvNew,
+            open_date:           new Date().toLocaleDateString('sv-SE'),
+            notes:               `Spin-off recibido — empresa origen no registrada`,
+          })
+          continue
+        }
+
         // Si es con reducción, ajustar precio Y cantidad de la posición original
         if (spinoffType === 'with_reduction' && tr.priceOriginalAfter > 0) {
           await supabase.from('trades').update({
@@ -874,18 +915,49 @@ setWalletPnL(pnlMap)
               </div>
 
               <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
-              <select value={spinoffOriginal} onChange={e => { setSpinoffOriginal(e.target.value); setSpinoffPreview([]) }} style={inp}>
-                <option value="">Selecciona ticker...</option>
-                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              {!spinoffNoOrigin && (
+                <select value={spinoffOriginal} onChange={e => { setSpinoffOriginal(e.target.value); setSpinoffPreview([]) }} style={inp}>
+                  <option value="">Selecciona ticker...</option>
+                  {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 11, color: '#666', marginBottom: 12 }}>
+                <input type="checkbox" checked={spinoffNoOrigin} onChange={e => {
+                  {spinoffNoOrigin && (
+                <>
+                  <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
+                  <select value={spinoffPortfolio} onChange={e => setSpinoffPortfolio(e.target.value)} style={inp}>
+                    <option value="">Selecciona portafolio...</option>
+                    {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </>
+              )}
+                  setSpinoffNoOrigin(e.target.checked)
+                  setSpinoffOriginal('')
+                  setSpinoffPreview([])
+                }} />
+                Se desconoce la empresa origen
+              </label>
 
               <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
               <input placeholder="Ej: HONA" value={spinoffNew}
                 onChange={e => { setSpinoffNew(e.target.value.toUpperCase()); setSpinoffPreview([]) }} style={inp} />
 
-              <label style={lbl}>Ratio: acciones nuevas por cada acción original</label>
-              <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.5 (1 nueva por cada 2 originales)" value={spinoffRatio}
-                onChange={e => { setSpinoffRatio(e.target.value); setSpinoffPreview([]) }} style={inp} />
+              {!spinoffNoOrigin && (
+                <>
+                  <label style={lbl}>Ratio: acciones nuevas por cada acción original</label>
+                  <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.5 (1 nueva por cada 2 originales)" value={spinoffRatio}
+                    onChange={e => { setSpinoffRatio(e.target.value); setSpinoffPreview([]) }} style={inp} />
+                </>
+              )}
+
+              {spinoffNoOrigin && (
+                <>
+                  <label style={lbl}>Cantidad de acciones recibidas</label>
+                  <input type="number" min="0.000001" step="0.000001" placeholder="Ej: 0.025" value={spinoffRatio}
+                    onChange={e => { setSpinoffRatio(e.target.value); setSpinoffPreview([]) }} style={inp} />
+                </>
+              )}
 
               <label style={lbl}>Precio de apertura de la nueva empresa (USD)</label>
               <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
@@ -896,7 +968,7 @@ setWalletPnL(pnlMap)
                 value={spinoffOriginalNewPrice || ''}
                 onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
-              <button onClick={previewSpinoff} disabled={spinoffLoading || !spinoffOriginal || !spinoffNew || !spinoffRatio}
+              <button onClick={previewSpinoff} disabled={spinoffLoading || (!spinoffNoOrigin && !spinoffOriginal) || !spinoffNew || !spinoffRatio || (spinoffNoOrigin && !spinoffPortfolio)}
                 style={{ width: '100%', padding: 10, background: '#1a1a2e', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!spinoffOriginal || !spinoffNew || !spinoffRatio) ? 0.4 : 1 }}>
                 {spinoffLoading ? 'Calculando...' : 'Previsualizar spin-off'}
               </button>
@@ -920,8 +992,10 @@ setWalletPnL(pnlMap)
                           <>
                             <tr key={`${i}-q`} style={{ borderBottom: '1px solid #0a0a0a' }}>
                               <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Cantidad acciones</td>
-                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{tr.qtyOriginal} {spinoffOriginal}</td>
-                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>{tr.qtyNew} {spinoffNew}</td>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>
+                              {tr.noOrigin ? '—' : `${tr.qtyOriginal} ${spinoffOriginal}`}
+                            </td>
+                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>{tr.qtyNew} {spinoffNew}</td>
                             </tr>
                             {spinoffType === 'with_reduction' && (
                               <tr key={`${i}-p`} style={{ borderBottom: '1px solid #0a0a0a' }}>
