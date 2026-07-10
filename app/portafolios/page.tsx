@@ -932,9 +932,8 @@ setWalletPnL(pnlMap)
                   </select>
                 </>
               )}
-
               <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
-              
+
                   setSpinoffNoOrigin(e.target.checked)
                   setSpinoffOriginal('')
                   setSpinoffPreview([])
