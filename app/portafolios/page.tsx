@@ -972,7 +972,7 @@ setWalletPnL(pnlMap)
                 </>
               )}
 
-              <button onClick={previewSpinoff} disabled={spinoffLoading || (!spinoffNoOrigin && !spinoffOriginal) || !spinoffNew || !spinoffRatio || (spinoffNoOrigin && !spinoffPortfolio)}
+              <button onClick={previewSpinoff} disabled={spinoffLoading || (!spinoffNoOrigin && !spinoffOriginal) || !spinoffNew || !spinoffRatio}
                 style={{ width: '100%', padding: 10, background: '#1a1a2e', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!spinoffOriginal || !spinoffNew || !spinoffRatio) ? 0.4 : 1 }}>
                 {spinoffLoading ? 'Calculando...' : 'Previsualizar spin-off'}
               </button>
