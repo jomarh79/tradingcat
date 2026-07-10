@@ -5,7 +5,15 @@ import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
 import Link from 'next/link'
-import { Wallet, Plus, GitBranch, History, ArrowLeftRight } from 'lucide-react'
+import {
+  Wallet,
+  Plus,
+  GitBranch,
+  History,
+  ArrowLeftRight,
+  ChevronDown,
+  Briefcase
+} from 'lucide-react'
 
 const GRUPOS: Record<string, { label: string, color: string, desc: string }> = {
   largo:   { label: 'Largo plazo + ETFs',        color: '#22c55e', desc: 'El gato paciente acumula la mayor riqueza' },
@@ -55,6 +63,7 @@ export default function PortafoliosPage() {
 
   // Transferencia entre cuentas
   const [showTransfer,    setShowTransfer]    = useState(false)
+  const [showActions, setShowActions] = useState(false)
   const [transferFrom,    setTransferFrom]    = useState('')
   const [transferTo,      setTransferTo]      = useState('')
   const [transferAmount,  setTransferAmount]  = useState('')
@@ -72,6 +81,33 @@ export default function PortafoliosPage() {
   const [splitLoading,   setSplitLoading]   = useState(false)
   const [splitSaving,    setSplitSaving]    = useState(false)
   const [allOpenTickers, setAllOpenTickers] = useState<string[]>([])
+
+  // Spin-off
+  const [showSpinoff,       setShowSpinoff]       = useState(false)
+  const [spinoffType,       setSpinoffType]       = useState<'with_reduction' | 'without_reduction'>('without_reduction')
+  const [spinoffOriginal,   setSpinoffOriginal]   = useState('')
+  const [spinoffNew,        setSpinoffNew]        = useState('')
+  const [spinoffRatio,      setSpinoffRatio]      = useState('') // acciones nuevas por cada X originales
+  const [spinoffNewPrice,   setSpinoffNewPrice]   = useState('')
+  const [spinoffPreview,    setSpinoffPreview]    = useState<any[]>([])
+  const [spinoffLoading,    setSpinoffLoading]    = useState(false)
+  const [spinoffSaving,     setSpinoffSaving]     = useState(false)
+
+  // Cambio de ticker
+  const [showTickerChange,  setShowTickerChange]  = useState(false)
+  const [tickerChangeFrom,  setTickerChangeFrom]  = useState('')
+  const [tickerChangeTo,    setTickerChangeTo]    = useState('')
+  const [tickerChangeSaving,setTickerChangeSaving]= useState(false)
+
+  // Fusión
+  const [showMerger,        setShowMerger]        = useState(false)
+  const [mergerTicker,      setMergerTicker]      = useState('')
+  const [mergerRatio,       setMergerRatio]       = useState('') // X acciones nuevas por cada 1 antigua
+  const [mergerNewTicker,   setMergerNewTicker]   = useState('')
+  const [mergerPreview,     setMergerPreview]     = useState<any[]>([])
+  const [mergerLoading,     setMergerLoading]     = useState(false)
+  const [mergerSaving,      setMergerSaving]      = useState(false)
+
 
   const fetchPortfolios = useCallback(async (userId: string) => {
     const { data: pData } = await supabase
@@ -284,6 +320,150 @@ setWalletPnL(pnlMap)
     setSplitLoading(false)
   }, [splitTicker, splitFrom, splitTo, splitType])
 
+// ── Spin-off preview ─────────────────────────────────────────────────────
+  const previewSpinoff = useCallback(async () => {
+    const original = spinoffOriginal.trim().toUpperCase()
+    const newTick  = spinoffNew.trim().toUpperCase()
+    const ratio    = parseFloat(spinoffRatio)
+    if (!original || !newTick || isNaN(ratio) || ratio <= 0) return
+    setSpinoffLoading(true)
+    const { data: trades } = await supabase
+      .from('trades')
+      .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested')
+      .eq('ticker', original)
+      .eq('status', 'open')
+    if (!trades?.length) { setSpinoffPreview([]); setSpinoffLoading(false); return }
+    setSpinoffPreview(trades.map(tr => ({
+      id:          tr.id,
+      ticker:      tr.ticker,
+      qtyOriginal: parseFloat(Number(tr.quantity).toFixed(6)),
+      qtyNew:      parseFloat((Number(tr.quantity) * ratio).toFixed(6)),
+      priceNew:    parseFloat(spinoffNewPrice || '0'),
+      totalInvested: tr.total_invested,
+      // Si es con reducción, el precio original se ajusta
+      priceOriginalAfter: spinoffType === 'with_reduction' && spinoffNewPrice
+        ? parseFloat((Number(tr.entry_price) - parseFloat(spinoffNewPrice) * ratio).toFixed(4))
+        : Number(tr.entry_price),
+    })))
+    setSpinoffLoading(false)
+  }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType])
+
+  const applySpinoff = async () => {
+    if (!spinoffPreview.length) return
+    setSplitSaving(true) // reutilizamos el estado de saving
+    setSpinoffSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+
+      for (const tr of spinoffPreview) {
+        // Si es con reducción, ajustar precio de la posición original
+        if (spinoffType === 'with_reduction' && tr.priceOriginalAfter > 0) {
+          await supabase.from('trades').update({
+            entry_price: tr.priceOriginalAfter,
+            initial_entry_price: tr.priceOriginalAfter,
+          }).eq('id', tr.id)
+        }
+
+        // Crear nuevo trade para la empresa spin-off
+        if (tr.priceNew > 0 && tr.qtyNew > 0) {
+          const totalInvNew = parseFloat((tr.qtyNew * tr.priceNew).toFixed(2))
+          await supabase.from('trades').insert({
+            user_id:              user.id,
+            portfolio_id:         (await supabase.from('trades').select('portfolio_id').eq('id', tr.id).single()).data?.portfolio_id,
+            ticker:               spinoffNew.trim().toUpperCase(),
+            type:                 'long',
+            status:               'open',
+            quantity:             tr.qtyNew,
+            entry_price:          tr.priceNew,
+            initial_quantity:     tr.qtyNew,
+            initial_entry_price:  tr.priceNew,
+            total_invested:       totalInvNew,
+            open_date:            new Date().toLocaleDateString('sv-SE'),
+            notes:                `Spin-off de ${spinoffOriginal.toUpperCase()} — ratio ${spinoffRatio}:1`,
+          })
+        }
+      }
+
+      alert(`Spin-off aplicado. ${spinoffPreview.length} trade(s) de ${spinoffNew.toUpperCase()} creados.`)
+      setShowSpinoff(false)
+      setSpinoffPreview([])
+      setSpinoffOriginal(''); setSpinoffNew(''); setSpinoffRatio(''); setSpinoffNewPrice('')
+    } catch (err) { alert('Error: ' + err) }
+    finally { setSpinoffSaving(false) }
+  }
+
+  // ── Cambio de ticker ─────────────────────────────────────────────────────
+  const applyTickerChange = async () => {
+    const from = tickerChangeFrom.trim().toUpperCase()
+    const to   = tickerChangeTo.trim().toUpperCase()
+    if (!from || !to) return alert('Completa ambos tickers')
+    if (!confirm(`¿Cambiar ticker ${from} → ${to} en todos los trades abiertos?`)) return
+    setTickerChangeSaving(true)
+    try {
+      await supabase.from('trades').update({ ticker: to }).eq('ticker', from).eq('status', 'open')
+      await supabase.from('watchlist').update({ ticker: to }).eq('ticker', from)
+      alert(`Ticker cambiado de ${from} a ${to}.`)
+      setShowTickerChange(false)
+      setTickerChangeFrom(''); setTickerChangeTo('')
+    } catch (err) { alert('Error: ' + err) }
+    finally { setTickerChangeSaving(false) }
+  }
+
+  // ── Fusión ────────────────────────────────────────────────────────────────
+  const previewMerger = useCallback(async () => {
+    const ticker = mergerTicker.trim().toUpperCase()
+    const ratio  = parseFloat(mergerRatio)
+    if (!ticker || isNaN(ratio) || ratio <= 0) return
+    setMergerLoading(true)
+    const { data: trades } = await supabase
+      .from('trades')
+      .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested')
+      .eq('ticker', ticker)
+      .eq('status', 'open')
+    if (!trades?.length) { setMergerPreview([]); setMergerLoading(false); return }
+    setMergerPreview(trades.map(tr => ({
+      id:         tr.id,
+      ticker:     tr.ticker,
+      qtyBefore:  parseFloat(Number(tr.quantity).toFixed(6)),
+      qtyAfter:   parseFloat((Number(tr.quantity) * ratio).toFixed(6)),
+      priceAfter: parseFloat((Number(tr.entry_price) / ratio).toFixed(4)),
+      totalInvested: tr.total_invested,
+    })))
+    setMergerLoading(false)
+  }, [mergerTicker, mergerRatio])
+
+  const applyMerger = async () => {
+    if (!mergerPreview.length) return
+    setMergerSaving(true)
+    try {
+      const newTick = mergerNewTicker.trim().toUpperCase() || mergerTicker.trim().toUpperCase()
+      for (const tr of mergerPreview) {
+        await supabase.from('trades').update({
+          ticker:               newTick,
+          quantity:             tr.qtyAfter,
+          initial_quantity:     tr.qtyAfter,
+          entry_price:          tr.priceAfter,
+          initial_entry_price:  tr.priceAfter,
+        }).eq('id', tr.id)
+        // Actualizar ejecuciones
+        const { data: execs } = await supabase.from('trade_executions').select('id,price,quantity').eq('trade_id', tr.id)
+        if (execs?.length) {
+          for (const e of execs) {
+            await supabase.from('trade_executions').update({
+              quantity: parseFloat((Number(e.quantity) * parseFloat(mergerRatio)).toFixed(6)),
+              price:    parseFloat((Number(e.price) / parseFloat(mergerRatio)).toFixed(4)),
+            }).eq('id', e.id)
+          }
+        }
+      }
+      alert(`Fusión aplicada. ${mergerPreview.length} trade(s) actualizados${newTick !== mergerTicker.toUpperCase() ? ` con nuevo ticker ${newTick}` : ''}.`)
+      setShowMerger(false)
+      setMergerPreview([]); setMergerTicker(''); setMergerRatio(''); setMergerNewTicker('')
+    } catch (err) { alert('Error: ' + err) }
+    finally { setMergerSaving(false) }
+  }
+
   const applySplit = async () => {
     if (!splitPreview.length) return
     setSplitSaving(true)
@@ -361,17 +541,68 @@ setWalletPnL(pnlMap)
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setShowSplit(true)} style={splitBtn}>
-              <GitBranch size={13} /> Split
-            </button>
-            <button onClick={() => setShowTransfer(true)} style={transferBtn}>
-              <ArrowLeftRight size={13} /> Transferir
-            </button>
-            <button onClick={() => setShowModal(true)} style={createBtn}>
-              <Plus size={14} /> Nueva billetera
-            </button>
-          </div>
+          <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+
+  <button
+    onClick={() => setShowActions(!showActions)}
+    style={actionsBtn}
+  >
+    <Briefcase size={13} />
+    Acciones
+    <ChevronDown size={12} />
+  </button>
+
+  {showActions && (
+    <div style={actionsMenu}>
+
+      <button
+        onClick={() => {
+          setShowActions(false)
+          setShowSplit(true)
+        }}
+        style={menuBtn}
+      >
+        <GitBranch size={13} />
+        Split
+      </button>
+
+      <button
+        onClick={() => {
+          setShowActions(false)
+          setShowTransfer(true)
+        }}
+        style={menuBtn}
+      >
+        <ArrowLeftRight size={13} />
+        Transferir
+      </button>
+
+      <hr style={{ borderColor: '#222', margin: '6px 0' }} />
+
+      <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={menuBtn}>
+        <GitBranch size={13} />
+        Spin-off
+      </button>
+
+      <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={menuBtn}>
+        <ArrowLeftRight size={13} />
+        Cambio de ticker
+      </button>
+
+      <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={menuBtn}>
+        <ArrowLeftRight size={13} />
+        Fusión / Adquisición
+      </button>
+
+    </div>
+  )}
+
+  <button onClick={() => setShowModal(true)} style={createBtn}>
+    <Plus size={14} />
+    Nueva billetera
+  </button>
+
+</div>
         </div>
 
         {/* ── TABLAS POR GRUPO ── */}
@@ -603,6 +834,213 @@ setWalletPnL(pnlMap)
               <button onClick={() => { setShowTransfer(false); setTransferAmount(''); setTransferNotes('') }} style={cancelBtn}>
                 Cancelar
               </button>
+            </div>
+          </div>
+        )}
+
+{/* ════ MODAL SPIN-OFF ════ */}
+        {showSpinoff && (
+          <div style={overlay}>
+            <div style={{ ...modalBox, width: 540, maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <GitBranch size={16} color="#a78bfa" />
+                  <h2 style={{ margin: 0, fontSize: 15 }}>Registrar Spin-off</h2>
+                </div>
+                <button onClick={() => { setShowSpinoff(false); setSpinoffPreview([]) }}
+                  style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+
+              {/* Tipo de spin-off */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+                {([
+                  { value: 'without_reduction', label: 'Sin reducción', desc: 'La empresa original conserva todas sus acciones. Recibes acciones nuevas adicionales.' },
+                  { value: 'with_reduction',    label: 'Con reducción',  desc: 'El precio de la empresa original se ajusta. Ej: HON → HON + HONA con precio ajustado.' },
+                ] as const).map(t => (
+                  <button key={t.value} onClick={() => { setSpinoffType(t.value); setSpinoffPreview([]) }} style={{
+                    background: spinoffType === t.value ? 'rgba(167,139,250,0.1)' : '#0a0a0a',
+                    border: `1px solid ${spinoffType === t.value ? '#a78bfa' : '#222'}`,
+                    color: spinoffType === t.value ? '#a78bfa' : '#888',
+                    padding: '10px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 11, textAlign: 'left',
+                  }}>
+                    {t.label}
+                    <div style={{ fontSize: 9, fontWeight: 400, marginTop: 3, opacity: 0.7, lineHeight: 1.4 }}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
+              <select value={spinoffOriginal} onChange={e => { setSpinoffOriginal(e.target.value); setSpinoffPreview([]) }} style={inp}>
+                <option value="">Selecciona ticker...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+
+              <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
+              <input placeholder="Ej: HONA" value={spinoffNew}
+                onChange={e => { setSpinoffNew(e.target.value.toUpperCase()); setSpinoffPreview([]) }} style={inp} />
+
+              <label style={lbl}>Ratio: acciones nuevas por cada acción original</label>
+              <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.5 (1 nueva por cada 2 originales)" value={spinoffRatio}
+                onChange={e => { setSpinoffRatio(e.target.value); setSpinoffPreview([]) }} style={inp} />
+
+              <label style={lbl}>Precio de apertura de la nueva empresa (USD)</label>
+              <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
+                onChange={e => { setSpinoffNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
+
+              <button onClick={previewSpinoff} disabled={spinoffLoading || !spinoffOriginal || !spinoffNew || !spinoffRatio}
+                style={{ width: '100%', padding: 10, background: '#1a1a2e', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!spinoffOriginal || !spinoffNew || !spinoffRatio) ? 0.4 : 1 }}>
+                {spinoffLoading ? 'Calculando...' : 'Previsualizar spin-off'}
+              </button>
+
+              {spinoffPreview.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
+                    {spinoffPreview.length} posición(es) afectada(s)
+                  </div>
+                  <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#0a0a0a' }}>
+                          {['Campo', 'Original', 'Spin-off'].map(h => (
+                            <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {spinoffPreview.map((tr, i) => (
+                          <>
+                            <tr key={`${i}-q`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Cantidad acciones</td>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{tr.qtyOriginal} {spinoffOriginal}</td>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>{tr.qtyNew} {spinoffNew}</td>
+                            </tr>
+                            {spinoffType === 'with_reduction' && (
+                              <tr key={`${i}-p`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Precio original ajustado</td>
+                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>—</td>
+                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>${tr.priceOriginalAfter}</td>
+                              </tr>
+                            )}
+                            <tr key={`${i}-np`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Precio apertura {spinoffNew}</td>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>—</td>
+                              <td style={{ padding: '6px 12px', fontSize: 11, color: '#22c55e', fontWeight: 600 }}>${tr.priceNew}</td>
+                            </tr>
+                          </>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button onClick={applySpinoff} disabled={spinoffSaving} style={{
+                    width: '100%', padding: 12, background: '#a78bfa', color: '#000',
+                    border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
+                    opacity: spinoffSaving ? 0.6 : 1,
+                  }}>
+                    {spinoffSaving ? 'Aplicando...' : 'Confirmar spin-off'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL CAMBIO DE TICKER ════ */}
+        {showTickerChange && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <ArrowLeftRight size={16} color="#00bfff" />
+                <h2 style={{ margin: 0, fontSize: 15 }}>Cambio de ticker</h2>
+              </div>
+              <div style={{ background: 'rgba(0,191,255,0.06)', border: '1px solid rgba(0,191,255,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#00bfff' }}>
+                Actualiza el símbolo del ticker en todos los trades abiertos y watchlist. Úsalo cuando una empresa cambia su símbolo en bolsa.
+              </div>
+              <label style={lbl}>Ticker actual</label>
+              <select value={tickerChangeFrom} onChange={e => setTickerChangeFrom(e.target.value)} style={inp}>
+                <option value="">Selecciona ticker actual...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <label style={lbl}>Nuevo ticker</label>
+              <input placeholder="Ej: META (antes FB)" value={tickerChangeTo}
+                onChange={e => setTickerChangeTo(e.target.value.toUpperCase())} style={inp} />
+              <button onClick={applyTickerChange} disabled={tickerChangeSaving || !tickerChangeFrom || !tickerChangeTo}
+                style={{ ...saveBtn, background: '#0a2a3a', color: '#00bfff', border: '1px solid #00bfff44', opacity: (!tickerChangeFrom || !tickerChangeTo) ? 0.4 : 1 }}>
+                {tickerChangeSaving ? 'Aplicando...' : `Cambiar ${tickerChangeFrom || '...'} → ${tickerChangeTo || '...'}`}
+              </button>
+              <button onClick={() => { setShowTickerChange(false); setTickerChangeFrom(''); setTickerChangeTo('') }} style={cancelBtn}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL FUSIÓN / ADQUISICIÓN ════ */}
+        {showMerger && (
+          <div style={overlay}>
+            <div style={{ ...modalBox, width: 520, maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ArrowLeftRight size={16} color="#eab308" />
+                  <h2 style={{ margin: 0, fontSize: 15 }}>Fusión / Adquisición</h2>
+                </div>
+                <button onClick={() => { setShowMerger(false); setMergerPreview([]) }}
+                  style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+              <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#eab308' }}>
+                En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones se actualizan con la nueva cantidad y precio proporcional.
+              </div>
+              <label style={lbl}>Ticker original (empresa absorbida)</label>
+              <select value={mergerTicker} onChange={e => { setMergerTicker(e.target.value); setMergerPreview([]) }} style={inp}>
+                <option value="">Selecciona ticker...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <label style={lbl}>Nuevo ticker (empresa resultante, opcional si cambia)</label>
+              <input placeholder={`Dejar vacío si conserva ${mergerTicker || 'mismo ticker'}`} value={mergerNewTicker}
+                onChange={e => { setMergerNewTicker(e.target.value.toUpperCase()); setMergerPreview([]) }} style={inp} />
+              <label style={lbl}>Ratio de canje: acciones nuevas por cada acción original</label>
+              <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.4 (recibes 0.4 acciones nuevas por cada 1)" value={mergerRatio}
+                onChange={e => { setMergerRatio(e.target.value); setMergerPreview([]) }} style={inp} />
+              <button onClick={previewMerger} disabled={mergerLoading || !mergerTicker || !mergerRatio}
+                style={{ width: '100%', padding: 10, background: '#1a1200', color: '#eab308', border: '1px solid #eab308', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!mergerTicker || !mergerRatio) ? 0.4 : 1 }}>
+                {mergerLoading ? 'Calculando...' : 'Previsualizar fusión'}
+              </button>
+              {mergerPreview.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
+                    {mergerPreview.length} posición(es) afectada(s)
+                  </div>
+                  <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#0a0a0a' }}>
+                          {['Campo', 'Antes', 'Después'].map(h => (
+                            <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mergerPreview.flatMap((tr, i) => [
+                          { label: 'Ticker',    before: tr.ticker,            after: mergerNewTicker || tr.ticker },
+                          { label: 'Cantidad',  before: tr.qtyBefore,         after: tr.qtyAfter },
+                          { label: 'Precio',    before: `$${Number(tr.qtyBefore > 0 ? tr.totalInvested / tr.qtyBefore : 0).toFixed(2)}`, after: `$${tr.priceAfter}` },
+                          { label: 'Capital',   before: `$${Number(tr.totalInvested).toFixed(2)}`, after: `$${Number(tr.totalInvested).toFixed(2)}` },
+                        ].map((row, ri) => (
+                          <tr key={`${i}-${ri}`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>{row.label}</td>
+                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{row.before}</td>
+                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>{row.after}</td>
+                          </tr>
+                        )))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button onClick={applyMerger} disabled={mergerSaving} style={{
+                    width: '100%', padding: 12, background: '#eab308', color: '#000',
+                    border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
+                    opacity: mergerSaving ? 0.6 : 1,
+                  }}>
+                    {mergerSaving ? 'Aplicando...' : 'Confirmar fusión'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -848,3 +1286,7 @@ const actionBtn = (bg: string, color: string): React.CSSProperties => ({
 const createBtn: React.CSSProperties  = { background: '#22c55e', border: 'none', color: '#000', padding: '9px 16px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
 const splitBtn: React.CSSProperties   = { background: 'transparent', border: '1px solid #eab308', color: '#eab308', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
 const transferBtn: React.CSSProperties = { background: 'transparent', border: '1px solid #a78bfa', color: '#a78bfa', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const actionsBtn: React.CSSProperties = { background: '#111', border: '1px solid #333', color: '#ccc', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const actionsMenu: React.CSSProperties = { position: 'absolute', top: '110%', right: 0, background: '#111', border: '1px solid #222', borderRadius: 10, padding: '8px 0', minWidth: 200, zIndex: 100, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }
+const menuBtn: React.CSSProperties = { width: '100%', background: 'none', border: 'none', color: '#ccc', padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left' }
+const menuBtnDisabled: React.CSSProperties = { width: '100%', background: 'none', border: 'none', color: '#444', padding: '8px 14px', cursor: 'not-allowed', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8 }
