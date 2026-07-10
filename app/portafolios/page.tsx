@@ -963,10 +963,14 @@ setWalletPnL(pnlMap)
               <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
                 onChange={e => { setSpinoffNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
-              <label style={lbl}>Costo promedio de {spinoffOriginal || 'la empresa original'} después del spin-off (según tu broker)</label>
-              <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (costo promedio según el Broker)"
-                value={spinoffOriginalNewPrice || ''}
-                onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
+              {spinoffType === 'with_reduction' && !spinoffNoOrigin && (
+                <>
+                  <label style={lbl}>Costo promedio de {spinoffOriginal || 'la empresa original'} después del spin-off (según tu broker)</label>
+                  <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (costo promedio según GBM)"
+                    value={spinoffOriginalNewPrice || ''}
+                    onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
+                </>
+              )}
 
               <button onClick={previewSpinoff} disabled={spinoffLoading || (!spinoffNoOrigin && !spinoffOriginal) || !spinoffNew || !spinoffRatio || (spinoffNoOrigin && !spinoffPortfolio)}
                 style={{ width: '100%', padding: 10, background: '#1a1a2e', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!spinoffOriginal || !spinoffNew || !spinoffRatio) ? 0.4 : 1 }}>
