@@ -92,6 +92,7 @@ export default function PortafoliosPage() {
   const [spinoffPreview,    setSpinoffPreview]    = useState<any[]>([])
   const [spinoffLoading,    setSpinoffLoading]    = useState(false)
   const [spinoffSaving,     setSpinoffSaving]     = useState(false)
+  const [spinoffOriginalNewPrice, setSpinoffOriginalNewPrice] = useState('')
 
   // Cambio de ticker
   const [showTickerChange,  setShowTickerChange]  = useState(false)
@@ -341,9 +342,22 @@ setWalletPnL(pnlMap)
       priceNew:    parseFloat(spinoffNewPrice || '0'),
       totalInvested: tr.total_invested,
       // Si es con reducción, el precio original se ajusta
-      priceOriginalAfter: spinoffType === 'with_reduction' && spinoffNewPrice
-        ? parseFloat((Number(tr.entry_price) - parseFloat(spinoffNewPrice) * ratio).toFixed(4))
-        : Number(tr.entry_price),
+      priceOriginalAfter: (() => {
+        if (spinoffType !== 'with_reduction') return Number(tr.entry_price)
+        const priceOrig = parseFloat(spinoffOriginalNewPrice || '0')
+        const priceNew  = parseFloat(spinoffNewPrice || '0')
+        if (priceOrig > 0 && priceNew > 0) {
+          // Redistribuir capital proporcionalmente al valor de mercado post spin-off
+          const qtyOrig  = Number(tr.quantity)
+          const qtyNew   = qtyOrig * ratio
+          const valOrig  = qtyOrig * priceOrig
+          const valNew   = qtyNew  * priceNew
+          const total    = valOrig + valNew
+          const invOrig  = Number(tr.total_invested) * (valOrig / total)
+          return parseFloat((invOrig / qtyOrig).toFixed(4))
+        }
+        return Number(tr.entry_price)
+      })(),
     })))
     setSpinoffLoading(false)
   }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType])
@@ -886,6 +900,11 @@ setWalletPnL(pnlMap)
               <label style={lbl}>Precio de apertura de la nueva empresa (USD)</label>
               <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
                 onChange={e => { setSpinoffNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
+
+              <label style={lbl}>Precio de la empresa original post spin-off (USD)</label>
+              <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (precio de HON después del spin-off)"
+                value={spinoffOriginalNewPrice || ''}
+                onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
               <button onClick={previewSpinoff} disabled={spinoffLoading || !spinoffOriginal || !spinoffNew || !spinoffRatio}
                 style={{ width: '100%', padding: 10, background: '#1a1a2e', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!spinoffOriginal || !spinoffNew || !spinoffRatio) ? 0.4 : 1 }}>
