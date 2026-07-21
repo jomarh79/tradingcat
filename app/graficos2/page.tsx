@@ -556,13 +556,13 @@ const now2    = new Date()
               <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
                 {charts.scatterData.length > 0 ? (
                   <div style={{ position: 'relative', height: 220 }}>
-                    <svg width="100%" height={220} style={{ overflow: 'visible' }}>
+                    <svg width="100%" height={220} viewBox="0 0 1200 220" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
                       {(() => {
                         const data = charts.scatterData
                         const maxDays = Math.max(...data.map(d => d.days), 1)
                         const maxPct  = Math.max(...data.map(d => Math.abs(d.pnlPct)), 1)
                         const padX = 40, padY = 20, padR = 16, padB = 30
-                        const W = 600, H = 220
+                        const W = 1200, H = 220
                         const toX = (days: number) => padX + (days / maxDays) * (W - padX - padR)
                         const toY = (pct: number)  => padY + ((maxPct - pct) / (maxPct * 2)) * (H - padY - padB)
                         const zeroY = toY(0)
