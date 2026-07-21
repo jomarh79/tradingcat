@@ -605,6 +605,9 @@ const now2    = new Date()
                   </div>
                 ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
               </ChartCard>
+              </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
 
               {/* ── RENDIMIENTO POR PERÍODO ── */}
             <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
@@ -645,66 +648,21 @@ const now2    = new Date()
                 </tbody>
               </table>
             </ChartCard>
+
+              <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={charts.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 60, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={55} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
+                    <Bar dataKey="pnl" name="PnL" radius={[0,4,4,0]}>
+                      {charts.closeReasonData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
             </div>
-
-              {/* ── Razones de cierre + Rendimiento por período ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={charts.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 60, bottom: 4 }}>
-                  <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                  <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={55} />
-                  <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
-                  <Bar dataKey="pnl" name="PnL" radius={[0,4,4,0]}>
-                    {charts.closeReasonData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: '#050505' }}>
-                    {['Período', 'Tu portafolio', 'S&P 500', 'Diferencia'].map(h => (
-                      <th key={h} style={{
-                        padding: '8px 14px', textAlign: h === 'Período' ? 'left' : 'right',
-                        color: '#555', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
-                        borderBottom: '1px solid #111'
-                      }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(charts.periodRows || []).map(row => (
-                    <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                      <td style={{ padding: '10px 14px', color: '#aaa', fontWeight: 600 }}>{row.label}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
-                        color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
-                        {row.portRend === null ? '—' : `${row.portRend >= 0 ? '+' : ''}${row.portRend}%`}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
-                        color: row.sp500Rend === null ? '#333' : row.sp500Rend >= 0 ? '#60a5fa' : C.loss }}>
-                        {row.sp500Rend === null ? '—' : `${row.sp500Rend >= 0 ? '+' : ''}${row.sp500Rend}%`}
-                      </td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13,
-                        color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
-                        {row.diff === null ? '—' : (
-                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                            {row.diff >= 0 ? '▲' : '▼'} {Math.abs(row.diff)}%
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ChartCard>
-          </div>
-
-          {/* ── Scatter ancho completo ── */}
-          <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={14}>
 
             {/* ── Tabla mejores y peores meses ── */}
             <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={14}>
