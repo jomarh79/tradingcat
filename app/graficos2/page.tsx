@@ -551,8 +551,8 @@ const now2    = new Date()
               </ChartCard>
             </div>
 
-            {/* ── Scatter riesgo/recompensa + Razones de cierre ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14, marginBottom: 14 }}>
+            {/* ── FILA: Razones de cierre + Rendimiento por período ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
               <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
                 {charts.scatterData.length > 0 ? (
                   <div style={{ position: 'relative', height: 220 }}>
@@ -607,7 +607,7 @@ const now2    = new Date()
               </ChartCard>
 
               {/* ── RENDIMIENTO POR PERÍODO ── */}
-            <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={14}>
+            <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#050505' }}>
@@ -645,6 +645,8 @@ const now2    = new Date()
                 </tbody>
               </table>
             </ChartCard>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
 
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
                 <ResponsiveContainer width="100%" height={200}>
