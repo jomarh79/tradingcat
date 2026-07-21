@@ -460,26 +460,6 @@ const now2    = new Date()
               ))}
             </div>
 
-            {/* ── Equity curve ── */}
-            <ChartCard title="Curva de equity" sub="PnL acumulado · trades cerrados" mb={14} extra={<PeriodSelector />}>
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={equityFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                  <defs>
-                    <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={C.accent} stopOpacity={0.25} />
-                      <stop offset="95%" stopColor={C.accent} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                  <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                  <Area type="monotone" dataKey="equity" name="Equity" stroke={C.accent} fill="url(#eqGrad)" strokeWidth={2.5} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
             {/* ── Drawdown + SP500 ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
               <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
