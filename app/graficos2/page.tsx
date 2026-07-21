@@ -552,7 +552,7 @@ const now2    = new Date()
             </div>
 
             {/* ── FILA: Razones de cierre + Rendimiento por período ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14, marginBottom: 14 }}>
               <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
                 {charts.scatterData.length > 0 ? (
                   <div style={{ position: 'relative', height: 220 }}>
@@ -607,7 +607,7 @@ const now2    = new Date()
               </ChartCard>
               </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
 
               {/* ── RENDIMIENTO POR PERÍODO ── */}
             <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
