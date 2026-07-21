@@ -259,21 +259,6 @@ const MONTH_ORDER = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct'
       winRate:    d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0,
     }))
 
-    // Waterfall mensual acumulado
-    let cumPnl = 0
-    monthlyEntries.forEach(([month, d]) => {
-      const prev = cumPnl
-      cumPnl = parseFloat((cumPnl + d.pnl).toFixed(2))
-      monthlyWaterfall.push({
-        month,
-        base:  d.pnl >= 0 ? prev : cumPnl,
-        value: Math.abs(d.pnl),
-        pnl:   d.pnl,
-        fill:  d.pnl >= 0 ? C.gain : C.loss,
-        cumPnl,
-      })
-    })
-
     // Heatmap de WinRate mensual
     const winRateHeatmap = monthlyComparison.map(m => ({
       month: m.month,
