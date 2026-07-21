@@ -471,60 +471,54 @@ const tradesWithUnrealizedPnl = trades.map(t => {
               )}
             </ChartCard>
 
-            {/* ── MAPA DE CALOR SECTOR / MES ── */}
-            <ChartCard title="Rendimiento por sector y mes" sub="PnL de trades cerrados — últimos 12 meses" mb={14}>
-              {charts.heatmapData.length > 0 && charts.sectors.length > 0 ? (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 10 }}>
-                    <thead>
-                      <tr>
-                        <th style={{ padding: '6px 10px', textAlign: 'left', color: '#555', fontWeight: 700, fontSize: 9, letterSpacing: 0.5 }}>SECTOR</th>
-                        {charts.months.map(m => (
-                          <th key={m} style={{ padding: '6px 8px', textAlign: 'center', color: '#555', fontWeight: 700, fontSize: 9, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
-                            {m.toUpperCase()}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {charts.sectors.map(sector => (
-                        <tr key={sector}>
-                          <td style={{ padding: '6px 10px', color: '#aaa', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap', borderBottom: '1px solid #0f0f0f' }}>
-                            {sector}
-                          </td>
-                          {charts.months.map(month => {
-                            const row = charts.heatmapData.find(r => r.month === month)
-                            const val = row?.[sector] ?? null
-                            const maxAbs = Math.max(...charts.heatmapData.flatMap(r =>
-                              charts.sectors.map(s => Math.abs(r[s] ?? 0))
-                            ).filter(Boolean))
-                            const intensity = val !== null && maxAbs > 0 ? Math.abs(val) / maxAbs : 0
-                            const bg = val === null
-                              ? '#0a0a0a'
-                              : val > 0
-                                ? `rgba(34,197,94,${0.08 + intensity * 0.55})`
-                                : `rgba(244,63,94,${0.08 + intensity * 0.55})`
-                            return (
-                              <td key={month} style={{
-                                padding: '6px 8px', textAlign: 'center',
-                                background: bg, borderRadius: 4,
-                                borderBottom: '1px solid #0a0a0a',
-                                color: val === null ? '#333' : val > 0 ? '#22c55e' : '#f43f5e',
-                                fontWeight: val !== null ? 700 : 400,
-                                fontSize: 10, cursor: 'default',
-                              }}
-                                title={val !== null ? `${sector} · ${month}: ${val > 0 ? '+' : ''}$${val.toFixed(2)}` : '—'}
-                              >
-                                {val !== null ? (val > 0 ? `+$${val.toFixed(0)}` : `-$${Math.abs(val).toFixed(0)}`) : '—'}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <EmptyChart message="Se necesitan trades cerrados con sector asignado" height={180} />}
+            {/* ── PnL ACTUAL POR SECTOR ── */}
+            <ChartCard title="PnL actual por sector" sub="Ganancia o pérdida latente agrupada por sector" mb={14}>
+              {charts.tradesWithUnrealizedPnl.length > 0 ? (() => {
+                const sectorMap: Record<string, { pnl: number, invested: number, count: number }> = {}
+                charts.tradesWithUnrealizedPnl.forEach((t: any) => {
+                  const s = t.sector || 'Sin sector'
+                  if (!sectorMap[s]) sectorMap[s] = { pnl: 0, invested: 0, count: 0 }
+                  sectorMap[s].pnl      += t.unrealizedPnl
+                  sectorMap[s].invested += Number(t.total_invested || 0)
+                  sectorMap[s].count    += 1
+                })
+                const data = Object.entries(sectorMap)
+                  .map(([sector, d]) => ({
+                    sector,
+                    pnl:    parseFloat(d.pnl.toFixed(2)),
+                    pct:    d.invested > 0 ? parseFloat((d.pnl / d.invested * 100).toFixed(2)) : 0,
+                    count:  d.count,
+                  }))
+                  .sort((a, b) => b.pnl - a.pnl)
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {data.map((s, i) => {
+                      const maxAbs = Math.max(...data.map(d => Math.abs(d.pnl)))
+                      const width  = maxAbs > 0 ? Math.abs(s.pnl) / maxAbs * 100 : 0
+                      const color  = s.pnl >= 0 ? '#22c55e' : '#f43f5e'
+                      return (
+                        <div key={s.sector}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: 11, color: '#aaa' }}>
+                              {s.sector}
+                              <span style={{ fontSize: 9, color: '#444', marginLeft: 6 }}>{s.count} trade{s.count > 1 ? 's' : ''}</span>
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color }}>
+                              {s.pnl >= 0 ? '+' : ''}{s.pnl.toFixed(2)} USD
+                              <span style={{ fontSize: 9, marginLeft: 6, opacity: 0.7 }}>
+                                ({s.pct >= 0 ? '+' : ''}{s.pct}%)
+                              </span>
+                            </span>
+                          </div>
+                          <div style={{ height: 6, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.6s ease' }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })() : <EmptyChart message="Sin posiciones abiertas" height={180} />}
             </ChartCard>
 
             {/* ── PnL NO REALIZADO POR TICKER ── */}
