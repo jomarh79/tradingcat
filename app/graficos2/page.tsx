@@ -248,7 +248,9 @@ const MONTH_ORDER = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct'
         fill:   val >= 0 ? '#22c55e' : '#f43f5e',
       })
       cumPnl += val
-    })    const monthlyComparison = sortedByMonth.map(([month, d]) => ({
+    })    
+    
+    const monthlyComparison = sortedByMonth.map(([month, d]) => ({
 
       month,
       Portafolio: parseFloat(d.pnl.toFixed(2)),
