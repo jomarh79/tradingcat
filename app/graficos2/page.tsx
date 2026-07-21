@@ -227,9 +227,29 @@ export default function Graficos2Page() {
       pnlDistribution.push({ ticker: t.ticker, pnlPct, color: pnl >= 0 ? C.gain : C.loss })
     })
 
-    const monthlyEntries = Object.entries(monthly).sort(([a], [b]) => a.localeCompare(b))
+const MONTH_ORDER = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+    const sortedByMonth = Object.entries(monthly).sort(([a], [b]) => {
+      const partsA   = a.replace('.','').split(' ')
+      const partsB   = b.replace('.','').split(' ')
+      const yearDiff = parseInt(partsA[1]) - parseInt(partsB[1])
+      if (yearDiff !== 0) return yearDiff
+      return MONTH_ORDER.indexOf(partsA[0].toLowerCase().slice(0,3)) - MONTH_ORDER.indexOf(partsB[0].toLowerCase().slice(0,3))
+    })
 
-    const monthlyComparison = monthlyEntries.map(([month, d]) => ({
+    // Llenar monthlyWaterfall desde sortedByMonth
+    let cumPnl = 0
+    sortedByMonth.forEach(([month, d]: [string, any]) => {
+      const val = parseFloat(d.pnl.toFixed(2))
+      monthlyWaterfall.push({
+        month,
+        value:  val,
+        base:   val >= 0 ? cumPnl : cumPnl + val,
+        cumPnl: parseFloat((cumPnl + val).toFixed(2)),
+        fill:   val >= 0 ? '#22c55e' : '#f43f5e',
+      })
+      cumPnl += val
+    })    const monthlyComparison = sortedByMonth.map(([month, d]) => ({
+
       month,
       Portafolio: parseFloat(d.pnl.toFixed(2)),
       'S&P 500':  parseFloat(d.sp500.toFixed(2)),
@@ -263,15 +283,54 @@ export default function Graficos2Page() {
     const profitFactor = totalLoss > 0 ? totalWin / totalLoss : totalWin
     const maxDD        = drawdownCurve.reduce((min, d) => Math.min(min, d.drawdown), 0)
 
+const now2    = new Date()
+    const periods = [
+      { label: '1 mes',   months: 1  },
+      { label: '3 meses', months: 3  },
+      { label: '6 meses', months: 6  },
+      { label: '1 año',   months: 12 },
+      { label: '3 años',  months: 36 },
+      { label: '5 años',  months: 60 },
+    ]
+    const periodRows = periods.map(p => {
+      const cutoff        = new Date(now2.getFullYear(), now2.getMonth() - p.months, now2.getDate())
+      const periodTrades  = sorted.filter(t => parseDate(t.close_date) >= cutoff)
+      const periodInv     = periodTrades.reduce((a, t) => a + calcInvested(t), 0)
+      const periodPnl     = periodTrades.reduce((a, t) => a + Number(t.realized_pnl || 0), 0)
+      const portRend      = periodInv > 0 ? parseFloat((periodPnl / periodInv * 100).toFixed(2)) : null
+      const cutoffStr     = cutoff.toISOString().split('T')[0]
+      const sp500Keys     = Object.keys(sp500Map).sort()
+      const sp500StartKey = sp500Keys.filter(k => k <= cutoffStr).slice(-1)[0]
+      const sp500EndKey   = sp500Keys.slice(-1)[0]
+      const sp500Start    = sp500StartKey ? sp500Map[sp500StartKey] : null
+      const sp500End      = sp500EndKey   ? sp500Map[sp500EndKey]   : null
+      const sp500Rend     = sp500Start && sp500End
+        ? parseFloat(((sp500End - sp500Start) / sp500Start * 100).toFixed(2))
+        : null
+      const diff = portRend !== null && sp500Rend !== null
+        ? parseFloat((portRend - sp500Rend).toFixed(2))
+        : null
+      return { label: p.label, portRend, sp500Rend, diff }
+    }).reverse()
+
     return {
       equityCurve, drawdownCurve, sp500Curve, capitalAccum,
+
       monthlyComparison, monthlyWaterfall, winRateHeatmap,
       durationData: Object.entries(durationBuckets).map(([bucket, count]) => ({ bucket, count })),
       sectorData: Object.entries(sector)
         .map(([name, d]) => ({ name, value: parseFloat(d.pnl.toFixed(2)), count: d.count }))
         .sort((a, b) => b.value - a.value),
-      weekdayData: Object.entries(weekday)
-        .map(([day, pnl]) => ({ day, pnl: parseFloat(pnl.toFixed(2)) })),
+      weekdayData: (() => {
+        const DAY_ORDER = ['lun','mar','mié','jue','vie','sáb','dom']
+        return Object.entries(weekday)
+          .map(([day, pnl]) => ({ day, pnl: parseFloat((pnl as number).toFixed(2)) }))
+          .sort((a, b) => {
+            const ia = DAY_ORDER.findIndex(d => a.day.toLowerCase().startsWith(d))
+            const ib = DAY_ORDER.findIndex(d => b.day.toLowerCase().startsWith(d))
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+          })
+      })(),
       closeReasonData: Object.entries(closeReason)
         .map(([reason, d]) => ({ reason, pnl: parseFloat(d.pnl.toFixed(2)), count: d.count }))
         .sort((a, b) => b.count - a.count),
@@ -281,7 +340,7 @@ export default function Graficos2Page() {
       maxDD: parseFloat(Math.abs(maxDD).toFixed(2)),
       totalPnL: parseFloat(equity.toFixed(2)),
       totalTrades: sorted.length,
-      wins, losses,
+      wins, losses, periodRows,
       scatterData: sorted.map(t => {
         const inv = calcInvested(t)
         const pnl = Number(t.realized_pnl || 0)
@@ -291,12 +350,12 @@ export default function Graficos2Page() {
         const pnlPct = inv > 0 ? parseFloat(((pnl / inv) * 100).toFixed(2)) : 0
         return { ticker: t.ticker, days, pnlPct, pnl: parseFloat(pnl.toFixed(2)), color: pnl >= 0 ? C.gain : C.loss }
       }),
-      monthlyTable: monthlyEntries.map(([month, d]) => ({
+      monthlyTable: sortedByMonth.map(([month, d]: [string, any]) => ({
         month,
-        pnl: parseFloat(d.pnl.toFixed(2)),
-        trades: d.trades,
-        wins: d.wins,
-        losses: d.trades - d.wins,
+        pnl:     parseFloat(d.pnl.toFixed(2)),
+        trades:  d.trades,
+        wins:    d.wins,
+        losses:  d.trades - d.wins,
         winRate: d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0,
       })).sort((a, b) => b.pnl - a.pnl),
     }
@@ -559,6 +618,46 @@ export default function Graficos2Page() {
                   </div>
                 ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
               </ChartCard>
+
+              {/* ── RENDIMIENTO POR PERÍODO ── */}
+            <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={14}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#050505' }}>
+                    {['Período', 'Tu portafolio', 'S&P 500', 'Diferencia'].map(h => (
+                      <th key={h} style={{
+                        padding: '8px 14px', textAlign: h === 'Período' ? 'left' : 'right',
+                        color: '#555', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                        borderBottom: '1px solid #111'
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(charts.periodRows || []).map(row => (
+                    <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                      <td style={{ padding: '10px 14px', color: '#aaa', fontWeight: 600 }}>{row.label}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
+                        color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
+                        {row.portRend === null ? '—' : `${row.portRend >= 0 ? '+' : ''}${row.portRend}%`}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
+                        color: row.sp500Rend === null ? '#333' : row.sp500Rend >= 0 ? '#60a5fa' : C.loss }}>
+                        {row.sp500Rend === null ? '—' : `${row.sp500Rend >= 0 ? '+' : ''}${row.sp500Rend}%`}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13,
+                        color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
+                        {row.diff === null ? '—' : (
+                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                            {row.diff >= 0 ? '▲' : '▼'} {Math.abs(row.diff)}%
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ChartCard>
 
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
                 <ResponsiveContainer width="100%" height={200}>
