@@ -29,9 +29,12 @@ const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov'
 const MESES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default function DividendosInforme() {
-  const [dividends,   setDividends]   = useState<any[]>([])
-  const [trades,      setTrades]      = useState<any[]>([])
-  const [loading,     setLoading]     = useState(true)
+  const [dividends,    setDividends]    = useState<any[]>([])
+  const [trades,       setTrades]       = useState<any[]>([])
+  const [portfolios,   setPortfolios]   = useState<any[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [filterWallet, setFilterWallet] = useState('all')
+  const [filterYear,   setFilterYear]   = useState<string>('all')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -56,6 +59,12 @@ export default function DividendosInforme() {
     }
     setDividends(allDivs)
 
+    const { data: pData } = await supabase
+      .from('portfolios')
+      .select('id, name')
+      .eq('user_id', user.id)
+    setPortfolios(pData || [])
+
     // Trades abiertos para capital invertido
     const { data: tData } = await supabase
       .from('trades')
@@ -75,21 +84,34 @@ export default function DividendosInforme() {
     return parseFloat((initialInv + buyExtra).toFixed(2))
   }
 
+  const filteredDividends = useMemo(() => {
+    return dividends.filter(d => {
+      const matchWallet = filterWallet === 'all' || d.wallet_id === filterWallet
+      const matchYear   = filterYear === 'all' || parseDate(d.date).getFullYear().toString() === filterYear
+      return matchWallet && matchYear
+    })
+  }, [dividends, filterWallet, filterYear])
+
+  const availableYears = useMemo(() => {
+    const years = new Set(dividends.map(d => parseDate(d.date).getFullYear().toString()))
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [dividends])
+
   const stats = useMemo(() => {
-    if (!dividends.length) return null
+    if (!filteredDividends.length) return null
     const now   = new Date()
     const year  = now.getFullYear()
     const month = now.getMonth()
 
     // ── YTD ──────────────────────────────────────────────────────────────
-    const ytd = dividends.filter(d => {
+    const ytd = filteredDividends.filter(d => {
       const dt = parseDate(d.date)
       return dt.getFullYear() === year
     })
     const ytdTotal = ytd.reduce((a, d) => a + Number(d.amount), 0)
 
     // ── Mes actual ───────────────────────────────────────────────────────
-    const thisMonth = dividends.filter(d => {
+    const thisMonth = filteredDividends.filter(d => {
       const dt = parseDate(d.date)
       return dt.getFullYear() === year && dt.getMonth() === month
     })
@@ -121,7 +143,7 @@ export default function DividendosInforme() {
 
     // ── Meta = promedio histórico anual ──────────────────────────────────
     const byYear: Record<number, number> = {}
-    dividends.forEach(d => {
+    filteredDividends.forEach(d => {
       const y = parseDate(d.date).getFullYear()
       byYear[y] = (byYear[y] || 0) + Number(d.amount)
     })
@@ -136,7 +158,7 @@ export default function DividendosInforme() {
       const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`
       monthly[key] = 0
     }
-    dividends.forEach(d => {
+    filteredDividends.forEach(d => {
       const dt  = parseDate(d.date)
       const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, '0')}`
       if (key in monthly) monthly[key] += Number(d.amount)
@@ -152,7 +174,7 @@ export default function DividendosInforme() {
 
     // ── Top pagadores ────────────────────────────────────────────────────
     const allByTicker: Record<string, number> = {}
-    dividends.forEach(d => {
+    filteredDividends.forEach(d => {
       allByTicker[d.ticker] = (allByTicker[d.ticker] || 0) + Number(d.amount)
     })
     const totalDivAll = Object.values(allByTicker).reduce((a, b) => a + b, 0)
@@ -162,7 +184,7 @@ export default function DividendosInforme() {
       .slice(0, 10)
 
     // ── Empresas que pagan ────────────────────────────────────────────────
-    const tickersPagan = new Set(dividends.map(d => d.ticker)).size
+    const tickersPagan = new Set(filteredDividends.map(d => d.ticker)).size
     const tickersTotal = new Set(trades.map(t => t.ticker)).size
 
     // ── Tiempo para recuperar inversión ──────────────────────────────────
@@ -170,7 +192,7 @@ export default function DividendosInforme() {
 
     // ── Crecimiento YTD vs año anterior ──────────────────────────────────
     const prevYear     = year - 1
-    const prevYtd      = dividends.filter(d => {
+    const prevYtd = filteredDividends.filter(d => {
       const dt = parseDate(d.date)
       return dt.getFullYear() === prevYear && dt.getMonth() <= month
     }).reduce((a, d) => a + Number(d.amount), 0)
@@ -200,9 +222,19 @@ export default function DividendosInforme() {
     // ── Mejor mes histórico ───────────────────────────────────────────────
     const mejorMes = monthlyData.reduce((a, b) => b.total > a.total ? b : a, { label: '—', total: 0 })
 
+    // Crecimiento anual histórico
+    const byYearData: Record<string, number> = {}
+    filteredDividends.forEach(d => {
+      const y = parseDate(d.date).getFullYear().toString()
+      byYearData[y] = (byYearData[y] || 0) + Number(d.amount)
+    })
+    const crecimientoAnual = Object.entries(byYearData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([year, total]) => ({ year, total: parseFloat(total.toFixed(2)) }))
+
     // ── Frecuencia por ticker (simplificada) ─────────────────────────────
     const freqByTicker: Record<string, number> = {}
-    dividends.forEach(d => {
+    filteredDividends.forEach(d => {
       freqByTicker[d.ticker] = (freqByTicker[d.ticker] || 0) + 1
     })
 
@@ -228,8 +260,9 @@ export default function DividendosInforme() {
       mejorMes,
       prevYtd: parseFloat(prevYtd.toFixed(2)),
       year,
+      crecimientoAnual,
     }
-  }, [dividends, trades])
+  }, [filteredDividends, trades])
 
   // ── Score color ──────────────────────────────────────────────────────────
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
@@ -263,7 +296,7 @@ export default function DividendosInforme() {
       <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               💰 Informe ejecutivo
@@ -283,6 +316,41 @@ export default function DividendosInforme() {
             </div>
             <div style={{ fontSize: 9, color: scoreColor(stats.dividendScore), marginTop: 4 }}>/ 100 · {scoreLabel(stats.dividendScore)}</div>
           </div>
+        </div>
+
+        {/* ── Filtros ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          {/* Billeteras */}
+          <button onClick={() => setFilterWallet('all')} style={{
+            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            background: filterWallet === 'all' ? C.gold : C.dim,
+            color: filterWallet === 'all' ? '#000' : C.muted,
+            border: `1px solid ${filterWallet === 'all' ? C.gold : C.border}`,
+          }}>Todas</button>
+          {portfolios.map(p => (
+            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: filterWallet === p.id ? C.gold : C.dim,
+              color: filterWallet === p.id ? '#000' : C.muted,
+              border: `1px solid ${filterWallet === p.id ? C.gold : C.border}`,
+            }}>{p.name}</button>
+          ))}
+          <div style={{ width: 1, background: C.border, margin: '0 4px' }} />
+          {/* Años */}
+          <button onClick={() => setFilterYear('all')} style={{
+            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            background: filterYear === 'all' ? C.accent : C.dim,
+            color: filterYear === 'all' ? '#000' : C.muted,
+            border: `1px solid ${filterYear === 'all' ? C.accent : C.border}`,
+          }}>Todos los años</button>
+          {availableYears.map(y => (
+            <button key={y} onClick={() => setFilterYear(y)} style={{
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: filterYear === y ? C.accent : C.dim,
+              color: filterYear === y ? '#000' : C.muted,
+              border: `1px solid ${filterYear === y ? C.accent : C.border}`,
+            }}>{y}</button>
+          ))}
         </div>
 
         {/* ── Fila 1: KPIs ── */}
@@ -325,21 +393,21 @@ export default function DividendosInforme() {
             }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-            <span style={{ fontSize: 9, color: '#2a2a3a' }}>$0</span>
+            <span style={{ fontSize: 9, color: '#666' }}>$0</span>
             <span style={{ fontSize: 9, color: C.muted }}>{money(stats.ytdTotal)} cobrados</span>
-            <span style={{ fontSize: 9, color: '#2a2a3a' }}>{money(stats.meta)}</span>
+            <span style={{ fontSize: 9, color: '#666' }}>{money(stats.meta)}</span>
           </div>
         </div>
 
-        {/* ── Fila 2: Evolución mensual + Top pagadores ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginBottom: 16 }}>
+        {/* ── Fila 2: Evolución mensual + Top pagadores + Crecimiento anual ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr', gap: 14, marginBottom: 16 }}>
 
           {/* Evolución mensual */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>EVOLUCIÓN MENSUAL</div>
-                <div style={{ fontSize: 9, color: '#2a2a3a', marginTop: 2 }}>Últimos 12 meses</div>
+                <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>Últimos 12 meses</div>
               </div>
               <div style={{ fontSize: 11, color: C.muted }}>
                 Mejor: <span style={{ color: C.gold, fontWeight: 700 }}>{stats.mejorMes.label} {money(stats.mejorMes.total)}</span>
@@ -351,7 +419,7 @@ export default function DividendosInforme() {
                 const isCurrentMonth = i === stats.monthlyData.length - 1
                 return (
                   <div key={m.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    <div style={{ fontSize: 8, color: m.total > 0 ? C.gold : '#2a2a3a', fontWeight: 700, minHeight: 14 }}>
+                    <div style={{ fontSize: 8, color: m.total > 0 ? C.gold : '#666', fontWeight: 700, minHeight: 14 }}>
                       {m.total > 0 ? `$${m.total.toFixed(0)}` : ''}
                     </div>
                     <div style={{
@@ -365,8 +433,8 @@ export default function DividendosInforme() {
                       minHeight: m.total > 0 ? 4 : 0,
                       border: isCurrentMonth ? `1px solid ${C.gold}` : 'none',
                     }} />
-                    <div style={{ fontSize: 7, color: C.muted, whiteSpace: 'nowrap', transform: 'rotate(-30deg)', transformOrigin: 'top center', marginTop: 4 }}>
-                      {m.label.split(' ')[0]}
+                    <div style={{ fontSize: 7, color: C.muted, whiteSpace: 'nowrap', transform: 'rotate(-35deg)', transformOrigin: 'top center', marginTop: 4 }}>
+                      {m.label}
                     </div>
                   </div>
                 )
@@ -382,7 +450,7 @@ export default function DividendosInforme() {
                 <div key={t.ticker}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 9, color: '#2a2a3a', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
+                      <span style={{ fontSize: 9, color: '#666', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{t.ticker}</span>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -397,6 +465,37 @@ export default function DividendosInforme() {
               ))}
             </div>
           </div>
+
+            {/* Crecimiento anual */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>INGRESO PASIVO ANUAL</div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 140 }}>
+              {stats.crecimientoAnual.map((y, i) => {
+                const maxVal = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
+                const h = (y.total / maxVal * 100)
+                const isCurrentYear = y.year === stats.year.toString()
+                return (
+                  <div key={y.year} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 9, color: C.gold, fontWeight: 700, minHeight: 14, textAlign: 'center' }}>
+                      {money(y.total)}
+                    </div>
+                    <div style={{
+                      width: '100%', height: `${Math.max(h, 4)}%`,
+                      background: isCurrentYear
+                        ? `linear-gradient(180deg, ${C.gold}, ${C.goldDim})`
+                        : 'rgba(234,179,8,0.25)',
+                      borderRadius: '4px 4px 0 0',
+                      border: isCurrentYear ? `1px solid ${C.gold}` : 'none',
+                    }} />
+                    <div style={{ fontSize: 10, color: isCurrentYear ? C.gold : C.muted, fontWeight: isCurrentYear ? 700 : 400 }}>
+                      {y.year}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
         </div>
 
         {/* ── Fila 3: Indicadores + Proyección + Recuperación ── */}
@@ -478,7 +577,7 @@ export default function DividendosInforme() {
                 {stats.aniosRecuperacion ? `${stats.aniosRecuperacion.toFixed(1)}` : '—'}
               </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>años</div>
-              <div style={{ fontSize: 9, color: '#2a2a3a', marginTop: 8 }}>
+              <div style={{ fontSize: 9, color: '#666', marginTop: 8 }}>
                 Solo contando dividendos, sin venta de acciones
               </div>
             </div>
@@ -505,7 +604,7 @@ export default function DividendosInforme() {
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
                 <div style={{ fontSize: 18, fontWeight: 900, color: scoreColor(k.score) }}>{k.score}</div>
-                <div style={{ fontSize: 8, color: '#2a2a3a', marginTop: 2 }}>peso {k.pct}%</div>
+                <div style={{ fontSize: 8, color: '#666', marginTop: 2 }}>peso {k.pct}%</div>
                 <div style={{ height: 3, background: C.border, borderRadius: 2, marginTop: 6 }}>
                   <div style={{ width: `${k.score}%`, height: '100%', background: scoreColor(k.score), borderRadius: 2 }} />
                 </div>
