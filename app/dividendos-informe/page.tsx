@@ -438,7 +438,7 @@ export default function DividendosInforme() {
                     <Tooltip
                       contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                       labelStyle={{ color: C.gold, fontWeight: 700 }}
-                      formatter={(v: number) => [money(v), 'Dividendos']}
+                      formatter={(v: number | undefined) => [money(v || 0), 'Dividendos']}
                     />
                     <Area
                       type="monotone"
