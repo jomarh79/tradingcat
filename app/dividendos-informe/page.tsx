@@ -641,4 +641,3 @@ export default function DividendosInforme() {
       </div>
     </AppShell>
   )
-}
