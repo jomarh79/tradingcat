@@ -413,34 +413,61 @@ export default function DividendosInforme() {
                 Mejor: <span style={{ color: C.gold, fontWeight: 700 }}>{stats.mejorMes.label} {money(stats.mejorMes.total)}</span>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 140 }}>
-              {stats.monthlyData.map((m, i) => {
-                const h = maxMonthly > 0 ? (m.total / maxMonthly * 100) : 0
-                const isCurrentMonth = i === stats.monthlyData.length - 1
-                return (
-                  <div key={m.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    <div style={{ fontSize: 8, color: m.total > 0 ? C.gold : '#666', fontWeight: 700, minHeight: 14 }}>
-                      {m.total > 0 ? `$${m.total.toFixed(0)}` : ''}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {/* Barras con tooltip hover */}
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 120, marginBottom: 8 }}>
+                {stats.monthlyData.map((m, i) => {
+                  const h       = maxMonthly > 0 ? (m.total / maxMonthly * 100) : 0
+                  const isCurrentMonth = i === stats.monthlyData.length - 1
+                  const prevTotal = i > 0 ? stats.monthlyData[i - 1].total : 0
+                  const trend   = m.total > prevTotal ? '▲' : m.total < prevTotal ? '▼' : '—'
+                  const tColor  = m.total > prevTotal ? C.gain : m.total < prevTotal ? C.loss : C.muted
+                  return (
+                    <div key={m.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}
+                      title={`${m.label}: ${money(m.total)}`}>
+                      {/* Valor encima */}
+                      <div style={{ fontSize: 8, color: m.total > 0 ? C.gold : '#333', fontWeight: 700, minHeight: 12, textAlign: 'center' }}>
+                        {m.total > 0 ? `$${m.total.toFixed(0)}` : ''}
+                      </div>
+                      {/* Barra */}
+                      <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end' }}>
+                        <div style={{
+                          width: '100%',
+                          height: m.total > 0 ? `${Math.max(h, 6)}%` : '2px',
+                          background: isCurrentMonth
+                            ? `linear-gradient(180deg, ${C.gold}, ${C.goldDim})`
+                            : m.total > 0 ? 'rgba(234,179,8,0.4)' : C.dim,
+                          borderRadius: '3px 3px 0 0',
+                          border: isCurrentMonth ? `1px solid ${C.gold}44` : 'none',
+                          transition: 'height 0.4s ease',
+                          minHeight: m.total > 0 ? 6 : 2,
+                        }} />
+                      </div>
+                      {/* Tendencia */}
+                      {i > 0 && m.total > 0 && (
+                        <div style={{ fontSize: 7, color: tColor, fontWeight: 700 }}>{trend}</div>
+                      )}
                     </div>
-                    <div style={{
-                      width: '100%', height: `${Math.max(h, m.total > 0 ? 4 : 0)}%`,
-                      background: isCurrentMonth
-                        ? `linear-gradient(180deg, ${C.gold}, ${C.goldDim})`
-                        : m.total > 0
-                          ? `rgba(234,179,8,0.35)`
-                          : C.dim,
-                      borderRadius: '4px 4px 0 0',
-                      minHeight: m.total > 0 ? 4 : 0,
-                      border: isCurrentMonth ? `1px solid ${C.gold}` : 'none',
-                    }} />
-                    <div style={{ fontSize: 7, color: C.muted, whiteSpace: 'nowrap', transform: 'rotate(-35deg)', transformOrigin: 'top center', marginTop: 4 }}>
-                      {m.label}
+                  )
+                })}
+              </div>
+              {/* Labels en fila separada */}
+              <div style={{ display: 'flex', gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+                {stats.monthlyData.map((m, i) => {
+                  const isCurrentMonth = i === stats.monthlyData.length - 1
+                  return (
+                    <div key={m.key} style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 7, color: isCurrentMonth ? C.gold : C.muted, fontWeight: isCurrentMonth ? 700 : 400, whiteSpace: 'nowrap' }}>
+                        {m.label.split(' ')[0]}
+                      </div>
+                      <div style={{ fontSize: 6, color: '#444' }}>
+                        {m.label.split(' ')[1]}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
 
           {/* Top pagadores */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
@@ -466,29 +493,27 @@ export default function DividendosInforme() {
             </div>
           </div>
 
-            {/* Crecimiento anual */}
+            {/* Crecimiento anual — lista */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>INGRESO PASIVO ANUAL</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 140 }}>
-              {stats.crecimientoAnual.map((y, i) => {
-                const maxVal = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
-                const h = (y.total / maxVal * 100)
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[...stats.crecimientoAnual].reverse().map((y, i) => {
                 const isCurrentYear = y.year === stats.year.toString()
+                const max = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
+                const pct = (y.total / max * 100)
                 return (
-                  <div key={y.year} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    <div style={{ fontSize: 9, color: C.gold, fontWeight: 700, minHeight: 14, textAlign: 'center' }}>
-                      {money(y.total)}
+                  <div key={y.year}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: isCurrentYear ? 900 : 600, color: isCurrentYear ? C.gold : C.muted }}>
+                        {y.year} {isCurrentYear && <span style={{ fontSize: 8, color: C.goldDim }}>● actual</span>}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: isCurrentYear ? C.gold : C.text }}>
+                        {money(y.total)}
+                      </span>
                     </div>
-                    <div style={{
-                      width: '100%', height: `${Math.max(h, 4)}%`,
-                      background: isCurrentYear
-                        ? `linear-gradient(180deg, ${C.gold}, ${C.goldDim})`
-                        : 'rgba(234,179,8,0.25)',
-                      borderRadius: '4px 4px 0 0',
-                      border: isCurrentYear ? `1px solid ${C.gold}` : 'none',
-                    }} />
-                    <div style={{ fontSize: 10, color: isCurrentYear ? C.gold : C.muted, fontWeight: isCurrentYear ? 700 : 400 }}>
-                      {y.year}
+                    <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2,
+                        background: isCurrentYear ? C.gold : 'rgba(234,179,8,0.25)' }} />
                     </div>
                   </div>
                 )
