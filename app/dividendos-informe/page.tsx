@@ -400,7 +400,7 @@ export default function DividendosInforme() {
         </div>
 
         {/* ── Fila 2: Evolución mensual + Top pagadores + Crecimiento anual ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.5fr 0.5fr', gap: 14, marginBottom: 16 }}>
 
           {/* Evolución mensual */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
