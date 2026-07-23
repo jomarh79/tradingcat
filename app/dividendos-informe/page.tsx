@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AppShell from '../AppShell'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -413,61 +414,43 @@ export default function DividendosInforme() {
                 Mejor: <span style={{ color: C.gold, fontWeight: 700 }}>{stats.mejorMes.label} {money(stats.mejorMes.total)}</span>
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              {/* Barras con tooltip hover */}
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 120, marginBottom: 8 }}>
-                {stats.monthlyData.map((m, i) => {
-                  const h       = maxMonthly > 0 ? (m.total / maxMonthly * 100) : 0
-                  const isCurrentMonth = i === stats.monthlyData.length - 1
-                  const prevTotal = i > 0 ? stats.monthlyData[i - 1].total : 0
-                  const trend   = m.total > prevTotal ? '▲' : m.total < prevTotal ? '▼' : '—'
-                  const tColor  = m.total > prevTotal ? C.gain : m.total < prevTotal ? C.loss : C.muted
-                  return (
-                    <div key={m.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}
-                      title={`${m.label}: ${money(m.total)}`}>
-                      {/* Valor encima */}
-                      <div style={{ fontSize: 8, color: m.total > 0 ? C.gold : '#333', fontWeight: 700, minHeight: 12, textAlign: 'center' }}>
-                        {m.total > 0 ? `$${m.total.toFixed(0)}` : ''}
-                      </div>
-                      {/* Barra */}
-                      <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end' }}>
-                        <div style={{
-                          width: '100%',
-                          height: m.total > 0 ? `${Math.max(h, 6)}%` : '2px',
-                          background: isCurrentMonth
-                            ? `linear-gradient(180deg, ${C.gold}, ${C.goldDim})`
-                            : m.total > 0 ? 'rgba(234,179,8,0.4)' : C.dim,
-                          borderRadius: '3px 3px 0 0',
-                          border: isCurrentMonth ? `1px solid ${C.gold}44` : 'none',
-                          transition: 'height 0.4s ease',
-                          minHeight: m.total > 0 ? 6 : 2,
-                        }} />
-                      </div>
-                      {/* Tendencia */}
-                      {i > 0 && m.total > 0 && (
-                        <div style={{ fontSize: 7, color: tColor, fontWeight: 700 }}>{trend}</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              {/* Labels en fila separada */}
-              <div style={{ display: 'flex', gap: 4, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
-                {stats.monthlyData.map((m, i) => {
-                  const isCurrentMonth = i === stats.monthlyData.length - 1
-                  return (
-                    <div key={m.key} style={{ flex: 1, textAlign: 'center' }}>
-                      <div style={{ fontSize: 7, color: isCurrentMonth ? C.gold : C.muted, fontWeight: isCurrentMonth ? 700 : 400, whiteSpace: 'nowrap' }}>
-                        {m.label.split(' ')[0]}
-                      </div>
-                      <div style={{ fontSize: 6, color: '#444' }}>
-                        {m.label.split(' ')[1]}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-             </div>
+            <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={stats.monthlyData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={C.gold} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={C.gold} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: C.muted, fontSize: 9 }}
+                      axisLine={false} tickLine={false}
+                      tickFormatter={(v: string) => v.split(' ')[0] + ' ' + (v.split(' ')[1] || '')}
+                    />
+                    <YAxis
+                      tick={{ fill: C.muted, fontSize: 9 }}
+                      axisLine={false} tickLine={false}
+                      tickFormatter={(v: number) => `$${v}`}
+                      width={36}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
+                      labelStyle={{ color: C.gold, fontWeight: 700 }}
+                      formatter={(v: number) => [money(v), 'Dividendos']}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="total"
+                      stroke={C.gold}
+                      strokeWidth={2}
+                      fill="url(#goldGrad)"
+                      dot={{ fill: C.gold, r: 3, strokeWidth: 0 }}
+                      activeDot={{ fill: C.gold, r: 5, strokeWidth: 0 }}
+                    />
+                  </AreaChart>
+              </ResponsiveContainer>
             </div>
             
             {/* Top pagadores */}
