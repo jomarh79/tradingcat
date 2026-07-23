@@ -467,9 +467,10 @@ export default function DividendosInforme() {
                   )
                 })}
               </div>
+             </div>
             </div>
-
-          {/* Top pagadores */}
+            
+            {/* Top pagadores */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>TOP PAGADORES HISTÓRICO</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -641,3 +642,4 @@ export default function DividendosInforme() {
       </div>
     </AppShell>
   )
+}
