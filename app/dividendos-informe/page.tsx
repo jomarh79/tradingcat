@@ -103,7 +103,8 @@ export default function DividendosInforme() {
     const now   = new Date()
     const year  = now.getFullYear()
     const month = now.getMonth()
-
+    const selectedYearNum = filterYear === 'all' ? year : parseInt(filterYear)
+    const prevYear        = selectedYearNum - 1
     // ── YTD ──────────────────────────────────────────────────────────────
     const ytd = filteredDividends.filter(d => {
       const dt = parseDate(d.date)
@@ -204,9 +205,6 @@ export default function DividendosInforme() {
     // ── Tiempo para recuperar inversión ──────────────────────────────────
     const aniosRecuperacion = proyeccion > 0 ? totalInvested / proyeccion : null
 
-    // ── Crecimiento YTD vs año anterior ──────────────────────────────────
-    const selectedYearNum = filterYear === 'all' ? year : parseInt(filterYear)
-    const prevYear        = selectedYearNum - 1
     // prevYtd usa dividends sin filtro de año para poder comparar con año anterior
     const prevYtd = dividends.filter(d => {
       const dt = parseDate(d.date)
@@ -280,7 +278,7 @@ export default function DividendosInforme() {
       year,
       crecimientoAnual,
     }
-  }, [filteredDividends, trades, filterWallet])
+  }, [filteredDividends, trades, filterWallet, filterYear])
 
   // ── Score color ──────────────────────────────────────────────────────────
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
