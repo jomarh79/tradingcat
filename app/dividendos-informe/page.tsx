@@ -445,7 +445,7 @@ export default function DividendosInforme() {
                 <Tooltip
                   contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.gold, fontWeight: 700 }}
-                  formatter={(v: number | undefined, name: string) => [money(v || 0), name === 'cumTotal' ? 'Acumulado' : 'Mes']}
+                  formatter={(v: number | undefined, name: string | undefined) => [money(v || 0), name === 'cumTotal' ? 'Acumulado' : 'Mes']}
                 />
                 <Bar dataKey="total" name="Mes" fill="url(#barGrad)" radius={[4, 4, 0, 0]} />
                 <Line type="monotone" dataKey="cumTotal" name="cumTotal" stroke="#00bfff" strokeWidth={2} dot={{ fill: '#00bfff', r: 3, strokeWidth: 0 }} activeDot={{ r: 5 }} />
