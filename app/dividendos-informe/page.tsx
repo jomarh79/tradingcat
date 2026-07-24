@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AppShell from '../AppShell'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -162,7 +162,8 @@ export default function DividendosInforme() {
       const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`
       monthly[key] = 0
     }
-    filteredDividends.forEach(d => {
+    // monthlyData siempre usa TODOS los dividendos sin filtro de año
+    dividends.forEach(d => {
       const dt  = parseDate(d.date)
       const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, '0')}`
       if (key in monthly) monthly[key] += Number(d.amount)
@@ -425,42 +426,31 @@ export default function DividendosInforme() {
               </div>
             </div>
             <ResponsiveContainer width="100%" height={160}>
-                  <AreaChart data={stats.monthlyData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={C.gold} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={C.gold} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: C.muted, fontSize: 9 }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={(v: string) => v.split(' ')[0] + ' ' + (v.split(' ')[1] || '')}
-                    />
-                    <YAxis
-                      tick={{ fill: C.muted, fontSize: 9 }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={(v: number) => `$${v}`}
-                      width={36}
-                    />
-                    <Tooltip
-                      contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-                      labelStyle={{ color: C.gold, fontWeight: 700 }}
-                      formatter={(v: number | undefined) => [money(v || 0), 'Dividendos']}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="total"
-                      stroke={C.gold}
-                      strokeWidth={2}
-                      fill="url(#goldGrad)"
-                      dot={{ fill: C.gold, r: 3, strokeWidth: 0 }}
-                      activeDot={{ fill: C.gold, r: 5, strokeWidth: 0 }}
-                    />
-                  </AreaChart>
-              </ResponsiveContainer>
+              <ComposedChart data={(() => {
+                let cum = 0
+                return stats.monthlyData.map(m => {
+                  cum = parseFloat((cum + m.total).toFixed(2))
+                  return { ...m, cumTotal: cum }
+                })
+              })()} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.9} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.4} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} width={36} />
+                <Tooltip
+                  contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
+                  labelStyle={{ color: C.gold, fontWeight: 700 }}
+                  formatter={(v: number | undefined, name: string) => [money(v || 0), name === 'cumTotal' ? 'Acumulado' : 'Mes']}
+                />
+                <Bar dataKey="total" name="Mes" fill="url(#barGrad)" radius={[4, 4, 0, 0]} />
+                <Line type="monotone" dataKey="cumTotal" name="cumTotal" stroke="#00bfff" strokeWidth={2} dot={{ fill: '#00bfff', r: 3, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
             </div>
             
             {/* Top pagadores */}
