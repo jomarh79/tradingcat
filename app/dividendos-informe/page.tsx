@@ -147,7 +147,7 @@ export default function DividendosInforme() {
 
     // ── Meta = promedio histórico anual ──────────────────────────────────
     const byYear: Record<number, number> = {}
-    filteredDividends.forEach(d => {
+    dividends.forEach(d => {
       const y = parseDate(d.date).getFullYear()
       byYear[y] = (byYear[y] || 0) + Number(d.amount)
     })
