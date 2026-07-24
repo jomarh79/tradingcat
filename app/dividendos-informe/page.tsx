@@ -35,7 +35,7 @@ export default function DividendosInforme() {
   const [portfolios,   setPortfolios]   = useState<any[]>([])
   const [loading,      setLoading]      = useState(true)
   const [filterWallet, setFilterWallet] = useState('all')
-  const [filterYear,   setFilterYear]   = useState<string>('all')
+  const [filterYear,   setFilterYear]   = useState<string>(new Date().getFullYear().toString())
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -69,7 +69,7 @@ export default function DividendosInforme() {
     // Trades abiertos para capital invertido
     const { data: tData } = await supabase
       .from('trades')
-      .select('ticker, total_invested, status, quantity, entry_price, initial_quantity, initial_entry_price, trade_executions(quantity, price, commission, execution_type)')
+      .select('ticker, total_invested, status, quantity, entry_price, initial_quantity, initial_entry_price, portfolio_id, trade_executions(quantity, price, commission, execution_type)')
       .eq('user_id', user.id)
     setTrades(tData || [])
     setLoading(false)
@@ -119,7 +119,10 @@ export default function DividendosInforme() {
     const monthTotal = thisMonth.reduce((a, d) => a + Number(d.amount), 0)
 
     // ── Capital invertido total ───────────────────────────────────────────
-    const totalInvested = trades.reduce((a, t) => a + calcInvested(t), 0)
+    const filteredTrades = filterWallet === 'all'
+      ? trades
+      : trades.filter(t => t.portfolio_id === filterWallet)
+    const totalInvested = filteredTrades.reduce((a, t) => a + calcInvested(t), 0)
 
     // ── Retorno por dividendos ────────────────────────────────────────────
     const retorno = totalInvested > 0 ? (ytdTotal / totalInvested * 100) : 0
@@ -263,7 +266,7 @@ export default function DividendosInforme() {
       year,
       crecimientoAnual,
     }
-  }, [filteredDividends, trades])
+  }, [filteredDividends, trades, filterWallet])
 
   // ── Score color ──────────────────────────────────────────────────────────
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
@@ -338,20 +341,24 @@ export default function DividendosInforme() {
           ))}
           <div style={{ width: 1, background: C.border, margin: '0 4px' }} />
           {/* Años */}
-          <button onClick={() => setFilterYear('all')} style={{
-            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: filterYear === 'all' ? C.accent : C.dim,
-            color: filterYear === 'all' ? '#000' : C.muted,
-            border: `1px solid ${filterYear === 'all' ? C.accent : C.border}`,
-          }}>Todos los años</button>
-          {availableYears.map(y => (
-            <button key={y} onClick={() => setFilterYear(y)} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: filterYear === y ? C.accent : C.dim,
-              color: filterYear === y ? '#000' : C.muted,
-              border: `1px solid ${filterYear === y ? C.accent : C.border}`,
-            }}>{y}</button>
-          ))}
+          <div style={{ position: 'relative' }}>
+            <select
+              value={filterYear}
+              onChange={e => setFilterYear(e.target.value)}
+              style={{
+                background: C.dim, border: `1px solid ${C.border}`,
+                color: C.text, padding: '6px 32px 6px 14px', borderRadius: 8,
+                fontSize: 11, fontWeight: 700, cursor: 'pointer', appearance: 'none',
+                WebkitAppearance: 'none', outline: 'none',
+              }}
+            >
+              <option value="all">Todos los años</option>
+              {availableYears.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
+          </div>
         </div>
 
         {/* ── Fila 1: KPIs ── */}
