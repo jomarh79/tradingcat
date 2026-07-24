@@ -440,7 +440,7 @@ export default function InformeTrades() {
         </div>
 
         {/* ── Fila 3: Top trades + Sectores + Razones ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
 
           {/* Top 5 mejores */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
@@ -509,6 +509,28 @@ export default function InformeTrades() {
             </div>
           </div>
 
+          {/* Razones de cierre */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL POR RAZÓN DE CIERRE</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {stats.reasonData.map((r, i) => {
+                const maxAbs = Math.max(...stats.reasonData.map(x => Math.abs(x.pnl)), 1)
+                const width  = Math.abs(r.pnl) / maxAbs * 100
+                return (
+                  <div key={r.reason}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontSize: 10, color: C.muted }}>{r.reason} <span style={{ color: '#444', fontSize: 8 }}>({r.count})</span></span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: r.pnl >= 0 ? C.gain : C.loss }}>{money(r.pnl)}</span>
+                    </div>
+                    <div style={{ height: 4, background: C.dim, borderRadius: 2 }}>
+                      <div style={{ width: `${width}%`, height: '100%', background: r.pnl >= 0 ? C.gain : C.loss, borderRadius: 2, opacity: 0.75 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
             {/* PnL anual histórico */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL ANUAL</div>
@@ -539,7 +561,7 @@ export default function InformeTrades() {
         </div>
 
         {/* ── Fila 4: Trade Score desglose + Razones cierre ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
 
           {/* Trade Score */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
@@ -570,27 +592,6 @@ export default function InformeTrades() {
             </div>
           </div>
 
-          {/* Razones de cierre */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL POR RAZÓN DE CIERRE</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {stats.reasonData.map((r, i) => {
-                const maxAbs = Math.max(...stats.reasonData.map(x => Math.abs(x.pnl)), 1)
-                const width  = Math.abs(r.pnl) / maxAbs * 100
-                return (
-                  <div key={r.reason}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontSize: 10, color: C.muted }}>{r.reason} <span style={{ color: '#444', fontSize: 8 }}>({r.count})</span></span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: r.pnl >= 0 ? C.gain : C.loss }}>{money(r.pnl)}</span>
-                    </div>
-                    <div style={{ height: 4, background: C.dim, borderRadius: 2 }}>
-                      <div style={{ width: `${width}%`, height: '100%', background: r.pnl >= 0 ? C.gain : C.loss, borderRadius: 2, opacity: 0.75 }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
         </div>
 
       </div>
