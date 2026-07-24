@@ -324,23 +324,7 @@ export default function DividendosInforme() {
 
         {/* ── Filtros ── */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          {/* Billeteras */}
-          <button onClick={() => setFilterWallet('all')} style={{
-            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: filterWallet === 'all' ? C.gold : C.dim,
-            color: filterWallet === 'all' ? '#000' : C.muted,
-            border: `1px solid ${filterWallet === 'all' ? C.gold : C.border}`,
-          }}>Todas</button>
-          {portfolios.map(p => (
-            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: filterWallet === p.id ? C.gold : C.dim,
-              color: filterWallet === p.id ? '#000' : C.muted,
-              border: `1px solid ${filterWallet === p.id ? C.gold : C.border}`,
-            }}>{p.name}</button>
-          ))}
-          <div style={{ width: 1, background: C.border, margin: '0 4px' }} />
-          {/* Años */}
+
           <div style={{ position: 'relative' }}>
             <select
               value={filterYear}
@@ -359,6 +343,25 @@ export default function DividendosInforme() {
             </select>
             <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
           </div>
+
+          {/* Billeteras */}
+          <button onClick={() => setFilterWallet('all')} style={{
+            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            background: filterWallet === 'all' ? C.gold : C.dim,
+            color: filterWallet === 'all' ? '#000' : C.muted,
+            border: `1px solid ${filterWallet === 'all' ? C.gold : C.border}`,
+          }}>Todas</button>
+          {portfolios.map(p => (
+            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: filterWallet === p.id ? C.gold : C.dim,
+              color: filterWallet === p.id ? '#000' : C.muted,
+              border: `1px solid ${filterWallet === p.id ? C.gold : C.border}`,
+            }}>{p.name}</button>
+          ))}
+          <div style={{ width: 1, background: C.border, margin: '0 4px' }} />
+          {/* Años */}
+
         </div>
 
         {/* ── Fila 1: KPIs ── */}
