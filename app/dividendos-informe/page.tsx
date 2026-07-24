@@ -229,7 +229,7 @@ export default function DividendosInforme() {
 
     // Crecimiento anual histórico
     const byYearData: Record<string, number> = {}
-    filteredDividends.forEach(d => {
+    dividends.forEach(d => {
       const y = parseDate(d.date).getFullYear().toString()
       byYearData[y] = (byYearData[y] || 0) + Number(d.amount)
     })
