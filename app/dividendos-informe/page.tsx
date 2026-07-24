@@ -107,7 +107,7 @@ export default function DividendosInforme() {
     // ── YTD ──────────────────────────────────────────────────────────────
     const ytd = filteredDividends.filter(d => {
       const dt = parseDate(d.date)
-      return dt.getFullYear() === year
+      return dt.getFullYear() === selectedYearNum
     })
     const ytdTotal = ytd.reduce((a, d) => a + Number(d.amount), 0)
 
@@ -205,10 +205,14 @@ export default function DividendosInforme() {
     const aniosRecuperacion = proyeccion > 0 ? totalInvested / proyeccion : null
 
     // ── Crecimiento YTD vs año anterior ──────────────────────────────────
-    const prevYear     = year - 1
-    const prevYtd = filteredDividends.filter(d => {
+    const selectedYearNum = filterYear === 'all' ? year : parseInt(filterYear)
+    const prevYear        = selectedYearNum - 1
+    // prevYtd usa dividends sin filtro de año para poder comparar con año anterior
+    const prevYtd = dividends.filter(d => {
       const dt = parseDate(d.date)
-      return dt.getFullYear() === prevYear && dt.getMonth() <= month
+      const matchWallet = filterWallet === 'all' || d.wallet_id === filterWallet
+      const monthLimit = filterYear === 'all' ? month : 11
+      return dt.getFullYear() === prevYear && dt.getMonth() <= monthLimit && matchWallet
     }).reduce((a, d) => a + Number(d.amount), 0)
     const crecimiento  = prevYtd > 0 ? ((ytdTotal - prevYtd) / prevYtd * 100) : null
     const semaforo     = crecimiento === null ? 'nuevo' : crecimiento > 5 ? 'verde' : crecimiento >= -5 ? 'amarillo' : 'rojo'
