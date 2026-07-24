@@ -239,6 +239,16 @@ export default function InformeTrades() {
       scoreMeses   * 0.10
     )
 
+// PnL anual histórico — usa todos los trades sin filtro de año
+    const byYearAll: Record<string, number> = {}
+    trades.forEach(t => {
+      const y = parseDate(t.close_date || t.open_date).getFullYear().toString()
+      byYearAll[y] = (byYearAll[y] || 0) + Number(t.realized_pnl || 0)
+    })
+    const pnlAnual = Object.entries(byYearAll)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([year, pnl]) => ({ year, pnl: parseFloat(pnl.toFixed(2)) }))
+
     return {
       total, wins, winRate, totalPnl, avgPnl, avgDays, totalInv, retorno,
       profitFactor, maxDD: parseFloat(maxDD.toFixed(2)),
@@ -249,6 +259,7 @@ export default function InformeTrades() {
       periodRows, tradeScore,
       scoreWR, scorePF, scoreRetorno, scoreSector, scoreMeses,
       year,
+      pnlAnual,
     }
   }, [filtered, calcInvested, sp500Map, filterYear])
 
@@ -429,7 +440,7 @@ export default function InformeTrades() {
         </div>
 
         {/* ── Fila 3: Top trades + Sectores + Razones ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
 
           {/* Top 5 mejores */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
@@ -497,6 +508,34 @@ export default function InformeTrades() {
               })}
             </div>
           </div>
+
+            {/* PnL anual histórico */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL ANUAL</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {stats.pnlAnual.map(y => {
+                const maxAbs = Math.max(...stats.pnlAnual.map(x => Math.abs(x.pnl)), 1)
+                const width  = Math.abs(y.pnl) / maxAbs * 100
+                const isSelected = y.year === filterYear
+                return (
+                  <div key={y.year}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, fontWeight: isSelected ? 900 : 600, color: isSelected ? C.accent : C.muted }}>
+                        {y.year} {isSelected && <span style={{ fontSize: 8, color: C.accent }}>● actual</span>}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: y.pnl >= 0 ? C.gain : C.loss }}>
+                        {y.pnl >= 0 ? '+' : ''}{money(y.pnl)}
+                      </span>
+                    </div>
+                    <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
+                      <div style={{ width: `${width}%`, height: '100%', borderRadius: 2, background: y.pnl >= 0 ? C.gain : C.loss, opacity: isSelected ? 1 : 0.4 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
         </div>
 
         {/* ── Fila 4: Trade Score desglose + Razones cierre ── */}
