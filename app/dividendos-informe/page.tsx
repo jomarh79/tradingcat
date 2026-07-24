@@ -215,7 +215,7 @@ export default function DividendosInforme() {
     const scoreMeta = Math.min(metaPct, 100)
     // 5. Consistencia mensual (10%) — meses con dividendo / meses transcurridos
     const mesesConDiv = monthlyData.filter(m => m.total > 0).length
-    const scoreConsistencia = mesesTranscurridos > 0 ? (mesesConDiv / mesesTranscurridos) * 100 : 0
+    const scoreConsistencia = mesesTranscurridos > 0 ? Math.min((mesesConDiv / mesesTranscurridos) * 100, 100) : 0
     const dividendScore = Math.round(
       scoreCrec * 0.25 +
       scoreYoc  * 0.25 +
@@ -608,7 +608,7 @@ export default function DividendosInforme() {
               { label: 'YOC',            pct: 25, score: Math.round(Math.min((stats.yoc / 8) * 100, 100)) },
               { label: 'Diversificación',pct: 20, score: Math.round(Math.min((stats.tickersPagan / 15) * 100, 100)) },
               { label: 'Meta',           pct: 20, score: Math.round(Math.min(stats.metaPct, 100)) },
-              { label: 'Consistencia',   pct: 10, score: Math.round(stats.monthlyData.filter(m => m.total > 0).length / stats.mesesTranscurridos * 100) },
+              { label: 'Consistencia',   pct: 10, score: Math.min(Math.round(stats.monthlyData.filter(m => m.total > 0).length / stats.mesesTranscurridos * 100), 100) },
             ].map(k => (
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
