@@ -319,13 +319,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <MenuLink href="/graficos"  label="Abiertos" active={pathname === '/graficos'}  isSubItem />
               <MenuLink href="/graficos2" label="Cerrados" active={pathname === '/graficos2'} isSubItem />
 
-              <div style={sectionLabel}>
+             <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 WALLET
               </div>
               <MenuLink href="/portafolios" icon={<Wallet size={15} />} label="Billeteras" active={pathname === '/portafolios'} />
               <MenuLink href="/dividendos"  icon={<Coins  size={15} />} label="Dividendos" active={pathname === '/dividendos'} isSubItem />
-              <MenuLink href="/dividendos-informe" icon={<Coins size={15} />} label="Informe" active={pathname === '/dividendos-informe'} isSubItem />
+
+              <div style={sectionLabel}>
+                <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
+                INFORMES
+              </div>
+              <MenuLink href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados" active={pathname === '/informe-trades'}     isSubItem />
+              <MenuLink href="/dividendos-informe" icon={<Coins size={15} />} label="Dividendos"      active={pathname === '/dividendos-informe'} isSubItem />
             </div>
 
             {/* ── Botón privacidad + huellas al fondo ── */}
