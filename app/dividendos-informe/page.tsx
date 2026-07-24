@@ -151,8 +151,17 @@ export default function DividendosInforme() {
       const y = parseDate(d.date).getFullYear()
       byYear[y] = (byYear[y] || 0) + Number(d.amount)
     })
-    const years = Object.values(byYear)
-    const meta = years.length > 0 ? years.reduce((a, b) => a + b, 0) / years.length : proyeccion
+
+    // Meta basada en histórico filtrado por portafolio/año
+    const byYearFiltered: Record<number, number> = {}
+    filteredDividends.forEach(d => {
+      const y = parseDate(d.date).getFullYear()
+      byYearFiltered[y] = (byYearFiltered[y] || 0) + Number(d.amount)
+    })
+    const yearsFiltered = Object.values(byYearFiltered)
+    const meta = yearsFiltered.length > 0
+      ? yearsFiltered.reduce((a, b) => a + b, 0) / yearsFiltered.length
+      : proyeccion
     const metaPct = meta > 0 ? Math.min((ytdTotal / meta * 100), 100) : 0
 
     // ── Evolución mensual (últimos 12 meses) ─────────────────────────────
