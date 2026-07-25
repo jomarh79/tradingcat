@@ -206,6 +206,7 @@ export default function InformeTrades() {
       { label: '3 meses', months: 3  },
       { label: '6 meses', months: 6  },
       { label: '1 año',   months: 12 },
+      { label: '5 años',  months: 60 },
     ]
     const periodRows = periods.map(p => {
       const cutoff       = new Date(now.getFullYear(), now.getMonth() - p.months, now.getDate())
@@ -276,8 +277,42 @@ export default function InformeTrades() {
 
   if (!stats) return (
     <AppShell>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: C.muted, fontSize: 13 }}>
-        Sin trades cerrados para el período seleccionado.
+      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📊 Informe ejecutivo</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Cerrados</h1>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
+              background: C.dim, border: `1px solid ${C.border}`, color: C.text,
+              padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+              cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
+            }}>
+              <option value="all">Todos los años</option>
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
+          </div>
+          <div style={{ width: 1, background: C.border, height: 28 }} />
+          <button onClick={() => setFilterWallet('all')} style={{
+            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            background: filterWallet === 'all' ? C.accent : C.dim,
+            color: filterWallet === 'all' ? '#000' : C.muted,
+            border: `1px solid ${filterWallet === 'all' ? C.accent : C.border}`,
+          }}>Todas</button>
+          {portfolios.map(p => (
+            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: filterWallet === p.id ? C.accent : C.dim,
+              color: filterWallet === p.id ? '#000' : C.muted,
+              border: `1px solid ${filterWallet === p.id ? C.accent : C.border}`,
+            }}>{p.name}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+          Sin trades cerrados para el período seleccionado.
+        </div>
       </div>
     </AppShell>
   )
