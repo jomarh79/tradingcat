@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, AreaChart, Area } from 'recharts'
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import AppShell from '../AppShell'
 
 const supabase = createClient(
@@ -27,11 +27,13 @@ const C = {
   dim:    '#0f0f12',
 }
 
+const MONTH_ORDER   = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 const SECTOR_COLORS = ['#00bfff','#a78bfa','#22c55e','#eab308','#f472b6','#fb923c','#34d399','#f43f5e','#60a5fa','#c084fc']
 
 export default function InformeAbiertos() {
   const [trades,       setTrades]       = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
+  const [sp500Map,     setSp500Map]     = useState<Record<string, number>>({})
   const [loading,      setLoading]      = useState(true)
   const [filterWallet, setFilterWallet] = useState('all')
 
@@ -50,6 +52,17 @@ export default function InformeAbiertos() {
 
     setTrades(tData || [])
     setPortfolios(pData || [])
+
+    try {
+      const cached = localStorage.getItem('sp500')
+      if (cached) {
+        const parsed: { date: string, close: number }[] = JSON.parse(cached)
+        const map: Record<string, number> = {}
+        parsed.forEach(d => { map[d.date] = d.close })
+        setSp500Map(map)
+      }
+    } catch (e) { console.error('SP500 cache:', e) }
+
     setLoading(false)
   }, [])
 
@@ -129,11 +142,11 @@ export default function InformeAbiertos() {
 
     // ── Tiempo en posición por rango ──────────────────────────────────────
     const durationMap: Record<string, { count: number, pnl: number }> = {
-      '0-30d':   { count: 0, pnl: 0 },
-      '31-90d':  { count: 0, pnl: 0 },
-      '91-180d': { count: 0, pnl: 0 },
-      '181-365d':{ count: 0, pnl: 0 },
-      '+1 año':  { count: 0, pnl: 0 },
+      '0-30d':    { count: 0, pnl: 0 },
+      '31-90d':   { count: 0, pnl: 0 },
+      '91-180d':  { count: 0, pnl: 0 },
+      '181-365d': { count: 0, pnl: 0 },
+      '+1 año':   { count: 0, pnl: 0 },
     }
     tradesWithCalc.forEach(t => {
       const key = t.days <= 30 ? '0-30d' : t.days <= 90 ? '31-90d' : t.days <= 180 ? '91-180d' : t.days <= 365 ? '181-365d' : '+1 año'
@@ -144,77 +157,92 @@ export default function InformeAbiertos() {
       .map(([range, d]) => ({ range, count: d.count, pnl: parseFloat(d.pnl.toFixed(2)) }))
       .filter(d => d.count > 0)
 
-    // ── RSI distribution ──────────────────────────────────────────────────
-    const rsiData = [
-      { label: 'Sobrevendido (<30)', count: tradesWithCalc.filter(t => t.rsi > 0 && t.rsi < 30).length, color: C.gain },
-      { label: 'Neutral (30-70)',    count: tradesWithCalc.filter(t => t.rsi >= 30 && t.rsi <= 70).length, color: C.gold },
-      { label: 'Sobrecomprado (>70)',count: tradesWithCalc.filter(t => t.rsi > 70).length, color: C.loss },
-      { label: 'Sin RSI',            count: tradesWithCalc.filter(t => !t.rsi || t.rsi === 0).length, color: '#333' },
-    ].filter(d => d.count > 0)
+    // ── Evolución mensual (PnL latente por mes de apertura) ───────────────
+    const monthly: Record<string, { pnl: number, count: number }> = {}
+    tradesWithCalc.forEach(t => {
+      const d   = parseDate(t.open_date)
+      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
+      if (!monthly[key]) monthly[key] = { pnl: 0, count: 0 }
+      monthly[key].pnl   += t.pnl
+      monthly[key].count += 1
+    })
+    let cumPnl = 0
+    const monthlyData = Object.entries(monthly)
+      .sort(([a], [b]) => {
+        const [ya, ma] = a.split('-'); const [yb, mb] = b.split('-')
+        return parseInt(ya) !== parseInt(yb) ? parseInt(ya) - parseInt(yb) : parseInt(ma) - parseInt(mb)
+      })
+      .map(([key, d]) => {
+        const [y, m] = key.split('-')
+        cumPnl = parseFloat((cumPnl + d.pnl).toFixed(2))
+        return { label: `${MONTH_ORDER[parseInt(m)]} ${y}`, pnl: parseFloat(d.pnl.toFixed(2)), cumPnl, count: d.count }
+      })
 
-    // ── Variación del día por posición ────────────────────────────────────
-    const dayData = [...tradesWithCalc]
-      .sort((a, b) => b.dayChg - a.dayChg)
-      .map(t => ({ ticker: t.ticker, dayChg: t.dayChg, pnl: t.pnl }))
+    // ── Rendimiento vs SP500 ──────────────────────────────────────────────
+    const sp500Keys = Object.keys(sp500Map).sort()
+    const periods   = [
+      { label: '1 mes',   months: 1  },
+      { label: '3 meses', months: 3  },
+      { label: '6 meses', months: 6  },
+      { label: '1 año',   months: 12 },
+      { label: '5 años',  months: 60 },
+    ]
+    const periodRows = periods.map(p => {
+      const cutoff        = new Date(now.getFullYear(), now.getMonth() - p.months, now.getDate())
+      const pTrades       = tradesWithCalc.filter(t => parseDate(t.open_date) >= cutoff)
+      const pInv          = pTrades.reduce((a, t) => a + t.inv, 0)
+      const pPnl          = pTrades.reduce((a, t) => a + t.pnl, 0)
+      const portRend      = pInv > 0 ? parseFloat((pPnl / pInv * 100).toFixed(2)) : null
+      const cutoffStr     = cutoff.toISOString().split('T')[0]
+      const sp500StartKey = sp500Keys.filter(k => k <= cutoffStr).slice(-1)[0]
+      const sp500EndKey   = sp500Keys.slice(-1)[0]
+      const sp500Start    = sp500StartKey ? sp500Map[sp500StartKey] : null
+      const sp500End      = sp500EndKey   ? sp500Map[sp500EndKey]   : null
+      const sp500Rend     = sp500Start && sp500End ? parseFloat(((sp500End - sp500Start) / sp500Start * 100).toFixed(2)) : null
+      const diff          = portRend !== null && sp500Rend !== null ? parseFloat((portRend - sp500Rend).toFixed(2)) : null
+      return { label: p.label, portRend, sp500Rend, diff }
+    })
 
     // ── Portfolio Score ───────────────────────────────────────────────────
-    const scoreGainRate   = Math.min(gainRate, 100)
-    const scoreDiversif   = Math.min((sectorData.length / 8) * 100, 100)
-    const scoreRetorno    = Math.min(Math.max((totalPnlPct + 20) * 2.5, 0), 100)
-    const scoreRsi        = avgRsi > 0
-      ? avgRsi >= 30 && avgRsi <= 60 ? 100 : avgRsi < 30 || avgRsi > 70 ? 40 : 70
-      : 50
-    const scoreTiempo     = avgDays <= 180 ? 100 : avgDays <= 365 ? 70 : 40
-    const portfolioScore  = Math.round(
-      scoreGainRate * 0.30 +
-      scoreDiversif * 0.20 +
-      scoreRetorno  * 0.25 +
-      scoreRsi      * 0.15 +
-      scoreTiempo   * 0.10
+    const scoreGainRate  = Math.min(gainRate, 100)
+    const scoreDiversif  = Math.min((sectorData.length / 8) * 100, 100)
+    const scoreRetorno   = Math.min(Math.max((totalPnlPct + 20) * 2.5, 0), 100)
+    const scoreRsi       = avgRsi > 0 ? (avgRsi >= 30 && avgRsi <= 60 ? 100 : avgRsi < 30 || avgRsi > 70 ? 40 : 70) : 50
+    const scoreTiempo    = avgDays <= 180 ? 100 : avgDays <= 365 ? 70 : 40
+    const portfolioScore = Math.round(
+      scoreGainRate * 0.30 + scoreDiversif * 0.20 +
+      scoreRetorno  * 0.25 + scoreRsi      * 0.15 + scoreTiempo * 0.10
     )
 
     return {
       total, totalInv, totalCurVal, totalPnl, totalPnlPct,
-      inGain, inLoss, gainRate, avgDays, avgRsi, dayPnl,
+      inGain, gainRate, avgDays, avgRsi, dayPnl,
       bestTrade, worstTrade, top5Best, top5Worst,
-      sectorData, durationData, rsiData, dayData,
-      portfolioScore,
-      scoreGainRate, scoreDiversif, scoreRetorno, scoreRsi, scoreTiempo,
-      tradesWithCalc,
+      sectorData, durationData, monthlyData, periodRows,
+      portfolioScore, scoreGainRate, scoreDiversif, scoreRetorno, scoreRsi, scoreTiempo,
     }
-  }, [filtered, calcInvested])
+  }, [filtered, calcInvested, sp500Map])
 
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
   const scoreLabel = (s: number) => s >= 75 ? 'Sólido' : s >= 50 ? 'Regular' : 'Mejorable'
 
-  const EmptyWithFilters = () => (
-    <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📈 Informe ejecutivo</div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Abiertos</h1>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button onClick={() => setFilterWallet('all')} style={{
-            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: filterWallet === 'all' ? C.accent : C.dim,
-            color: filterWallet === 'all' ? '#000' : C.muted,
-            border: `1px solid ${filterWallet === 'all' ? C.accent : C.border}`,
-          }}>Todas</button>
-          {portfolios.map(p => (
-            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: filterWallet === p.id ? C.accent : C.dim,
-              color: filterWallet === p.id ? '#000' : C.muted,
-              border: `1px solid ${filterWallet === p.id ? C.accent : C.border}`,
-            }}>{p.name}</button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
-          Sin trades abiertos para el portafolio seleccionado.
-        </div>
-      </div>
-    </AppShell>
+  const FilterBar = () => (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+      <button onClick={() => setFilterWallet('all')} style={{
+        padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+        background: filterWallet === 'all' ? C.accent : C.dim,
+        color: filterWallet === 'all' ? '#000' : C.muted,
+        border: `1px solid ${filterWallet === 'all' ? C.accent : C.border}`,
+      }}>Todas</button>
+      {portfolios.map(p => (
+        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
+          padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          background: filterWallet === p.id ? C.accent : C.dim,
+          color: filterWallet === p.id ? '#000' : C.muted,
+          border: `1px solid ${filterWallet === p.id ? C.accent : C.border}`,
+        }}>{p.name}</button>
+      ))}
+    </div>
   )
 
   if (loading) return (
@@ -225,7 +253,20 @@ export default function InformeAbiertos() {
     </AppShell>
   )
 
-  if (!stats) return <EmptyWithFilters />
+  if (!stats) return (
+    <AppShell>
+      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📈 Informe ejecutivo</div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Abiertos</h1>
+        </div>
+        <FilterBar />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+          Sin trades abiertos para el portafolio seleccionado.
+        </div>
+      </div>
+    </AppShell>
+  )
 
   return (
     <AppShell>
