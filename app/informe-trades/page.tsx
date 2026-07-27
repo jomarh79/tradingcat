@@ -205,9 +205,6 @@ export default function InformeTrades() {
       }))
       .sort((a, b) => b.pnl - a.pnl)
 
-    // ── Días promedio por resultado ───────────────────────────────────────
-    const winDays  = tradesWithCalc.filter(t => t.pnl > 0).reduce((a, t) => a + t.days, 0) / (wins || 1)
-    const lossDays = tradesWithCalc.filter(t => t.pnl <= 0).reduce((a, t) => a + t.days, 0) / ((total - wins) || 1)
 
     // ── Rendimiento por período vs SP500 ─────────────────────────────────
     const sp500Keys  = Object.keys(sp500Map).sort()
@@ -283,8 +280,6 @@ tradesWithCalcAll.forEach(t => {
       profitFactor, maxDD: parseFloat(maxDD.toFixed(2)),
       bestTrade, worstTrade, top5Best, top5Worst,
       monthlyData, sectorData, reasonData,
-      winDays: parseFloat(winDays.toFixed(1)),
-      lossDays: parseFloat(lossDays.toFixed(1)),
       periodRows, tradeScore,
       scoreWR, scorePF, scoreRetorno, scoreSector, scoreMeses,
       year,
@@ -487,18 +482,6 @@ tradesWithCalcAll.forEach(t => {
                 ))}
               </tbody>
             </table>
-            {/* Stats extra */}
-            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[
-                { label: 'Días promedio ganador', value: `${stats.winDays}d`, color: C.gain },
-                { label: 'Días promedio perdedor', value: `${stats.lossDays}d`, color: C.loss },
-              ].map(k => (
-                <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '8px 10px' }}>
-                  <div style={{ fontSize: 8, color: '#555', marginBottom: 4 }}>{k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: k.color }}>{k.value}</div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
