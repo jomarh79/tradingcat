@@ -382,17 +382,6 @@ export default function InformeAbiertos() {
                 ))}
               </tbody>
             </table>
-            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[
-                { label: 'Días promedio posición', value: `${stats.avgDays}d`,                   color: C.accent },
-                { label: 'RSI promedio cartera',   value: stats.avgRsi > 0 ? `${stats.avgRsi}` : '—', color: stats.avgRsi > 70 ? C.loss : stats.avgRsi < 30 ? C.gain : C.gold },
-              ].map(k => (
-                <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '8px 10px' }}>
-                  <div style={{ fontSize: 8, color: '#555', marginBottom: 4 }}>{k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: k.color }}>{k.value}</div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
