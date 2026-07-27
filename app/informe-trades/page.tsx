@@ -252,16 +252,25 @@ export default function InformeTrades() {
 
 // PnL anual histórico — usa todos los trades sin filtro de año
     const byYearAll: Record<string, number> = {}
-    trades.forEach(t => {
+    const tradesWithCalcAll = trades.map(t => {
+  const inv = calcInvested(t)
+  return {
+    ...t,
+    inv,
+    pnl: Number(t.realized_pnl || 0)
+  }
+})
+
+tradesWithCalcAll.forEach(t => {
       const y = parseDate(t.close_date || t.open_date).getFullYear().toString()
       byYearAll[y] = (byYearAll[y] || 0) + Number(t.realized_pnl || 0)
     })
     const pnlAnual = Object.entries(byYearAll)
   .sort(([a], [b]) => b.localeCompare(a))
   .map(([year, pnl]) => {
-    const inv = tradesWithCalc
-      .filter(t => parseDate(t.close_date || t.open_date).getFullYear().toString() === year)
-      .reduce((a, t) => a + t.inv, 0)
+    const inv = tradesWithCalcAll
+  .filter(t => parseDate(t.close_date || t.open_date).getFullYear().toString() === year)
+  .reduce((a, t) => a + t.inv, 0)
 
     return {
       year,
