@@ -257,9 +257,18 @@ export default function InformeTrades() {
       byYearAll[y] = (byYearAll[y] || 0) + Number(t.realized_pnl || 0)
     })
     const pnlAnual = Object.entries(byYearAll)
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([year, pnl]) => ({ year, pnl: parseFloat(pnl.toFixed(2)) }))
+  .sort(([a], [b]) => b.localeCompare(a))
+  .map(([year, pnl]) => {
+    const inv = tradesWithCalc
+      .filter(t => parseDate(t.close_date || t.open_date).getFullYear().toString() === year)
+      .reduce((a, t) => a + t.inv, 0)
 
+    return {
+      year,
+      pnl: parseFloat(pnl.toFixed(2)),
+      pct: inv > 0 ? parseFloat((pnl / inv * 100).toFixed(2)) : 0,
+    }
+  })
     return {
       total, wins, winRate, totalPnl, avgPnl, avgDays, totalInv, retorno,
       profitFactor, maxDD: parseFloat(maxDD.toFixed(2)),
@@ -574,11 +583,6 @@ export default function InformeTrades() {
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL ANUAL</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {stats.pnlAnual.map(y => {
-                const maxAbs = Math.max(...stats.pnlAnual.map(x => Math.abs(x.pnl)), 1)
-                const totalInvYear = tradesWithCalc.filter(t =>
-                  parseDate(t.close_date || t.open_date).getFullYear().toString() === y.year
-                ).reduce((a, t) => a + t.inv, 0)
-                const pct = totalInvYear > 0 ? parseFloat((y.pnl / totalInvYear * 100).toFixed(2)) : 0
                 const isSelected = y.year === filterYear
                 return (
                   <div key={y.year} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
@@ -586,7 +590,7 @@ export default function InformeTrades() {
                       {y.year}{isSelected && <span style={{ fontSize: 8, color: C.accent, marginLeft: 4 }}>●</span>}
                     </span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 15, fontWeight: 900, color: y.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(pct)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: y.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(y.pct)}</div>
                       <div style={{ fontSize: 10, color: y.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{y.pnl >= 0 ? '+' : ''}{money(y.pnl)}</div>
                     </div>
                   </div>
