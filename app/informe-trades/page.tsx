@@ -171,11 +171,12 @@ export default function InformeTrades() {
       })
 
     // ── Por sector ───────────────────────────────────────────────────────
-    const sectorMap: Record<string, { pnl: number, count: number, wins: number }> = {}
+    const sectorMap: Record<string, { pnl: number, inv: number, count: number, wins: number }> = {}
     tradesWithCalc.forEach(t => {
       const s = t.sector || 'Sin sector'
-      if (!sectorMap[s]) sectorMap[s] = { pnl: 0, count: 0, wins: 0 }
-      sectorMap[s].pnl   += t.pnl
+      if (!sectorMap[s]) sectorMap[s] = { pnl: 0, inv: 0, count: 0, wins: 0 }
+      sectorMap[s].pnl += t.pnl
+      sectorMap[s].inv += t.inv
       sectorMap[s].count += 1
       if (t.pnl > 0) sectorMap[s].wins++
     })
