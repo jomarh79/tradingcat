@@ -180,7 +180,11 @@ export default function InformeTrades() {
       if (t.pnl > 0) sectorMap[s].wins++
     })
     const sectorData = Object.entries(sectorMap)
-      .map(([sector, d]) => ({ sector, pnl: parseFloat(d.pnl.toFixed(2)), count: d.count, winRate: Math.round(d.wins / d.count * 100) }))
+      .map(([sector, d]) => ({
+        sector, count: d.count, winRate: Math.round(d.wins / d.count * 100),
+        pnl:    parseFloat(d.pnl.toFixed(2)),
+        pnlPct: d.inv > 0 ? parseFloat((d.pnl / d.inv * 100).toFixed(2)) : 0,
+      }))
       .sort((a, b) => b.pnl - a.pnl)
 
     // ── Razón de cierre ──────────────────────────────────────────────────
@@ -191,8 +195,13 @@ export default function InformeTrades() {
       reasonMap[r].pnl   += t.pnl
       reasonMap[r].count += 1
     })
+    const totalInvForReason = tradesWithCalc.reduce((a, t) => a + t.inv, 0)
     const reasonData = Object.entries(reasonMap)
-      .map(([reason, d]) => ({ reason, pnl: parseFloat(d.pnl.toFixed(2)), count: d.count }))
+      .map(([reason, d]) => ({
+        reason, count: d.count,
+        pnl:    parseFloat(d.pnl.toFixed(2)),
+        pnlPct: totalInvForReason > 0 ? parseFloat((d.pnl / totalInvForReason * 100).toFixed(2)) : 0,
+      }))
       .sort((a, b) => b.pnl - a.pnl)
 
     // ── Días promedio por resultado ───────────────────────────────────────
@@ -474,118 +483,110 @@ export default function InformeTrades() {
           </div>
         </div>
 
-        {/* ── Fila 3: Top trades + Sectores + Razones ── */}
+        {/* ── Fila 3: Las 5 tarjetas estilo uniforme ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
 
-          {/* Top 5 mejores */}
+          {/* Top 5 mejores trades */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>🏆 TOP 5 MEJORES TRADES</div>
+            <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>🏆 TOP 5 MEJORES</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.top5Best.map((t, i) => (
                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 9, color: '#444', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{t.ticker}</div>
                       <div style={{ fontSize: 8, color: '#555' }}>{t.days}d · {t.close_reason || '—'}</div>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.gain }}>{money(t.pnl)}</div>
-                    <div style={{ fontSize: 9, color: C.gain, opacity: 0.7 }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: C.gain }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 10, color: C.gain, opacity: 0.7 }}>{money(t.pnl)}</div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Top 5 peores */}
+          {/* Top 5 peores trades */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>⚠️ TOP 5 PEORES TRADES</div>
+            <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>⚠️ TOP 5 PEORES</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.top5Worst.map((t, i) => (
                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 9, color: '#444', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{t.ticker}</div>
                       <div style={{ fontSize: 8, color: '#555' }}>{t.days}d · {t.close_reason || '—'}</div>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.loss }}>{money(t.pnl)}</div>
-                    <div style={{ fontSize: 9, color: C.loss, opacity: 0.7 }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: C.loss }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 10, color: C.loss, opacity: 0.7 }}>{money(t.pnl)}</div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Sectores */}
+          {/* PnL por sector */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL POR SECTOR</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {stats.sectorData.slice(0, 7).map((s, i) => {
-                const maxAbs = Math.max(...stats.sectorData.map(x => Math.abs(x.pnl)), 1)
-                const width  = Math.abs(s.pnl) / maxAbs * 100
-                const color  = SECTOR_COLORS[i % SECTOR_COLORS.length]
-                return (
-                  <div key={s.sector}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontSize: 10, color: C.muted }}>{s.sector} <span style={{ color: '#444', fontSize: 8 }}>({s.count})</span></span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: s.pnl >= 0 ? C.gain : C.loss }}>{money(s.pnl)}</span>
-                    </div>
-                    <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
-                      <div style={{ width: `${width}%`, height: '100%', background: s.pnl >= 0 ? color : C.loss, borderRadius: 2, opacity: 0.8 }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Razones de cierre */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL POR RAZÓN DE CIERRE</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {stats.reasonData.map((r, i) => {
-                const maxAbs = Math.max(...stats.reasonData.map(x => Math.abs(x.pnl)), 1)
-                const width  = Math.abs(r.pnl) / maxAbs * 100
-                return (
-                  <div key={r.reason}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontSize: 10, color: C.muted }}>{r.reason} <span style={{ color: '#444', fontSize: 8 }}>({r.count})</span></span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: r.pnl >= 0 ? C.gain : C.loss }}>{money(r.pnl)}</span>
-                    </div>
-                    <div style={{ height: 4, background: C.dim, borderRadius: 2 }}>
-                      <div style={{ width: `${width}%`, height: '100%', background: r.pnl >= 0 ? C.gain : C.loss, borderRadius: 2, opacity: 0.75 }} />
-                    </div>
+              {stats.sectorData.slice(0, 5).map((s, i) => (
+                <div key={s.sector} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.sector}</div>
+                    <div style={{ fontSize: 8, color: '#555' }}>{s.count} trades · WR {s.winRate}%</div>
                   </div>
-                )
-              })}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: s.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(s.pnlPct)}</div>
+                    <div style={{ fontSize: 10, color: s.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{money(s.pnl)}</div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-            {/* PnL anual histórico */}
+          {/* PnL por razón de cierre */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL POR RAZÓN</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {stats.reasonData.slice(0, 5).map((r, i) => (
+                <div key={r.reason} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{r.reason}</div>
+                    <div style={{ fontSize: 8, color: '#555' }}>{r.count} trades</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: r.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(r.pnlPct)}</div>
+                    <div style={{ fontSize: 10, color: r.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{money(r.pnl)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* PnL anual */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>PnL ANUAL</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {stats.pnlAnual.map(y => {
                 const maxAbs = Math.max(...stats.pnlAnual.map(x => Math.abs(x.pnl)), 1)
-                const width  = Math.abs(y.pnl) / maxAbs * 100
+                const totalInvYear = tradesWithCalc.filter(t =>
+                  parseDate(t.close_date || t.open_date).getFullYear().toString() === y.year
+                ).reduce((a, t) => a + t.inv, 0)
+                const pct = totalInvYear > 0 ? parseFloat((y.pnl / totalInvYear * 100).toFixed(2)) : 0
                 const isSelected = y.year === filterYear
                 return (
-                  <div key={y.year}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                      <span style={{ fontSize: 11, fontWeight: isSelected ? 900 : 600, color: isSelected ? C.accent : C.muted }}>
-                        {y.year} {isSelected && <span style={{ fontSize: 8, color: C.accent }}>● actual</span>}
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: y.pnl >= 0 ? C.gain : C.loss }}>
-                        {y.pnl >= 0 ? '+' : ''}{money(y.pnl)}
-                      </span>
-                    </div>
-                    <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
-                      <div style={{ width: `${width}%`, height: '100%', borderRadius: 2, background: y.pnl >= 0 ? C.gain : C.loss, opacity: isSelected ? 1 : 0.4 }} />
+                  <div key={y.year} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: isSelected ? 900 : 600, color: isSelected ? C.accent : C.muted }}>
+                      {y.year}{isSelected && <span style={{ fontSize: 8, color: C.accent, marginLeft: 4 }}>●</span>}
+                    </span>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: y.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(pct)}</div>
+                      <div style={{ fontSize: 10, color: y.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{y.pnl >= 0 ? '+' : ''}{money(y.pnl)}</div>
                     </div>
                   </div>
                 )
