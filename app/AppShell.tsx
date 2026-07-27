@@ -332,6 +332,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <MenuLink href="/informe-abiertos"   icon={<Coins size={15} />} label="Trades Abiertos"  active={pathname === '/informe-abiertos'}  isSubItem />
               <MenuLink href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados"  active={pathname === '/informe-trades'}    isSubItem />
+              <MenuLink href="/informe-dinero"     icon={<Coins size={15} />} label="Dinero"           active={pathname === '/informe-dinero'} isSubItem />
               <MenuLink href="/dividendos-informe" icon={<Coins size={15} />} label="Dividendos"       active={pathname === '/dividendos-informe'} isSubItem />
             </div>
 
