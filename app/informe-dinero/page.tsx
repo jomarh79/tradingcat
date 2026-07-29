@@ -557,7 +557,6 @@ export default function InformeDinero() {
             ))}
           </div>
         </div>
-
       </div>
     </AppShell>
   )
