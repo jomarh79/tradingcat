@@ -1,3 +1,5 @@
+'use client'; // <-- AGREGA ESTA LÍNEA AL PRINCIPIO
+
 import React, { useState, useMemo } from 'react';
 import { 
   ArrowUpRight, ArrowDownRight, Search, ExternalLink, 
