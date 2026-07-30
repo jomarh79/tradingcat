@@ -1,590 +1,448 @@
-'use client'
+import React, { useState, useMemo } from 'react';
+import { 
+  ArrowUpRight, ArrowDownRight, Search, ExternalLink, 
+  TrendingUp, Clock, PieChart, BarChart2, Layers 
+} from 'lucide-react';
+import { 
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
+  PieChart as RePie, Pie, Cell, Legend, CartesianGrid 
+} from 'recharts';
 
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
-import { usePrivacy } from '@/lib/PrivacyContext'
-import AppShell from '../AppShell'
-import { BarChart2 } from 'lucide-react'
-import {
-  ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  ComposedChart, Line, ReferenceLine, Legend,
-} from 'recharts'
+// --- MOCK DATA ---
+const PORTFOLIO_DATA = [
+  { ticker: 'AAPL', name: 'Apple Inc.', sector: 'Tecnología', invertido: 15000, valorActual: 18500, varHoy: 1.2, pnl: 23.3, dias: 240, rsi: 58, originalPct: 15, buyDate: '2023-11-01' },
+  { ticker: 'NVDA', name: 'NVIDIA Corp.', sector: 'Tecnología', invertido: 10000, valorActual: 24000, varHoy: -2.1, pnl: 140.0, dias: 180, rsi: 72, originalPct: 10, buyDate: '2024-01-15' },
+  { ticker: 'MSFT', name: 'Microsoft Corp.', sector: 'Tecnología', invertido: 20000, valorActual: 23500, varHoy: 0.8, pnl: 17.5, dias: 310, rsi: 54, originalPct: 20, buyDate: '2023-08-20' },
+  { ticker: 'JPM', name: 'JPMorgan Chase', sector: 'Finanzas', invertido: 12000, valorActual: 13200, varHoy: -0.4, pnl: 10.0, dias: 120, rsi: 48, originalPct: 12, buyDate: '2024-03-10' },
+  { ticker: 'JNJ', name: 'Johnson & Johnson', sector: 'Salud', invertido: 8000, valorActual: 7400, varHoy: -0.1, pnl: -7.5, dias: 410, rsi: 38, originalPct: 8, buyDate: '2023-05-12' },
+  { ticker: 'XOM', name: 'Exxon Mobil', sector: 'Energía', invertido: 9000, valorActual: 10100, varHoy: 1.5, pnl: 12.2, dias: 90, rsi: 62, originalPct: 9, buyDate: '2024-04-05' },
+  { ticker: 'TSLA', name: 'Tesla Inc.', sector: 'Consumo Ciclico', invertido: 11000, valorActual: 8800, varHoy: -3.5, pnl: -20.0, dias: 200, rsi: 41, originalPct: 11, buyDate: '2023-12-10' },
+  { ticker: 'AMZN', name: 'Amazon.com', sector: 'Consumo Ciclico', invertido: 15000, valorActual: 18200, varHoy: 2.1, pnl: 21.3, dias: 290, rsi: 65, originalPct: 15, buyDate: '2023-09-01' },
+];
 
-// ── Colores y Constantes ────────────────────────────────────────────────────
-const C = {
-  accent:  '#00bfff',
-  success: '#22c55e',
-  danger:  '#f43f5e',
-  warning: '#eab308',
-  sp500:   '#a78bfa',
-  card:    '#080808',
-  border:  '#1a1a1a',
-  muted:   '#888',
-}
+const BENCHMARK_PERF: Record<string, { ticker: string; rendimiento: number; sp500: number }[]> = {
+  YTD: [
+    { ticker: 'NVDA', rendimiento: 45.2, sp500: 12.1 },
+    { ticker: 'AAPL', rendimiento: 15.4, sp500: 12.1 },
+    { ticker: 'AMZN', rendimiento: 18.2, sp500: 12.1 },
+    { ticker: 'TSLA', rendimiento: -12.5, sp500: 12.1 },
+    { ticker: 'JNJ', rendimiento: -3.1, sp500: 12.1 },
+  ],
+  '1Y': [
+    { ticker: 'NVDA', rendimiento: 140.0, sp500: 22.5 },
+    { ticker: 'AAPL', rendimiento: 23.3, sp500: 22.5 },
+    { ticker: 'AMZN', rendimiento: 21.3, sp500: 22.5 },
+    { ticker: 'TSLA', rendimiento: -20.0, sp500: 22.5 },
+    { ticker: 'JNJ', rendimiento: -7.5, sp500: 22.5 },
+  ],
+  '5Y': [
+    { ticker: 'NVDA', rendimiento: 1250.0, sp500: 85.0 },
+    { ticker: 'AAPL', rendimiento: 280.0, sp500: 85.0 },
+    { ticker: 'AMZN', rendimiento: 95.0, sp500: 85.0 },
+    { ticker: 'TSLA', rendimiento: 650.0, sp500: 85.0 },
+    { ticker: 'JNJ', rendimiento: 12.0, sp500: 85.0 },
+  ],
+  MAX: [
+    { ticker: 'NVDA', rendimiento: 2100.0, sp500: 150.0 },
+    { ticker: 'AAPL', rendimiento: 450.0, sp500: 150.0 },
+    { ticker: 'AMZN', rendimiento: 310.0, sp500: 150.0 },
+    { ticker: 'TSLA', rendimiento: 890.0, sp500: 150.0 },
+    { ticker: 'JNJ', rendimiento: 45.0, sp500: 150.0 },
+  ]
+};
 
-const PIE_COLORS = ['#00bfff', '#6366f1', '#22c55e', '#eab308', '#f43f5e', '#a855f7', '#ec4899', '#14b8a6', '#f97316', '#84cc16']
+const SECTOR_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+export default function PortfolioDashboard() {
+  // States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState('valorActual');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [timeframe, setTimeframe] = useState<'YTD' | '1Y' | '5Y' | 'MAX'>('1Y');
 
-// ── Decoradores de Gatitos ──────────────────────────────────────────────────
-const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0, ...s }}>
-    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
-    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
-    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
-    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
-    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
-  </svg>
-)
-
-const CatEars = ({ color = '#00bfff', opacity = 0.1, size = 36 }: any) => (
-  <svg width={size * 1.5} height={size} viewBox="0 0 60 40" fill={color} style={{ opacity }}>
-    <polygon points="0,40 12,0 24,40"/>
-    <polygon points="36,40 48,0 60,40"/>
-  </svg>
-)
-
-const CatTail = ({ color = '#00bfff', opacity = 0.07 }: any) => (
-  <svg width={44} height={70} viewBox="0 0 50 80" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" style={{ opacity }}>
-    <path d="M40 80 Q45 50 20 40 Q0 30 10 10 Q20 -5 35 5"/>
-  </svg>
-)
-
-// ── UI Helpers y Estilos ───────────────────────────────────────────────────
-const filterBtn = (active: boolean): React.CSSProperties => ({
-  padding: '6px 14px',
-  borderRadius: 6,
-  border: 'none',
-  background: active ? C.accent : '#111',
-  color: active ? '#000' : '#888',
-  cursor: 'pointer',
-  fontSize: 10,
-  fontWeight: 'bold',
-  whiteSpace: 'nowrap',
-})
-
-function KpiCard({ label, value, color = 'white' }: any) {
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-        <Paw size={40} color="#fff" opacity={0.02} />
-      </div>
-      <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color }}>{value}</div>
-    </div>
-  )
-}
-
-function ChartCard({ title, sub, children, mb = 0 }: any) {
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', marginBottom: mb }}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 7 }}>
-          <Paw size={10} color="#666" opacity={0.5} />
-          {title}
-        </div>
-        {sub && <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>{sub}</div>}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function EmptyChart({ message, height = 200 }: { message: string, height?: number }) {
-  return (
-    <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11, border: '1px dashed #1a1a1a', borderRadius: 8, gap: 8 }}>
-      <Paw size={24} color="#333" opacity={0.4} />
-      {message}
-    </div>
-  )
-}
-
-const CustomTooltip = ({ active, payload, label, formatter }: any) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: '#0d0d0d', border: '1px solid #333', borderRadius: 8, padding: '10px 14px', fontSize: 11 }}>
-      {label && <div style={{ color: '#aaa', marginBottom: 6, fontWeight: 600 }}>{label}</div>}
-      {payload.map((p: any, i: number) => (
-        <div key={i} style={{ color: p.color || '#fff', marginBottom: 2 }}>
-          <span style={{ color: '#888', marginRight: 6 }}>{p.name}:</span>
-          <span style={{ fontWeight: 700 }}>
-            {formatter ? formatter(p.value, p.name) : p.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── COMPONENTE PRINCIPAL CONSOLIDADO ────────────────────────────────────────
-export default function EstadisticasDashboardPage() {
-  const { money } = usePrivacy()
-
-  const [allTrades, setAllTrades] = useState<any[]>([])
-  const [portfolios, setPortfolios] = useState<any[]>([])
-  const [selectedPortfolio, setSelectedPortfolio] = useState('all')
-  const [timeRange, setTimeRange] = useState<'YTD' | '1Y' | '5Y' | 'MAX'>('MAX')
-  const [loading, setLoading] = useState(true)
-  const [sp500Data, setSp500Data] = useState<Record<string, number>>({})
-
-  // Cargar Trades y Portafolios desde Supabase
-  const fetchData = useCallback(async () => {
-    const [{ data: tData }, { data: pData }] = await Promise.all([
-      supabase.from('trades').select('*, portfolios(name,id)'),
-      supabase.from('portfolios').select('*'),
-    ])
-    if (tData) setAllTrades(tData)
-    if (pData) setPortfolios(pData)
-    setLoading(false)
-  }, [])
-
-  // Cargar Caché del S&P 500
-  const loadSP500 = useCallback(() => {
-    try {
-      const cached = localStorage.getItem('sp500')
-      if (cached) {
-        const parsed: { date: string, close: number }[] = JSON.parse(cached)
-        const map: Record<string, number> = {}
-        parsed.forEach(d => { map[d.date] = d.close })
-        setSp500Data(map)
-      }
-    } catch (e) { console.error('SP500 cache error:', e) }
-  }, [])
-
-  useEffect(() => { fetchData(); loadSP500() }, [fetchData, loadSP500])
-
-  // Filtrar Trades por Portafolio Seleccionado
-  const trades = useMemo(() =>
-    selectedPortfolio === 'all'
-      ? allTrades
-      : allTrades.filter(t => t.portfolio_id === selectedPortfolio)
-  , [allTrades, selectedPortfolio])
-
-  // Cálculo Integrado de Métricas y Gráficos
-  const charts = useMemo(() => {
-    if (!trades.length) return null
-
-    const openTrades = trades.filter(t => t.status === 'open')
-    const closedTrades = trades.filter(t => t.status === 'closed')
-
-    // KPIs
-    const capitalExpuesto = openTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
-    const capitalActual = openTrades.reduce((acc, t) => {
-      const qty = Number(t.quantity || 0)
-      const cur = Number(t.last_price || t.entry_price || 0)
-      return acc + (qty * cur)
-    }, 0)
+  // --- FILA 1: KPIs ---
+  const kpis = useMemo(() => {
+    const totalInvertido = PORTFOLIO_DATA.reduce((acc, item) => acc + item.invertido, 0);
+    const valorActual = PORTFOLIO_DATA.reduce((acc, item) => acc + item.valorActual, 0);
+    const pnlLatenteAbs = valorActual - totalInvertido;
+    const pnlLatentePct = (pnlLatenteAbs / totalInvertido) * 100;
     
-    const pnlRealizadoTotal = trades.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
-    const ganadores = closedTrades.filter(t => Number(t.realized_pnl || 0) > 0)
-    const perdedores = closedTrades.filter(t => Number(t.realized_pnl || 0) <= 0)
-    const winRate = closedTrades.length > 0 ? (ganadores.length / closedTrades.length) * 100 : 0
+    // Variación del día promedio ponderada por valor actual
+    const varHoy = PORTFOLIO_DATA.reduce((acc, item) => acc + (item.varHoy * item.valorActual), 0) / valorActual;
     
-    const profitTotal = ganadores.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
-    const lossTotal = Math.abs(perdedores.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0))
-    const profitFactor = lossTotal > 0 ? profitTotal / lossTotal : profitTotal > 0 ? 999 : 0
-
-    // Posiciones Abiertas + PnL Latente
-    const tradesWithUnrealizedPnl = openTrades.map(t => {
-      const qty = Number(t.quantity || 0)
-      const inv = Number(t.total_invested || 0)
-      const cur = Number(t.last_price || t.entry_price || 0)
-      const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-      const unrealizedPnl = parseFloat(((cur - avg) * qty).toFixed(2))
-      const unrealizedPct = avg > 0 ? parseFloat(((cur - avg) / avg * 100).toFixed(2)) : 0
-      return { ...t, avg, cur, unrealizedPnl, pnl: unrealizedPnl, unrealizedPct }
-    })
-
-    // Top Ganancias y Pérdidas Latentes
-    const top5Gains = [...tradesWithUnrealizedPnl]
-      .filter(t => t.unrealizedPnl > 0)
-      .sort((a, b) => b.unrealizedPnl - a.unrealizedPnl)
-      .slice(0, 5)
-
-    const top5Losses = [...tradesWithUnrealizedPnl]
-      .filter(t => t.unrealizedPnl < 0)
-      .sort((a, b) => a.unrealizedPnl - b.unrealizedPnl)
-      .slice(0, 5)
-
-    // Agrupación por Sector
-    const sectorMap: Record<string, number> = {}
-    openTrades.forEach(t => {
-      const s = t.sector || 'Otros'
-      sectorMap[s] = (sectorMap[s] || 0) + Number(t.total_invested || 0)
-    })
-    const sectorData = Object.entries(sectorMap)
-      .map(([name, value]) => ({
-        name,
-        value: parseFloat(value.toFixed(2)),
-        pct: capitalExpuesto > 0 ? parseFloat((value / capitalExpuesto * 100).toFixed(1)) : 0
-      }))
-      .sort((a, b) => b.value - a.value)
-
-    // Tiempo en Posición
-    const today = new Date()
-    const daysInPosition = openTrades.map(t => {
-      const days = Math.floor((today.getTime() - parseDate(t.open_date).getTime()) / 86400000)
-      const pnlPct = (() => {
-        const qty = Number(t.quantity || 0)
-        const inv = Number(t.total_invested || 0)
-        const cur = Number(t.last_price || t.entry_price || 0)
-        const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-        return avg > 0 ? ((cur - avg) / avg * 100) : 0
-      })()
-      return {
-        ticker: t.ticker,
-        days,
-        pnlPct: parseFloat(pnlPct.toFixed(2)),
-      }
-    }).sort((a, b) => b.days - a.days)
-
-    // Curva de Equity vs S&P 500
-    const sortedByDate = [...trades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
-    let portfolioBase: number | null = null
-    let sp500Base: number | null     = null
-    let cumInvested = 0
-
-    let vsData = sortedByDate
-      .map(t => {
-        cumInvested += Number(t.total_invested || 0)
-        const dateStr = t.open_date
-        const sp500Val = sp500Data[dateStr] || Object.entries(sp500Data).reverse().find(([d]) => d <= dateStr)?.[1]
-
-        if (portfolioBase === null && cumInvested > 0) portfolioBase = cumInvested
-        if (sp500Base === null && sp500Val) sp500Base = sp500Val
-
-        const portfolioPct = portfolioBase ? parseFloat(((cumInvested / portfolioBase - 1) * 100).toFixed(2)) : 0
-        const sp500Pct     = (sp500Base && sp500Val) ? parseFloat(((sp500Val / sp500Base - 1) * 100).toFixed(2)) : null
-
-        return {
-          date: parseDate(dateStr).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
-          rawDate: parseDate(dateStr),
-          portfolio: portfolioPct,
-          sp500: sp500Pct,
-        }
-      })
-      .filter(d => d.sp500 !== null)
-
-    if (timeRange !== 'MAX' && vsData.length > 0) {
-      const now = new Date()
-      const cutoff = new Date()
-      if (timeRange === 'YTD') cutoff.setMonth(0, 1)
-      else if (timeRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1)
-      else if (timeRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5)
-      vsData = vsData.filter(d => d.rawDate >= cutoff)
-    }
+    const enGananciaCount = PORTFOLIO_DATA.filter(item => item.pnl > 0).length;
+    const enGananciaPct = (enGananciaCount / PORTFOLIO_DATA.length) * 100;
+    
+    const diasPromedio = Math.round(
+      PORTFOLIO_DATA.reduce((acc, item) => acc + item.dias, 0) / PORTFOLIO_DATA.length
+    );
+    
+    const rsiPromedio = Math.round(
+      PORTFOLIO_DATA.reduce((acc, item) => acc + item.rsi, 0) / PORTFOLIO_DATA.length
+    );
 
     return {
-      capitalExpuesto,
-      capitalActual,
-      pnlRealizadoTotal,
-      winRate,
-      profitFactor,
-      openCount: openTrades.length,
-      closedCount: closedTrades.length,
-      tradesWithUnrealizedPnl,
-      top5Gains,
-      top5Losses,
-      sectorData,
-      daysInPosition,
-      vsData
-    }
-  }, [trades, sp500Data, timeRange])
+      totalInvertido,
+      valorActual,
+      pnlLatenteAbs,
+      pnlLatentePct,
+      varHoy,
+      enGananciaPct,
+      diasPromedio,
+      rsiPromedio
+    };
+  }, []);
 
-  if (loading) return (
-    <AppShell>
-      <div style={{ padding: 40, color: '#666', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Paw size={16} color="#666" opacity={0.5} /> Cargando estadísticas y métricas visuales...
-      </div>
-    </AppShell>
-  )
+  // --- FILA 2: Lógica de Tabla ---
+  const filteredAndSortedPositions = useMemo(() => {
+    const totalVal = kpis.valorActual;
+    return PORTFOLIO_DATA
+      .map(item => ({
+        ...item,
+        actualPct: (item.valorActual / totalVal) * 100
+      }))
+      .filter(item => 
+        item.ticker.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => {
+        let valA = a[sortField as keyof typeof a];
+        let valB = b[sortField as keyof typeof b];
+        
+        if (typeof valA === 'string') {
+          return sortOrder === 'asc' 
+            ? (valA as string).localeCompare(valB as string)
+            : (valB as string).localeCompare(valA as string);
+        }
+        return sortOrder === 'asc' ? Number(valA) - Number(valB) : Number(valB) - Number(valA);
+      });
+  }, [searchTerm, sortField, sortOrder, kpis.valorActual]);
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  // --- FILA 4: Top 5 & PnL por Sector ---
+  const top5Gainers = useMemo(() => {
+    return [...PORTFOLIO_DATA].sort((a, b) => b.pnl - a.pnl).slice(0, 5);
+  }, []);
+
+  const top5Losers = useMemo(() => {
+    return [...PORTFOLIO_DATA].sort((a, b) => a.pnl - b.pnl).slice(0, 5);
+  }, []);
+
+  const sectorPnL = useMemo(() => {
+    const sectors: Record<string, number> = {};
+    PORTFOLIO_DATA.forEach(item => {
+      const pnlDollar = item.valorActual - item.invertido;
+      sectors[item.sector] = (sectors[item.sector] || 0) + pnlDollar;
+    });
+    return Object.entries(sectors).map(([sector, pnl]) => ({ sector, pnl }));
+  }, []);
+
+  // --- FILA 5: Sector Dona & Tiempo ---
+  const sectorAllocation = useMemo(() => {
+    const sectors: Record<string, number> = {};
+    const total = kpis.valorActual;
+    PORTFOLIO_DATA.forEach(item => {
+      sectors[item.sector] = (sectors[item.sector] || 0) + item.valorActual;
+    });
+    return Object.entries(sectors).map(([name, value]) => ({
+      name,
+      value: Number(((value / total) * 100).toFixed(1))
+    }));
+  }, [kpis.valorActual]);
+
+  const timeHorizontalData = useMemo(() => {
+    return [...PORTFOLIO_DATA]
+      .sort((a, b) => b.dias - a.dias)
+      .map(item => ({ ticker: item.ticker, dias: item.dias }));
+  }, []);
 
   return (
-    <AppShell>
-      <div style={{ padding: '22px 28px', color: 'white', maxWidth: 1400, margin: '0 auto', position: 'relative' }}>
-
-        {/* Fondo Decorativo Gatuno */}
-        <div style={{ position: 'absolute', top: 0, right: 60, pointerEvents: 'none' }}>
-          <CatEars color="#00bfff" opacity={0.1} size={40} />
-        </div>
-        <div style={{ position: 'absolute', right: 0, top: '40%', pointerEvents: 'none' }}>
-          <CatTail color="#a78bfa" opacity={0.08} />
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-8 font-sans">
+      
+      {/* ================= FILA 1 — 7 KPIs ================= */}
+      <section className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">Total Invertido</span>
+          <span className="text-xl font-bold mt-2">${kpis.totalInvertido.toLocaleString()}</span>
         </div>
 
-        {/* Header Principal */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <Paw size={18} color="#00bfff" opacity={0.55} />
-          <Paw size={13} color="#00bfff" opacity={0.3} />
-          <Paw size={9}  color="#00bfff" opacity={0.15} />
-          <BarChart2 size={20} color={C.accent} />
-          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Análisis Consolidado de Estadísticas</h1>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">Valor Actual</span>
+          <span className="text-xl font-bold mt-2">${kpis.valorActual.toLocaleString()}</span>
         </div>
 
-        {/* Filtro de Portafolios */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 22, borderBottom: `1px solid ${C.border}`, paddingBottom: 14, flexWrap: 'wrap' }}>
-          {[{ id: 'all', name: 'Todos los Portafolios' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={filterBtn(selectedPortfolio === p.id)}>
-              {p.name}
-            </button>
-          ))}
-        </div>
-
-        {!charts ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#555', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-            <Paw size={40} color="#333" opacity={0.4} />
-            No se registraron transacciones para este portafolio.
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">PnL Latente</span>
+          <div className="mt-2 flex items-baseline gap-1">
+            <span className={`text-xl font-bold ${kpis.pnlLatenteAbs >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              ${kpis.pnlLatenteAbs.toLocaleString()}
+            </span>
+            <span className={`text-xs ${kpis.pnlLatentePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              ({kpis.pnlLatentePct > 0 ? '+' : ''}{kpis.pnlLatentePct.toFixed(1)}%)
+            </span>
           </div>
-        ) : (
-          <>
-            {/* ── FILA 1: KPIs Principales ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 18 }}>
-              <KpiCard label="Cap. Expuesto" value={money(charts.capitalExpuesto)} color={C.accent} />
-              <KpiCard label="Cap. Actual" value={money(charts.capitalActual)} color={charts.capitalActual >= charts.capitalExpuesto ? C.success : C.danger} />
-              <KpiCard label="PnL Realizado" value={money(charts.pnlRealizadoTotal)} color={charts.pnlRealizadoTotal >= 0 ? C.success : C.danger} />
-              <KpiCard label="Win Rate" value={`${charts.winRate.toFixed(1)}%`} color={charts.winRate >= 50 ? C.success : C.warning} />
-              <KpiCard label="Profit Factor" value={charts.profitFactor.toFixed(2)} color={charts.profitFactor >= 1.5 ? C.success : C.warning} />
-              <KpiCard label="Abiertas" value={String(charts.openCount)} color="#fff" />
-              <KpiCard label="Cerradas" value={String(charts.closedCount)} color={C.muted} />
-            </div>
+        </div>
 
-            {/* ── FILA 2: Tabla Compacta de Posiciones Activas ── */}
-            <div style={{ marginBottom: 18 }}>
-              <ChartCard title="Posiciones Activas">
-                <div style={{ overflowX: 'auto', maxHeight: 220 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ borderBottom: `1px solid ${C.border}`, color: '#888' }}>
-                        <th style={{ padding: '6px 8px' }}>Ticker</th>
-                        <th style={{ padding: '6px 8px' }}>Sector</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Cant.</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>P. Promedio</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>P. Actual</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>PnL ($)</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>PnL (%)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {charts.tradesWithUnrealizedPnl.map(t => (
-                        <tr key={t.id} style={{ borderBottom: '1px solid #111' }}>
-                          <td style={{ padding: '6px 8px', fontWeight: 700, color: C.accent }}>{t.ticker}</td>
-                          <td style={{ padding: '6px 8px', color: '#aaa' }}>{t.sector || 'Otros'}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{t.quantity}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{money(t.avg)}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right' }}>{money(t.cur)}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: t.unrealizedPnl >= 0 ? C.success : C.danger }}>
-                            {money(t.unrealizedPnl)}
-                          </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: t.unrealizedPct >= 0 ? C.success : C.danger }}>
-                            {t.unrealizedPct > 0 ? '+' : ''}{t.unrealizedPct}%
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </ChartCard>
-            </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">Variación Hoy</span>
+          <div className="mt-2 flex items-center gap-1">
+            {kpis.varHoy >= 0 ? <ArrowUpRight className="w-4 h-4 text-emerald-400" /> : <ArrowDownRight className="w-4 h-4 text-rose-400" />}
+            <span className={`text-xl font-bold ${kpis.varHoy >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {kpis.varHoy.toFixed(2)}%
+            </span>
+          </div>
+        </div>
 
-            {/* ── FILA 3: Equity Curve vs S&P 500 ── */}
-            <div style={{ marginBottom: 18 }}>
-              <ChartCard title="Rendimiento del Portafolio vs S&P 500" sub="Rendimiento relativo histórico acumulado">
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10 }}>
-                  {(['YTD', '1Y', '5Y', 'MAX'] as const).map(range => (
-                    <button
-                      key={range}
-                      onClick={() => setTimeRange(range)}
-                      style={{
-                        background: timeRange === range ? C.accent : '#151515',
-                        color: timeRange === range ? '#000' : '#888',
-                        border: 'none',
-                        borderRadius: 4,
-                        padding: '3px 8px',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">En Ganancia %</span>
+          <span className="text-xl font-bold mt-2 text-emerald-400">{kpis.enGananciaPct.toFixed(0)}%</span>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">Días Promedio</span>
+          <span className="text-xl font-bold mt-2">{kpis.diasPromedio} días</span>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          <span className="text-xs font-medium text-slate-400">RSI Promedio</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xl font-bold">{kpis.rsiPromedio}</span>
+            <span className={`text-xs px-2 py-0.5 rounded ${kpis.rsiPromedio > 70 ? 'bg-rose-950 text-rose-400' : kpis.rsiPromedio < 30 ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-300'}`}>
+              {kpis.rsiPromedio > 70 ? 'Sobrecompra' : kpis.rsiPromedio < 30 ? 'Sobrevenda' : 'Neutral'}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* ================= FILA 2 — TABLA DE POSICIONES ================= */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <Layers className="w-5 h-5 text-blue-400" /> Posiciones en Cartera
+          </h2>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar Ticker o Nombre..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-slate-300">
+            <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800">
+              <tr>
+                <th className="py-3 px-4 cursor-pointer hover:text-white" onClick={() => handleSort('ticker')}>Ticker</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white" onClick={() => handleSort('sector')}>Sector</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('invertido')}>Invertido</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('valorActual')}>Valor Actual</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('pnl')}>PnL (%)</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('varHoy')}>Var Hoy</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('originalPct')}>% Orig.</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('actualPct')}>% Act.</th>
+                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('rsi')}>RSI</th>
+                <th className="py-3 px-4 text-center">TradingView</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {filteredAndSortedPositions.map((row) => (
+                <tr key={row.ticker} className="hover:bg-slate-800/50 transition-colors">
+                  <td className="py-3 px-4 font-semibold text-white">
+                    {row.ticker}
+                    <span className="block text-xs font-normal text-slate-400">{row.name}</span>
+                  </td>
+                  <td className="py-3 px-4"><span className="bg-slate-800 px-2 py-1 rounded text-xs">{row.sector}</span></td>
+                  <td className="py-3 px-4 text-right">${row.invertido.toLocaleString()}</td>
+                  <td className="py-3 px-4 text-right">${row.valorActual.toLocaleString()}</td>
+                  <td className={`py-3 px-4 text-right font-medium ${row.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {row.pnl > 0 ? '+' : ''}{row.pnl.toFixed(1)}%
+                  </td>
+                  <td className={`py-3 px-4 text-right ${row.varHoy >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {row.varHoy > 0 ? '+' : ''}{row.varHoy.toFixed(1)}%
+                  </td>
+                  <td className="py-3 px-4 text-right text-slate-400">{row.originalPct}%</td>
+                  <td className="py-3 px-4 text-right font-medium text-blue-400">{row.actualPct.toFixed(1)}%</td>
+                  <td className="py-3 px-4 text-right">{row.rsi}</td>
+                  <td className="py-3 px-4 text-center">
+                    <a
+                      href={`https://www.tradingview.com/symbols/${row.ticker}/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center text-blue-400 hover:text-blue-300"
                     >
-                      {range}
-                    </button>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ================= FILA 3 — RENDIMIENTO vs S&P 500 ================= */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <BarChart2 className="w-5 h-5 text-emerald-400" /> Rendimiento % por Posición vs S&P 500
+          </h2>
+          <div className="flex bg-slate-950 p-1 border border-slate-800 rounded-lg">
+            {(['YTD', '1Y', '5Y', 'MAX'] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
+                  timeframe === tf ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-72 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={BENCHMARK_PERF[timeframe]}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="ticker" stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" unit="%" />
+              <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
+              <Legend />
+              <Bar dataKey="rendimiento" name="Rendimiento Activo (%)" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="sp500" name="S&P 500 Benchmark (%)" fill="#64748B" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      {/* ================= FILA 4 — TOP 5 + PnL POR SECTOR ================= */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Top 5 Ganancias */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 className="text-md font-bold mb-4 text-emerald-400 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" /> Top 5 Ganancias
+          </h3>
+          <ul className="space-y-3">
+            {top5Gainers.map((item) => (
+              <li key={item.ticker} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <div>
+                  <span className="font-bold text-sm">{item.ticker}</span>
+                  <span className="text-xs block text-slate-400">{item.sector}</span>
+                </div>
+                <span className="text-emerald-400 font-semibold text-sm">+{item.pnl.toFixed(1)}%</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Top 5 Pérdidas */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 className="text-md font-bold mb-4 text-rose-400 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 rotate-180" /> Top 5 Pérdidas
+          </h3>
+          <ul className="space-y-3">
+            {top5Losers.map((item) => (
+              <li key={item.ticker} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <div>
+                  <span className="font-bold text-sm">{item.ticker}</span>
+                  <span className="text-xs block text-slate-400">{item.sector}</span>
+                </div>
+                <span className="text-rose-400 font-semibold text-sm">{item.pnl.toFixed(1)}%</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* PnL Latente por Sector */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 className="text-md font-bold mb-4 text-blue-400 flex items-center gap-2">
+            <PieChart className="w-4 h-4" /> PnL Latente por Sector ($)
+          </h3>
+          <div className="space-y-3">
+            {sectorPnL.map((item) => (
+              <div key={item.sector} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <span className="text-sm text-slate-300">{item.sector}</span>
+                <span className={`text-sm font-semibold ${item.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {item.pnl >= 0 ? '+' : ''}${item.pnl.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================= FILA 5 — DONA SECTOR + TIEMPO + DÍAS POR TICKER ================= */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Dona por sector */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 className="text-md font-bold mb-2">Distribución por Sector</h3>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RePie>
+                <Pie data={sectorAllocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                  {sectorAllocation.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={SECTOR_COLORS[index % SECTOR_COLORS.length]} />
                   ))}
-                </div>
-                {charts.vsData.length > 1 ? (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={charts.vsData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`} />} />
-                      <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                      <Line type="monotone" dataKey="portfolio" name="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
-                      <Line type="monotone" dataKey="sp500" name="S&P 500" stroke={C.sp500} strokeWidth={2} dot={false} strokeDasharray="6 3" />
-                      <Legend formatter={(val) => <span style={{ color: '#aaa', fontSize: 10 }}>{val}</span>} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart message="Esperando suficientes datos comparativos para proyectar la curva..." height={240} />
-                )}
-              </ChartCard>
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
+                <Legend />
+              </RePie>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Tiempo en Posición (Resumen) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+          <div>
+            <h3 className="text-md font-bold mb-4 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-purple-400" /> Tiempo en Posición
+            </h3>
+            <div className="space-y-4">
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-xs text-slate-400 block">Posición más Antigua</span>
+                <span className="text-md font-bold text-purple-400">JNJ (410 días)</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-xs text-slate-400 block">Posición más Reciente</span>
+                <span className="text-md font-bold text-blue-400">XOM (90 días)</span>
+              </div>
             </div>
+          </div>
+          <div className="text-xs text-slate-500 border-t border-slate-800 pt-3">
+            El tiempo promedio total ponderado de la cartera actual es de <strong className="text-slate-300">{kpis.diasPromedio} días</strong>.
+          </div>
+        </div>
 
-            {/* ── FILA 4: PnL por Sector y PnL No Realizado ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
-              {/* PnL Actual por Sector */}
-              <ChartCard title="PnL actual por sector" sub="Ganancia o pérdida latente agrupada por sector">
-                {charts.tradesWithUnrealizedPnl.length > 0 ? (() => {
-                  const sectorMap: Record<string, { pnl: number, invested: number, count: number }> = {}
-                  charts.tradesWithUnrealizedPnl.forEach((t: any) => {
-                    const s = t.sector || 'Sin sector'
-                    if (!sectorMap[s]) sectorMap[s] = { pnl: 0, invested: 0, count: 0 }
-                    sectorMap[s].pnl      += t.unrealizedPnl
-                    sectorMap[s].invested += Number(t.total_invested || 0)
-                    sectorMap[s].count    += 1
-                  })
-                  const data = Object.entries(sectorMap)
-                    .map(([sector, d]) => ({
-                      sector,
-                      pnl:    parseFloat(d.pnl.toFixed(2)),
-                      pct:    d.invested > 0 ? parseFloat((d.pnl / d.invested * 100).toFixed(2)) : 0,
-                      count:  d.count,
-                    }))
-                    .sort((a, b) => b.pnl - a.pnl)
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {data.map((s) => {
-                        const maxAbs = Math.max(...data.map(d => Math.abs(d.pnl)))
-                        const width  = maxAbs > 0 ? (Math.abs(s.pnl) / maxAbs) * 100 : 0
-                        const color  = s.pnl >= 0 ? C.success : C.danger
-                        return (
-                          <div key={s.sector}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ fontSize: 11, color: '#aaa' }}>
-                                {s.sector}
-                                <span style={{ fontSize: 9, color: '#444', marginLeft: 6 }}>{s.count} trade{s.count > 1 ? 's' : ''}</span>
-                              </span>
-                              <span style={{ fontSize: 11, fontWeight: 700, color }}>
-                                {s.pnl >= 0 ? '+' : ''}{money(s.pnl)}
-                                <span style={{ fontSize: 9, marginLeft: 6, opacity: 0.7 }}>
-                                  ({s.pct >= 0 ? '+' : ''}{s.pct}%)
-                                </span>
-                              </span>
-                            </div>
-                            <div style={{ height: 6, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.6s ease' }} />
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })() : <EmptyChart message="Sin posiciones abiertas" height={180} />}
-              </ChartCard>
+        {/* Días por Ticker Horizontal */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 className="text-md font-bold mb-2">Días Acumulados por Ticker</h3>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={timeHorizontalData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis type="number" stroke="#94a3b8" />
+                <YAxis dataKey="ticker" type="category" stroke="#94a3b8" width={50} />
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
+                <Bar dataKey="dias" name="Días" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </section>
 
-              {/* PnL No Realizado por Ticker */}
-              <ChartCard title="PnL no realizado por posición" sub="Ganancia o pérdida latente de cada trade abierto">
-                {charts.top5Gains.length > 0 || charts.top5Losses.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart
-                      data={[...charts.top5Losses, ...charts.top5Gains].sort((a, b) => a.pnl - b.pnl)}
-                      margin={{ top: 4, right: 16, left: 10, bottom: 4 }}
-                      layout="vertical"
-                    >
-                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number, name: string) => name === 'PnL $' ? money(v) : `${v}%`} />} />
-                      <ReferenceLine x={0} stroke="#333" />
-                      <Bar dataKey="pnl" name="PnL $" radius={[0, 6, 6, 0]}>
-                        {[...charts.top5Losses, ...charts.top5Gains].sort((a, b) => a.pnl - b.pnl).map((e, i) => (
-                          <Cell key={i} fill={e.pnl >= 0 ? C.success : C.danger} fillOpacity={0.85} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Sin datos de PnL no realizado" height={240} />}
-              </ChartCard>
-            </div>
-
-            {/* Top 5 Ganancias y Pérdidas */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
-              <ChartCard title="Top 5 mayores ganancias" sub="PnL no realizado — posiciones con mayor ganancia latente">
-                {charts.top5Gains.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={charts.top5Gains} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                      <Bar dataKey="pnl" name="PnL" radius={[0, 6, 6, 0]} fill={C.success} fillOpacity={0.85} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Sin ganancias latentes registradas" height={180} />}
-              </ChartCard>
-
-              <ChartCard title="Top 5 mayores pérdidas" sub="PnL no realizado — posiciones con mayor pérdida latente">
-                {charts.top5Losses.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={charts.top5Losses} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={48} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                      <Bar dataKey="pnl" name="PnL" radius={[0, 6, 6, 0]} fill={C.danger} fillOpacity={0.85} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Sin pérdidas latentes registradas" height={180} />}
-              </ChartCard>
-            </div>
-
-            {/* ── FILA 5: Tiempo en Posición y Distribución Sectorial ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              {/* Tiempo en Posición */}
-              <ChartCard title="Tiempo en posición por trade" sub="Días desde apertura — rojo = pérdida latente, verde = ganancia latente">
-                {charts.daysInPosition.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={Math.max(180, charts.daysInPosition.length * 28)}>
-                    <BarChart data={charts.daysInPosition} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                      <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
-                      <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={52} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number, name: string) => name === 'Días' ? `${v} días` : `${v}%`} />} />
-                      <Bar dataKey="days" name="Días" radius={[0, 6, 6, 0]}>
-                        {charts.daysInPosition.map((e, i) => (
-                          <Cell key={i} fill={e.pnlPct >= 0 ? C.success : C.danger} fillOpacity={0.75} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <EmptyChart message="Sin trades abiertos" height={180} />}
-              </ChartCard>
-
-              {/* Distribución por Sector */}
-              <ChartCard title="Distribución por Sector" sub="Composición actual del capital expuesto por industria">
-                <div style={{ display: 'flex', alignItems: 'center', height: 180 }}>
-                  <ResponsiveContainer width="50%" height={160}>
-                    <PieChart>
-                      <Pie data={charts.sectorData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value">
-                        {charts.sectorData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ width: '50%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
-                    {charts.sectorData.map((s, i) => (
-                      <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                        <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                          {s.name}
-                        </span>
-                        <span style={{ fontWeight: 700, color: '#fff' }}>{s.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </ChartCard>
-            </div>
-          </>
-        )}
-      </div>
-    </AppShell>
-  )
+    </div>
+  );
 }
