@@ -169,22 +169,60 @@ export default function InformeDinero() {
         }
       })
 
-    // ── Crecimiento acumulado (histórico completo, sin filtro de año) ─────
+    // Construir mapa de PnL acumulado por mes usando close_date de trades
+    const pnlCumMap: Record<string, number> = {}
+    const closedSorted = filteredTrades
+      .filter((t: any) => t.status === 'closed' && t.close_date)
+      .sort((a: any, b: any) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime())
+    let cumPnlAccum = 0
+    closedSorted.forEach((t: any) => {
+      cumPnlAccum += Number(t.realized_pnl || 0)
+      const d     = parseDate(t.close_date)
+      const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
+      pnlCumMap[label] = parseFloat(cumPnlAccum.toFixed(2))
+    })
+
+    // Construir mapa de dividendos acumulados por mes
+    const divCumMap: Record<string, number> = {}
+    let cumDivAccum = 0
+    realMovByWallet
+      .filter(isDividend)
+      .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
+      .forEach(m => {
+        cumDivAccum += Number(m.amount)
+        const d     = parseDate(m.date)
+        const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
+        divCumMap[label] = parseFloat(cumDivAccum.toFixed(2))
+      })
+
+    // Combinar todos los puntos en orden cronológico
     let cumDeposit = 0
+    let lastPnl    = 0
+    let lastDiv    = 0
     const growthMap: Record<string, { capital: number, patrimonio: number }> = {}
+
     realMovByWallet
       .slice()
       .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
       .forEach(m => {
         if (isDeposit(m))       cumDeposit += Number(m.amount)
-        else if (isWithdraw(m)) cumDeposit += Number(m.amount) // negativo
+        else if (isWithdraw(m)) cumDeposit += Number(m.amount)
         const d     = parseDate(m.date)
         const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
+        lastPnl = pnlCumMap[label] ?? lastPnl
+        lastDiv = divCumMap[label] ?? lastDiv
         growthMap[label] = {
           capital:    parseFloat(Math.max(cumDeposit, 0).toFixed(2)),
-          patrimonio: parseFloat((Math.max(cumDeposit, 0) + totalPnlReal + totalDividends).toFixed(2)),
+          patrimonio: parseFloat((Math.max(cumDeposit, 0) + lastPnl + lastDiv).toFixed(2)),
         }
       })
+
+    // Agregar puntos de PnL que no tienen movimiento de dinero en ese mes
+    Object.entries(pnlCumMap).forEach(([label, pnl]) => {
+      if (!growthMap[label]) return
+      growthMap[label].patrimonio = parseFloat((growthMap[label].capital + pnl + (divCumMap[label] ?? lastDiv)).toFixed(2))
+    })
+
     const growthData = Object.entries(growthMap).map(([label, d]) => ({ label, ...d }))
 
     // ── Por billetera ─────────────────────────────────────────────────────
