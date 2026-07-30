@@ -165,27 +165,44 @@ export default function DividendosInforme() {
       : proyeccion
     const metaPct = meta > 0 ? Math.min((ytdTotal / meta * 100), 100) : 0
 
-    // ── Evolución mensual (últimos 12 meses) ─────────────────────────────
     const monthly: Record<string, number> = {}
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(year, month - i, 1)
-      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`
-      monthly[key] = 0
-    }
-    // monthlyData siempre usa TODOS los dividendos sin filtro de año
-    dividends.forEach(d => {
-      const dt  = parseDate(d.date)
-      const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2, '0')}`
-      if (key in monthly) monthly[key] += Number(d.amount)
-    })
-    const monthlyData = Object.entries(monthly).map(([key, total]) => {
-      const [y, m] = key.split('-')
-      return {
-        key,
-        label: `${MESES[parseInt(m)]} ${y}`,
-        total: parseFloat(total.toFixed(2)),
+
+    // Si hay filtro de año inicializar los 12 meses de ese año
+    // Si es "todos los años" usar todos los meses con dividendos
+    if (filterYear !== 'all') {
+      for (let i = 0; i < 12; i++) {
+        const key = `${year}-${String(i).padStart(2,'0')}`
+        monthly[key] = 0
       }
-    })
+      filteredDividends.forEach(d => {
+        const dt  = parseDate(d.date)
+        const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2,'0')}`
+        if (key in monthly) monthly[key] += Number(d.amount)
+      })
+    } else {
+      // Todos los años — usar filteredDividends que respeta filtro de billetera
+      filteredDividends.forEach(d => {
+        const dt  = parseDate(d.date)
+        const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2,'0')}`
+        if (!monthly[key]) monthly[key] = 0
+        monthly[key] += Number(d.amount)
+      })
+    }
+
+    const MONTH_ORDER_DIV = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+    const monthlyData = Object.entries(monthly)
+      .sort(([a], [b]) => {
+        const [ya, ma] = a.split('-'); const [yb, mb] = b.split('-')
+        return parseInt(ya) !== parseInt(yb) ? parseInt(ya) - parseInt(yb) : parseInt(ma) - parseInt(mb)
+      })
+      .map(([key, total]) => {
+        const [y, m] = key.split('-')
+        return {
+          key,
+          label: `${MONTH_ORDER_DIV[parseInt(m)]} ${y}`,
+          total: parseFloat(total.toFixed(2)),
+        }
+      })
 
     // ── Top pagadores ────────────────────────────────────────────────────
     const allByTicker: Record<string, number> = {}
