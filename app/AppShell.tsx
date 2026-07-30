@@ -312,13 +312,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <MenuLink href="/estadisticas"  label="Abiertos"  active={pathname === '/estadisticas'}  isSubItem />
               <MenuLink href="/estadisticas2" label="Cerrados"  active={pathname === '/estadisticas2'} isSubItem />
 
-              <div style={groupHeader}>
-                <PieChart size={13} color="#555" />
-                <span>Gráficos</span>
-              </div>
-              <MenuLink href="/graficos"  label="Abiertos" active={pathname === '/graficos'}  isSubItem />
-              <MenuLink href="/graficos2" label="Cerrados" active={pathname === '/graficos2'} isSubItem />
-
              <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 WALLET
