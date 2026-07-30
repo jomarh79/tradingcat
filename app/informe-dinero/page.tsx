@@ -39,34 +39,45 @@ export default function InformeDinero() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
 
     let allMov: any[] = []
     let from = 0
-    while (true) {
-      const { data: chunk } = await supabase
+    const MAX_PAGES = 20
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { data: chunk, error: chunkErr } = await supabase
         .from('wallet_movements')
         .select('id, amount, date, movement_type, is_dividend, wallet_id, ticker, notes')
         .eq('user_id', user.id)
         .order('date', { ascending: true })
         .range(from, from + 999)
-      if (!chunk?.length) break
+      if (chunkErr || !chunk?.length) break
       allMov = [...allMov, ...chunk]
       if (chunk.length < 1000) break
       from += 1000
     }
     setMovements(allMov)
 
-    const [{ data: pData }, { data: tData }] = await Promise.all([
+    const [
+      { data: pData, error: pErr },
+      { data: tData, error: tErr }
+    ] = await Promise.all([
       supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id),
       supabase.from('trades')
         .select('portfolio_id, realized_pnl, status, initial_entry_price, initial_quantity, entry_price, quantity, trade_executions(quantity, price, commission, execution_type)')
         .eq('user_id', user.id),
     ])
+    if (pErr) console.error('portfolios error:', pErr)
+    if (tErr) console.error('trades error:', tErr)
     setPortfolios(pData || [])
     setTrades(tData || [])
     setLoading(false)
+    } catch (err) {
+      console.error('fetchData error:', err)
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
