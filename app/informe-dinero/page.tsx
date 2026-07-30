@@ -66,7 +66,7 @@ export default function InformeDinero() {
     ] = await Promise.all([
       supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id),
       supabase.from('trades')
-        .select('portfolio_id, realized_pnl, status, initial_entry_price, initial_quantity, entry_price, quantity, trade_executions(quantity, price, commission, execution_type)')
+        .select('portfolio_id, realized_pnl, status, close_date, initial_entry_price, initial_quantity, entry_price, quantity, trade_executions(quantity, price, commission, execution_type)')
         .eq('user_id', user.id),
     ])
     if (pErr) console.error('portfolios error:', pErr)
@@ -145,6 +145,16 @@ export default function InformeDinero() {
       else if (isDeposit(m))  monthly[key].depositos  += Number(m.amount)
       else if (isWithdraw(m)) monthly[key].retiros    += Math.abs(Number(m.amount))
     })
+
+    // PnL mensual de trades cerrados filtrados por mes de cierre
+    const pnlByMonth: Record<string, number> = {}
+    filteredTrades.filter(t => t.status === 'closed' && t.close_date).forEach((t: any) => {
+      const d   = parseDate(t.close_date)
+      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
+      if (filterYear === 'all' || d.getFullYear().toString() === filterYear) {
+        pnlByMonth[key] = parseFloat(((pnlByMonth[key] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
+      }
+    })
     const monthlyData = Object.entries(monthly)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, d]) => {
@@ -154,7 +164,8 @@ export default function InformeDinero() {
           depositos:  parseFloat(d.depositos.toFixed(2)),
           retiros:    parseFloat(d.retiros.toFixed(2)),
           dividendos: parseFloat(d.dividendos.toFixed(2)),
-          neto:       parseFloat((d.depositos - d.retiros + d.dividendos).toFixed(2)),
+          pnl:        parseFloat((pnlByMonth[key] || 0).toFixed(2)),
+          neto:       parseFloat((d.depositos - d.retiros + d.dividendos + (pnlByMonth[key] || 0)).toFixed(2)),
         }
       })
 
@@ -368,12 +379,13 @@ export default function InformeDinero() {
                 />
                 <Bar dataKey="depositos"  name="Depósitos"  fill={C.gain} fillOpacity={0.8} radius={[3,3,0,0]} />
                 <Bar dataKey="retiros"    name="Retiros"    fill={C.loss} fillOpacity={0.7} radius={[3,3,0,0]} />
-                <Bar dataKey="dividendos" name="Dividendos" fill={C.gold} fillOpacity={0.8} radius={[3,3,0,0]} />
+                <Bar dataKey="dividendos" name="Dividendos" fill={C.gold}   fillOpacity={0.8} radius={[3,3,0,0]} />
+                <Bar dataKey="pnl"        name="PnL trades" fill={C.purple} fillOpacity={0.8} radius={[3,3,0,0]} />
                 <Line type="monotone" dataKey="neto" name="Neto" stroke={C.accent} strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
             <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
-              {[{c:C.gain,l:'Depósitos'},{c:C.loss,l:'Retiros'},{c:C.gold,l:'Dividendos'},{c:C.accent,l:'Neto'}].map(x => (
+              {[{c:C.gain,l:'Depósitos'},{c:C.loss,l:'Retiros'},{c:C.gold,l:'Dividendos'},{c:C.purple,l:'PnL trades'},{c:C.accent,l:'Neto'}].map(x => (
                 <span key={x.l} style={{ fontSize: 9, color: x.c, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: x.c, display: 'inline-block' }} />{x.l}
                 </span>
