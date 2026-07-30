@@ -315,12 +315,21 @@ export default function AbiertosUnificado() {
               onChange={e => setTickerSearch(e.target.value)}
               style={{ background: C.dim, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 8, fontSize: 11, outline: 'none', width: 140 }}
             />
-            <button onClick={() => setSelectedPortfolio('all')} style={{
-              padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: selectedPortfolio === 'all' ? C.accent : C.dim,
-              color: selectedPortfolio === 'all' ? '#000' : C.muted,
-              border: `1px solid ${selectedPortfolio === 'all' ? C.accent : C.border}`,
-            }} onClick={() => setSelectedPortfolio('all')}>Todos</button>
+            <button
+              onClick={() => setSelectedPortfolio('all')}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                background: selectedPortfolio === 'all' ? C.accent : C.dim,
+                color: selectedPortfolio === 'all' ? '#000' : C.muted,
+                border: `1px solid ${selectedPortfolio === 'all' ? C.accent : C.border}`,
+              }}
+            >
+              Todos
+            </button>
             {portfolios.map(p => (
               <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={{
                 padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
