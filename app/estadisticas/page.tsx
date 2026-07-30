@@ -1,584 +1,593 @@
 'use client'
-
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
-import { usePrivacy } from '@/lib/PrivacyContext'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { createClient } from '@supabase/supabase-js'
+import {
+  AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, ComposedChart
+} from 'recharts'
 import AppShell from '../AppShell'
-import { BarChart2, ChevronDown, ChevronUp, X } from 'lucide-react'
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-
-// ── Cat decorators ─────────────────────────────────────────────────────────
-const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0, ...s }}>
-    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
-    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
-    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
-    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
-    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
-  </svg>
-)
-const CatEars = ({ color = '#00bfff', opacity = 0.1, size = 36 }: any) => (
-  <svg width={size * 1.5} height={size} viewBox="0 0 60 40" fill={color} style={{ opacity }}>
-    <polygon points="0,40 12,0 24,40"/>
-    <polygon points="36,40 48,0 60,40"/>
-  </svg>
-)
-const Whiskers = ({ color = '#00bfff', opacity = 0.08 }: any) => (
-  <svg width={80} height={28} viewBox="0 0 80 28" stroke={color} strokeWidth="1.5" style={{ opacity }}>
-    <line x1="0" y1="8"  x2="34" y2="14"/><line x1="0" y1="16" x2="34" y2="14"/>
-    <line x1="0" y1="24" x2="34" y2="14"/><line x1="80" y1="8"  x2="46" y2="14"/>
-    <line x1="80" y1="16" x2="46" y2="14"/><line x1="80" y1="24" x2="46" y2="14"/>
-  </svg>
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function EstadisticasAbiertosPage() {
-  const { money } = usePrivacy()
+const parseDate  = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const money      = (v: number) => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtPct     = (v: number, d = 2) => `${v >= 0 ? '+' : ''}${v.toFixed(d)}%`
+const shares     = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 })
 
-  const [trades,            setTrades]            = useState<any[]>([])
-  const [portfolios,        setPortfolios]        = useState<any[]>([])
-  const [selectedPortfolio, setSelectedPortfolio] = useState('all')
+const C = {
+  bg:      '#070709', card:    '#0a0a0c', border:  '#141418',
+  accent:  '#00bfff', gain:    '#22c55e', loss:    '#f43f5e',
+  gold:    '#eab308', purple:  '#a78bfa', text:    '#e2e8f0',
+  muted:   '#64748b', dim:     '#0f0f12',
+}
 
-  // Expand state para sectores y países
-  const [expandedSector,  setExpandedSector]  = useState<string | null>(null)
-  const [expandedCountry, setExpandedCountry] = useState<string | null>(null)
-  // Modal de tickers
-  const [modal, setModal] = useState<{ title: string, tickers: { ticker: string, invested: number, pnl: number }[] } | null>(null)
+const SECTOR_COLORS = ['#00bfff','#a78bfa','#22c55e','#eab308','#f472b6','#fb923c','#34d399','#f43f5e','#60a5fa','#c084fc']
+
+const card: React.CSSProperties = {
+  background: C.card, border: `1px solid ${C.border}`,
+  borderRadius: 12, padding: '14px 16px',
+}
+
+export default function AbiertosUnificado() {
+  const [trades,          setTrades]          = useState<any[]>([])
+  const [portfolios,      setPortfolios]      = useState<any[]>([])
+  const [sp500Map,        setSp500Map]        = useState<Record<string, number>>({})
+  const [loading,         setLoading]         = useState(true)
+  const [filterPortfolio, setFilterPortfolio] = useState('all')
+  const [equityPeriod,    setEquityPeriod]    = useState<'YTD'|'1Y'|'5Y'|'MAX'>('YTD')
+  const [tickerSearch,    setTickerSearch]    = useState('')
+  const [hideValues,      setHideValues]      = useState(false)
+  const [sortKey,         setSortKey]         = useState<string>('pnlPct')
+  const [sortDir,         setSortDir]         = useState<'asc'|'desc'>('desc')
 
   const fetchData = useCallback(async () => {
-    const [{ data: pData }, { data: tData }] = await Promise.all([
-      supabase.from('portfolios').select('*'),
-      supabase.from('trades').select('*, portfolios(name)').eq('status', 'open'),
-    ])
-    if (pData) setPortfolios(pData)
-    if (tData) setTrades(tData)
+    setLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
+
+      const [{ data: tData }, { data: pData }] = await Promise.all([
+        supabase.from('trades')
+          .select('*, trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id)
+          .eq('status', 'open'),
+        supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id),
+      ])
+      setTrades(tData || [])
+      setPortfolios(pData || [])
+
+      try {
+        const cached = localStorage.getItem('sp500')
+        if (cached) {
+          const parsed: { date: string, close: number }[] = JSON.parse(cached)
+          const map: Record<string, number> = {}
+          parsed.forEach(d => { map[d.date] = d.close })
+          setSp500Map(map)
+        }
+      } catch (e) { console.error('SP500 cache:', e) }
+    } catch (err) {
+      console.error('fetchData error:', err)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const filteredTrades = useMemo(() => {
-    if (selectedPortfolio === 'all') return trades
-    return trades.filter(t => t.portfolio_id === selectedPortfolio)
-  }, [trades, selectedPortfolio])
+  const calcInvested = useCallback((t: any): number => {
+    const ini = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+    const extra = (t.trade_executions || [])
+      .filter((e: any) => e.execution_type === 'buy')
+      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+    return parseFloat((ini + extra).toFixed(2))
+  }, [])
 
-  const stats = useMemo(() => {
-    if (!filteredTrades.length) return null
+  // ── Trades enriquecidos ─────────────────────────────────────────────────
+  const enriched = useMemo(() => {
+    const now = new Date()
+    const byPortfolio = filterPortfolio === 'all' ? trades : trades.filter(t => t.portfolio_id === filterPortfolio)
+    const filtered = tickerSearch
+      ? byPortfolio.filter(t => t.ticker.toLowerCase().includes(tickerSearch.toLowerCase()))
+      : byPortfolio
 
-    const totalInvested = filteredTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
-    const totalCurrent = filteredTrades.reduce((acc, t) => {
+    const totalInvAll = byPortfolio.reduce((a, t) => a + calcInvested(t), 0)
+
+    return filtered.map(t => {
+      const inv      = calcInvested(t)
+      const qty      = Number(t.quantity || 0)
+      const cur      = Number(t.last_price || t.entry_price || 0)
+      const avg      = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+      const curVal   = cur * qty
+      const pnl      = parseFloat(((cur - avg) * qty).toFixed(2))
+      const pnlPct   = avg > 0 ? parseFloat(((cur - avg) / avg * 100).toFixed(2)) : 0
+      const dayChg   = Number(t.day_change || 0)
+      const days     = Math.floor((now.getTime() - parseDate(t.open_date).getTime()) / 86400000)
+      const weight   = totalInvAll > 0 ? parseFloat((inv / totalInvAll * 100).toFixed(1)) : 0
+      const weightCur= totalInvAll > 0 ? parseFloat((curVal / totalInvAll * 100).toFixed(1)) : 0
+      const portName = portfolios.find(p => p.id === t.portfolio_id)?.name || '—'
+      return { ...t, inv, qty, cur, avg, curVal, pnl, pnlPct, dayChg, days, weight, weightCur, portName, rsi: Number(t.rsi || 0) }
+    })
+  }, [trades, portfolios, filterPortfolio, tickerSearch, calcInvested])
+
+  // ── KPIs globales ───────────────────────────────────────────────────────
+  const kpis = useMemo(() => {
+    const all = filterPortfolio === 'all' ? trades : trades.filter(t => t.portfolio_id === filterPortfolio)
+    const totalInv  = parseFloat(all.reduce((a, t) => a + calcInvested(t), 0).toFixed(2))
+    const totalCur  = parseFloat(all.reduce((a, t) => {
       const qty = Number(t.quantity || 0)
       const cur = Number(t.last_price || t.entry_price || 0)
-      return acc + qty * cur
-    }, 0)
-    const totalPnL = totalCurrent - totalInvested
+      return a + qty * cur
+    }, 0).toFixed(2))
+    const totalPnl  = parseFloat((totalCur - totalInv).toFixed(2))
+    const pnlPct    = totalInv > 0 ? parseFloat((totalPnl / totalInv * 100).toFixed(2)) : 0
+    const dayPnl    = parseFloat(all.reduce((a, t) => {
+      const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      return a + (Number(t.day_change || 0) / 100 * qty * cur)
+    }, 0).toFixed(2))
+    const inGain    = all.filter(t => {
+      const inv = calcInvested(t); const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      const avg = qty > 0 ? inv / qty : 0
+      return cur > avg
+    }).length
+    const gainRate  = all.length > 0 ? parseFloat((inGain / all.length * 100).toFixed(1)) : 0
+    const avgDays   = all.length > 0 ? parseFloat((all.reduce((a, t) => {
+      return a + Math.floor((new Date().getTime() - parseDate(t.open_date).getTime()) / 86400000)
+    }, 0) / all.length).toFixed(1)) : 0
+    const rsiList   = all.filter(t => Number(t.rsi) > 0).map(t => Number(t.rsi))
+    const avgRsi    = rsiList.length > 0 ? parseFloat((rsiList.reduce((a, b) => a + b, 0) / rsiList.length).toFixed(1)) : 0
+    return { totalInv, totalCur, totalPnl, pnlPct, dayPnl, inGain, gainRate, total: all.length, avgDays, avgRsi }
+  }, [trades, portfolios, filterPortfolio, calcInvested])
 
-    const totalPnLPct =
-      totalInvested > 0
-        ? (totalPnL / totalInvested) * 100
-        : 0
-
-    // Horizonte
-    const horizonStats = { long: 0, mid: 0, short: 0 }
-    trades.forEach(t => {
-      const pName = (t.portfolios?.name || '').toLowerCase()
-      const inv   = Number(t.total_invested || 0)
-      if (pName.includes('largo'))      horizonStats.long  += inv
-      else if (pName.includes('media')) horizonStats.mid   += inv
-      else                              horizonStats.short += inv
-    })
-
-    // Sectores con tickers por subsector
-    const sectorGroups: Record<string, {
-      total: number
-      subsectors: Record<string, { total: number, tickers: { ticker: string, invested: number, pnl: number }[] }>
-    }> = {}
-    filteredTrades.forEach(t => {
-      const s   = t.sector    || 'Otros'
-      const sub = t.subsector || 'General'
-      const inv = Number(t.total_invested || 0)
-      const pnl = Number(t.realized_pnl   || 0)
-      if (!sectorGroups[s]) sectorGroups[s] = { total: 0, subsectors: {} }
-      sectorGroups[s].total += inv
-      if (!sectorGroups[s].subsectors[sub]) sectorGroups[s].subsectors[sub] = { total: 0, tickers: [] }
-      sectorGroups[s].subsectors[sub].total += inv
-      sectorGroups[s].subsectors[sub].tickers.push({ ticker: t.ticker, invested: inv, pnl })
-    })
-
-    // Países con tickers
-    const countryGroups: Record<string, { total: number, count: number, tickers: { ticker: string, invested: number, pnl: number }[] }> = {}
-    filteredTrades.forEach(t => {
-      const c   = t.country || 'Otros'
-      const inv = Number(t.total_invested || 0)
-      const pnl = Number(t.realized_pnl   || 0)
-      if (!countryGroups[c]) countryGroups[c] = { total: 0, count: 0, tickers: [] }
-      countryGroups[c].total += inv
-      countryGroups[c].count++
-      countryGroups[c].tickers.push({ ticker: t.ticker, invested: inv, pnl })
-    })
-
-    // Top 5 por tamaño
-    const topPositions = [...filteredTrades].sort((a, b) => b.total_invested - a.total_invested).slice(0, 5)
-
-    // Top 5 mayores ganancias y pérdidas (por realized_pnl)
-    const withPnl = filteredTrades.map(t => {
-      const qty      = Number(t.quantity || 0)
-      const avgPrice = qty > 0 ? Number(t.total_invested || 0) / qty : Number(t.entry_price || 0)
-      const curPrice = Number(t.last_price || t.entry_price || 0)
-      const pnl      = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
-      return { ...t, pnl }
-    })
-    const winningTrades = withPnl.filter(t => t.pnl > 0).length
-    const losingTrades  = withPnl.filter(t => t.pnl < 0).length
-
-    const topGains  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
-    const topLosses = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
-    // Duración promedio
+  // ── Charts ──────────────────────────────────────────────────────────────
+  const charts = useMemo(() => {
     const now = new Date()
-    const avgDuration = filteredTrades.reduce((acc, t) =>
-      acc + Math.ceil((now.getTime() - parseDate(t.open_date).getTime()) / 86400000), 0
-    ) / filteredTrades.length
+    const all = filterPortfolio === 'all' ? trades : trades.filter(t => t.portfolio_id === filterPortfolio)
 
-    // R/R promedio
-    const rrTrades = filteredTrades.filter(t => t.stop_loss && t.take_profit_1 && t.entry_price)
-    const avgRR    = rrTrades.length > 0
-      ? rrTrades.reduce((acc, t) => {
-          const risk   = Math.abs(Number(t.entry_price) - Number(t.stop_loss))
-          const reward = Math.abs(Number(t.take_profit_1) - Number(t.entry_price))
-          return acc + (risk > 0 ? reward / risk : 0)
-        }, 0) / rrTrades.length
-      : 0
-
-    return {
-      totalInvested,
-      totalCurrent,
-      totalPnL,
-      totalPnLPct,
-      winningTrades,
-      losingTrades,
-      totalCount: filteredTrades.length,
-      horizonStats, sectorGroups, countryGroups,
-      topPositions, topGains, topLosses,
-      avgDuration: parseFloat(avgDuration.toFixed(1)),
-      avgRR:       parseFloat(avgRR.toFixed(2)),
-      rrCount:     rrTrades.length,
+    // Curva equity + SP500
+    const cutoffMap: Record<string, Date> = {
+      YTD: new Date(now.getFullYear(), 0, 1),
+      '1Y': new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()),
+      '5Y': new Date(now.getFullYear() - 5, now.getMonth(), now.getDate()),
+      MAX:  new Date(2000, 0, 1),
     }
-  }, [filteredTrades])
+    const cutoff   = cutoffMap[equityPeriod]
+    const sp500Keys= Object.keys(sp500Map).sort()
+    const equityData = all
+      .filter(t => parseDate(t.open_date) >= cutoff)
+      .sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
+      .map(t => {
+        const inv    = calcInvested(t)
+        const qty    = Number(t.quantity || 0)
+        const cur    = Number(t.last_price || t.entry_price || 0)
+        const avg    = qty > 0 ? inv / qty : 0
+        const pnl    = (cur - avg) * qty
+        const pnlPct = avg > 0 ? (cur - avg) / avg * 100 : 0
+        const dateStr= t.open_date
+        const sp500StartKey = sp500Keys.filter(k => k <= dateStr).slice(-1)[0]
+        const sp500EndKey   = sp500Keys.slice(-1)[0]
+        const sp500Rend = sp500StartKey && sp500EndKey && sp500Map[sp500StartKey]
+          ? parseFloat(((sp500Map[sp500EndKey] - sp500Map[sp500StartKey]) / sp500Map[sp500StartKey] * 100).toFixed(2))
+          : null
+        return {
+          ticker: t.ticker,
+          date: `${t.ticker} (${t.open_date})`,
+          pnlPct: parseFloat(pnlPct.toFixed(2)),
+          sp500: sp500Rend,
+        }
+      })
 
-  const openModal = (title: string, tickers: { ticker: string, invested: number, pnl: number }[]) => {
-    setModal({ title, tickers: [...tickers].sort((a, b) => b.invested - a.invested) })
+    // Sector dona
+    const sectorMap: Record<string, number> = {}
+    all.forEach(t => {
+      const s = t.sector || 'Sin sector'
+      sectorMap[s] = (sectorMap[s] || 0) + calcInvested(t)
+    })
+    const totalInv = all.reduce((a, t) => a + calcInvested(t), 0)
+    const sectorData = Object.entries(sectorMap)
+      .map(([name, val]) => ({ name, value: parseFloat(val.toFixed(2)), pct: totalInv > 0 ? parseFloat((val / totalInv * 100).toFixed(1)) : 0 }))
+      .sort((a, b) => b.value - a.value)
+
+    // PnL por sector barras
+    const sectorPnlMap: Record<string, { pnl: number, inv: number, count: number }> = {}
+    all.forEach(t => {
+      const s   = t.sector || 'Sin sector'
+      const inv = calcInvested(t)
+      const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      const avg = qty > 0 ? inv / qty : 0
+      const pnl = (cur - avg) * qty
+      if (!sectorPnlMap[s]) sectorPnlMap[s] = { pnl: 0, inv: 0, count: 0 }
+      sectorPnlMap[s].pnl   += pnl
+      sectorPnlMap[s].inv   += inv
+      sectorPnlMap[s].count += 1
+    })
+    const sectorPnlData = Object.entries(sectorPnlMap)
+      .map(([sector, d]) => ({
+        sector,
+        pnl:    parseFloat(d.pnl.toFixed(2)),
+        pct:    d.inv > 0 ? parseFloat((d.pnl / d.inv * 100).toFixed(2)) : 0,
+        count:  d.count,
+        color:  d.pnl >= 0 ? C.gain : C.loss,
+      }))
+      .sort((a, b) => b.pnl - a.pnl)
+
+    // Top 5
+    const withPnl = all.map(t => {
+      const inv  = calcInvested(t)
+      const qty  = Number(t.quantity || 0)
+      const cur  = Number(t.last_price || t.entry_price || 0)
+      const avg  = qty > 0 ? inv / qty : 0
+      const pnl  = parseFloat(((cur - avg) * qty).toFixed(2))
+      const pnlPct = avg > 0 ? parseFloat(((cur - avg) / avg * 100).toFixed(2)) : 0
+      return { ...t, pnl, pnlPct }
+    })
+    const top5Gain  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
+    const top5Loss  = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
+
+    // Tiempo en posición
+    const durationMap: Record<string, { count: number, pnl: number }> = {
+      '0-30d':    { count: 0, pnl: 0 },
+      '31-90d':   { count: 0, pnl: 0 },
+      '91-180d':  { count: 0, pnl: 0 },
+      '181-365d': { count: 0, pnl: 0 },
+      '+1 año':   { count: 0, pnl: 0 },
+    }
+    withPnl.forEach(t => {
+      const days = Math.floor((now.getTime() - parseDate(t.open_date).getTime()) / 86400000)
+      const key  = days <= 30 ? '0-30d' : days <= 90 ? '31-90d' : days <= 180 ? '91-180d' : days <= 365 ? '181-365d' : '+1 año'
+      durationMap[key].count++
+      durationMap[key].pnl += t.pnl
+    })
+    const durationData = Object.entries(durationMap)
+      .map(([range, d]) => ({ range, count: d.count, pnl: parseFloat(d.pnl.toFixed(2)) }))
+      .filter(d => d.count > 0)
+
+    // Tiempo por ticker (scatter)
+    const daysInPosition = withPnl
+      .map(t => ({
+        ticker: t.ticker,
+        days:   Math.floor((now.getTime() - parseDate(t.open_date).getTime()) / 86400000),
+        pnlPct: t.pnlPct,
+        pnl:    t.pnl,
+        color:  t.pnl >= 0 ? C.gain : C.loss,
+      }))
+      .sort((a, b) => b.days - a.days)
+
+    return { equityData, sectorData, sectorPnlData, top5Gain, top5Loss, durationData, daysInPosition }
+  }, [trades, portfolios, filterPortfolio, calcInvested, sp500Map, equityPeriod])
+
+  // ── Tabla sort ──────────────────────────────────────────────────────────
+  const sorted = useMemo(() => {
+    return [...enriched].sort((a, b) => {
+      const va = (a as any)[sortKey] ?? 0
+      const vb = (b as any)[sortKey] ?? 0
+      return sortDir === 'desc' ? vb - va : va - vb
+    })
+  }, [enriched, sortKey, sortDir])
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortKey(key); setSortDir('desc') }
   }
+
+  const hide = (v: string) => hideValues ? '••••' : v
+
+  const PeriodSelector = () => (
+    <div style={{ display: 'flex', gap: 2, background: C.dim, padding: 3, borderRadius: 8, border: `1px solid ${C.border}` }}>
+      {(['YTD','1Y','5Y','MAX'] as const).map(p => (
+        <button key={p} onClick={() => setEquityPeriod(p)} style={{
+          background: equityPeriod === p ? '#1a1a1a' : 'transparent',
+          border: equityPeriod === p ? `1px solid #2a2a2a` : '1px solid transparent',
+          color: equityPeriod === p ? '#fff' : '#444',
+          padding: '3px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11,
+          fontWeight: equityPeriod === p ? 700 : 400,
+        }}>{p}</button>
+      ))}
+    </div>
+  )
+
+  const thStyle: React.CSSProperties = { padding: '7px 10px', fontSize: 9, color: '#555', fontWeight: 700, textAlign: 'left', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap' }
+  const tdStyle: React.CSSProperties = { padding: '7px 10px', fontSize: 11, borderBottom: `1px solid #0a0a0a`, whiteSpace: 'nowrap' }
+
+  if (loading) return (
+    <AppShell>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: C.muted, fontSize: 13 }}>
+        Cargando...
+      </div>
+    </AppShell>
+  )
 
   return (
     <AppShell>
-      <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white', position: 'relative' }}>
+      <div style={{ padding: '16px 20px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
-        {/* Cat ears decoration */}
-        <div style={{ position: 'absolute', top: -4, right: 60, pointerEvents: 'none' }}>
-          <CatEars color="#00bfff" opacity={0.12} size={40} />
+        {/* ── Header + Filtros ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: C.accent }}>Trades Abiertos</h1>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{kpis.total} posiciones · {new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              placeholder="🔍 Buscar ticker..."
+              value={tickerSearch}
+              onChange={e => setTickerSearch(e.target.value)}
+              style={{ background: C.dim, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 8, fontSize: 11, outline: 'none', width: 140 }}
+            />
+            <button onClick={() => setFilterPortfolio('all')} style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: filterPortfolio === 'all' ? C.accent : C.dim,
+              color: filterPortfolio === 'all' ? '#000' : C.muted,
+              border: `1px solid ${filterPortfolio === 'all' ? C.accent : C.border}`,
+            }}>Todos</button>
+            {portfolios.map(p => (
+              <button key={p.id} onClick={() => setFilterPortfolio(p.id)} style={{
+                padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                background: filterPortfolio === p.id ? C.accent : C.dim,
+                color: filterPortfolio === p.id ? '#000' : C.muted,
+                border: `1px solid ${filterPortfolio === p.id ? C.accent : C.border}`,
+              }}>{p.name}</button>
+            ))}
+            <button onClick={() => setHideValues(v => !v)} style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 11, cursor: 'pointer',
+              background: C.dim, color: C.muted, border: `1px solid ${C.border}`,
+            }}>{hideValues ? '👁' : '🙈'}</button>
+          </div>
         </div>
 
-        {/* HEADER */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
-          <Paw size={18} color="#00bfff" opacity={0.6} />
-          <Paw size={13} color="#00bfff" opacity={0.35} />
-          <Paw size={9}  color="#00bfff" opacity={0.18} />
-          <BarChart2 size={20} color="#00bfff" />
-          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Estrategia & riesgo — trades abiertos</h1>
-        </div>
-
-        {/* FILTRO PORTAFOLIOS */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
-          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={filterBtn(selectedPortfolio === p.id)}>
-              {p.name}
-            </button>
+        {/* ── Fila 1: KPIs ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 14 }}>
+          {[
+            { label: 'INVERTIDO',      value: hide(money(kpis.totalInv)),  color: C.text,   sub: `${kpis.total} posiciones` },
+            { label: 'VALOR ACTUAL',   value: hide(money(kpis.totalCur)),  color: C.accent, sub: fmtPct(kpis.pnlPct) },
+            { label: 'PnL LATENTE',    value: hide(money(kpis.totalPnl)),  color: kpis.totalPnl >= 0 ? C.gain : C.loss, sub: fmtPct(kpis.pnlPct) },
+            { label: 'VARIACIÓN HOY',  value: hide(money(kpis.dayPnl)),    color: kpis.dayPnl >= 0 ? C.gain : C.loss, sub: 'en cartera' },
+            { label: 'EN GANANCIA',    value: `${kpis.gainRate}%`,         color: kpis.gainRate >= 60 ? C.gain : C.gold, sub: `${kpis.inGain} de ${kpis.total}` },
+            { label: 'DÍAS PROMEDIO',  value: `${kpis.avgDays}d`,          color: C.purple, sub: 'en posición' },
+            { label: 'RSI PROMEDIO',   value: kpis.avgRsi > 0 ? `${kpis.avgRsi}` : '—', color: kpis.avgRsi > 70 ? C.loss : kpis.avgRsi < 30 ? C.gain : C.gold, sub: kpis.avgRsi > 70 ? 'sobrecomprado' : kpis.avgRsi < 30 ? 'sobrevendido' : 'zona neutral' },
+          ].map(k => (
+            <div key={k.label} style={{ ...card }}>
+              <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 5 }}>{k.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: k.color, marginBottom: 2 }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: '#555' }}>{k.sub}</div>
+            </div>
           ))}
         </div>
 
-        {!stats ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-            <Paw size={40} color="#333" opacity={0.4} />
-            <span>No hay trades abiertos para este filtro.</span>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 16 }}>
-
-            {/* ── KPIs PRINCIPALES ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <StatCard 
-                label="Capital expuesto / actual / %" 
-                value={
-                  <>
-                    <span style={{ color: '#00bfff' }}>
-                      {money(stats.totalInvested)}
-                    </span>
-
-                    <span style={{ color: '#666' }}> / </span>
-
-                    <span style={{
-                      color:
-                        stats.totalPnL > 0
-                          ? '#22c55e'
-                          : stats.totalPnL < 0
-                          ? '#f43f5e'
-                          : '#fff'
-                    }}>
-                      {money(stats.totalCurrent)}
-                    </span>
-
-                    <span style={{ color: '#666' }}> / </span>
-
-                    <span style={{
-                      color:
-                        stats.totalPnL > 0
-                          ? '#22c55e'
-                          : stats.totalPnL < 0
-                          ? '#f43f5e'
-                          : '#fff'
-                    }}>
-                      {stats.totalPnLPct.toFixed(1)}%
-                    </span>
-                  </>
-                }
-              />
-            <StatCard 
-              label="Posiciones abiertas / Ganando / Perdiendo"     
-              value={
-                <>
-                  <span style={{
-                    color:
-                      stats.winningTrades > stats.losingTrades
-                        ? '#22c55e'
-                        : stats.losingTrades > stats.winningTrades
-                        ? '#f43f5e'
-                        : '#fff'
-                  }}>
-                    {stats.totalCount}
-                  </span>
-
-                  <span style={{ color: '#666' }}> / </span>
-
-                  <span style={{ color: '#22c55e' }}>
-                    {stats.winningTrades}
-                  </span>
-
-                  <span style={{ color: '#666' }}> / </span>
-
-                  <span style={{ color: '#f43f5e' }}>
-                    {stats.losingTrades}
-                  </span>
-                </>
-              }
-            />
-              <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
-                desc="Tiempo promedio en posición" />
-              <StatCard label="R/R promedio objetivo"   value={stats.avgRR > 0 ? `${stats.avgRR}R` : '—'} color="#22c55e"
-                desc={`${stats.rrCount} trades con SL y TP`} />
-            </div>
-
-            {/* ── TOP POSICIONES / GANANCIAS / PÉRDIDAS ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-              {/* Top 5 por tamaño */}
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                  <Paw size={60} color="#00bfff" opacity={0.03} />
-                </div>
-                <div style={boxTitle}>
-                  <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
-                  Top 5 posiciones por tamaño
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr>
-                    {['Ticker','Invertido','% Cartera'].map(h => <th key={h} style={th}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {stats.topPositions.map((t, i) => (
-                      <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
-                        <td style={td}>
-                          <span style={{ color: i === 0 ? '#ffd700' : '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
-                        </td>
-                        <td style={{ ...td, textAlign: 'right' }}>{money(t.total_invested)}</td>
-                        <td style={{ ...td, textAlign: 'right', color: '#888' }}>
-                          {(t.total_invested / stats.totalInvested * 100).toFixed(1)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Top 5 ganancias */}
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                  <Paw size={60} color="#22c55e" opacity={0.03} />
-                </div>
-                <div style={boxTitle}>
-                  <Paw size={10} color="#22c55e" opacity={0.6} style={{ marginRight: 6 }} />
-                  Top 5 mayores ganancias
-                </div>
-                {stats.topGains.filter(t => t.pnl > 0).length === 0 ? (
-                  <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Paw size={12} color="#333" opacity={0.5} />
-                    Sin ganancias realizadas aún
-                  </div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>
-                      {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>
-                      {stats.topGains.filter(t => t.pnl > 0).map((t, i) => (
-                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
-                          <td style={td}><span style={{ color: '#22c55e', fontWeight: 700 }}>{t.ticker}</span></td>
-                          <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>
-                            +{money(t.pnl)}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', color: '#888' }}>
-                            {t.total_invested > 0 ? `+${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* Top 5 pérdidas */}
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                  <Paw size={60} color="#f43f5e" opacity={0.03} />
-                </div>
-                <div style={boxTitle}>
-                  <Paw size={10} color="#f43f5e" opacity={0.6} style={{ marginRight: 6 }} />
-                  Top 5 mayores pérdidas
-                </div>
-                {stats.topLosses.filter(t => t.pnl < 0).length === 0 ? (
-                  <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Paw size={12} color="#333" opacity={0.5} />
-                    Sin pérdidas realizadas
-                  </div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr>
-                      {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>
-                      {stats.topLosses.filter(t => t.pnl < 0).map((t, i) => (
-                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
-                          <td style={td}><span style={{ color: '#f43f5e', fontWeight: 700 }}>{t.ticker}</span></td>
-                          <td style={{ ...td, textAlign: 'right', color: '#f43f5e', fontWeight: 700 }}>
-                            {money(t.pnl)}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', color: '#888' }}>
-                            {t.total_invested > 0 ? `${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-
-            {/* ── HORIZONTE ── */}
-            <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', top: 8, right: 12, pointerEvents: 'none' }}>
-                <Whiskers color="#888" opacity={0.1} />
-              </div>
-              <div style={boxTitle}>
-                <Paw size={10} color="#eab308" opacity={0.6} style={{ marginRight: 6 }} />
-                Horizonte por billetera
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginTop: 4 }}>
-                <ProgressBar label="Largo plazo (>10a)"   val={stats.horizonStats.long}  total={stats.totalInvested} color="#22c55e" money={money} />
-                <ProgressBar label="Mediano plazo (1-5a)" val={stats.horizonStats.mid}   total={stats.totalInvested} color="#eab308" money={money} />
-                <ProgressBar label="Corto / Especulativo" val={stats.horizonStats.short} total={stats.totalInvested} color="#f43f5e" money={money} />
-              </div>
-            </div>
-
-            {/* ── SECTORES con clic para ver tickers ── */}
-            <div style={box}>
-              <div style={boxTitle}>
-                <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
-                Distribución por sector y subsector
-                <span style={{ fontSize: 9, color: '#555', fontWeight: 400, marginLeft: 8 }}>· clic en subsector para ver tickers</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 12, marginTop: 8 }}>
-                {Object.entries(stats.sectorGroups)
-                  .sort(([, a], [, b]) => b.total - a.total)
-                  .map(([sector, data]) => (
-                    <div key={sector} style={sectorCard}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #1a1a1a' }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{sector}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>
-                          {(data.total / stats.totalInvested * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      {Object.entries(data.subsectors)
-                        .sort(([, a], [, b]) => b.total - a.total)
-                        .map(([sub, subData]) => {
-                          const isOpen = expandedSector === `${sector}::${sub}`
-                          return (
-                            <div key={sub} style={{ marginBottom: 10 }}>
-                              <button
-                                onClick={() => {
-                                  const key = `${sector}::${sub}`
-                                  setExpandedSector(isOpen ? null : key)
-                                  openModal(`${sector} · ${sub}`, subData.tickers)
-                                }}
-                                style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                                  <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                    <Paw size={8} color="#aaa" opacity={0.4} />
-                                    {sub}
-                                    <span style={{ fontSize: 9, color: '#555', marginLeft: 3 }}>
-                                      ({subData.tickers.length} ticker{subData.tickers.length !== 1 ? 's' : ''})
-                                    </span>
-                                  </span>
-                                  <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    {(subData.total / data.total * 100).toFixed(1)}%
-                                    <ChevronDown size={10} color="#555" />
-                                  </span>
-                                </div>
-                              </button>
-                              <div style={{ background: '#111', height: 3, borderRadius: 2 }}>
-                                <div style={{ width: `${subData.total / data.total * 100}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.5 }} />
-                              </div>
-                            </div>
-                          )
-                        })}
-                      <div style={{ fontSize: 10, color: '#555', textAlign: 'right', marginTop: 6 }}>{money(data.total)}</div>
-                    </div>
+        {/* ── Fila 2: Tabla de posiciones ── */}
+        <div style={{ ...card, marginBottom: 14, overflow: 'hidden' }}>
+          <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>POSICIONES ABIERTAS</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: C.dim }}>
+                  {[
+                    { key: 'open_date', label: 'Fecha' },
+                    { key: 'ticker',    label: 'Ticker' },
+                    { key: 'dayChg',    label: 'Var día' },
+                    { key: 'rsi',       label: 'RSI' },
+                    { key: 'pnlPct',    label: 'PnL %' },
+                    { key: 'pnl',       label: 'PnL $' },
+                    { key: 'weight',    label: '% Cart.' },
+                    { key: 'qty',       label: 'Cant.' },
+                    { key: 'avg',       label: 'Avg' },
+                    { key: 'inv',       label: 'Invertido' },
+                    { key: 'cur',       label: 'Precio actual' },
+                    { key: 'curVal',    label: 'Valor actual' },
+                  ].map(h => (
+                    <th key={h.key} onClick={() => toggleSort(h.key)} style={{ ...thStyle }}>
+                      {h.label} {sortKey === h.key ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+                    </th>
                   ))}
-              </div>
-            </div>
-
-            {/* ── DISTRIBUCIÓN GEOGRÁFICA con clic para ver tickers ── */}
-            <div style={box}>
-              <div style={boxTitle}>
-                <Paw size={10} color="#eab308" opacity={0.6} style={{ marginRight: 6 }} />
-                Distribución geográfica
-                <span style={{ fontSize: 9, color: '#555', fontWeight: 400, marginLeft: 8 }}>· clic en país para ver tickers</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))', gap: 10, marginTop: 8 }}>
-                {Object.entries(stats.countryGroups)
-                  .sort(([, a], [, b]) => b.total - a.total)
-                  .map(([country, d]) => (
-                    <button
-                      key={country}
-                      onClick={() => openModal(`Tickers en ${country}`, d.tickers)}
-                      style={{ ...countryCard, cursor: 'pointer', textAlign: 'left' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Paw size={9} color="#eab308" opacity={0.5} />
-                          {country}
-                        </span>
-                        <span style={{ fontSize: 12, color: '#00bfff', fontWeight: 700 }}>
-                          {(d.total / stats.totalInvested * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div style={{ height: 3, background: '#111', borderRadius: 2, marginBottom: 6 }}>
-                        <div style={{ width: `${d.total / stats.totalInvested * 100}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.5 }} />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#888' }}>
-                        <span>{d.count} posición{d.count !== 1 ? 'es' : ''} · <span style={{ color: '#555' }}>clic para ver</span></span>
-                        <span>{money(d.total)}</span>
-                      </div>
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* ── MODAL TICKERS ── */}
-        {modal && (
-          <div style={modalOverlay} onClick={() => setModal(null)}>
-            <div style={modalBox} onClick={e => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Paw size={14} color="#00bfff" opacity={0.7} />
-                  <h3 style={{ margin: 0, fontSize: 14, color: '#fff' }}>{modal.title}</h3>
-                </div>
-                <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}>
-                  <X size={16} />
-                </button>
-              </div>
-              <div style={{ position: 'absolute', bottom: -10, right: -10, pointerEvents: 'none' }}>
-                <Paw size={80} color="#00bfff" opacity={0.03} />
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
-                    {['Ticker','Invertido','PnL parcial'].map(h => <th key={h} style={{ ...th, padding: '6px 10px' }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(t => (
+                  <tr key={t.id} style={{ background: 'transparent' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#0f0f12')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={{ ...tdStyle, color: '#666' }}>{parseDate(t.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td style={{ ...tdStyle }}>
+                      <a href={`https://es.tradingview.com/chart/?symbol=${t.ticker}`} target="_blank" rel="noreferrer"
+                        style={{ color: C.accent, fontWeight: 700, textDecoration: 'none' }}>{t.ticker}</a>
+                      <div style={{ fontSize: 8, color: '#444' }}>{t.portName}</div>
+                    </td>
+                    <td style={{ ...tdStyle, color: t.dayChg >= 0 ? C.gain : C.loss }}>{t.dayChg >= 0 ? '+' : ''}{t.dayChg.toFixed(2)}%</td>
+                    <td style={{ ...tdStyle, color: t.rsi > 70 ? C.loss : t.rsi < 30 ? C.gain : C.muted }}>
+                      {t.rsi > 0 ? t.rsi.toFixed(0) : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, color: t.pnlPct >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{fmtPct(t.pnlPct)}</td>
+                    <td style={{ ...tdStyle, color: t.pnl >= 0 ? C.gain : C.loss }}>{hide(money(t.pnl))}</td>
+                    <td style={{ ...tdStyle, color: '#666' }}>
+                      <span style={{ color: '#888' }}>{t.weight.toFixed(1)}</span>
+                      <span style={{ color: '#444', margin: '0 2px' }}>/</span>
+                      <span style={{ color: t.weightCur > t.weight ? C.gain : t.weightCur < t.weight ? C.loss : '#666' }}>{t.weightCur.toFixed(1)}</span>
+                      <span style={{ fontSize: 9, color: '#444' }}>%</span>
+                    </td>
+                    <td style={{ ...tdStyle, color: '#888' }}>{shares(t.qty)}</td>
+                    <td style={{ ...tdStyle, color: '#888' }}>{hide(money(t.avg))}</td>
+                    <td style={{ ...tdStyle, color: '#888' }}>{hide(money(t.inv))}</td>
+                    <td style={{ ...tdStyle, color: C.text }}>{hide(money(t.cur))}</td>
+                    <td style={{ ...tdStyle, color: t.pnl >= 0 ? C.gain : C.loss }}>{hide(money(t.curVal))}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {modal.tickers.map(t => (
-                    <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
-                      <td style={{ ...td, color: '#00bfff', fontWeight: 700 }}>{t.ticker}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{money(t.invested)}</td>
-                      <td style={{ ...td, textAlign: 'right', color: t.pnl >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600 }}>
-                        {t.pnl !== 0 ? (t.pnl > 0 ? '+' : '') + money(t.pnl) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                ))}
+                {sorted.length === 0 && (
+                  <tr><td colSpan={12} style={{ ...tdStyle, textAlign: 'center', color: '#333', padding: 24 }}>Sin posiciones</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Fila 3: Curva equity + SP500 ── */}
+        <div style={{ ...card, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>RENDIMIENTO % POR POSICIÓN VS S&P 500</div>
+              <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>Cada punto = una posición abierta ordenada por fecha de apertura</div>
+            </div>
+            <PeriodSelector />
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={charts.equityData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="ticker" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}%`} width={36} />
+              <Tooltip
+                contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
+                formatter={(v: number | undefined, name: string | undefined) => [`${(v || 0).toFixed(2)}%`, name || '']}
+              />
+              <ReferenceLine y={0} stroke="#333" strokeDasharray="4 4" />
+              <Bar dataKey="pnlPct" name="PnL %" radius={[3,3,0,0]}>
+                {charts.equityData.map((e, i) => <Cell key={i} fill={e.pnlPct >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
+              </Bar>
+              <Line type="monotone" dataKey="sp500" name="S&P 500" stroke="#60a5fa" strokeWidth={2} dot={false} strokeDasharray="4 4" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* ── Fila 4: Top 5 + Sector PnL ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+
+          {/* Top 5 ganancias */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>🏆 TOP 5 GANANCIAS</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {charts.top5Gain.map((t, i) => (
+                <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 9, color: '#444', minWidth: 14 }}>{i + 1}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: C.gain }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 9, color: C.gain, opacity: 0.7 }}>{hide(money(t.pnl))}</div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        )}
+
+          {/* Top 5 pérdidas */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>⚠️ TOP 5 PÉRDIDAS</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {charts.top5Loss.map((t, i) => (
+                <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 9, color: '#444', minWidth: 14 }}>{i + 1}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: C.loss }}>{fmtPct(t.pnlPct)}</div>
+                    <div style={{ fontSize: 9, color: C.loss, opacity: 0.7 }}>{hide(money(t.pnl))}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* PnL por sector */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>PnL LATENTE POR SECTOR</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {charts.sectorPnlData.slice(0, 5).map((s, i) => {
+                const maxAbs = Math.max(...charts.sectorPnlData.map(x => Math.abs(x.pnl)), 1)
+                const width  = Math.abs(s.pnl) / maxAbs * 100
+                return (
+                  <div key={s.sector}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontSize: 10, color: C.muted }}>{s.sector} <span style={{ color: '#444', fontSize: 8 }}>({s.count})</span></span>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: s.color }}>{fmtPct(s.pct)}</span>
+                        <span style={{ fontSize: 9, color: s.color, opacity: 0.7, marginLeft: 6 }}>{hide(money(s.pnl))}</span>
+                      </div>
+                    </div>
+                    <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
+                      <div style={{ width: `${width}%`, height: '100%', background: s.color, borderRadius: 2, opacity: 0.8 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Fila 5: Sector dona + Tiempo en posición + Días histograma ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr', gap: 12 }}>
+
+          {/* Dona por sector */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>DISTRIBUCIÓN POR SECTOR</div>
+            <ResponsiveContainer width="100%" height={160}>
+              <PieChart>
+                <Pie data={charts.sectorData} cx="40%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={3} dataKey="value">
+                  {charts.sectorData.map((_, i) => <Cell key={i} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
+                  formatter={(v: number | undefined, name: string | undefined) => [hide(money(v || 0)), name || '']} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
+              {charts.sectorData.slice(0, 5).map((s, i) => (
+                <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9, color: C.muted }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: SECTOR_COLORS[i % SECTOR_COLORS.length], display: 'inline-block' }} />
+                    {s.name}
+                  </span>
+                  <span style={{ fontSize: 9, color: SECTOR_COLORS[i % SECTOR_COLORS.length], fontWeight: 700 }}>{s.pct}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tiempo en posición */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>TIEMPO EN POSICIÓN</div>
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 9, color: '#555', marginBottom: 3 }}>Promedio</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: C.accent }}>{kpis.avgDays}</div>
+              <div style={{ fontSize: 9, color: C.muted }}>días</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {charts.durationData.map(d => (
+                <div key={d.range} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+                  <span style={{ fontSize: 10, color: C.muted }}>{d.range}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 11, color: C.text, fontWeight: 700 }}>{d.count} pos.</span>
+                    <span style={{ fontSize: 10, color: d.pnl >= 0 ? C.gain : C.loss }}>{hide(money(d.pnl))}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Días en posición por ticker (horizontal) */}
+          <div style={{ ...card }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 10 }}>DÍAS EN POSICIÓN POR TICKER</div>
+            <ResponsiveContainer width="100%" height={Math.max(160, charts.daysInPosition.length * 22)}>
+              <BarChart data={charts.daysInPosition} layout="vertical" margin={{ top: 0, right: 40, left: 8, bottom: 0 }}>
+                <CartesianGrid stroke="#111" horizontal={false} strokeDasharray="3 3" />
+                <XAxis type="number" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}d`} />
+                <YAxis type="category" dataKey="ticker" tick={{ fill: C.muted, fontSize: 9, fontWeight: 700 }} axisLine={false} tickLine={false} width={44} />
+                <Tooltip
+                  contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
+                  formatter={(v: number | undefined, name: string | undefined) => [`${v} días`, name || '']}
+                />
+                <Bar dataKey="days" name="Días" radius={[0, 4, 4, 0]}>
+                  {charts.daysInPosition.map((d, i) => <Cell key={i} fill={d.pnlPct >= 0 ? C.gain : C.loss} fillOpacity={0.75} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
       </div>
     </AppShell>
   )
 }
-
-function StatCard({ label, value, desc, color = 'white' }: any) {
-  return (
-    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-        <Paw size={44} color="#fff" opacity={0.02} />
-      </div>
-      <div style={{ fontSize: 9, color: '#888', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 900, color }}>
-        {value}
-      </div>
-      {desc && <div style={{ fontSize: 10, color: '#666', marginTop: 5 }}>{desc}</div>}
-    </div>
-  )
-}
-
-function ProgressBar({ label, val, total, color, money }: any) {
-  const pct = total > 0 ? (val / total) * 100 : 0
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
-        <span style={{ color: '#aaa' }}>{label}</span>
-        <span style={{ fontWeight: 700, color: val > 0 ? color : '#555' }}>
-          {pct.toFixed(1)}%
-          <span style={{ color: '#666', fontWeight: 400 }}> · {val > 0 ? money(val) : '$0.00'}</span>
-        </span>
-      </div>
-      <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${Math.max(pct, 0)}%`, background: val > 0 ? color : '#222', height: '100%', borderRadius: 2 }} />
-      </div>
-    </div>
-  )
-}
-
-const filterBtn = (active: boolean): React.CSSProperties => ({
-  padding: '6px 14px', borderRadius: 6, border: 'none',
-  background: active ? '#00bfff' : '#111',
-  color: active ? '#000' : '#888',
-  cursor: 'pointer', fontSize: 10, fontWeight: 'bold',
-})
-const box: React.CSSProperties         = { background: '#080808', border: '1px solid #1a1a1a', padding: '18px 20px', borderRadius: 12 }
-const boxTitle: React.CSSProperties    = { fontSize: 9, color: '#888', marginBottom: 14, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', display: 'flex', alignItems: 'center' }
-const sectorCard: React.CSSProperties  = { padding: 14, background: '#050505', borderRadius: 8, border: '1px solid #151515' }
-const countryCard: React.CSSProperties = { padding: '12px 14px', background: '#050505', borderRadius: 8, border: '1px solid #151515', width: '100%' }
-const th: React.CSSProperties          = { padding: '6px 10px', textAlign: 'left', fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', borderBottom: '1px solid #1a1a1a' }
-const td: React.CSSProperties          = { padding: '8px 10px', fontSize: 12, color: '#ccc' }
-const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modalBox: React.CSSProperties     = { background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 14, padding: 24, width: 420, maxHeight: '80vh', overflowY: 'auto', position: 'relative' }
