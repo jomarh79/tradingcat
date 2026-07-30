@@ -193,13 +193,7 @@ export default function InformeDinero() {
     // ── Distribución ──────────────────────────────────────────────────────
     const saldoDisponible = parseFloat(Math.max(capitalNeto - totalInvested, 0).toFixed(2))
     const totalPat = Math.abs(patrimonio) || 1
-    const distribucion = [
-      { label: 'Invertido en acciones', value: totalInvested,               color: C.accent, pct: parseFloat((totalInvested / totalPat * 100).toFixed(1)) },
-      { label: 'Disponible en cartera', value: saldoDisponible,             color: C.gold,   pct: parseFloat((saldoDisponible / totalPat * 100).toFixed(1)) },
-      { label: 'PnL realizado',         value: Math.abs(totalPnlReal),      color: totalPnlReal >= 0 ? C.gain : C.loss, pct: parseFloat((Math.abs(totalPnlReal) / totalPat * 100).toFixed(1)) },
-      { label: 'Dividendos cobrados',   value: totalDividends,              color: C.gold,   pct: parseFloat((totalDividends / totalPat * 100).toFixed(1)) },
-    ].filter(d => d.value > 0)
-
+    
     // ── Historial anual (histórico completo sin filtro de año) ────────────
     const byYear: Record<string, { depositos: number, retiros: number, dividendos: number }> = {}
     realMovByWallet.forEach(m => {
@@ -235,7 +229,7 @@ export default function InformeDinero() {
     return {
       totalDeposited, totalWithdrawn, totalDividends, totalInvested, totalPnlReal,
       capitalNeto, patrimonio, rendimiento,
-      monthlyData, growthData, walletStats, distribucion, historialAnual,
+      monthlyData, growthData, walletStats, historialAnual,
       moneyScore, scoreRendimiento, scoreDiversif, scoreConsistencia, scoreAhorro, scorePatrimonio,
     }
   }, [filteredMovements, realMovByWallet, portfolios, trades, calcInvested, filterWallet, filterYear])
@@ -424,7 +418,7 @@ export default function InformeDinero() {
         </div>
 
         {/* ── Fila 3: Por billetera + Distribución + Historial anual ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.8fr', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr', gap: 14, marginBottom: 16 }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>RESUMEN POR BILLETERA</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -451,25 +445,6 @@ export default function InformeDinero() {
             </table>
           </div>
 
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>DÓNDE ESTÁ TU DINERO</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {stats.distribucion.map(d => (
-                <div key={d.label}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: C.muted }}>{d.label}</span>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: d.color }}>{d.pct}%</span>
-                      <span style={{ fontSize: 9, color: '#555', marginLeft: 6 }}>{hide(money(d.value))}</span>
-                    </div>
-                  </div>
-                  <div style={{ height: 4, background: C.dim, borderRadius: 2 }}>
-                    <div style={{ width: `${Math.min(Math.abs(d.pct), 100)}%`, height: '100%', background: d.color, borderRadius: 2, opacity: 0.8 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
 
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>FLUJO ANUAL</div>
