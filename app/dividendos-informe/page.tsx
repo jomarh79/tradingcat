@@ -100,10 +100,11 @@ export default function DividendosInforme() {
 
   const stats = useMemo(() => {
     if (!filteredDividends.length) return null
-    const now   = new Date()
-    const year  = now.getFullYear()
-    const month = now.getMonth()
-    const selectedYearNum = filterYear === 'all' ? year : parseInt(filterYear)
+    const now             = new Date()
+    const currentYear     = now.getFullYear()
+    const month           = now.getMonth()
+    const selectedYearNum = filterYear === 'all' ? currentYear : parseInt(filterYear)
+    const year            = selectedYearNum
     const prevYear        = selectedYearNum - 1
     // ── YTD ──────────────────────────────────────────────────────────────
     const ytd = filteredDividends.filter(d => {
