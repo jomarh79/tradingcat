@@ -1,450 +1,539 @@
-'use client'; // <-- AGREGA ESTA LÍNEA AL PRINCIPIO
+'use client'
 
-import React, { useState, useMemo } from 'react';
-import { 
-  ArrowUpRight, ArrowDownRight, Search, ExternalLink, 
-  TrendingUp, Clock, PieChart, BarChart2, Layers 
-} from 'lucide-react';
-import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
-  PieChart as RePie, Pie, Cell, Legend, CartesianGrid 
-} from 'recharts';
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
+import AppShell from '../AppShell'
+import { BarChart2, ChevronDown, ChevronUp, X } from 'lucide-react'
 
-// --- MOCK DATA ---
-const PORTFOLIO_DATA = [
-  { ticker: 'AAPL', name: 'Apple Inc.', sector: 'Tecnología', invertido: 15000, valorActual: 18500, varHoy: 1.2, pnl: 23.3, dias: 240, rsi: 58, originalPct: 15, buyDate: '2023-11-01' },
-  { ticker: 'NVDA', name: 'NVIDIA Corp.', sector: 'Tecnología', invertido: 10000, valorActual: 24000, varHoy: -2.1, pnl: 140.0, dias: 180, rsi: 72, originalPct: 10, buyDate: '2024-01-15' },
-  { ticker: 'MSFT', name: 'Microsoft Corp.', sector: 'Tecnología', invertido: 20000, valorActual: 23500, varHoy: 0.8, pnl: 17.5, dias: 310, rsi: 54, originalPct: 20, buyDate: '2023-08-20' },
-  { ticker: 'JPM', name: 'JPMorgan Chase', sector: 'Finanzas', invertido: 12000, valorActual: 13200, varHoy: -0.4, pnl: 10.0, dias: 120, rsi: 48, originalPct: 12, buyDate: '2024-03-10' },
-  { ticker: 'JNJ', name: 'Johnson & Johnson', sector: 'Salud', invertido: 8000, valorActual: 7400, varHoy: -0.1, pnl: -7.5, dias: 410, rsi: 38, originalPct: 8, buyDate: '2023-05-12' },
-  { ticker: 'XOM', name: 'Exxon Mobil', sector: 'Energía', invertido: 9000, valorActual: 10100, varHoy: 1.5, pnl: 12.2, dias: 90, rsi: 62, originalPct: 9, buyDate: '2024-04-05' },
-  { ticker: 'TSLA', name: 'Tesla Inc.', sector: 'Consumo Ciclico', invertido: 11000, valorActual: 8800, varHoy: -3.5, pnl: -20.0, dias: 200, rsi: 41, originalPct: 11, buyDate: '2023-12-10' },
-  { ticker: 'AMZN', name: 'Amazon.com', sector: 'Consumo Ciclico', invertido: 15000, valorActual: 18200, varHoy: 2.1, pnl: 21.3, dias: 290, rsi: 65, originalPct: 15, buyDate: '2023-09-01' },
-];
+const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
-const BENCHMARK_PERF: Record<string, { ticker: string; rendimiento: number; sp500: number }[]> = {
-  YTD: [
-    { ticker: 'NVDA', rendimiento: 45.2, sp500: 12.1 },
-    { ticker: 'AAPL', rendimiento: 15.4, sp500: 12.1 },
-    { ticker: 'AMZN', rendimiento: 18.2, sp500: 12.1 },
-    { ticker: 'TSLA', rendimiento: -12.5, sp500: 12.1 },
-    { ticker: 'JNJ', rendimiento: -3.1, sp500: 12.1 },
-  ],
-  '1Y': [
-    { ticker: 'NVDA', rendimiento: 140.0, sp500: 22.5 },
-    { ticker: 'AAPL', rendimiento: 23.3, sp500: 22.5 },
-    { ticker: 'AMZN', rendimiento: 21.3, sp500: 22.5 },
-    { ticker: 'TSLA', rendimiento: -20.0, sp500: 22.5 },
-    { ticker: 'JNJ', rendimiento: -7.5, sp500: 22.5 },
-  ],
-  '5Y': [
-    { ticker: 'NVDA', rendimiento: 1250.0, sp500: 85.0 },
-    { ticker: 'AAPL', rendimiento: 280.0, sp500: 85.0 },
-    { ticker: 'AMZN', rendimiento: 95.0, sp500: 85.0 },
-    { ticker: 'TSLA', rendimiento: 650.0, sp500: 85.0 },
-    { ticker: 'JNJ', rendimiento: 12.0, sp500: 85.0 },
-  ],
-  MAX: [
-    { ticker: 'NVDA', rendimiento: 2100.0, sp500: 150.0 },
-    { ticker: 'AAPL', rendimiento: 450.0, sp500: 150.0 },
-    { ticker: 'AMZN', rendimiento: 310.0, sp500: 150.0 },
-    { ticker: 'TSLA', rendimiento: 890.0, sp500: 150.0 },
-    { ticker: 'JNJ', rendimiento: 45.0, sp500: 150.0 },
-  ]
-};
+// ── Cat decorators ─────────────────────────────────────────────────────────
+const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0, ...s }}>
+    <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
+    <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
+    <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
+    <ellipse cx="19" cy="9"  rx="2"   ry="2.5"/>
+    <path d="M12 22c-5 0-8-3-8-7 0-2.5 1.5-4.5 4-5.5 1-.4 2-.6 4-.6s3 .2 4 .6c2.5 1 4 3 4 5.5 0 4-3 7-8 7z"/>
+  </svg>
+)
+const CatEars = ({ color = '#00bfff', opacity = 0.1, size = 36 }: any) => (
+  <svg width={size * 1.5} height={size} viewBox="0 0 60 40" fill={color} style={{ opacity }}>
+    <polygon points="0,40 12,0 24,40"/>
+    <polygon points="36,40 48,0 60,40"/>
+  </svg>
+)
+const Whiskers = ({ color = '#00bfff', opacity = 0.08 }: any) => (
+  <svg width={80} height={28} viewBox="0 0 80 28" stroke={color} strokeWidth="1.5" style={{ opacity }}>
+    <line x1="0" y1="8"  x2="34" y2="14"/><line x1="0" y1="16" x2="34" y2="14"/>
+    <line x1="0" y1="24" x2="34" y2="14"/><line x1="80" y1="8"  x2="46" y2="14"/>
+    <line x1="80" y1="16" x2="46" y2="14"/><line x1="80" y1="24" x2="46" y2="14"/>
+  </svg>
+)
 
-const SECTOR_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+export default function EstadisticasAbiertosPage() {
+  const { money } = usePrivacy()
 
-export default function PortfolioDashboard() {
-  // States
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState('valorActual');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [timeframe, setTimeframe] = useState<'YTD' | '1Y' | '5Y' | 'MAX'>('1Y');
+  const [trades,            setTrades]            = useState<any[]>([])
+  const [portfolios,        setPortfolios]        = useState<any[]>([])
+  const [selectedPortfolio, setSelectedPortfolio] = useState('all')
 
-  // --- FILA 1: KPIs ---
-  const kpis = useMemo(() => {
-    const totalInvertido = PORTFOLIO_DATA.reduce((acc, item) => acc + item.invertido, 0);
-    const valorActual = PORTFOLIO_DATA.reduce((acc, item) => acc + item.valorActual, 0);
-    const pnlLatenteAbs = valorActual - totalInvertido;
-    const pnlLatentePct = (pnlLatenteAbs / totalInvertido) * 100;
-    
-    // Variación del día promedio ponderada por valor actual
-    const varHoy = PORTFOLIO_DATA.reduce((acc, item) => acc + (item.varHoy * item.valorActual), 0) / valorActual;
-    
-    const enGananciaCount = PORTFOLIO_DATA.filter(item => item.pnl > 0).length;
-    const enGananciaPct = (enGananciaCount / PORTFOLIO_DATA.length) * 100;
-    
-    const diasPromedio = Math.round(
-      PORTFOLIO_DATA.reduce((acc, item) => acc + item.dias, 0) / PORTFOLIO_DATA.length
-    );
-    
-    const rsiPromedio = Math.round(
-      PORTFOLIO_DATA.reduce((acc, item) => acc + item.rsi, 0) / PORTFOLIO_DATA.length
-    );
+  // Expand state para sectores y países
+  const [expandedSector,  setExpandedSector]  = useState<string | null>(null)
+  const [expandedCountry, setExpandedCountry] = useState<string | null>(null)
+  // Modal de tickers
+  const [modal, setModal] = useState<{ title: string, tickers: { ticker: string, invested: number, pnl: number }[] } | null>(null)
+
+  const fetchData = useCallback(async () => {
+    const [{ data: pData }, { data: tData }] = await Promise.all([
+      supabase.from('portfolios').select('*'),
+      supabase.from('trades').select('*, portfolios(name)').eq('status', 'open'),
+    ])
+    if (pData) setPortfolios(pData)
+    if (tData) setTrades(tData)
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const filteredTrades = useMemo(() => {
+    if (selectedPortfolio === 'all') return trades
+    return trades.filter(t => t.portfolio_id === selectedPortfolio)
+  }, [trades, selectedPortfolio])
+
+  const stats = useMemo(() => {
+    if (!filteredTrades.length) return null
+
+    const totalInvested = filteredTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
+    const totalCurrent = filteredTrades.reduce((acc, t) => {
+      const qty = Number(t.quantity || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      return acc + qty * cur
+    }, 0)
+    const totalPnL = totalCurrent - totalInvested
+
+    const totalPnLPct =
+      totalInvested > 0
+        ? (totalPnL / totalInvested) * 100
+        : 0
+
+    // Horizonte
+    const horizonStats = { long: 0, mid: 0, short: 0 }
+    trades.forEach(t => {
+      const pName = (t.portfolios?.name || '').toLowerCase()
+      const inv   = Number(t.total_invested || 0)
+      if (pName.includes('largo'))      horizonStats.long  += inv
+      else if (pName.includes('media')) horizonStats.mid   += inv
+      else                              horizonStats.short += inv
+    })
+
+    // Sectores con tickers por subsector
+    const sectorGroups: Record<string, {
+      total: number
+      subsectors: Record<string, { total: number, tickers: { ticker: string, invested: number, pnl: number }[] }>
+    }> = {}
+    filteredTrades.forEach(t => {
+      const s   = t.sector    || 'Otros'
+      const sub = t.subsector || 'General'
+      const inv = Number(t.total_invested || 0)
+      const pnl = Number(t.realized_pnl   || 0)
+      if (!sectorGroups[s]) sectorGroups[s] = { total: 0, subsectors: {} }
+      sectorGroups[s].total += inv
+      if (!sectorGroups[s].subsectors[sub]) sectorGroups[s].subsectors[sub] = { total: 0, tickers: [] }
+      sectorGroups[s].subsectors[sub].total += inv
+      sectorGroups[s].subsectors[sub].tickers.push({ ticker: t.ticker, invested: inv, pnl })
+    })
+
+    // Países con tickers
+    const countryGroups: Record<string, { total: number, count: number, tickers: { ticker: string, invested: number, pnl: number }[] }> = {}
+    filteredTrades.forEach(t => {
+      const c   = t.country || 'Otros'
+      const inv = Number(t.total_invested || 0)
+      const pnl = Number(t.realized_pnl   || 0)
+      if (!countryGroups[c]) countryGroups[c] = { total: 0, count: 0, tickers: [] }
+      countryGroups[c].total += inv
+      countryGroups[c].count++
+      countryGroups[c].tickers.push({ ticker: t.ticker, invested: inv, pnl })
+    })
+
+    // Top 5 por tamaño
+    const topPositions = [...filteredTrades].sort((a, b) => b.total_invested - a.total_invested).slice(0, 5)
+
+    // Top 5 mayores ganancias y pérdidas (por realized_pnl)
+    const withPnl = filteredTrades.map(t => {
+      const qty      = Number(t.quantity || 0)
+      const avgPrice = qty > 0 ? Number(t.total_invested || 0) / qty : Number(t.entry_price || 0)
+      const curPrice = Number(t.last_price || t.entry_price || 0)
+      const pnl      = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
+      return { ...t, pnl }
+    })
+    const winningTrades = withPnl.filter(t => t.pnl > 0).length
+    const losingTrades  = withPnl.filter(t => t.pnl < 0).length
+
+    const topGains  = [...withPnl].sort((a, b) => b.pnl - a.pnl).slice(0, 5)
+    const topLosses = [...withPnl].sort((a, b) => a.pnl - b.pnl).slice(0, 5)
+    // Duración promedio
+    const now = new Date()
+    const avgDuration = filteredTrades.reduce((acc, t) =>
+      acc + Math.ceil((now.getTime() - parseDate(t.open_date).getTime()) / 86400000), 0
+    ) / filteredTrades.length
+
+    // R/R promedio
+    const rrTrades = filteredTrades.filter(t => t.stop_loss && t.take_profit_1 && t.entry_price)
+    const avgRR    = rrTrades.length > 0
+      ? rrTrades.reduce((acc, t) => {
+          const risk   = Math.abs(Number(t.entry_price) - Number(t.stop_loss))
+          const reward = Math.abs(Number(t.take_profit_1) - Number(t.entry_price))
+          return acc + (risk > 0 ? reward / risk : 0)
+        }, 0) / rrTrades.length
+      : 0
 
     return {
-      totalInvertido,
-      valorActual,
-      pnlLatenteAbs,
-      pnlLatentePct,
-      varHoy,
-      enGananciaPct,
-      diasPromedio,
-      rsiPromedio
-    };
-  }, []);
-
-  // --- FILA 2: Lógica de Tabla ---
-  const filteredAndSortedPositions = useMemo(() => {
-    const totalVal = kpis.valorActual;
-    return PORTFOLIO_DATA
-      .map(item => ({
-        ...item,
-        actualPct: (item.valorActual / totalVal) * 100
-      }))
-      .filter(item => 
-        item.ticker.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.name.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a, b) => {
-        let valA = a[sortField as keyof typeof a];
-        let valB = b[sortField as keyof typeof b];
-        
-        if (typeof valA === 'string') {
-          return sortOrder === 'asc' 
-            ? (valA as string).localeCompare(valB as string)
-            : (valB as string).localeCompare(valA as string);
-        }
-        return sortOrder === 'asc' ? Number(valA) - Number(valB) : Number(valB) - Number(valA);
-      });
-  }, [searchTerm, sortField, sortOrder, kpis.valorActual]);
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('desc');
+      totalInvested,
+      totalCurrent,
+      totalPnL,
+      totalPnLPct,
+      winningTrades,
+      losingTrades,
+      totalCount: filteredTrades.length,
+      horizonStats, sectorGroups, countryGroups,
+      topPositions, topGains, topLosses,
+      avgDuration: parseFloat(avgDuration.toFixed(1)),
+      avgRR:       parseFloat(avgRR.toFixed(2)),
+      rrCount:     rrTrades.length,
     }
-  };
+  }, [filteredTrades])
 
-  // --- FILA 4: Top 5 & PnL por Sector ---
-  const top5Gainers = useMemo(() => {
-    return [...PORTFOLIO_DATA].sort((a, b) => b.pnl - a.pnl).slice(0, 5);
-  }, []);
-
-  const top5Losers = useMemo(() => {
-    return [...PORTFOLIO_DATA].sort((a, b) => a.pnl - b.pnl).slice(0, 5);
-  }, []);
-
-  const sectorPnL = useMemo(() => {
-    const sectors: Record<string, number> = {};
-    PORTFOLIO_DATA.forEach(item => {
-      const pnlDollar = item.valorActual - item.invertido;
-      sectors[item.sector] = (sectors[item.sector] || 0) + pnlDollar;
-    });
-    return Object.entries(sectors).map(([sector, pnl]) => ({ sector, pnl }));
-  }, []);
-
-  // --- FILA 5: Sector Dona & Tiempo ---
-  const sectorAllocation = useMemo(() => {
-    const sectors: Record<string, number> = {};
-    const total = kpis.valorActual;
-    PORTFOLIO_DATA.forEach(item => {
-      sectors[item.sector] = (sectors[item.sector] || 0) + item.valorActual;
-    });
-    return Object.entries(sectors).map(([name, value]) => ({
-      name,
-      value: Number(((value / total) * 100).toFixed(1))
-    }));
-  }, [kpis.valorActual]);
-
-  const timeHorizontalData = useMemo(() => {
-    return [...PORTFOLIO_DATA]
-      .sort((a, b) => b.dias - a.dias)
-      .map(item => ({ ticker: item.ticker, dias: item.dias }));
-  }, []);
+  const openModal = (title: string, tickers: { ticker: string, invested: number, pnl: number }[]) => {
+    setModal({ title, tickers: [...tickers].sort((a, b) => b.invested - a.invested) })
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-8 font-sans">
-      
-      {/* ================= FILA 1 — 7 KPIs ================= */}
-      <section className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">Total Invertido</span>
-          <span className="text-xl font-bold mt-2">${kpis.totalInvertido.toLocaleString()}</span>
+    <AppShell>
+      <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white', position: 'relative' }}>
+
+        {/* Cat ears decoration */}
+        <div style={{ position: 'absolute', top: -4, right: 60, pointerEvents: 'none' }}>
+          <CatEars color="#00bfff" opacity={0.12} size={40} />
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">Valor Actual</span>
-          <span className="text-xl font-bold mt-2">${kpis.valorActual.toLocaleString()}</span>
+        {/* HEADER */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
+          <Paw size={18} color="#00bfff" opacity={0.6} />
+          <Paw size={13} color="#00bfff" opacity={0.35} />
+          <Paw size={9}  color="#00bfff" opacity={0.18} />
+          <BarChart2 size={20} color="#00bfff" />
+          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Estrategia & riesgo — trades abiertos</h1>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">PnL Latente</span>
-          <div className="mt-2 flex items-baseline gap-1">
-            <span className={`text-xl font-bold ${kpis.pnlLatenteAbs >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              ${kpis.pnlLatenteAbs.toLocaleString()}
-            </span>
-            <span className={`text-xs ${kpis.pnlLatentePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              ({kpis.pnlLatentePct > 0 ? '+' : ''}{kpis.pnlLatentePct.toFixed(1)}%)
-            </span>
+        {/* FILTRO PORTAFOLIOS */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
+          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={filterBtn(selectedPortfolio === p.id)}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        {!stats ? (
+          <div style={{ textAlign: 'center', padding: 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <Paw size={40} color="#333" opacity={0.4} />
+            <span>No hay trades abiertos para este filtro.</span>
           </div>
-        </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 16 }}>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">Variación Hoy</span>
-          <div className="mt-2 flex items-center gap-1">
-            {kpis.varHoy >= 0 ? <ArrowUpRight className="w-4 h-4 text-emerald-400" /> : <ArrowDownRight className="w-4 h-4 text-rose-400" />}
-            <span className={`text-xl font-bold ${kpis.varHoy >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {kpis.varHoy.toFixed(2)}%
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">En Ganancia %</span>
-          <span className="text-xl font-bold mt-2 text-emerald-400">{kpis.enGananciaPct.toFixed(0)}%</span>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">Días Promedio</span>
-          <span className="text-xl font-bold mt-2">{kpis.diasPromedio} días</span>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-          <span className="text-xs font-medium text-slate-400">RSI Promedio</span>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xl font-bold">{kpis.rsiPromedio}</span>
-            <span className={`text-xs px-2 py-0.5 rounded ${kpis.rsiPromedio > 70 ? 'bg-rose-950 text-rose-400' : kpis.rsiPromedio < 30 ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-300'}`}>
-              {kpis.rsiPromedio > 70 ? 'Sobrecompra' : kpis.rsiPromedio < 30 ? 'Sobrevenda' : 'Neutral'}
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* ================= FILA 2 — TABLA DE POSICIONES ================= */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Layers className="w-5 h-5 text-blue-400" /> Posiciones en Cartera
-          </h2>
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar Ticker o Nombre..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+            {/* ── KPIs PRINCIPALES ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <StatCard 
+              label="Capital expuesto / actual / %" 
+              value={`${money(stats.totalInvested)} / ${money(stats.totalCurrent)} / ${stats.totalPnLPct.toFixed(1)}%`}
+              color={
+                stats.totalPnL > 0
+                  ? '#22c55e'
+                  : stats.totalPnL < 0
+                  ? '#f43f5e'
+                  : '#00bfff'
+              }
             />
-          </div>
-        </div>
+<StatCard 
+  label="Posiciones abiertas / Ganando / Perdiendo"     
+  value={`${stats.totalCount} / ${stats.winningTrades} / ${stats.losingTrades}`}
+  color={
+    stats.winningTrades > stats.losingTrades
+      ? '#22c55e'
+      : stats.losingTrades > stats.winningTrades
+      ? '#f43f5e'
+      : '#fff'
+  }
+/>
+              <StatCard label="Duración promedio"       value={`${stats.avgDuration} días`} color="#eab308"
+                desc="Tiempo promedio en posición" />
+              <StatCard label="R/R promedio objetivo"   value={stats.avgRR > 0 ? `${stats.avgRR}R` : '—'} color="#22c55e"
+                desc={`${stats.rrCount} trades con SL y TP`} />
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800">
-              <tr>
-                <th className="py-3 px-4 cursor-pointer hover:text-white" onClick={() => handleSort('ticker')}>Ticker</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white" onClick={() => handleSort('sector')}>Sector</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('invertido')}>Invertido</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('valorActual')}>Valor Actual</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('pnl')}>PnL (%)</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('varHoy')}>Var Hoy</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('originalPct')}>% Orig.</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('actualPct')}>% Act.</th>
-                <th className="py-3 px-4 cursor-pointer hover:text-white text-right" onClick={() => handleSort('rsi')}>RSI</th>
-                <th className="py-3 px-4 text-center">TradingView</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filteredAndSortedPositions.map((row) => (
-                <tr key={row.ticker} className="hover:bg-slate-800/50 transition-colors">
-                  <td className="py-3 px-4 font-semibold text-white">
-                    {row.ticker}
-                    <span className="block text-xs font-normal text-slate-400">{row.name}</span>
-                  </td>
-                  <td className="py-3 px-4"><span className="bg-slate-800 px-2 py-1 rounded text-xs">{row.sector}</span></td>
-                  <td className="py-3 px-4 text-right">${row.invertido.toLocaleString()}</td>
-                  <td className="py-3 px-4 text-right">${row.valorActual.toLocaleString()}</td>
-                  <td className={`py-3 px-4 text-right font-medium ${row.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {row.pnl > 0 ? '+' : ''}{row.pnl.toFixed(1)}%
-                  </td>
-                  <td className={`py-3 px-4 text-right ${row.varHoy >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {row.varHoy > 0 ? '+' : ''}{row.varHoy.toFixed(1)}%
-                  </td>
-                  <td className="py-3 px-4 text-right text-slate-400">{row.originalPct}%</td>
-                  <td className="py-3 px-4 text-right font-medium text-blue-400">{row.actualPct.toFixed(1)}%</td>
-                  <td className="py-3 px-4 text-right">{row.rsi}</td>
-                  <td className="py-3 px-4 text-center">
-                    <a
-                      href={`https://www.tradingview.com/symbols/${row.ticker}/`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center text-blue-400 hover:text-blue-300"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ================= FILA 3 — RENDIMIENTO vs S&P 500 ================= */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-emerald-400" /> Rendimiento % por Posición vs S&P 500
-          </h2>
-          <div className="flex bg-slate-950 p-1 border border-slate-800 rounded-lg">
-            {(['YTD', '1Y', '5Y', 'MAX'] as const).map((tf) => (
-              <button
-                key={tf}
-                onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                  timeframe === tf ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={BENCHMARK_PERF[timeframe]}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="ticker" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" unit="%" />
-              <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
-              <Legend />
-              <Bar dataKey="rendimiento" name="Rendimiento Activo (%)" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="sp500" name="S&P 500 Benchmark (%)" fill="#64748B" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      {/* ================= FILA 4 — TOP 5 + PnL POR SECTOR ================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top 5 Ganancias */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-md font-bold mb-4 text-emerald-400 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4" /> Top 5 Ganancias
-          </h3>
-          <ul className="space-y-3">
-            {top5Gainers.map((item) => (
-              <li key={item.ticker} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
-                <div>
-                  <span className="font-bold text-sm">{item.ticker}</span>
-                  <span className="text-xs block text-slate-400">{item.sector}</span>
+            {/* ── TOP POSICIONES / GANANCIAS / PÉRDIDAS ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {/* Top 5 por tamaño */}
+              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+                  <Paw size={60} color="#00bfff" opacity={0.03} />
                 </div>
-                <span className="text-emerald-400 font-semibold text-sm">+{item.pnl.toFixed(1)}%</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Top 5 Pérdidas */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-md font-bold mb-4 text-rose-400 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 rotate-180" /> Top 5 Pérdidas
-          </h3>
-          <ul className="space-y-3">
-            {top5Losers.map((item) => (
-              <li key={item.ticker} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
-                <div>
-                  <span className="font-bold text-sm">{item.ticker}</span>
-                  <span className="text-xs block text-slate-400">{item.sector}</span>
+                <div style={boxTitle}>
+                  <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
+                  Top 5 posiciones por tamaño
                 </div>
-                <span className="text-rose-400 font-semibold text-sm">{item.pnl.toFixed(1)}%</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* PnL Latente por Sector */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-md font-bold mb-4 text-blue-400 flex items-center gap-2">
-            <PieChart className="w-4 h-4" /> PnL Latente por Sector ($)
-          </h3>
-          <div className="space-y-3">
-            {sectorPnL.map((item) => (
-              <div key={item.sector} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
-                <span className="text-sm text-slate-300">{item.sector}</span>
-                <span className={`text-sm font-semibold ${item.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {item.pnl >= 0 ? '+' : ''}${item.pnl.toLocaleString()}
-                </span>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr>
+                    {['Ticker','Invertido','% Cartera'].map(h => <th key={h} style={th}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {stats.topPositions.map((t, i) => (
+                      <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                        <td style={td}>
+                          <span style={{ color: i === 0 ? '#ffd700' : '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
+                        </td>
+                        <td style={{ ...td, textAlign: 'right' }}>{money(t.total_invested)}</td>
+                        <td style={{ ...td, textAlign: 'right', color: '#888' }}>
+                          {(t.total_invested / stats.totalInvested * 100).toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ================= FILA 5 — DONA SECTOR + TIEMPO + DÍAS POR TICKER ================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Dona por sector */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-md font-bold mb-2">Distribución por Sector</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePie>
-                <Pie data={sectorAllocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                  {sectorAllocation.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={SECTOR_COLORS[index % SECTOR_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
-                <Legend />
-              </RePie>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Tiempo en Posición (Resumen) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
-          <div>
-            <h3 className="text-md font-bold mb-4 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-purple-400" /> Tiempo en Posición
-            </h3>
-            <div className="space-y-4">
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                <span className="text-xs text-slate-400 block">Posición más Antigua</span>
-                <span className="text-md font-bold text-purple-400">JNJ (410 días)</span>
+              {/* Top 5 ganancias */}
+              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+                  <Paw size={60} color="#22c55e" opacity={0.03} />
+                </div>
+                <div style={boxTitle}>
+                  <Paw size={10} color="#22c55e" opacity={0.6} style={{ marginRight: 6 }} />
+                  Top 5 mayores ganancias
+                </div>
+                {stats.topGains.filter(t => t.pnl > 0).length === 0 ? (
+                  <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Paw size={12} color="#333" opacity={0.5} />
+                    Sin ganancias realizadas aún
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>
+                      {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {stats.topGains.filter(t => t.pnl > 0).map((t, i) => (
+                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                          <td style={td}><span style={{ color: '#22c55e', fontWeight: 700 }}>{t.ticker}</span></td>
+                          <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>
+                            +{money(t.pnl)}
+                          </td>
+                          <td style={{ ...td, textAlign: 'right', color: '#888' }}>
+                            {t.total_invested > 0 ? `+${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                <span className="text-xs text-slate-400 block">Posición más Reciente</span>
-                <span className="text-md font-bold text-blue-400">XOM (90 días)</span>
+
+              {/* Top 5 pérdidas */}
+              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+                  <Paw size={60} color="#f43f5e" opacity={0.03} />
+                </div>
+                <div style={boxTitle}>
+                  <Paw size={10} color="#f43f5e" opacity={0.6} style={{ marginRight: 6 }} />
+                  Top 5 mayores pérdidas
+                </div>
+                {stats.topLosses.filter(t => t.pnl < 0).length === 0 ? (
+                  <div style={{ color: '#555', fontSize: 11, padding: '12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Paw size={12} color="#333" opacity={0.5} />
+                    Sin pérdidas realizadas
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr>
+                      {['Ticker','PnL','% vs Inv.'].map(h => <th key={h} style={th}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {stats.topLosses.filter(t => t.pnl < 0).map((t, i) => (
+                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                          <td style={td}><span style={{ color: '#f43f5e', fontWeight: 700 }}>{t.ticker}</span></td>
+                          <td style={{ ...td, textAlign: 'right', color: '#f43f5e', fontWeight: 700 }}>
+                            {money(t.pnl)}
+                          </td>
+                          <td style={{ ...td, textAlign: 'right', color: '#888' }}>
+                            {t.total_invested > 0 ? `${(t.pnl / t.total_invested * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
-          </div>
-          <div className="text-xs text-slate-500 border-t border-slate-800 pt-3">
-            El tiempo promedio total ponderado de la cartera actual es de <strong className="text-slate-300">{kpis.diasPromedio} días</strong>.
-          </div>
-        </div>
 
-        {/* Días por Ticker Horizontal */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-md font-bold mb-2">Días Acumulados por Ticker</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={timeHorizontalData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis type="number" stroke="#94a3b8" />
-                <YAxis dataKey="ticker" type="category" stroke="#94a3b8" width={50} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
-                <Bar dataKey="dias" name="Días" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
+            {/* ── HORIZONTE ── */}
+            <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 8, right: 12, pointerEvents: 'none' }}>
+                <Whiskers color="#888" opacity={0.1} />
+              </div>
+              <div style={boxTitle}>
+                <Paw size={10} color="#eab308" opacity={0.6} style={{ marginRight: 6 }} />
+                Horizonte por billetera
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginTop: 4 }}>
+                <ProgressBar label="Largo plazo (>10a)"   val={stats.horizonStats.long}  total={stats.totalInvested} color="#22c55e" money={money} />
+                <ProgressBar label="Mediano plazo (1-5a)" val={stats.horizonStats.mid}   total={stats.totalInvested} color="#eab308" money={money} />
+                <ProgressBar label="Corto / Especulativo" val={stats.horizonStats.short} total={stats.totalInvested} color="#f43f5e" money={money} />
+              </div>
+            </div>
 
-    </div>
-  );
+            {/* ── SECTORES con clic para ver tickers ── */}
+            <div style={box}>
+              <div style={boxTitle}>
+                <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
+                Distribución por sector y subsector
+                <span style={{ fontSize: 9, color: '#555', fontWeight: 400, marginLeft: 8 }}>· clic en subsector para ver tickers</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 12, marginTop: 8 }}>
+                {Object.entries(stats.sectorGroups)
+                  .sort(([, a], [, b]) => b.total - a.total)
+                  .map(([sector, data]) => (
+                    <div key={sector} style={sectorCard}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #1a1a1a' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{sector}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>
+                          {(data.total / stats.totalInvested * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      {Object.entries(data.subsectors)
+                        .sort(([, a], [, b]) => b.total - a.total)
+                        .map(([sub, subData]) => {
+                          const isOpen = expandedSector === `${sector}::${sub}`
+                          return (
+                            <div key={sub} style={{ marginBottom: 10 }}>
+                              <button
+                                onClick={() => {
+                                  const key = `${sector}::${sub}`
+                                  setExpandedSector(isOpen ? null : key)
+                                  openModal(`${sector} · ${sub}`, subData.tickers)
+                                }}
+                                style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                                  <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <Paw size={8} color="#aaa" opacity={0.4} />
+                                    {sub}
+                                    <span style={{ fontSize: 9, color: '#555', marginLeft: 3 }}>
+                                      ({subData.tickers.length} ticker{subData.tickers.length !== 1 ? 's' : ''})
+                                    </span>
+                                  </span>
+                                  <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    {(subData.total / data.total * 100).toFixed(1)}%
+                                    <ChevronDown size={10} color="#555" />
+                                  </span>
+                                </div>
+                              </button>
+                              <div style={{ background: '#111', height: 3, borderRadius: 2 }}>
+                                <div style={{ width: `${subData.total / data.total * 100}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.5 }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      <div style={{ fontSize: 10, color: '#555', textAlign: 'right', marginTop: 6 }}>{money(data.total)}</div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* ── DISTRIBUCIÓN GEOGRÁFICA con clic para ver tickers ── */}
+            <div style={box}>
+              <div style={boxTitle}>
+                <Paw size={10} color="#eab308" opacity={0.6} style={{ marginRight: 6 }} />
+                Distribución geográfica
+                <span style={{ fontSize: 9, color: '#555', fontWeight: 400, marginLeft: 8 }}>· clic en país para ver tickers</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))', gap: 10, marginTop: 8 }}>
+                {Object.entries(stats.countryGroups)
+                  .sort(([, a], [, b]) => b.total - a.total)
+                  .map(([country, d]) => (
+                    <button
+                      key={country}
+                      onClick={() => openModal(`Tickers en ${country}`, d.tickers)}
+                      style={{ ...countryCard, cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Paw size={9} color="#eab308" opacity={0.5} />
+                          {country}
+                        </span>
+                        <span style={{ fontSize: 12, color: '#00bfff', fontWeight: 700 }}>
+                          {(d.total / stats.totalInvested * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div style={{ height: 3, background: '#111', borderRadius: 2, marginBottom: 6 }}>
+                        <div style={{ width: `${d.total / stats.totalInvested * 100}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.5 }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#888' }}>
+                        <span>{d.count} posición{d.count !== 1 ? 'es' : ''} · <span style={{ color: '#555' }}>clic para ver</span></span>
+                        <span>{money(d.total)}</span>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ── MODAL TICKERS ── */}
+        {modal && (
+          <div style={modalOverlay} onClick={() => setModal(null)}>
+            <div style={modalBox} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Paw size={14} color="#00bfff" opacity={0.7} />
+                  <h3 style={{ margin: 0, fontSize: 14, color: '#fff' }}>{modal.title}</h3>
+                </div>
+                <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div style={{ position: 'absolute', bottom: -10, right: -10, pointerEvents: 'none' }}>
+                <Paw size={80} color="#00bfff" opacity={0.03} />
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
+                    {['Ticker','Invertido','PnL parcial'].map(h => <th key={h} style={{ ...th, padding: '6px 10px' }}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {modal.tickers.map(t => (
+                    <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                      <td style={{ ...td, color: '#00bfff', fontWeight: 700 }}>{t.ticker}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{money(t.invested)}</td>
+                      <td style={{ ...td, textAlign: 'right', color: t.pnl >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600 }}>
+                        {t.pnl !== 0 ? (t.pnl > 0 ? '+' : '') + money(t.pnl) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </AppShell>
+  )
 }
+
+function StatCard({ label, value, desc, color = 'white' }: any) {
+  return (
+    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+        <Paw size={44} color="#fff" opacity={0.02} />
+      </div>
+      <div style={{ fontSize: 9, color: '#888', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 900, color }}>{value}</div>
+      {desc && <div style={{ fontSize: 10, color: '#666', marginTop: 5 }}>{desc}</div>}
+    </div>
+  )
+}
+
+function ProgressBar({ label, val, total, color, money }: any) {
+  const pct = total > 0 ? (val / total) * 100 : 0
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
+        <span style={{ color: '#aaa' }}>{label}</span>
+        <span style={{ fontWeight: 700, color: val > 0 ? color : '#555' }}>
+          {pct.toFixed(1)}%
+          <span style={{ color: '#666', fontWeight: 400 }}> · {val > 0 ? money(val) : '$0.00'}</span>
+        </span>
+      </div>
+      <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ width: `${Math.max(pct, 0)}%`, background: val > 0 ? color : '#222', height: '100%', borderRadius: 2 }} />
+      </div>
+    </div>
+  )
+}
+
+const filterBtn = (active: boolean): React.CSSProperties => ({
+  padding: '6px 14px', borderRadius: 6, border: 'none',
+  background: active ? '#00bfff' : '#111',
+  color: active ? '#000' : '#888',
+  cursor: 'pointer', fontSize: 10, fontWeight: 'bold',
+})
+const box: React.CSSProperties         = { background: '#080808', border: '1px solid #1a1a1a', padding: '18px 20px', borderRadius: 12 }
+const boxTitle: React.CSSProperties    = { fontSize: 9, color: '#888', marginBottom: 14, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', display: 'flex', alignItems: 'center' }
+const sectorCard: React.CSSProperties  = { padding: 14, background: '#050505', borderRadius: 8, border: '1px solid #151515' }
+const countryCard: React.CSSProperties = { padding: '12px 14px', background: '#050505', borderRadius: 8, border: '1px solid #151515', width: '100%' }
+const th: React.CSSProperties          = { padding: '6px 10px', textAlign: 'left', fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', borderBottom: '1px solid #1a1a1a' }
+const td: React.CSSProperties          = { padding: '8px 10px', fontSize: 12, color: '#ccc' }
+const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
+const modalBox: React.CSSProperties     = { background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 14, padding: 24, width: 420, maxHeight: '80vh', overflowY: 'auto', position: 'relative' }
