@@ -114,9 +114,10 @@ export default function EstadisticasPage() {
     const totalPnL = totalCurrent - totalInvested
     const totalPnLPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0
 
-    // Horizonte por billetera
+    // Horizonte por billetera — SIEMPRE global, no depende del filtro de portafolio seleccionado
+    const globalTotalInvested = trades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
     const horizonStats = { long: 0, mid: 0, short: 0 }
-    filteredTrades.forEach(t => {
+    trades.forEach(t => {
       const pName = (t.portfolios?.name || '').toLowerCase()
       const inv   = Number(t.total_invested || 0)
       if (pName.includes('largo'))      horizonStats.long  += inv
@@ -124,9 +125,9 @@ export default function EstadisticasPage() {
       else                              horizonStats.short += inv
     })
     const horizonData = [
-      { name: 'Largo plazo (>10a)',   value: horizonStats.long,  pct: totalInvested > 0 ? parseFloat((horizonStats.long  / totalInvested * 100).toFixed(1)) : 0, color: C.success },
-      { name: 'Mediano plazo (1-5a)', value: horizonStats.mid,   pct: totalInvested > 0 ? parseFloat((horizonStats.mid   / totalInvested * 100).toFixed(1)) : 0, color: C.warning },
-      { name: 'Corto / Especulativo', value: horizonStats.short, pct: totalInvested > 0 ? parseFloat((horizonStats.short / totalInvested * 100).toFixed(1)) : 0, color: C.danger  },
+      { name: 'Largo plazo (>10a)',   value: horizonStats.long,  pct: globalTotalInvested > 0 ? parseFloat((horizonStats.long  / globalTotalInvested * 100).toFixed(1)) : 0, color: C.success },
+      { name: 'Mediano plazo (1-5a)', value: horizonStats.mid,   pct: globalTotalInvested > 0 ? parseFloat((horizonStats.mid   / globalTotalInvested * 100).toFixed(1)) : 0, color: C.warning },
+      { name: 'Corto / Especulativo', value: horizonStats.short, pct: globalTotalInvested > 0 ? parseFloat((horizonStats.short / globalTotalInvested * 100).toFixed(1)) : 0, color: C.danger  },
     ]
 
     // Distribución por sector (para dona)
@@ -136,6 +137,16 @@ export default function EstadisticasPage() {
       sectorMap[s] = (sectorMap[s] || 0) + Number(t.total_invested || 0)
     })
     const sectorData = Object.entries(sectorMap)
+      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)), pct: totalInvested > 0 ? parseFloat((value / totalInvested * 100).toFixed(1)) : 0 }))
+      .sort((a, b) => b.value - a.value)
+
+    // Distribución por país (para dona)
+    const countryMap: Record<string, number> = {}
+    filteredTrades.forEach(t => {
+      const c = t.country || 'Otros'
+      countryMap[c] = (countryMap[c] || 0) + Number(t.total_invested || 0)
+    })
+    const countryData = Object.entries(countryMap)
       .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)), pct: totalInvested > 0 ? parseFloat((value / totalInvested * 100).toFixed(1)) : 0 }))
       .sort((a, b) => b.value - a.value)
 
@@ -196,11 +207,6 @@ export default function EstadisticasPage() {
         }, 0) / rrTrades.length
       : 0
 
-    // Top 5 posiciones por tamaño (referencia rápida de exposición)
-    const topBySize = [...withPnl]
-      .sort((a, b) => Number(b.total_invested) - Number(a.total_invested))
-      .slice(0, 5)
-
     // Curva de equity vs S&P 500, respetando el rango seleccionado
     const sortedByDate = [...filteredTrades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
 
@@ -239,13 +245,13 @@ export default function EstadisticasPage() {
     return {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
       winningTrades, losingTrades, totalCount: filteredTrades.length,
-      horizonData, sectorData, sectorPnlData,
+      horizonData, sectorData, countryData, sectorPnlData,
       topGains, topLosses, daysInPosition, topBySize, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
       rrCount: rrTrades.length,
     }
-  }, [filteredTrades, sp500Data, range])
+  }, [filteredTrades, trades, sp500Data, range])
 
   if (loading) return (
     <AppShell>
@@ -306,34 +312,7 @@ export default function EstadisticasPage() {
                 desc={`${stats.rrCount} con SL y TP`} />
             </div>
 
-            {/* ══ FILA 2 — TOP 5 POSICIONES POR TAMAÑO ══ */}
-            <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                <Paw size={60} color="#00bfff" opacity={0.03} />
-              </div>
-              <div style={boxTitle}>
-                <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
-                Top 5 posiciones por tamaño
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 14, marginTop: 6 }}>
-                {stats.topBySize.map((t, i) => {
-                  const pct = stats.totalInvested > 0 ? (Number(t.total_invested) / stats.totalInvested) * 100 : 0
-                  return (
-                    <div key={t.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
-                        <span style={{ color: i === 0 ? '#ffd700' : '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
-                        <span style={{ color: '#888' }}>{money(t.total_invested)} · {pct.toFixed(1)}%</span>
-                      </div>
-                      <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.6 }} />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* ══ FILA 3 — CURVA EQUITY + SP500 ══ */}
+            {/* ══ FILA 2 — CURVA EQUITY + SP500 ══ */}
             <ChartCard
               title="Curva de equity vs S&P 500"
               sub="Rendimiento % comparado desde la primera operación del rango — requiere datos de mercado"
@@ -365,7 +344,7 @@ export default function EstadisticasPage() {
               )}
             </ChartCard>
 
-            {/* ══ FILA 4 — TOP GANANCIAS / TOP PÉRDIDAS / PNL POR SECTOR ══ */}
+            {/* ══ FILA 3 — TOP GANANCIAS / TOP PÉRDIDAS / PNL POR SECTOR ══ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
@@ -449,8 +428,8 @@ export default function EstadisticasPage() {
               </div>
             </div>
 
-            {/* ══ FILA 5 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR (DONA) ══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+            {/* ══ FILA 4 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR / PAÍS (DONAS) ══ */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <ChartCard title="Tiempo en posición" sub="Días desde apertura">
                 {stats.daysInPosition.length > 0 ? (
                   <ResponsiveContainer width="100%" height={Math.max(180, Math.min(stats.daysInPosition.length * 26, 320))}>
@@ -503,6 +482,30 @@ export default function EstadisticasPage() {
                   </ResponsiveContainer>
                   <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 110, overflowY: 'auto' }}>
                     {stats.sectorData.map((s, i) => (
+                      <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
+                        <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
+                          {s.name}
+                        </span>
+                        <span style={{ fontWeight: 700, color: '#fff' }}>{s.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </ChartCard>
+
+              <ChartCard title="Distribución por país">
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                  <ResponsiveContainer width={160} height={160}>
+                    <PieChart>
+                      <Pie data={stats.countryData} cx="50%" cy="50%" innerRadius={44} outerRadius={70} paddingAngle={3} dataKey="value">
+                        {stats.countryData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 110, overflowY: 'auto' }}>
+                    {stats.countryData.map((s, i) => (
                       <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
                         <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
