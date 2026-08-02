@@ -196,8 +196,10 @@ export default function EstadisticasPage() {
         }, 0) / rrTrades.length
       : 0
 
-    // Tabla de posiciones (compacta, todas ordenadas por tamaño)
-    const positionsTable = [...withPnl].sort((a, b) => Number(b.total_invested) - Number(a.total_invested))
+    // Top 5 posiciones por tamaño (referencia rápida de exposición)
+    const topBySize = [...withPnl]
+      .sort((a, b) => Number(b.total_invested) - Number(a.total_invested))
+      .slice(0, 5)
 
     // Curva de equity vs S&P 500, respetando el rango seleccionado
     const sortedByDate = [...filteredTrades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
@@ -238,7 +240,7 @@ export default function EstadisticasPage() {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
       winningTrades, losingTrades, totalCount: filteredTrades.length,
       horizonData, sectorData, sectorPnlData,
-      topGains, topLosses, daysInPosition, positionsTable, vsData,
+      topGains, topLosses, daysInPosition, topBySize, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
       rrCount: rrTrades.length,
@@ -304,35 +306,30 @@ export default function EstadisticasPage() {
                 desc={`${stats.rrCount} con SL y TP`} />
             </div>
 
-            {/* ══ FILA 2 — TABLA DE POSICIONES ══ */}
-            <div style={box}>
+            {/* ══ FILA 2 — TOP 5 POSICIONES POR TAMAÑO ══ */}
+            <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+                <Paw size={60} color="#00bfff" opacity={0.03} />
+              </div>
               <div style={boxTitle}>
                 <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
-                Posiciones abiertas
+                Top 5 posiciones por tamaño
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr>
-                    {['Ticker','Sector','País','Invertido','Actual','PnL','PnL %'].map(h => <th key={h} style={th}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {stats.positionsTable.map(t => (
-                      <tr key={t.id} style={{ borderBottom: '1px solid #111' }}>
-                        <td style={td}><span style={{ color: '#00bfff', fontWeight: 700 }}>{t.ticker}</span></td>
-                        <td style={{ ...td, color: '#aaa' }}>{t.sector || '—'}</td>
-                        <td style={{ ...td, color: '#aaa' }}>{t.country || '—'}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{money(t.total_invested)}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{money(t.curPrice * Number(t.quantity || 0))}</td>
-                        <td style={{ ...td, textAlign: 'right', color: t.pnl >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
-                          {t.pnl >= 0 ? '+' : ''}{money(t.pnl)}
-                        </td>
-                        <td style={{ ...td, textAlign: 'right', color: t.pnlPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                          {t.pnlPct >= 0 ? '+' : ''}{t.pnlPct}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 14, marginTop: 6 }}>
+                {stats.topBySize.map((t, i) => {
+                  const pct = stats.totalInvested > 0 ? (Number(t.total_invested) / stats.totalInvested) * 100 : 0
+                  return (
+                    <div key={t.id}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
+                        <span style={{ color: i === 0 ? '#ffd700' : '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
+                        <span style={{ color: '#888' }}>{money(t.total_invested)} · {pct.toFixed(1)}%</span>
+                      </div>
+                      <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, background: '#00bfff', height: '100%', borderRadius: 2, opacity: 0.6 }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
