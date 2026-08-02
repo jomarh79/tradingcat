@@ -246,7 +246,7 @@ export default function EstadisticasPage() {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
       winningTrades, losingTrades, totalCount: filteredTrades.length,
       horizonData, sectorData, countryData, sectorPnlData,
-      topGains, topLosses, daysInPosition, topBySize, vsData,
+      topGains, topLosses, daysInPosition, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
       rrCount: rrTrades.length,
