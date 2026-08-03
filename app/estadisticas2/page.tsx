@@ -544,8 +544,8 @@ const recoveryRate =
                 desc="En cerrar una posición" color="#888" pawColor="#888" />
             </div>
 
-            {/* ── F3: Eficiencia + Drawdown máx + Rachas ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            {/* ── F2: Eficiencia + Drawdown máx + Rachas ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }}>
 
               <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
@@ -623,10 +623,7 @@ const recoveryRate =
                   <div style={{ fontSize: 13, color: '#f43f5e' }}>{stats.worstMonth ? money(stats.worstMonth[1].pnl) : ''}</div>
                 </div>
               </div>
-            </div>
 
-            {/* ── F4: Mejores y peores cierres ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={{ ...box, borderColor: 'rgba(34,197,94,0.18)', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={56} color="#22c55e" opacity={0.04} />
@@ -681,43 +678,7 @@ const recoveryRate =
               </div>
             </div>
 
-            {/* ── F5: Drawdown % + Portafolio vs S&P 500 ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
-                <ResponsiveContainer width="100%" height={210}>
-                  <AreaChart data={drawdownFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <defs>
-                      <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={C.loss} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={C.loss} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v}%`} />} />
-                    <ReferenceLine y={0} stroke="#333" />
-                    <Area type="monotone" dataKey="drawdown" name="Drawdown" stroke={C.loss} fill="url(#ddGrad)" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </ChartCard>
-
-              <ChartCard title="Portafolio vs S&P 500" sub="PnL acumulado real vs benchmark estimado" mb={0} extra={<PeriodSelector />}>
-                <ResponsiveContainer width="100%" height={210}>
-                  <LineChart data={sp500Filtered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                    <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                    <Line type="monotone" dataKey="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
-                    <Line type="monotone" dataKey="S&P 500" stroke={C.sp500} strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
-            </div>
-
-            {/* ── F6: Scatter días vs PnL % ── */}
+            {/* ── F3: Scatter días vs PnL % ── */}
             <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
               {charts.scatterData.length > 0 ? (
                 <div style={{ position: 'relative', height: 220 }}>
@@ -766,6 +727,44 @@ const recoveryRate =
                 </div>
               ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
             </ChartCard>
+
+            {/* ── F5: Drawdown % + Portafolio vs S&P 500 ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
+                <ResponsiveContainer width="100%" height={210}>
+                  <AreaChart data={drawdownFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={C.loss} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={C.loss} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v}%`} />} />
+                    <ReferenceLine y={0} stroke="#333" />
+                    <Area type="monotone" dataKey="drawdown" name="Drawdown" stroke={C.loss} fill="url(#ddGrad)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Portafolio vs S&P 500" sub="PnL acumulado real vs benchmark estimado" mb={0} extra={<PeriodSelector />}>
+                <ResponsiveContainer width="100%" height={210}>
+                  <LineChart data={sp500Filtered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
+                    <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
+                    <Line type="monotone" dataKey="S&P 500" stroke={C.sp500} strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+
+
 
             {/* ── F7: Rendimiento por período + Razones de cierre ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
