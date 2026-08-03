@@ -12,14 +12,6 @@ import { AlertTriangle } from 'lucide-react'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
-const isMarketOpen = () => {
-  const now = new Date()
-  const mx  = new Date(now.toLocaleString('en-US', { timeZone: 'America/Mexico_City' }))
-  const day  = mx.getDay()
-  const time = mx.getHours() + mx.getMinutes() / 60
-  return day >= 1 && day <= 5 && time >= 7.5 && time < 15
-}
-
 const isStale = (lastUpdated: string | null, minutes = 15) => {
   if (!lastUpdated) return true
   return (Date.now() - new Date(lastUpdated).getTime()) / 60000 > minutes
@@ -100,7 +92,7 @@ const rsiColor = (rsi: number | null) => {
   return '#aaa'
 }
 
-// Crea la conexión real con tu API de Render para procesar la IA
+// Dispara el análisis IA en tu API de Render (todos los tickers, o uno solo si se pasa)
 async function triggerIA(ticker?: string): Promise<void> {
   try {
     await fetch('/api/trigger-ia', {
@@ -113,13 +105,13 @@ async function triggerIA(ticker?: string): Promise<void> {
   }
 }
 
-
 export default function WatchlistIAPage() {
   const { money } = usePrivacy()
 
   const [list,        setList]        = useState<WatchItem[]>([])
   const [loading,     setLoading]     = useState(false)
   const [addingNew,   setAddingNew]   = useState(false)  // spinner solo para ticker nuevo
+  const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
   const [newTicker,  setNewTicker]  = useState('')
@@ -132,25 +124,20 @@ export default function WatchlistIAPage() {
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
-  const [view,        setView]       = useState<'table' | 'cards'>('table')
 
-    const fetchList = useCallback(async (): Promise<WatchItem[]> => {
-    // 1. Desactivamos el almacenamiento en caché del cliente agregando un parámetro de tiempo único
-    const cacheBuster = Date.now();
-    
+  const fetchList = useCallback(async (): Promise<WatchItem[]> => {
     const { data, error } = await supabase
       .from('watchlist')
       .select('*')
       .gt('buy_target', 0)
       .order('ai_probability', { ascending: false })
-      
-    if (error) { 
-      console.error(error); 
-      return []; 
-    }
-    return (data as WatchItem[]) || [];
-  }, []);
 
+    if (error) {
+      console.error(error)
+      return []
+    }
+    return (data as WatchItem[]) || []
+  }, [])
 
   const init = useCallback(async () => {
     setLoading(true)
@@ -160,26 +147,53 @@ export default function WatchlistIAPage() {
     setLastRefresh(new Date())
   }, [fetchList])
 
- useEffect(() => {
-  init()
-
-  // Auto refresh cada 2 minutos SOLO si mercado abierto
-    const interval = setInterval(() => {
-      if (isMarketOpen()) {
-        init()
-      }
-    }, 60000)
-
+  useEffect(() => {
+    init()
+    // Auto refresh cada 2 minutos, sin restricción de horario de mercado
+    const interval = setInterval(() => { init() }, 120000)
     return () => clearInterval(interval)
   }, [init])
 
-  // ── Botón Actualizar — llama API route del servidor ────────────────────────
+  // ── Espera a que un ticker específico tenga datos frescos, refrescando la lista mientras tanto ──
+  const pollTicker = useCallback((ticker: string, onDone?: () => void) => {
+    let attempts = 0
+    const maxAttempts = 10
+    const interval = setInterval(async () => {
+      const updated = await fetchList()
+      const found = updated.find(i => i.ticker === ticker && i.current_price !== null)
+      setList(updated)
+      attempts++
+      if (found || attempts >= maxAttempts) {
+        clearInterval(interval)
+        onDone?.()
+      }
+    }, 3000)
+  }, [fetchList])
+
+  // ── Botón Actualizar (todos) — dispara IA y sondea varias veces en vez de esperar a ciegas ──
   const handleUpdate = async () => {
     setLoading(true)
     await triggerIA()
-    await new Promise(r => setTimeout(r, 3000))  // esperar ~3s a que empiece a guardar
-    await init()               // refrescar la lista desde Supabase
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 3000))
+      const updated = await fetchList()
+      setList(updated)
+    }
     setLoading(false)
+    setLastRefresh(new Date())
+  }
+
+  // ── Reanalizar un solo ticker desde la fila ──
+  const refreshTicker = async (ticker: string) => {
+    setRefreshingTickers(prev => new Set(prev).add(ticker))
+    await triggerIA(ticker)
+    pollTicker(ticker, () => {
+      setRefreshingTickers(prev => {
+        const next = new Set(prev)
+        next.delete(ticker)
+        return next
+      })
+    })
   }
 
   // ── Agregar ticker — inserta en DB y dispara IA solo para ese ticker ───────
@@ -197,38 +211,20 @@ export default function WatchlistIAPage() {
 
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
 
-    // Agregar inmediatamente a la lista con datos vacíos para que aparezca
     const { data: newItem } = await supabase.from('watchlist').select('*')
       .eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
     if (newItem) {
       setList(prev => [newItem, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
     }
 
-    // Disparar análisis IA solo para este ticker en background de forma segura
-    setAddingNew(true);
+    setAddingNew(true)
     triggerIA(ticker)
-      .then(async () => {
-        let attempts = 0;
-        const maxAttempts = 10;
-
-        const interval = setInterval(async () => {
-          const updated = await fetchList();
-          const found = updated.find(i => i.ticker === ticker && i.current_price !== null);
-
-          if (found || attempts >= maxAttempts) {
-            clearInterval(interval);
-            setList(updated);
-            setAddingNew(false);
-          }
-          attempts++;
-        }, 3000);
-      })
+      .then(() => pollTicker(ticker, () => setAddingNew(false)))
       .catch((err) => {
-        console.error("Error al procesar ticker nuevo:", err);
-        setAddingNew(false);
-      });
-  } 
-
+        console.error("Error al procesar ticker nuevo:", err)
+        setAddingNew(false)
+      })
+  }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
@@ -246,13 +242,7 @@ export default function WatchlistIAPage() {
 
   const toggleFavorite = async (id: number, current: boolean | null) => {
     const newValue = !current
-
-    // Actualización optimista inmediata
-    setList(prev =>
-      prev.map(i =>
-        i.id === id ? { ...i, favorite: newValue } : i
-      )
-    )
+    setList(prev => prev.map(i => i.id === id ? { ...i, favorite: newValue } : i))
 
     const { error } = await supabase
       .from('watchlist')
@@ -261,13 +251,7 @@ export default function WatchlistIAPage() {
 
     if (error) {
       console.error('ERROR FAVORITE:', error)
-
-      // revertir si falla
-      setList(prev =>
-        prev.map(i =>
-          i.id === id ? { ...i, favorite: current } : i
-        )
-      )
+      setList(prev => prev.map(i => i.id === id ? { ...i, favorite: current } : i))
     }
   }
 
@@ -297,28 +281,14 @@ export default function WatchlistIAPage() {
       )
     }
     return [...filtered].sort((a, b) => {
-  // En tarjetas: prioridad por señal IA
-  if (view === 'cards') {
-    const getPriority = (p: number | null) => {
-      if (p === null || p === undefined) return 4
-      if (p >= 80) return 1
-      if (p >= 65) return 2
-      if (p >= 50) return 3
-      return 4
-    }
-    const pa = getPriority(a.ai_probability)
-    const pb = getPriority(b.ai_probability)
-    if (pa !== pb) return pa - pb
-  }
-
-  let av: any = a[sortField] ?? 0
-  let bv: any = b[sortField] ?? 0
-  if (typeof av === 'string') av = av.toLowerCase()
-  if (typeof bv === 'string') bv = bv.toLowerCase()
-  if (av < bv) return sortDir === 'asc' ? -1 : 1
-  if (av > bv) return sortDir === 'asc' ? 1 : -1
-  return 0
-})
+      let av: any = a[sortField] ?? 0
+      let bv: any = b[sortField] ?? 0
+      if (typeof av === 'string') av = av.toLowerCase()
+      if (typeof bv === 'string') bv = bv.toLowerCase()
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
   }, [enrichedList, filterText, sortField, sortDir])
 
   const strongSignals = useMemo(() =>
@@ -332,8 +302,9 @@ export default function WatchlistIAPage() {
       : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
 
-  const marketOpen   = isMarketOpen()
   const staleTickers = list.filter(i => isStale(i.last_updated, 5)).length
+  const inZoneCount   = enrichedList.filter(i => i.inZone).length
+  const strongCount   = enrichedList.filter(i => (i.ai_probability || 0) >= 65).length
 
   return (
     <AppShell>
@@ -347,7 +318,7 @@ export default function WatchlistIAPage() {
         </div>
 
         {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <Paw size={20} color="#ffd700" opacity={0.6} />
@@ -362,11 +333,10 @@ export default function WatchlistIAPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 5, color: marketOpen ? '#22c55e' : '#666' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: marketOpen ? '#22c55e' : '#444', display: 'inline-block' }} />
-              {marketOpen ? 'Mercado abierto' : 'Mercado cerrado'}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.65rem', color: '#666' }}>{list.length} tickers</span>
+            <span style={{ fontSize: '0.65rem', color: '#22c55e' }}>{inZoneCount} en zona</span>
+            <span style={{ fontSize: '0.65rem', color: '#eab308' }}>{strongCount} señales fuertes</span>
 
             {staleTickers > 0 && (
               <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -388,18 +358,6 @@ export default function WatchlistIAPage() {
               </span>
             )}
 
-            <div style={{ display: 'flex', background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, overflow: 'hidden' }}>
-              {(['table', 'cards'] as const).map(v => (
-                <button key={v} onClick={() => setView(v)} style={{
-                  background: view === v ? '#00bfff' : 'transparent',
-                  color: view === v ? '#000' : '#666',
-                  border: 'none', padding: '6px 12px', cursor: 'pointer', fontSize: 10, fontWeight: 700,
-                }}>
-                  {v === 'table' ? 'Tabla' : 'Tarjetas'}
-                </button>
-              ))}
-            </div>
-
             <button onClick={handleUpdate} disabled={loading} style={btnStyle}>
               <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
               Actualizar
@@ -408,7 +366,7 @@ export default function WatchlistIAPage() {
         </div>
 
         {/* ── SEÑALES FUERTES ── */}
-        {view === 'table' && strongSignals.length > 0 && (
+        {strongSignals.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
               <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
@@ -497,300 +455,216 @@ export default function WatchlistIAPage() {
           </div>
         </div>
 
-        {/* ── VISTA TABLA ── */}
-        {view === 'table' && (
-          <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
-              <thead>
-                <tr style={{ background: '#0a0a0a' }}>
-                  {([
-                    ['ticker',        'Ticker'],
-                    ['price_change',  'Var. día'],
-                    ['current_price', 'Precio'],
-                    ['buy_target',    'Mi objetivo'],
-                    ['distancia',     'Dist. %'],
-                    ['analyst_target','Analistas'],
-                    ['vsAnalyst',     'Vs analistas'],
-                    ['ai_probability','IA señal'],
-                    ['rsi',           'RSI'],
-                    ['notes',         'Notas'],
-                    [null,            ''],
-                  ] as [string | null, string][]).map(([field, label], idx) => (
-                    <th key={idx}
-                      style={{ ...thStyle, cursor: field ? 'pointer' : 'default' }}
-                      onClick={field ? () => handleSort(field as SortField) : undefined}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                        {label}
-                        {field && <SortIcon field={field as SortField} />}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {displayList.length === 0 && (
-                  <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                      <Paw size={28} color="#333" opacity={0.5} />
-                      No hay activos. Agrega uno arriba.
-                    </div>
-                  </td></tr>
-                )}
-                {displayList.map(item => {
-                  const sig      = signalMeta(item.ai_probability)
-                  const rsiValue = Number(item.rsi)
-                  const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+        {/* ── TABLA ── */}
+        <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1080 }}>
+            <thead>
+              <tr style={{ background: '#0a0a0a' }}>
+                {([
+                  ['ticker',        'Ticker'],
+                  ['price_change',  'Var. día'],
+                  ['current_price', 'Precio'],
+                  ['buy_target',    'Mi objetivo'],
+                  ['distancia',     'Dist. %'],
+                  ['analyst_target','Analistas'],
+                  ['vsAnalyst',     'Vs analistas'],
+                  ['ai_probability','IA señal'],
+                  ['rsi',           'RSI'],
+                  ['notes',         'Notas'],
+                  [null,            ''],
+                ] as [string | null, string][]).map(([field, label], idx) => (
+                  <th key={idx}
+                    style={{ ...thStyle, cursor: field ? 'pointer' : 'default' }}
+                    onClick={field ? () => handleSort(field as SortField) : undefined}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      {label}
+                      {field && <SortIcon field={field as SortField} />}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {displayList.length === 0 && (
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <Paw size={28} color="#333" opacity={0.5} />
+                    No hay activos. Agrega uno arriba.
+                  </div>
+                </td></tr>
+              )}
+              {displayList.map(item => {
+                const sig      = signalMeta(item.ai_probability)
+                const rsiValue = Number(item.rsi)
+                const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+                const refreshingThis = refreshingTickers.has(item.ticker)
 
-                  return (
-                    <tr key={item.id} style={{
-                      borderBottom: '1px solid #0c0c0c',
-                      background: item.favorite
-                        ? 'rgba(234,179,8,0.12)'   // amarillo
-                        : item.inZone
-                          ? 'rgba(34,197,94,0.05)'
-                          : 'transparent',
-                    }}>
+                return (
+                  <tr key={item.id} style={{
+                    borderBottom: '1px solid #0c0c0c',
+                    background: item.favorite
+                      ? 'rgba(234,179,8,0.12)'
+                      : item.inZone
+                        ? 'rgba(34,197,94,0.05)'
+                        : 'transparent',
+                  }}>
 
-                      {/* Ticker */}
-                      <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 14 }}>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          
-                          <a
-                            href={`https://es.tradingview.com/chart/?symbol=${item.ticker}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontWeight: 700,
-                              color: item.inZone ? '#22c55e' : '#00bfff',
-                              fontSize: 14,
-                              textDecoration: 'none',
-                            }}
-                          >
-                            {item.ticker}
-                          </a>
-                        </div>
-                        
-                      </td>
+                    {/* Ticker */}
+                    <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 14 }}>
+                      <a
+                        href={`https://es.tradingview.com/chart/?symbol=${item.ticker}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontWeight: 700,
+                          color: item.inZone ? '#22c55e' : '#00bfff',
+                          fontSize: 14,
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {item.ticker}
+                      </a>
+                    </td>
 
-                      {/* Var. día en % */}
-                      <td style={tdStyle}>
-                        {item.price_change !== null && item.price_change !== undefined
-                          ? <span style={{
-                              color: item.price_change >= 0 ? '#22c55e' : '#f43f5e',
-                              fontWeight: 600, fontSize: 12,
-                              background: item.price_change >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(244,63,94,0.08)',
-                              padding: '2px 6px', borderRadius: 3,
-                            }}>
-                              {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
-                            </span>
-                          : <span style={{ color: '#333' }}>—</span>}
-                      </td>
-
-                      {/* Precio */}
-                      <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
-                        {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
-                      </td>
-
-                      {/* Mi objetivo — editable */}
-                      <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
-                        {editingId === item.id ? (
-                          <input autoFocus type="number" min="0"
-                            style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }}
-                            value={tempTarget}
-                            onChange={e => setTempTarget(e.target.value)}
-                            onBlur={() => updateTarget(item.id, tempTarget)}
-                            onKeyDown={e => { if (e.key === 'Enter') updateTarget(item.id, tempTarget); if (e.key === 'Escape') setEditingId(null) }}
-                          />
-                        ) : (
-                          <span onClick={() => { setEditingId(item.id); setTempTarget(item.buy_target.toString()) }} title="Clic para editar">
-                            ${item.buy_target.toFixed(2)}
+                    {/* Var. día en % */}
+                    <td style={tdStyle}>
+                      {item.price_change !== null && item.price_change !== undefined
+                        ? <span style={{
+                            color: item.price_change >= 0 ? '#22c55e' : '#f43f5e',
+                            fontWeight: 600, fontSize: 12,
+                            background: item.price_change >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(244,63,94,0.08)',
+                            padding: '2px 6px', borderRadius: 3,
+                          }}>
+                            {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
                           </span>
-                        )}
-                      </td>
+                        : <span style={{ color: '#333' }}>—</span>}
+                    </td>
 
-                      {/* Distancia */}
-                      <td style={tdStyle}>
-                        {item.current_price
-                          ? <span style={{
-                              color: item.distancia < 0 ? '#f43f5e' : item.distancia < 10 ? '#ffd700' : '#666',
-                              fontWeight: 600,
-                              fontSize: 12
-                            }}>
-                              {item.distancia > 0 ? '+' : ''}{item.distancia.toFixed(2)}%
-                            </span>
-                          : <span style={{ color: '#333' }}>—</span>}
-                      </td>
+                    {/* Precio */}
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>
+                      {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
+                    </td>
 
-                      {/* Precio analistas */}
-                      <td style={{ ...tdStyle, color: '#666', fontSize: 12 }}>
-                        {item.analyst_target > 0 ? `$${Number(item.analyst_target).toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
-                      </td>
+                    {/* Mi objetivo — editable */}
+                    <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
+                      {editingId === item.id ? (
+                        <input autoFocus type="number" min="0"
+                          style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }}
+                          value={tempTarget}
+                          onChange={e => setTempTarget(e.target.value)}
+                          onBlur={() => updateTarget(item.id, tempTarget)}
+                          onKeyDown={e => { if (e.key === 'Enter') updateTarget(item.id, tempTarget); if (e.key === 'Escape') setEditingId(null) }}
+                        />
+                      ) : (
+                        <span onClick={() => { setEditingId(item.id); setTempTarget(item.buy_target.toString()) }} title="Clic para editar">
+                          ${item.buy_target.toFixed(2)}
+                        </span>
+                      )}
+                    </td>
 
-                      {/* Vs analistas */}
-                      <td style={tdStyle}>
-                        {item.current_price && item.analyst_target > 0
-                          ? <span style={{ color: item.vsAnalyst > 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
-                              {item.vsAnalyst > 0 ? '+' : ''}{item.vsAnalyst.toFixed(2)}%
-                            </span>
-                          : <span style={{ color: '#333' }}>—</span>}
-                      </td>
+                    {/* Distancia */}
+                    <td style={tdStyle}>
+                      {item.current_price
+                        ? <span style={{
+                            color: item.distancia < 0 ? '#f43f5e' : item.distancia < 10 ? '#ffd700' : '#666',
+                            fontWeight: 600,
+                            fontSize: 12
+                          }}>
+                            {item.distancia > 0 ? '+' : ''}{item.distancia.toFixed(2)}%
+                          </span>
+                        : <span style={{ color: '#333' }}>—</span>}
+                    </td>
 
-                      {/* IA señal — etiqueta + barra */}
-                      <td style={tdStyle}>
-                        {item.ai_probability !== null ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                            <span style={{
-                              color: sig.color, fontSize: 10, fontWeight: 700,
-                              background: sig.bg, padding: '2px 7px', borderRadius: 4,
-                              border: `1px solid ${sig.color}33`, whiteSpace: 'nowrap',
-                            }}>
-                              {sig.label}
-                            </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <div style={{ width: 36, background: '#111', height: 2, borderRadius: 1 }}>
-                                <div style={{ width: `${item.ai_probability}%`, background: sig.color, height: '100%', borderRadius: 1 }} />
-                              </div>
-                              <span style={{ fontSize: 9, color: sig.color }}>{item.ai_probability.toFixed(0)}%</span>
+                    {/* Precio analistas */}
+                    <td style={{ ...tdStyle, color: '#666', fontSize: 12 }}>
+                      {item.analyst_target > 0 ? `$${Number(item.analyst_target).toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
+                    </td>
+
+                    {/* Vs analistas */}
+                    <td style={tdStyle}>
+                      {item.current_price && item.analyst_target > 0
+                        ? <span style={{ color: item.vsAnalyst > 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
+                            {item.vsAnalyst > 0 ? '+' : ''}{item.vsAnalyst.toFixed(2)}%
+                          </span>
+                        : <span style={{ color: '#333' }}>—</span>}
+                    </td>
+
+                    {/* IA señal — etiqueta + barra */}
+                    <td style={tdStyle}>
+                      {item.ai_probability !== null ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                          <span style={{
+                            color: sig.color, fontSize: 10, fontWeight: 700,
+                            background: sig.bg, padding: '2px 7px', borderRadius: 4,
+                            border: `1px solid ${sig.color}33`, whiteSpace: 'nowrap',
+                          }}>
+                            {sig.label}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ width: 36, background: '#111', height: 2, borderRadius: 1 }}>
+                              <div style={{ width: `${item.ai_probability}%`, background: sig.color, height: '100%', borderRadius: 1 }} />
                             </div>
+                            <span style={{ fontSize: 9, color: sig.color }}>{item.ai_probability.toFixed(0)}%</span>
                           </div>
-                        ) : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
-                      </td>
-
-                      {/* RSI — número solamente, validado entre 0-100 */}
-                      <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
-                        {rsiOk
-                          ? <span style={{ color: rsiColor(rsiValue) }}>{rsiValue.toFixed(1)}</span>
-                          : <span style={{ color: '#333' }}>—</span>}
-                      </td>
-
-                      {/* Notas */}
-                      <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
-                        {item.notes
-                          ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
-                              {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
-                            </span>
-                          : <span style={{ color: '#333' }}>—</span>}
-                      </td>
-
-                      {/* Estrella + Eliminar */}
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
-                          <button
-                            onClick={() => toggleFavorite(item.id, item.favorite)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-                              color: item.favorite ? '#ffd700' : '#333', fontSize: 16, transition: 'color 0.2s' }}
-                            onMouseEnter={e => (e.currentTarget.style.color = '#ffd700')}
-                            onMouseLeave={e => (e.currentTarget.style.color = item.favorite ? '#ffd700' : '#333')}>
-                            ★
-                          </button>
-                          <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
-                            onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-                            onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
-                            <FaTrash style={{ fontSize: 11 }} />
-                          </button>
                         </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                      ) : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
+                    </td>
 
-        {/* ── VISTA TARJETAS ── */}
-        {view === 'cards' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-            {displayList.map(item => {
-              const sig      = signalMeta(item.ai_probability)
-              const rsiValue = Number(item.rsi)
-              const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
-              return (
-                <div key={item.id} style={{
-                  background: '#080808', border: `1px solid ${sig.color}33`,
-                  borderRadius: 14, padding: 18, position: 'relative', overflow: 'hidden',
-                }}>
-                  <div style={{ position: 'absolute', bottom: -12, right: -12, pointerEvents: 'none' }}>
-                    <Paw size={70} color={sig.color} opacity={0.05} />
-                  </div>
-                  {(item.ai_probability || 0) >= 80 && (
-                    <div style={{ position: 'absolute', top: -20, right: -20, width: 80, height: 80, background: `${sig.color}15`, borderRadius: '50%', filter: 'blur(20px)', pointerEvents: 'none' }} />
-                  )}
+                    {/* RSI */}
+                    <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
+                      {rsiOk
+                        ? <span style={{ color: rsiColor(rsiValue) }}>{rsiValue.toFixed(1)}</span>
+                        : <span style={{ color: '#333' }}>—</span>}
+                    </td>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: '#fff' }}>{item.ticker}</div>
-                      {item.price_name && <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>{item.price_name}</div>}
-                    </div>
-                    <div style={{ fontSize: 9, color: sig.color, fontWeight: 700, background: sig.bg, padding: '3px 8px', borderRadius: 5, border: `1px solid ${sig.color}44` }}>
-                      {item.ai_signal || 'SIN DATOS'}
-                    </div>
-                  </div>
+                    {/* Notas */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
+                      {item.notes
+                        ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
+                            {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
+                          </span>
+                        : <span style={{ color: '#333' }}>—</span>}
+                    </td>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                    <div style={{ background: '#050505', borderRadius: 8, padding: '8px 10px', border: '1px solid #111' }}>
-                      <div style={{ fontSize: 8, color: '#555', marginBottom: 3 }}>PRECIO ACTUAL</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</div>
-                      {item.price_change !== null && (
-                        <div style={{ fontSize: 9, color: item.price_change >= 0 ? '#22c55e' : '#f43f5e' }}>
-                          {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ background: '#050505', borderRadius: 8, padding: '8px 10px', border: '1px solid #111' }}>
-                      <div style={{ fontSize: 8, color: '#555', marginBottom: 3 }}>MI OBJETIVO</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#ffd700' }}>${item.buy_target.toFixed(2)}</div>
-                      {item.current_price && (
-                        <div style={{ fontSize: 9, color: item.inZone ? '#22c55e' : '#888' }}>
-                          {item.inZone ? '✓ En zona' : `${item.distancia.toFixed(1)}% lejos`}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 12 }}>
-                    {[
-                      { label: 'RSI (14)',    value: rsiOk ? rsiValue.toFixed(2) : '—',            color: rsiOk ? rsiColor(rsiValue) : '#555' },
-                      { label: 'EMA (20)',    value: item.ema20 ? `$${item.ema20.toFixed(2)}` : '—', color: item.current_price && item.ema20 ? (item.current_price > item.ema20 ? '#22c55e' : '#f43f5e') : '#888' },
-                      { label: 'Volatilidad', value: item.volatility ? `${item.volatility.toFixed(2)}%` : '—', color: (item.volatility || 0) < 2 ? '#22c55e' : (item.volatility || 0) > 4 ? '#f43f5e' : '#888' },
-                    ].map(row => (
-                      <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #0d0d0d', fontSize: 11 }}>
-                        <span style={{ color: '#666' }}>{row.label}</span>
-                        <span style={{ color: row.color, fontWeight: 700, fontFamily: 'monospace' }}>{row.value}</span>
+                    {/* Reanalizar + Estrella + Eliminar */}
+                    <td style={tdStyle}>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+                        <button
+                          onClick={() => refreshTicker(item.ticker)}
+                          disabled={refreshingThis}
+                          title="Reanalizar este ticker"
+                          style={{ background: 'none', border: 'none', cursor: refreshingThis ? 'default' : 'pointer', padding: 4,
+                            color: refreshingThis ? '#00bfff' : '#333', fontSize: 12, transition: 'color 0.2s' }}
+                          onMouseEnter={e => { if (!refreshingThis) e.currentTarget.style.color = '#00bfff' }}
+                          onMouseLeave={e => { if (!refreshingThis) e.currentTarget.style.color = '#333' }}>
+                          <FaSync style={{ animation: refreshingThis ? 'spin 1s linear infinite' : 'none' }} />
+                        </button>
+                        <button
+                          onClick={() => toggleFavorite(item.id, item.favorite)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                            color: item.favorite ? '#ffd700' : '#333', fontSize: 16, transition: 'color 0.2s' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#ffd700')}
+                          onMouseLeave={e => (e.currentTarget.style.color = item.favorite ? '#ffd700' : '#333')}>
+                          ★
+                        </button>
+                        <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                          <FaTrash style={{ fontSize: 11 }} />
+                        </button>
                       </div>
-                    ))}
-                    {item.notes && (
-                      <div style={{ padding: '6px 0 0', fontSize: 10, color: '#888' }} title={item.notes}>
-                        {item.notes.length > 50 ? item.notes.slice(0, 50) + '…' : item.notes}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 9, color: '#888', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <FaBrain style={{ fontSize: 9, color: '#00bfff' }} /> IA CONFIDENCE
-                      </span>
-                      <span style={{ fontSize: 18, fontWeight: 900, color: sig.color }}>{item.ai_probability?.toFixed(0) || 0}%</span>
-                    </div>
-                    <div style={{ background: '#111', height: 4, borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ width: `${item.ai_probability || 0}%`, background: sig.color, height: '100%', borderRadius: 2, transition: 'width 0.8s ease' }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: '#444' }}>
-                      <span>Score: {item.ai_score || 0} pts</span>
-                      <span>Análisis: {fmtTime(item.last_updated)}</span>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
 
         <div style={{ marginTop: 10, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Paw size={9} color="#333" opacity={0.5} />
-          Análisis IA actualizado por cron en Supabase · botón Actualizar fuerza la ejecución
+          Análisis IA actualizado por cron en Supabase · botón Actualizar o el ícono de reanalizar fuerzan la ejecución
         </div>
 
       </div>

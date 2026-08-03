@@ -207,11 +207,6 @@ const recoveryFactor =
     ? parseFloat((totalPnL / maxDD).toFixed(2))
     : null
 
-const recoveryRate =
-  maxLossStrk > 0 && avgWin > 0 && avgLoss > 0
-    ? Math.ceil((maxLossStrk * avgLoss) / avgWin)
-    : null
-
     const tradesWithPct = sorted.map(t => {
       const invested = calcInvested(t)
       const pnl = Number(t.realized_pnl || 0)
@@ -248,7 +243,7 @@ const recoveryRate =
       bestMonth, worstMonth,
       topWinners: [...sorted].sort((a, b) => Number(b.realized_pnl) - Number(a.realized_pnl)).slice(0, 5),
       topLosers:  [...sorted].sort((a, b) => Number(a.realized_pnl) - Number(b.realized_pnl)).slice(0, 5),
-      recoveryFactor, recoveryRate, avgReturnPct,
+      recoveryFactor, avgReturnPct,
       bestTradePct, worstTradePct,
       winsCount: wins.length, lossesCount: losses.length, breakEvenCount: breakEven.length,
     }
