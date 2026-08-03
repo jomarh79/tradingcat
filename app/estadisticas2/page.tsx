@@ -534,12 +534,29 @@ const recoveryRate =
               <StatCard label="Rendimiento % promedio / trade" value={`${stats.avgReturnPct}%`}
                 desc="Por trade vs capital invertido"
                 color={stats.avgReturnPct >= 0 ? '#22c55e' : '#f43f5e'} pawColor="#a78bfa" />
-              <StatCard label="Calmar ratio" value={stats.recoveryFactor !== null ? String(stats.recoveryFactor) : '—'}
-                desc={stats.recoveryFactor !== null
-                  ? stats.recoveryFactor >= 2 ? 'Excelente gestión de riesgo' : stats.recoveryFactor >= 1 ? 'Buena gestión' : 'Mejorar gestión'
-                  : 'Sin drawdown registrado'}
-                color={stats.recoveryFactor !== null ? (stats.recoveryFactor >= 2 ? '#22c55e' : stats.recoveryFactor >= 1 ? '#eab308' : '#f43f5e') : '#888'}
-                pawColor="#a78bfa" />
+              <StatCard
+                label="Recovery Factor"
+                value={stats.recoveryFactor !== null ? String(stats.recoveryFactor) : '—'}
+                desc={
+                  stats.recoveryFactor !== null
+                    ? stats.recoveryFactor >= 5
+                      ? 'Excelente recuperación'
+                      : stats.recoveryFactor >= 3
+                        ? 'Muy buena recuperación'
+                        : stats.recoveryFactor >= 2
+                          ? 'Buena recuperación'
+                          : stats.recoveryFactor >= 1
+                            ? 'Recuperación aceptable'
+                            : 'Recuperación deficiente'
+                    : 'Sin drawdown registrado'
+                }
+                color={
+                  stats.recoveryFactor !== null
+                    ? (stats.recoveryFactor >= 2 ? '#22c55e' : stats.recoveryFactor >= 1 ? '#eab308' : '#f43f5e')
+                    : '#888'
+                }
+                pawColor="#a78bfa"
+              />
               <StatCard label="Duración promedio" value={`${stats.avgDuration} días`}
                 desc="En cerrar una posición" color="#888" pawColor="#888" />
             </div>
@@ -728,8 +745,69 @@ const recoveryRate =
               ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
             </ChartCard>
 
-            {/* ── F5: Drawdown % + Portafolio vs S&P 500 ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* ── F4: Sector + Día + Win/Loss ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              <ChartCard title="PnL por sector" sub="Suma de PnL realizado" mb={0}>
+                <ResponsiveContainer width="100%" height={190}>
+                  <PieChart>
+                    <Pie data={charts.sectorData.filter(s => s.value !== 0)}
+                      cx="50%" cy="50%" innerRadius={46} outerRadius={72}
+                      paddingAngle={4} dataKey="value">
+                      {charts.sectorData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
+                    </Pie>
+                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px', marginTop: 6 }}>
+                  {charts.sectorData.slice(0, 6).map((s, i) => (
+                    <span key={s.name} style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
+                      {s.name}
+                    </span>
+                  ))}
+                </div>
+              </ChartCard>
+
+              <ChartCard title="Duración de trades" sub="Histograma por rango de días en posición" mb={0}>
+                <ResponsiveContainer width="100%" height={210}>
+                  <BarChart data={charts.durationData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="bucket" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
+                    <Bar dataKey="count" name="Trades" radius={[6,6,0,0]}>
+                      {charts.durationData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Win vs Loss" sub={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos`} mb={0}>
+                <ResponsiveContainer width="100%" height={190}>
+                  <PieChart>
+                    <Pie
+                      data={[{ name: 'Ganados', value: stats.winsCount }, { name: 'Perdidos', value: stats.lossesCount }]}
+                      cx="50%" cy="50%" innerRadius={46} outerRadius={72}
+                      paddingAngle={6} dataKey="value" startAngle={90} endAngle={-270}>
+                      <Cell fill={C.gain} stroke="none" />
+                      <Cell fill={C.loss} stroke="none" />
+                    </Pie>
+                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: C.gain, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Paw size={10} color={C.gain} opacity={0.7} /> {stats.winsCount} ganados
+                  </span>
+                  <span style={{ fontSize: 11, color: C.loss, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Paw size={10} color={C.loss} opacity={0.7} /> {stats.lossesCount} perdidos
+                  </span>
+                </div>
+              </ChartCard>
+            </div>
+
+            {/* ── F4: Drawdown % + Portafolio vs S&P 500 ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
               <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
                 <ResponsiveContainer width="100%" height={210}>
                   <AreaChart data={drawdownFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
@@ -762,12 +840,7 @@ const recoveryRate =
                   </LineChart>
                 </ResponsiveContainer>
               </ChartCard>
-            </div>
 
-
-
-            {/* ── F7: Rendimiento por período + Razones de cierre ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
@@ -806,6 +879,14 @@ const recoveryRate =
                   </tbody>
                 </table>
               </ChartCard>
+
+            </div>
+
+
+
+            {/* ── F7: Rendimiento por período + Razones de cierre ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              
 
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
                 <ResponsiveContainer width="100%" height={200}>
@@ -893,19 +974,7 @@ const recoveryRate =
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Duración de trades" sub="Histograma por rango de días en posición" mb={0}>
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={charts.durationData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="bucket" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
-                    <Bar dataKey="count" name="Trades" radius={[6,6,0,0]}>
-                      {charts.durationData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
+
             </div>
 
             {/* ── F10: Acumulado mensual de PnL ── */}
@@ -926,67 +995,7 @@ const recoveryRate =
               </ResponsiveContainer>
             </ChartCard>
 
-            {/* ── F11: Sector + Día + Win/Loss ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-              <ChartCard title="PnL por sector" sub="Suma de PnL realizado" mb={0}>
-                <ResponsiveContainer width="100%" height={190}>
-                  <PieChart>
-                    <Pie data={charts.sectorData.filter(s => s.value !== 0)}
-                      cx="50%" cy="50%" innerRadius={46} outerRadius={72}
-                      paddingAngle={4} dataKey="value">
-                      {charts.sectorData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                    </Pie>
-                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px', marginTop: 6 }}>
-                  {charts.sectorData.slice(0, 6).map((s, i) => (
-                    <span key={s.name} style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
-                      {s.name}
-                    </span>
-                  ))}
-                </div>
-              </ChartCard>
 
-              <ChartCard title="Rendimiento por día" sub="PnL total por día de cierre" mb={0}>
-                <ResponsiveContainer width="100%" height={190}>
-                  <BarChart data={charts.weekdayData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="day" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                    <ReferenceLine y={0} stroke="#333" />
-                    <Bar dataKey="pnl" name="PnL" radius={[4,4,0,0]}>
-                      {charts.weekdayData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
-
-              <ChartCard title="Win vs Loss" sub={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos`} mb={0}>
-                <ResponsiveContainer width="100%" height={190}>
-                  <PieChart>
-                    <Pie
-                      data={[{ name: 'Ganados', value: stats.winsCount }, { name: 'Perdidos', value: stats.lossesCount }]}
-                      cx="50%" cy="50%" innerRadius={46} outerRadius={72}
-                      paddingAngle={6} dataKey="value" startAngle={90} endAngle={-270}>
-                      <Cell fill={C.gain} stroke="none" />
-                      <Cell fill={C.loss} stroke="none" />
-                    </Pie>
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 6 }}>
-                  <span style={{ fontSize: 11, color: C.gain, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Paw size={10} color={C.gain} opacity={0.7} /> {stats.winsCount} ganados
-                  </span>
-                  <span style={{ fontSize: 11, color: C.loss, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Paw size={10} color={C.loss} opacity={0.7} /> {stats.lossesCount} perdidos
-                  </span>
-                </div>
-              </ChartCard>
-            </div>
 
           </div>
         )}
