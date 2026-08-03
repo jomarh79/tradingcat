@@ -12,6 +12,17 @@ import { AlertTriangle } from 'lucide-react'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
+// ── Protección de cuota de la API externa (ajusta estos números cuando confirmes tu límite real) ──
+// "Actualizar" dispara la IA para TODOS los tickers de golpe (≈1 llamada externa por ticker).
+const GLOBAL_UPDATE_COOLDOWN_MIN = 15
+// Reanalizar una sola fila — no deja repetir el mismo ticker si se actualizó hace poco.
+const TICKER_REFRESH_COOLDOWN_MIN = 3
+const GLOBAL_COOLDOWN_KEY = 'watchlist_last_global_trigger'
+// Separación mínima entre CUALQUIER disparo individual (agregar ticker o reanalizar fila),
+// sin importar si es el mismo ticker u otro — protege el límite de 8 llamadas/minuto de TwelveData,
+// ya que cada ticker individual no tiene throttling del lado del servidor.
+const SINGLE_TRIGGER_MIN_GAP_SEC = 10
+
 const isStale = (lastUpdated: string | null, minutes = 15) => {
   if (!lastUpdated) return true
   return (Date.now() - new Date(lastUpdated).getTime()) / 60000 > minutes
@@ -125,6 +136,41 @@ export default function WatchlistIAPage() {
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
 
+  // ── Cooldown del botón "Actualizar" (todos los tickers) ──
+  const [lastGlobalTrigger, setLastGlobalTrigger] = useState<number | null>(null)
+  const [nowTick, setNowTick] = useState(Date.now())
+
+  useEffect(() => {
+    const stored = localStorage.getItem(GLOBAL_COOLDOWN_KEY)
+    if (stored) setLastGlobalTrigger(Number(stored))
+  }, [])
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 3000)
+    return () => clearInterval(t)
+  }, [])
+
+  const globalCooldownRemaining = useCallback(() => {
+    if (!lastGlobalTrigger) return 0
+    const elapsedMin = (nowTick - lastGlobalTrigger) / 60000
+    return Math.max(0, GLOBAL_UPDATE_COOLDOWN_MIN - elapsedMin)
+  }, [lastGlobalTrigger, nowTick])
+
+  const tickerCooldownRemaining = useCallback((lastUpdated: string | null) => {
+    if (!lastUpdated) return 0
+    const elapsedMin = (nowTick - new Date(lastUpdated).getTime()) / 60000
+    return Math.max(0, TICKER_REFRESH_COOLDOWN_MIN - elapsedMin)
+  }, [nowTick])
+
+  // ── Separación mínima entre disparos individuales (agregar / reanalizar fila) ──
+  const [lastSingleTrigger, setLastSingleTrigger] = useState<number | null>(null)
+
+  const singleTriggerGapRemaining = useCallback(() => {
+    if (!lastSingleTrigger) return 0
+    const elapsedSec = (nowTick - lastSingleTrigger) / 1000
+    return Math.max(0, SINGLE_TRIGGER_MIN_GAP_SEC - elapsedSec)
+  }, [lastSingleTrigger, nowTick])
+
   const fetchList = useCallback(async (): Promise<WatchItem[]> => {
     const { data, error } = await supabase
       .from('watchlist')
@@ -172,7 +218,11 @@ export default function WatchlistIAPage() {
 
   // ── Botón Actualizar (todos) — dispara IA y sondea varias veces en vez de esperar a ciegas ──
   const handleUpdate = async () => {
+    if (globalCooldownRemaining() > 0) return
     setLoading(true)
+    const triggeredAt = Date.now()
+    setLastGlobalTrigger(triggeredAt)
+    localStorage.setItem(GLOBAL_COOLDOWN_KEY, String(triggeredAt))
     await triggerIA()
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 3000))
@@ -184,7 +234,10 @@ export default function WatchlistIAPage() {
   }
 
   // ── Reanalizar un solo ticker desde la fila ──
-  const refreshTicker = async (ticker: string) => {
+  const refreshTicker = async (ticker: string, lastUpdated: string | null) => {
+    if (tickerCooldownRemaining(lastUpdated) > 0) return
+    if (singleTriggerGapRemaining() > 0) return
+    setLastSingleTrigger(Date.now())
     setRefreshingTickers(prev => new Set(prev).add(ticker))
     await triggerIA(ticker)
     pollTicker(ticker, () => {
@@ -200,6 +253,7 @@ export default function WatchlistIAPage() {
   const agregarEmpresa = async () => {
     const ticker = newTicker.trim().toUpperCase()
     if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
+    if (singleTriggerGapRemaining() > 0) return alert(`Espera ${Math.ceil(singleTriggerGapRemaining())}s antes de otro análisis individual`)
 
     const { error } = await supabase.from('watchlist').insert({
       ticker,
@@ -218,6 +272,7 @@ export default function WatchlistIAPage() {
     }
 
     setAddingNew(true)
+    setLastSingleTrigger(Date.now())
     triggerIA(ticker)
       .then(() => pollTicker(ticker, () => setAddingNew(false)))
       .catch((err) => {
@@ -358,9 +413,13 @@ export default function WatchlistIAPage() {
               </span>
             )}
 
-            <button onClick={handleUpdate} disabled={loading} style={btnStyle}>
+            <button
+              onClick={handleUpdate}
+              disabled={loading || globalCooldownRemaining() > 0}
+              title={globalCooldownRemaining() > 0 ? `Protección de cuota: espera ${Math.ceil(globalCooldownRemaining())} min` : 'Reanalizar todos los tickers'}
+              style={{ ...btnStyle, opacity: globalCooldownRemaining() > 0 ? 0.5 : 1, cursor: globalCooldownRemaining() > 0 ? 'default' : 'pointer' }}>
               <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Actualizar
+              {globalCooldownRemaining() > 0 ? `Espera ${Math.ceil(globalCooldownRemaining())} min` : 'Actualizar'}
             </button>
           </div>
         </div>
@@ -498,6 +557,9 @@ export default function WatchlistIAPage() {
                 const rsiValue = Number(item.rsi)
                 const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
                 const refreshingThis = refreshingTickers.has(item.ticker)
+                const cooldownLeft   = tickerCooldownRemaining(item.last_updated)
+                const sharedGapLeft  = singleTriggerGapRemaining()
+                const canRefresh     = !refreshingThis && cooldownLeft <= 0 && sharedGapLeft <= 0
 
                 return (
                   <tr key={item.id} style={{
@@ -630,13 +692,18 @@ export default function WatchlistIAPage() {
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
                         <button
-                          onClick={() => refreshTicker(item.ticker)}
-                          disabled={refreshingThis}
-                          title="Reanalizar este ticker"
-                          style={{ background: 'none', border: 'none', cursor: refreshingThis ? 'default' : 'pointer', padding: 4,
-                            color: refreshingThis ? '#00bfff' : '#333', fontSize: 12, transition: 'color 0.2s' }}
-                          onMouseEnter={e => { if (!refreshingThis) e.currentTarget.style.color = '#00bfff' }}
-                          onMouseLeave={e => { if (!refreshingThis) e.currentTarget.style.color = '#333' }}>
+                          onClick={() => refreshTicker(item.ticker, item.last_updated)}
+                          disabled={!canRefresh}
+                          title={
+                            refreshingThis ? 'Analizando...' :
+                            cooldownLeft > 0 ? `Protección de cuota: espera ${Math.ceil(cooldownLeft)} min` :
+                            sharedGapLeft > 0 ? `Espera ${Math.ceil(sharedGapLeft)}s (límite de ráfaga)` :
+                            'Reanalizar este ticker'
+                          }
+                          style={{ background: 'none', border: 'none', cursor: canRefresh ? 'pointer' : 'default', padding: 4,
+                            color: refreshingThis ? '#00bfff' : canRefresh ? '#333' : '#222', fontSize: 12, transition: 'color 0.2s' }}
+                          onMouseEnter={e => { if (canRefresh) e.currentTarget.style.color = '#00bfff' }}
+                          onMouseLeave={e => { if (canRefresh) e.currentTarget.style.color = '#333' }}>
                           <FaSync style={{ animation: refreshingThis ? 'spin 1s linear infinite' : 'none' }} />
                         </button>
                         <button
