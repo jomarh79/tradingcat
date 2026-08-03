@@ -957,21 +957,7 @@ const recoveryRate =
             </div>
 
             {/* ── F7: Distribución PnL % + Duración ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <ChartCard title="Distribución de PnL % por trade" sub="Verde = ganado · rojo = perdido" mb={0}>
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={charts.pnlDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 30 }}>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="ticker" tick={{ fill: '#aaa', fontSize: 8 }} axisLine={false} tickLine={false} angle={-45} textAnchor="end" height={40} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v}%`} />} />
-                    <ReferenceLine y={0} stroke="#333" />
-                    <Bar dataKey="pnlPct" name="PnL %" radius={[3,3,0,0]}>
-                      {charts.pnlDistribution.map((e, i) => <Cell key={i} fill={e.color} fillOpacity={0.85} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr ', gap: 14 }}>
 
               <ChartCard title="Acumulado mensual de PnL" sub="Construcción progresiva del PnL — verde sube, rojo baja" mb={0}>
                 <ResponsiveContainer width="100%" height={220}>
