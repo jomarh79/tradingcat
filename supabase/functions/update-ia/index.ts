@@ -6,6 +6,10 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+// Separación mínima entre dos análisis del MISMO ticker individual (agregar / reanalizar fila).
+// Esto vive del lado del servidor — protege la cuota sin importar de dónde venga la llamada.
+const SINGLE_TICKER_MIN_MINUTES = 1;
+
 serve(async (req) => {
   // ── CORS preflight ────────────────────────────────────────────────────────
   if (req.method === "OPTIONS") {
@@ -94,6 +98,22 @@ if (!isMarketOpen && !singleTicker) {
 
     if (!Array.isArray(list) || list.length === 0) {
       return new Response(singleTicker ? `Ticker ${singleTicker} no encontrado` : "Watchlist vacía", { headers: CORS });
+    }
+
+    // ── Protección de frecuencia para ticker individual ────────────────────
+    // Esta es la única protección real contra spam: no depende del navegador,
+    // así que aplica sin importar de dónde venga la llamada (botón, otra pestaña, curl, etc.)
+    if (singleTicker) {
+      const item = list[0];
+      if (item.last_updated) {
+        const minutesSince = (Date.now() - new Date(item.last_updated).getTime()) / 60000;
+        if (minutesSince < SINGLE_TICKER_MIN_MINUTES) {
+          return new Response(
+            `⏭️ ${item.ticker} ya se actualizó hace ${minutesSince.toFixed(1)} min — espera al menos ${SINGLE_TICKER_MIN_MINUTES} min entre análisis`,
+            { headers: CORS }
+          );
+        }
+      }
     }
 
     let processed = 0;
