@@ -176,23 +176,41 @@ export default function EstadisticasCerradosPage() {
       }, 0) / totalTrades
     ).toFixed(1))
 
-    // Streaks, drawdown, equity
-    let equity = 0, peak = 0, maxDD = 0
-    let winStrk = 0, maxWinStrk = 0, lossStrk = 0, maxLossStrk = 0
-    sorted.forEach(t => {
-      const pnl = Number(t.realized_pnl || 0)
-      equity += pnl
-      if (equity > peak) peak = equity
-      const dd = peak - equity
-      if (dd > maxDD) maxDD = dd
-      if (pnl > 0) { winStrk++; lossStrk = 0; if (winStrk > maxWinStrk) maxWinStrk = winStrk }
-      else          { lossStrk++; winStrk = 0; if (lossStrk > maxLossStrk) maxLossStrk = lossStrk }
-    })
+  // Streaks, drawdown, equity
+let equity = 0, peak = 0, maxDD = 0
+let winStrk = 0, maxWinStrk = 0, lossStrk = 0, maxLossStrk = 0
 
-    const calmarRatio = maxDD > 0 ? parseFloat((totalPnL / maxDD).toFixed(2)) : null
-    const recoveryRate = maxLossStrk > 0 && avgWin > 0 && avgLoss > 0
-      ? Math.ceil((maxLossStrk * avgLoss) / avgWin)
-      : null
+sorted.forEach(t => {
+  const pnl = Number(t.realized_pnl || 0)
+
+  equity += pnl
+
+  if (equity > peak) peak = equity
+
+  const dd = peak - equity
+
+  if (dd > maxDD) maxDD = dd
+
+  if (pnl > 0) {
+    winStrk++
+    lossStrk = 0
+    if (winStrk > maxWinStrk) maxWinStrk = winStrk
+  } else {
+    lossStrk++
+    winStrk = 0
+    if (lossStrk > maxLossStrk) maxLossStrk = lossStrk
+  }
+})
+
+const recoveryFactor =
+  maxDD > 0
+    ? parseFloat((totalPnL / maxDD).toFixed(2))
+    : null
+
+const recoveryRate =
+  maxLossStrk > 0 && avgWin > 0 && avgLoss > 0
+    ? Math.ceil((maxLossStrk * avgLoss) / avgWin)
+    : null
 
     const tradesWithPct = sorted.map(t => {
       const invested = calcInvested(t)
@@ -230,7 +248,7 @@ export default function EstadisticasCerradosPage() {
       bestMonth, worstMonth,
       topWinners: [...sorted].sort((a, b) => Number(b.realized_pnl) - Number(a.realized_pnl)).slice(0, 5),
       topLosers:  [...sorted].sort((a, b) => Number(a.realized_pnl) - Number(b.realized_pnl)).slice(0, 5),
-      calmarRatio, recoveryRate, avgReturnPct,
+      recoveryFactor, recoveryRate, avgReturnPct,
       bestTradePct, worstTradePct,
       winsCount: wins.length, lossesCount: losses.length, breakEvenCount: breakEven.length,
     }
@@ -496,7 +514,7 @@ export default function EstadisticasCerradosPage() {
           <div style={{ display: 'grid', gap: 14 }}>
 
             {/* ── F1: KPIs principales ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12 }}>
               <StatCard
                 label="PnL total acumulado / %"
                 value={`${money(stats.totalPnL)} / ${stats.totalPnLPct.toFixed(1)}%`}
@@ -513,25 +531,15 @@ export default function EstadisticasCerradosPage() {
               <StatCard label="Expectativa por trade" value={money(stats.expectancy)}
                 desc={`Ganas en promedio ${money(Math.abs(stats.expectancy))} por operación`}
                 color="#00bfff" pawColor="#00bfff" />
-            </div>
-
-            {/* ── F2: Métricas avanzadas ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <StatCard label="Rendimiento % promedio / trade" value={`${stats.avgReturnPct}%`}
                 desc="Por trade vs capital invertido"
                 color={stats.avgReturnPct >= 0 ? '#22c55e' : '#f43f5e'} pawColor="#a78bfa" />
-              <StatCard label="Calmar ratio" value={stats.calmarRatio !== null ? String(stats.calmarRatio) : '—'}
-                desc={stats.calmarRatio !== null
-                  ? stats.calmarRatio >= 2 ? 'Excelente gestión de riesgo' : stats.calmarRatio >= 1 ? 'Buena gestión' : 'Mejorar gestión'
+              <StatCard label="Calmar ratio" value={stats.recoveryFactor !== null ? String(stats.recoveryFactor) : '—'}
+                desc={stats.recoveryFactor !== null
+                  ? stats.recoveryFactor >= 2 ? 'Excelente gestión de riesgo' : stats.recoveryFactor >= 1 ? 'Buena gestión' : 'Mejorar gestión'
                   : 'Sin drawdown registrado'}
-                color={stats.calmarRatio !== null ? (stats.calmarRatio >= 2 ? '#22c55e' : stats.calmarRatio >= 1 ? '#eab308' : '#f43f5e') : '#888'}
+                color={stats.recoveryFactor !== null ? (stats.recoveryFactor >= 2 ? '#22c55e' : stats.recoveryFactor >= 1 ? '#eab308' : '#f43f5e') : '#888'}
                 pawColor="#a78bfa" />
-              <StatCard label="Trades para cubrir racha perdedora"
-                value={stats.recoveryRate !== null ? `${stats.recoveryRate} trades` : '—'}
-                desc={stats.recoveryRate !== null
-                  ? `Necesitas ganar ${stats.recoveryRate} trades seguidos para cubrir tu peor racha de ${stats.maxLossStrk} pérdidas consecutivas`
-                  : 'Sin rachas perdedoras'}
-                color="#eab308" pawColor="#eab308" />
               <StatCard label="Duración promedio" value={`${stats.avgDuration} días`}
                 desc="En cerrar una posición" color="#888" pawColor="#888" />
             </div>
