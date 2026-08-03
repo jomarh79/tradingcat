@@ -806,7 +806,7 @@ const recoveryRate =
               </ChartCard>
             </div>
 
-            {/* ── F4: Drawdown % + Portafolio vs S&P 500 ── */}
+            {/* ── F5: Drawdown % + Portafolio vs S&P 500 ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
               <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
                 <ResponsiveContainer width="100%" height={210}>
@@ -884,10 +884,9 @@ const recoveryRate =
 
 
 
-            {/* ── F7: Rendimiento por período + Razones de cierre ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* ── F6: Rendimiento por período + Razones de cierre ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr', gap: 14 }}>
               
-
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={charts.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 60, bottom: 4 }}>
@@ -901,64 +900,64 @@ const recoveryRate =
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
+
+              <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={0}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>MEJORES MESES</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: '#050505' }}>
+                          {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
+                            <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {charts.monthlyTable.filter(m => m.pnl >= 0).slice(0, 6).map(m => (
+                          <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                            <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PEORES MESES</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: '#050505' }}>
+                          {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
+                            <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {charts.monthlyTable.filter(m => m.pnl < 0).slice(-6).reverse().map(m => (
+                          <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                            <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </ChartCard>
+
             </div>
 
-            {/* ── F8: Resumen por mes ── */}
-            <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={0}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>MEJORES MESES</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead>
-                      <tr style={{ background: '#050505' }}>
-                        {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
-                          <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {charts.monthlyTable.filter(m => m.pnl >= 0).slice(0, 6).map(m => (
-                        <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                          <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PEORES MESES</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead>
-                      <tr style={{ background: '#050505' }}>
-                        {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
-                          <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {charts.monthlyTable.filter(m => m.pnl < 0).slice(-6).reverse().map(m => (
-                        <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                          <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </ChartCard>
-
-            {/* ── F9: Distribución PnL % + Duración ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 14 }}>
+            {/* ── F7: Distribución PnL % + Duración ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <ChartCard title="Distribución de PnL % por trade" sub="Verde = ganado · rojo = perdido" mb={0}>
                 <ResponsiveContainer width="100%" height={210}>
                   <BarChart data={charts.pnlDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 30 }}>
@@ -974,29 +973,24 @@ const recoveryRate =
                 </ResponsiveContainer>
               </ChartCard>
 
+              <ChartCard title="Acumulado mensual de PnL" sub="Construcción progresiva del PnL — verde sube, rojo baja" mb={0}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={charts.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
+                    <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
+                    <Bar dataKey="base" stackId="a" fill="transparent" stroke="none" />
+                    <Bar dataKey="value" stackId="a" name="PnL mes" radius={[3,3,0,0]}>
+                      {charts.monthlyWaterfall.map((e, i) => <Cell key={i} fill={e.fill} fillOpacity={0.85} />)}
+                    </Bar>
+                    <Line type="monotone" dataKey="cumPnl" name="Acumulado" stroke={C.accent} strokeWidth={2} dot={{ fill: C.accent, r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </ChartCard>
 
             </div>
-
-            {/* ── F10: Acumulado mensual de PnL ── */}
-            <ChartCard title="Acumulado mensual de PnL" sub="Construcción progresiva del PnL — verde sube, rojo baja" mb={0}>
-              <ResponsiveContainer width="100%" height={220}>
-                <ComposedChart data={charts.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                  <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
-                  <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                  <Bar dataKey="base" stackId="a" fill="transparent" stroke="none" />
-                  <Bar dataKey="value" stackId="a" name="PnL mes" radius={[3,3,0,0]}>
-                    {charts.monthlyWaterfall.map((e, i) => <Cell key={i} fill={e.fill} fillOpacity={0.85} />)}
-                  </Bar>
-                  <Line type="monotone" dataKey="cumPnl" name="Acumulado" stroke={C.accent} strokeWidth={2} dot={{ fill: C.accent, r: 3 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-
-
           </div>
         )}
       </div>
