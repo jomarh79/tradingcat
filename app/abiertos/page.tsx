@@ -512,6 +512,7 @@ if (tickerSearch.trim() !== "") {
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                           <Settings size={14} />
                         </button>
+                        <a
                         href={`/chart?ticker=${trade.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
