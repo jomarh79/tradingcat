@@ -50,9 +50,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: `Intervalo inválido: ${interval}` }, { status: 400 })
   }
 
-  const apiKey = process.env.TWELVEDATA_API_KEY
+  const apiKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY
   if (!apiKey) {
-    return NextResponse.json({ error: 'Falta la variable de entorno TWELVEDATA_API_KEY en este proyecto' }, { status: 500 })
+    return NextResponse.json({ error: 'Falta la variable de entorno NEXT_PUBLIC_TWELVEDATA_API_KEY en este proyecto' }, { status: 500 })
   }
 
   // Tamaño de la ventana: suficiente para que las medias de 200 periodos tengan sentido
