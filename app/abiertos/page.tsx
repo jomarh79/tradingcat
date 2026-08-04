@@ -7,7 +7,7 @@ import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import AiInsightPanel from "../components/AiInsightPanel"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
-import { TrendingUp, Settings, Trash2, Star } from 'lucide-react'
+import { TrendingUp, Settings, Trash2, Star, BarChart2 } from 'lucide-react'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
@@ -350,7 +350,7 @@ if (tickerSearch.trim() !== "") {
                   { key: 'take_profit_1',   label: 'TP 1' },
                   { key: 'take_profit_2',   label: 'TP 2' },
                   { key: 'take_profit_3',   label: 'TP 3' },
-                  { key: null,              label: 'Acc.' },
+                  { key: null,              label: 'Acciones' },
                 ].map(({ key, label }) => (
                   <th key={label} style={{ ...tableTh, cursor: key ? 'pointer' : 'default' }}
                     onClick={key ? () => requestSort(key) : undefined}>
@@ -512,6 +512,14 @@ if (tickerSearch.trim() !== "") {
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                           <Settings size={14} />
                         </button>
+                        href={`/chart?ticker=${trade.ticker}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#555', padding: 4, display: 'flex', transition: 'color 0.2s' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                        <BarChart2 size={14} />
+                      </a>
                         <button onClick={() => handleDelete(trade)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2a2a2a', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}

@@ -1,0 +1,325 @@
+'use client'
+
+import { useEffect, useRef, useState, Suspense, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
+import {
+  createChart, CandlestickSeries, HistogramSeries, LineSeries,
+  createSeriesMarkers, ColorType, IChartApi,
+} from 'lightweight-charts'
+import { supabase } from '@/lib/supabase'
+import AppShell from '../AppShell'
+import { BarChart2 } from 'lucide-react'
+
+type Interval = '45min' | '1day' | '1week' | '1month'
+
+const C = {
+  accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
+  card: '#080808', border: '#1a1a1a',
+}
+
+const MA_COLORS: Record<string, string> = {
+  ema8: '#eab308', ema21: '#e5e5e5', ema50: '#3b82f6', ema100: '#f97316', ema200: '#f43f5e',
+  sma10: '#eab308', sma20: '#e5e5e5', sma50: '#3b82f6', sma100: '#f97316', sma200: '#f43f5e',
+}
+const MA_LABELS: Record<string, string> = {
+  ema8: 'EMA 8', ema21: 'EMA 21', ema50: 'EMA 50', ema100: 'EMA 100', ema200: 'EMA 200',
+  sma10: 'SMA 10', sma20: 'SMA 20', sma50: 'SMA 50', sma100: 'SMA 100', sma200: 'SMA 200',
+}
+
+// Figura por grupo de portafolio — "EFT" es excepción por nombre, no por grupo
+function getPortfolioBadge(name: string | undefined, grupo: string | undefined) {
+  if ((name || '').toUpperCase() === 'EFT') return { symbol: '◆', label: 'ETF' }
+  if (grupo === 'corto')   return { symbol: '●', label: 'PCP · Corto plazo' }
+  if (grupo === 'mediano') return { symbol: '▲', label: 'PMP · Mediano plazo' }
+  return { symbol: '■', label: 'PLP · Largo plazo' }
+}
+
+function ChartPageInner() {
+  const searchParams = useSearchParams()
+  const ticker = (searchParams.get('ticker') || '').toUpperCase()
+
+  const [interval, setIntervalSel] = useState<Interval>('1day')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [openTrades, setOpenTrades] = useState<any[]>([])
+  const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
+  const [executions, setExecutions] = useState<any[]>([])
+  const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const cacheRef = useRef<Record<string, any>>({})
+
+  // ── Trades abiertos para este ticker ──
+  useEffect(() => {
+    if (!ticker) return
+    supabase
+      .from('trades')
+      .select('*, portfolios(name, grupo)')
+      .eq('ticker', ticker)
+      .eq('status', 'open')
+      .then(({ data }) => {
+        setOpenTrades(data || [])
+        setSelectedTradeId(data && data.length > 0 ? data[0].id : null)
+      })
+  }, [ticker])
+
+  const selectedTrade = openTrades.find(t => t.id === selectedTradeId) || null
+
+  // ── Ejecuciones (compras/ventas) del trade seleccionado ──
+  useEffect(() => {
+    if (!selectedTradeId) { setExecutions([]); return }
+    supabase
+      .from('trade_executions')
+      .select('*')
+      .eq('trade_id', selectedTradeId)
+      .order('executed_at', { ascending: true })
+      .then(({ data }) => setExecutions(data || []))
+  }, [selectedTradeId])
+
+  // ── Velas + medias móviles (con caché por sesión, ticker+intervalo) ──
+  const fetchChartData = useCallback(async (sym: string, iv: Interval) => {
+    const cacheKey = `${sym}-${iv}`
+    if (cacheRef.current[cacheKey]) {
+      setChartData(cacheRef.current[cacheKey])
+      setError(null)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(sym)}&interval=${iv}`)
+      const data = await res.json()
+      if (data.error) { setError(data.error); setChartData(null); return }
+      cacheRef.current[cacheKey] = data
+      setChartData(data)
+    } catch (e: any) {
+      setError(String(e?.message ?? e))
+      setChartData(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (ticker) fetchChartData(ticker, interval)
+  }, [ticker, interval, fetchChartData])
+
+  // ── Render del gráfico ──
+  useEffect(() => {
+    if (!containerRef.current || !chartData || chartData.candles.length === 0) return
+
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: '#080808' }, textColor: '#999' },
+      grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
+      width: containerRef.current.clientWidth,
+      height: 540,
+      rightPriceScale: { borderColor: '#222' },
+      timeScale: { borderColor: '#222', timeVisible: interval === '45min' },
+    })
+    chartRef.current = chart
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: C.success, downColor: C.danger, borderVisible: false,
+      wickUpColor: C.success, wickDownColor: C.danger,
+    })
+    candleSeries.setData(chartData.candles as any)
+
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+    })
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    volumeSeries.setData(
+      chartData.candles.map((c: any) => ({
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open ? 'rgba(34,197,94,0.5)' : 'rgba(244,63,94,0.5)',
+      })) as any
+    )
+
+    // Medias móviles — EMA 8/21/50/100/200 (45min y diario) o SMA 10/20/50/100/200 (semanal y mensual)
+    Object.entries(chartData.mas).forEach(([key, points]) => {
+      const clean = (points as any[]).filter(p => p.value !== null)
+      if (!clean.length) return
+      const line = chart.addSeries(LineSeries, {
+        color: MA_COLORS[key] || '#888',
+        lineWidth: 1,
+        title: MA_LABELS[key] || key,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      })
+      line.setData(clean as any)
+    })
+
+    // Costo promedio (amarillo) / TP1-3 (naranja) / Stop loss (rojo) — punteadas
+    if (selectedTrade) {
+      const qty = Number(selectedTrade.quantity || 0)
+      const invested = Number(selectedTrade.total_invested || 0)
+      const avgCost = qty > 0 ? invested / qty : Number(selectedTrade.entry_price || 0)
+
+      if (avgCost > 0) {
+        candleSeries.createPriceLine({
+          price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'Costo prom.',
+        })
+      }
+      if (selectedTrade.stop_loss) {
+        candleSeries.createPriceLine({
+          price: Number(selectedTrade.stop_loss), color: C.danger, lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'Stop loss',
+        })
+      }
+      ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach((tp, i) => {
+        if (tp) {
+          candleSeries.createPriceLine({
+            price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
+            axisLabelVisible: true, title: `TP${i + 1}`,
+          })
+        }
+      })
+    }
+
+    // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
+    if (executions.length > 0) {
+      const sorted = [...executions].sort(
+        (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
+      )
+      let runningQty = 0
+      const markers = sorted.map(e => {
+        const isBuy = e.execution_type === 'buy'
+        let color = '#888'
+        let label = ''
+        if (isBuy) {
+          const isOpening = runningQty <= 0.0001
+          runningQty += Number(e.quantity)
+          color = isOpening ? C.success : C.accent
+          label = isOpening ? 'Apertura' : 'Recompra'
+        } else {
+          runningQty -= Number(e.quantity)
+          const isFullClose = runningQty <= 0.0001
+          color = isFullClose ? '#e5e5e5' : C.danger
+          label = isFullClose ? 'Cierre total' : 'Venta parcial'
+        }
+        return {
+          time: Math.floor(new Date(e.executed_at).getTime() / 1000),
+          position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
+          color,
+          shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
+          text: `${label} ${Number(e.quantity)}@${Number(e.price).toFixed(2)}`,
+        }
+      })
+      createSeriesMarkers(candleSeries, markers as any)
+    }
+
+    chart.timeScale().fitContent()
+
+    const handleResize = () => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
+    }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.remove()
+      chartRef.current = null
+    }
+  }, [chartData, selectedTrade, executions, interval])
+
+  const badge = selectedTrade
+    ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
+    : null
+
+  return (
+    <AppShell>
+      <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+          <BarChart2 size={20} color={C.accent} />
+          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>
+            {ticker || 'Selecciona un ticker'}
+          </h1>
+          {badge && (
+            <span style={{ fontSize: 11, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 13 }}>{badge.symbol}</span> {badge.label}
+            </span>
+          )}
+          {openTrades.length > 1 && (
+            <select value={selectedTradeId || ''} onChange={e => setSelectedTradeId(e.target.value)} style={selectStyle}>
+              {openTrades.map(t => (
+                <option key={t.id} value={t.id}>{t.portfolios?.name || 'Portafolio'}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
+            <button key={iv} onClick={() => setIntervalSel(iv)} disabled={loading} style={filterBtn(interval === iv)}>
+              {iv === '45min' ? '45 min' : iv === '1day' ? '1 día' : iv === '1week' ? '1 semana' : '1 mes'}
+            </button>
+          ))}
+        </div>
+
+        {!ticker && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#666' }}>
+            Abre este gráfico desde un ticker de tu watchlist o de tus trades — falta <code>?ticker=</code> en la URL.
+          </div>
+        )}
+
+        {ticker && error && (
+          <div style={{ padding: 40, textAlign: 'center', color: C.danger, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {ticker && loading && !chartData && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#666' }}>Cargando gráfico...</div>
+        )}
+
+        {ticker && !error && (
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, position: 'relative' }}>
+            {loading && chartData && (
+              <div style={{ position: 'absolute', top: 10, right: 16, fontSize: 10, color: C.accent, zIndex: 1 }}>
+                Actualizando...
+              </div>
+            )}
+            <div ref={containerRef} style={{ width: '100%', height: 540 }} />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 10, color: '#888', flexWrap: 'wrap' }}>
+          <span><span style={{ color: C.success }}>▲</span> Apertura</span>
+          <span><span style={{ color: C.accent }}>▲</span> Recompra</span>
+          <span><span style={{ color: C.danger }}>▼</span> Venta parcial</span>
+          <span><span style={{ color: '#e5e5e5' }}>▼</span> Cierre total</span>
+          <span style={{ color: '#444' }}>|</span>
+          <span><span style={{ color: C.warning }}>┄</span> Costo promedio</span>
+          <span><span style={{ color: '#f97316' }}>┄</span> TP1 / TP2 / TP3</span>
+          <span><span style={{ color: C.danger }}>┄</span> Stop loss</span>
+        </div>
+
+      </div>
+    </AppShell>
+  )
+}
+
+const filterBtn = (active: boolean): React.CSSProperties => ({
+  padding: '6px 14px', borderRadius: 6, border: 'none',
+  background: active ? C.accent : '#111',
+  color: active ? '#000' : '#888',
+  cursor: 'pointer', fontSize: 10, fontWeight: 'bold',
+})
+const selectStyle: React.CSSProperties = {
+  background: '#080808', color: '#ccc', border: '1px solid #222',
+  padding: '6px 10px', borderRadius: 6, fontSize: 11, outline: 'none',
+}
+
+export default function ChartPage() {
+  return (
+    <Suspense fallback={<AppShell><div style={{ padding: 40, color: '#666' }}>Cargando...</div></AppShell>}>
+      <ChartPageInner />
+    </Suspense>
+  )
+}
