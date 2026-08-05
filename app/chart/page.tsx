@@ -412,15 +412,15 @@ volumeMALine.setData(
     : null
 
   // Alturas base
-const PRICE_HEIGHT = 450
+const PRICE_HEIGHT = 400
 const VOLUME_HEIGHT = 80
 
 // Altura de cada indicador
 const INDICATOR_HEIGHT = {
-  RSI: 100,
-  MACD: 100,
-  ADX: 100,
-  KONCORDE: 100,
+  RSI: 150,
+  MACD: 150,
+  ADX: 150,
+  KONCORDE: 150,
 }
 
 // Calculamos la altura total del gráfico
