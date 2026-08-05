@@ -184,18 +184,60 @@ function ChartPageInner() {
     })
     candleSeries.setData(chartData.candles as any)
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume',
-    })
-    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    volumeSeries.setData(
-      chartData.candles.map((c: any) => ({
-        time: c.time,
-        value: c.volume,
-        color: c.close >= c.open ? 'rgba(34,197,94,0.5)' : 'rgba(244,63,94,0.5)',
-      })) as any
-    )
+    // Barras de volumen
+const volumeSeries = chart.addSeries(HistogramSeries, {
+  priceFormat: { type: 'volume' },
+  priceScaleId: 'volume',
+  lastValueVisible: false,       // opcional
+  priceLineVisible: false,       // ya no necesitamos la línea del último volumen
+})
+
+chart.priceScale('volume').applyOptions({
+  scaleMargins: { top: 0.82, bottom: 0 },
+})
+
+volumeSeries.setData(
+  chartData.candles.map((c: any) => ({
+    time: c.time,
+    value: c.volume,
+    color: c.close >= c.open
+      ? 'rgba(34,197,94,0.5)'
+      : 'rgba(244,63,94,0.5)',
+  })) as any
+)
+
+const volumeMALine = chart.addSeries(LineSeries, {
+  priceScaleId: 'volume',
+  color: '#22c55e',
+  lineWidth: 2,
+  lastValueVisible: false,
+  priceLineVisible: false,
+})
+
+const period = 20
+
+const volumeMA = chartData.candles.map((c: any, i: number) => {
+  if (i < period - 1) {
+    return {
+      time: c.time,
+      value: null,
+    }
+  }
+
+  const avg =
+    chartData.candles
+      .slice(i - period + 1, i + 1)
+      .reduce((sum: number, x: any) => sum + x.volume, 0) / period
+
+  return {
+    time: c.time,
+    value: avg,
+  }
+})
+
+volumeMALine.setData(
+  volumeMA.filter(v => v.value !== null) as any
+)
 
     // Medias móviles — EMA 8/21/50/100/200 (45min y diario) o SMA 10/20/50/100/200 (semanal y mensual)
     Object.entries(chartData.mas).forEach(([key, points]) => {
