@@ -179,7 +179,8 @@ function ChartPageInner() {
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: C.success, downColor: C.danger, borderVisible: false,
-      wickUpColor: C.success, wickDownColor: C.danger,
+      wickUpColor: C.success, wickDownColor: C.danger, priceLineVisible: true,
+      priceLineColor: '#ffffff',
     })
     candleSeries.setData(chartData.candles as any)
 
@@ -272,13 +273,13 @@ function ChartPageInner() {
       resistances.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
         })
       })
       supports.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
         })
       })
     }
@@ -286,11 +287,11 @@ function ChartPageInner() {
     // MAX/MIN histórico (10 años) — siempre visible, calculado sobre velas diarias sin importar el intervalo activo
     if (dailyStats) {
       candleSeries.createPriceLine({
-        price: dailyStats.max.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
+        price: dailyStats.max.price, color: '#f700ff', lineWidth: 4, lineStyle: 2,
         axisLabelVisible: true, title: 'Máx',
       })
       candleSeries.createPriceLine({
-        price: dailyStats.min.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
+        price: dailyStats.min.price, color: '#f700ff', lineWidth: 4, lineStyle: 2,
         axisLabelVisible: true, title: 'Mín',
       })
     }
