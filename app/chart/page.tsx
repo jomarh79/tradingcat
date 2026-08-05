@@ -310,16 +310,16 @@ function ChartPageInner() {
     if (showMACD) {
       const paneIdx = nextPane++
       const macdData = macdSeries(chartData.candles)
-      const histSeries = chart.addSeries(HistogramSeries, paneIdx)
+      const histSeries = chart.addSeries(HistogramSeries)
       histSeries.setData(
         macdData.filter(d => d.hist !== null).map(d => ({
           time: d.time, value: d.hist as number,
           color: (d.hist as number) >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(244,63,94,0.7)',
         })) as any
       )
-      const macdLine = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 }, paneIdx)
+      const macdLine = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 })
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
-      const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
+      const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 })
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
       chart.panes()[paneIdx]?.setHeight(150)
     }
@@ -327,11 +327,11 @@ function ChartPageInner() {
     if (showADX) {
       const paneIdx = nextPane++
       const adxData = adxSeries(chartData.candles)
-      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2 }, paneIdx)
+      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2 })
       adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
-      const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 }, paneIdx)
+      const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 })
       plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
-      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
+      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 })
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
       chart.panes()[paneIdx]?.setHeight(150)
