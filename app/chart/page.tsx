@@ -343,7 +343,7 @@ volumeMALine.setData(
 
     if (showRSI) {
       const paneIdx = nextPane++
-      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false }, paneIdx)
+      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false, priceLineVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
@@ -353,14 +353,14 @@ volumeMALine.setData(
     if (showMACD) {
       const paneIdx = nextPane++
       const macdData = macdSeries(chartData.candles)
-      const histSeries = chart.addSeries(HistogramSeries,{}, paneIdx)
+      const histSeries = chart.addSeries(HistogramSeries,{lastValueVisible: false, priceLineVisible: false}, paneIdx)
       histSeries.setData(
         macdData.filter(d => d.hist !== null).map(d => ({
           time: d.time, value: d.hist as number,
           color: (d.hist as number) >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(244,63,94,0.7)',
         })) as any
       )
-      const macdLine = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 }, paneIdx)
+      const macdLine = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
@@ -370,7 +370,7 @@ volumeMALine.setData(
     if (showADX) {
       const paneIdx = nextPane++
       const adxData = adxSeries(chartData.candles)
-      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2 }, paneIdx)
+      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
       const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1 }, paneIdx)
       plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
@@ -383,13 +383,13 @@ volumeMALine.setData(
     if (showKoncorde) {
       const paneIdx = nextPane++
       const konData = koncordeSeries(chartData.candles)
-      const verdeLine = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2 }, paneIdx)
+      const verdeLine = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       verdeLine.setData(konData.map(d => ({ time: d.time, value: d.verde })) as any)
-      const marronLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2 }, paneIdx)
+      const marronLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       marronLine.setData(konData.map(d => ({ time: d.time, value: d.marron })) as any)
-      const azulLine = chart.addSeries(LineSeries, { color: '#00FFFF', lineWidth: 1 }, paneIdx)
+      const azulLine = chart.addSeries(LineSeries, { color: '#00FFFF', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
-      const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1 }, paneIdx)
+      const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
       chart.panes()[paneIdx]?.setHeight(INDICATOR_HEIGHT.KONCORDE)
     }
@@ -418,9 +418,9 @@ const VOLUME_HEIGHT = 80
 
 // Altura de cada indicador
 const INDICATOR_HEIGHT = {
-  RSI: 150,
-  MACD: 170,
-  ADX: 150,
+  RSI: 190,
+  MACD: 190,
+  ADX: 190,
   KONCORDE: 190,
 }
 
