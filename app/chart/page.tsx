@@ -203,7 +203,7 @@ function ChartPageInner() {
       const line = chart.addSeries(LineSeries, {
         color: MA_COLORS[key] || '#888',
         lineWidth: 1,
-        title: MA_LABELS[key] || key,
+        //title: MA_LABELS[key] || key,
         priceLineVisible: false,
         lastValueVisible: false,
       })
