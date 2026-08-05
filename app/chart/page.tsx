@@ -34,6 +34,35 @@ function getPortfolioBadge(name: string | undefined, grupo: string | undefined) 
   return { symbol: '■', label: 'PLP · Largo plazo' }
 }
 
+// Soportes/resistencias por pivotes — solo se usa en vista semanal/mensual, igual que el Pine original
+function computePivots(
+  candles: { high: number; low: number }[],
+  leftBars = 5, rightBars = 5, maxLevels = 5, minDistPercent = 5
+) {
+  const resistances: number[] = []
+  const supports: number[] = []
+  const isFarEnough = (level: number, arr: number[]) =>
+    arr.every(ex => Math.abs(level - ex) / ex * 100 >= minDistPercent)
+
+  for (let i = leftBars; i < candles.length - rightBars; i++) {
+    const windowSlice = candles.slice(i - leftBars, i + rightBars + 1)
+    const h = candles[i].high
+    const l = candles[i].low
+    const isPivotHigh = h === Math.max(...windowSlice.map(c => c.high))
+    const isPivotLow  = l === Math.min(...windowSlice.map(c => c.low))
+
+    if (isPivotHigh && isFarEnough(h, resistances)) {
+      resistances.unshift(h)
+      if (resistances.length > maxLevels) resistances.pop()
+    }
+    if (isPivotLow && isFarEnough(l, supports)) {
+      supports.unshift(l)
+      if (supports.length > maxLevels) supports.pop()
+    }
+  }
+  return { resistances, supports }
+}
+
 function ChartPageInner() {
   const searchParams = useSearchParams()
   const ticker = (searchParams.get('ticker') || '').toUpperCase()
@@ -46,10 +75,12 @@ function ChartPageInner() {
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
   const [executions, setExecutions] = useState<any[]>([])
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
+  const [dailyStats, setDailyStats] = useState<{ max: { price: number; date: string }; min: { price: number; date: string } } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const cacheRef = useRef<Record<string, any>>({})
+  const dailyStatsCacheRef = useRef<Record<string, any>>({})
 
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
@@ -106,6 +137,27 @@ function ChartPageInner() {
     if (ticker) fetchChartData(ticker, interval)
   }, [ticker, interval, fetchChartData])
 
+  // ── MAX/MIN histórico (10 años, siempre diario) — una sola vez por ticker ──
+  useEffect(() => {
+    if (!ticker) { setDailyStats(null); return }
+    if (dailyStatsCacheRef.current[ticker]) {
+      setDailyStats(dailyStatsCacheRef.current[ticker])
+      return
+    }
+    fetch('/api/chart-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: ticker }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) return
+        dailyStatsCacheRef.current[ticker] = data
+        setDailyStats(data)
+      })
+      .catch(() => {})
+  }, [ticker])
+
   // ── Render del gráfico ──
   useEffect(() => {
     if (!containerRef.current || !chartData || chartData.candles.length === 0) return
@@ -148,7 +200,7 @@ function ChartPageInner() {
         lineWidth: 1,
         title: MA_LABELS[key] || key,
         priceLineVisible: false,
-        lastValueVisible: false,
+        lastValueVisible: true,
       })
       line.setData(clean as any)
     })
@@ -209,6 +261,35 @@ function ChartPageInner() {
       createSeriesMarkers(candleSeries, markers as any)
     }
 
+    // Soportes y resistencias — solo en vista semanal/mensual, igual que el Pine original
+    if (interval === '1week' || interval === '1month') {
+      const { resistances, supports } = computePivots(chartData.candles)
+      resistances.forEach(price => {
+        candleSeries.createPriceLine({
+          price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
+          axisLabelVisible: true, title: 'R',
+        })
+      })
+      supports.forEach(price => {
+        candleSeries.createPriceLine({
+          price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
+          axisLabelVisible: true, title: 'S',
+        })
+      })
+    }
+
+    // MAX/MIN histórico (10 años) — siempre visible, calculado sobre velas diarias sin importar el intervalo activo
+    if (dailyStats) {
+      candleSeries.createPriceLine({
+        price: dailyStats.max.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
+        axisLabelVisible: true, title: 'Máx 10a',
+      })
+      candleSeries.createPriceLine({
+        price: dailyStats.min.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
+        axisLabelVisible: true, title: 'Mín 10a',
+      })
+    }
+
     chart.timeScale().fitContent()
 
     const handleResize = () => {
@@ -221,11 +302,15 @@ function ChartPageInner() {
       chart.remove()
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval])
+  }, [chartData, selectedTrade, executions, interval, dailyStats])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
     : null
+
+  const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
+  const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
+  const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
 
   return (
     <AppShell>
@@ -248,12 +333,22 @@ function ChartPageInner() {
               ))}
             </select>
           )}
+          {pctToMax !== null && (
+            <span style={{ fontSize: 10, color: '#f700ff' }}>
+              +{pctToMax.toFixed(1)}% al máx 10a
+            </span>
+          )}
+          {pctToMin !== null && (
+            <span style={{ fontSize: 10, color: '#f700ff' }}>
+              -{pctToMin.toFixed(1)}% al mín 10a
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
             <button key={iv} onClick={() => setIntervalSel(iv)} disabled={loading} style={filterBtn(interval === iv)}>
-              {iv === '45min' ? '45 min' : iv === '1day' ? '1 día' : iv === '1week' ? '1 semana' : '1 mes'}
+              {iv === '45min' ? '45 min' : iv === '1day' ? 'Diario' : iv === '1week' ? 'Semanal' : 'Mensual'}
             </button>
           ))}
         </div>
