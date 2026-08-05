@@ -190,24 +190,20 @@ function ChartPageInner() {
       const markers = sorted.map(e => {
         const isBuy = e.execution_type === 'buy'
         let color = '#888'
-        let label = ''
         if (isBuy) {
           const isOpening = runningQty <= 0.0001
           runningQty += Number(e.quantity)
           color = isOpening ? C.success : C.accent
-          label = isOpening ? 'Apertura' : 'Recompra'
         } else {
           runningQty -= Number(e.quantity)
           const isFullClose = runningQty <= 0.0001
           color = isFullClose ? '#e5e5e5' : C.danger
-          label = isFullClose ? 'Cierre total' : 'Venta parcial'
         }
         return {
           time: Math.floor(new Date(e.executed_at).getTime() / 1000),
           position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
           color,
           shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
-          text: `${label} ${Number(e.quantity)}@${Number(e.price).toFixed(2)}`,
         }
       })
       createSeriesMarkers(candleSeries, markers as any)
