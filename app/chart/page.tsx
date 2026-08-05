@@ -192,7 +192,7 @@ function ChartPageInner() {
       chartData.candles.map((c: any) => ({
         time: c.time,
         value: c.volume,
-        color: c.close >= c.open ? 'rgba(248, 250, 248, 0.5)' : 'rgba(244,63,94,0.5)',
+        color: c.close >= c.open ? 'rgba(34,197,94,0.5)' : 'rgba(244,63,94,0.5)',
       })) as any
     )
 
