@@ -413,14 +413,14 @@ volumeMALine.setData(
     : null
 
   // Alturas base
-const PRICE_HEIGHT = 420
+const PRICE_HEIGHT = 450
 const VOLUME_HEIGHT = 80
 
 // Altura de cada indicador
 const INDICATOR_HEIGHT = {
-  RSI: 130,
+  RSI: 150,
   MACD: 170,
-  ADX: 130,
+  ADX: 150,
   KONCORDE: 190,
 }
 
