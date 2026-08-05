@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   }
 
   // Tamaño de la ventana: suficiente para que las medias de 200 periodos tengan sentido
-  const outputsize = interval === '45min' ? 500 : 500
+  const outputsize = interval === '45min' ? 500 : 2500
 
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`
