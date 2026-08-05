@@ -219,7 +219,7 @@ function ChartPageInner() {
       if (avgCost > 0) {
         candleSeries.createPriceLine({
           price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title: 'Costo prom.',
+          axisLabelVisible: true, title: 'Posicion',
         })
       }
       if (selectedTrade.stop_loss) {
@@ -232,7 +232,7 @@ function ChartPageInner() {
         if (tp) {
           candleSeries.createPriceLine({
             price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: true, title: `TP${i + 1}`,
+            axisLabelVisible: false, title: `TP${i + 1}`,
           })
         }
       })
@@ -272,13 +272,13 @@ function ChartPageInner() {
       resistances.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: true, title: 'R',
+          axisLabelVisible: false, title: 'R',
         })
       })
       supports.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: true, title: 'S',
+          axisLabelVisible: false, title: 'S',
         })
       })
     }
@@ -287,11 +287,11 @@ function ChartPageInner() {
     if (dailyStats) {
       candleSeries.createPriceLine({
         price: dailyStats.max.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: 'Máx 10a',
+        axisLabelVisible: true, title: 'Máx',
       })
       candleSeries.createPriceLine({
         price: dailyStats.min.price, color: '#f700ff', lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: 'Mín 10a',
+        axisLabelVisible: true, title: 'Mín',
       })
     }
 
@@ -302,8 +302,8 @@ function ChartPageInner() {
       const paneIdx = nextPane++
       const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
-      rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '70' })
-      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '30' })
+      rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
+      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '30' })
       chart.panes()[paneIdx]?.setHeight(150)
     }
 
@@ -333,7 +333,7 @@ function ChartPageInner() {
       plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, title: '-DI' }, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
-      adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '25' })
+      adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
       chart.panes()[paneIdx]?.setHeight(150)
     }
 
