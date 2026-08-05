@@ -192,7 +192,7 @@ function ChartPageInner() {
       chartData.candles.map((c: any) => ({
         time: c.time,
         value: c.volume,
-        color: c.close >= c.open ? 'rgb(250, 250, 250)' : 'rgb(250, 250, 250)',
+        color: c.close >= c.open ? 'rgba(248, 250, 248, 0.5)' : 'rgba(244,63,94,0.5)',
       })) as any
     )
 
@@ -272,13 +272,13 @@ function ChartPageInner() {
       resistances.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false,
+          axisLabelVisible: true,
         })
       })
       supports.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false,
+          axisLabelVisible: true,
         })
       })
     }
@@ -300,7 +300,7 @@ function ChartPageInner() {
 
     if (showRSI) {
       const paneIdx = nextPane++
-      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, lastValueVisible: false }, paneIdx)
+      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
@@ -340,7 +340,7 @@ function ChartPageInner() {
     if (showKoncorde) {
       const paneIdx = nextPane++
       const konData = koncordeSeries(chartData.candles)
-      const verdeLine = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2 })
+      const verdeLine = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2 }, paneIdx)
       verdeLine.setData(konData.map(d => ({ time: d.time, value: d.verde })) as any)
       const marronLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2 }, paneIdx)
       marronLine.setData(konData.map(d => ({ time: d.time, value: d.marron })) as any)
