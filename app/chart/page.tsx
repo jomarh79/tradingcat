@@ -219,13 +219,13 @@ function ChartPageInner() {
       if (avgCost > 0) {
         candleSeries.createPriceLine({
           price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title: 'Posicion',
+          axisLabelVisible: true,
         })
       }
       if (selectedTrade.stop_loss) {
         candleSeries.createPriceLine({
           price: Number(selectedTrade.stop_loss), color: C.danger, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title: 'Stop loss',
+          axisLabelVisible: true,
         })
       }
       ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach((tp, i) => {
@@ -272,13 +272,13 @@ function ChartPageInner() {
       resistances.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false, title: 'R',
+          axisLabelVisible: true,
         })
       })
       supports.forEach(price => {
         candleSeries.createPriceLine({
           price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false, title: 'S',
+          axisLabelVisible: true,
         })
       })
     }
@@ -302,8 +302,8 @@ function ChartPageInner() {
       const paneIdx = nextPane++
       const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
-      rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
-      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '30' })
+      rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '70' })
+      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '30' })
       chart.panes()[paneIdx]?.setHeight(150)
     }
 
