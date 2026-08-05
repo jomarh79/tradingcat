@@ -310,7 +310,7 @@ function ChartPageInner() {
     if (showMACD) {
       const paneIdx = nextPane++
       const macdData = macdSeries(chartData.candles)
-      const histSeries = chart.addSeries(HistogramSeries, paneIdx)
+      const histSeries = chart.addSeries(HistogramSeries,{}, paneIdx)
       histSeries.setData(
         macdData.filter(d => d.hist !== null).map(d => ({
           time: d.time, value: d.hist as number,
