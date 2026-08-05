@@ -347,7 +347,7 @@ volumeMALine.setData(
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(INDICATOR_HEIGHT.RSI)
     }
 
     if (showMACD) {
@@ -364,7 +364,7 @@ volumeMALine.setData(
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(INDICATOR_HEIGHT.MACD)
     }
 
     if (showADX) {
@@ -377,7 +377,7 @@ volumeMALine.setData(
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(INDICATOR_HEIGHT.ADX)
     }
 
     if (showKoncorde) {
@@ -391,7 +391,7 @@ volumeMALine.setData(
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1 }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      chart.panes()[paneIdx]?.setHeight(170)
+      chart.panes()[paneIdx]?.setHeight(INDICATOR_HEIGHT.KONCORDE)
     }
 
     chart.timeScale().fitContent()
@@ -412,8 +412,25 @@ volumeMALine.setData(
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
     : null
 
-  const activePanelsCount = [showRSI, showMACD, showADX, showKoncorde].filter(Boolean).length
-  const totalHeight = 420 + activePanelsCount * 130
+  // Alturas base
+const PRICE_HEIGHT = 420
+const VOLUME_HEIGHT = 80
+
+// Altura de cada indicador
+const INDICATOR_HEIGHT = {
+  RSI: 130,
+  MACD: 170,
+  ADX: 130,
+  KONCORDE: 190,
+}
+
+// Calculamos la altura total del gráfico
+let totalHeight = PRICE_HEIGHT + VOLUME_HEIGHT
+
+if (showRSI) totalHeight += INDICATOR_HEIGHT.RSI
+if (showMACD) totalHeight += INDICATOR_HEIGHT.MACD
+if (showADX) totalHeight += INDICATOR_HEIGHT.ADX
+if (showKoncorde) totalHeight += INDICATOR_HEIGHT.KONCORDE
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
