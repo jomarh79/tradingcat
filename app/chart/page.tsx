@@ -232,7 +232,7 @@ function ChartPageInner() {
         if (tp) {
           candleSeries.createPriceLine({
             price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: false, title: `TP${i + 1}`,
+            axisLabelVisible: true,
           })
         }
       })
@@ -412,7 +412,7 @@ function ChartPageInner() {
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
             <button key={iv} onClick={() => setIntervalSel(iv)} disabled={loading} style={filterBtn(interval === iv)}>
-              {iv === '45min' ? '45 min' : iv === '1day' ? '1 día' : iv === '1week' ? '1 semana' : '1 mes'}
+              {iv === '45min' ? '45 min' : iv === '1day' ? 'Diario' : iv === '1week' ? 'Semanal' : 'Mensual'}
             </button>
           ))}
           <span style={{ width: 1, background: '#222', margin: '2px 4px' }} />
