@@ -7,6 +7,7 @@ import {
   createSeriesMarkers, ColorType, IChartApi,
 } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
+import { rsiSeries, macdSeries, adxSeries, koncordeSeries } from '@/lib/indicators'
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
@@ -70,6 +71,10 @@ function ChartPageInner() {
   const [interval, setIntervalSel] = useState<Interval>('1day')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showRSI, setShowRSI] = useState(true)
+  const [showMACD, setShowMACD] = useState(false)
+  const [showADX, setShowADX] = useState(false)
+  const [showKoncorde, setShowKoncorde] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -166,7 +171,7 @@ function ChartPageInner() {
       layout: { background: { type: ColorType.Solid, color: '#080808' }, textColor: '#999' },
       grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
       width: containerRef.current.clientWidth,
-      height: 540,
+      height: totalHeight,
       rightPriceScale: { borderColor: '#222' },
       timeScale: { borderColor: '#222', timeVisible: interval === '45min' },
     })
@@ -290,6 +295,62 @@ function ChartPageInner() {
       })
     }
 
+    // ── Paneles de indicadores ──
+    let nextPane = 1
+
+    if (showRSI) {
+      const paneIdx = nextPane++
+      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: true }, paneIdx)
+      rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
+      rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '70' })
+      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '30' })
+      chart.panes()[paneIdx]?.setHeight(120)
+    }
+
+    if (showMACD) {
+      const paneIdx = nextPane++
+      const macdData = macdSeries(chartData.candles)
+      const histSeries = chart.addSeries(HistogramSeries, { title: 'MACD Hist' }, paneIdx)
+      histSeries.setData(
+        macdData.filter(d => d.hist !== null).map(d => ({
+          time: d.time, value: d.hist as number,
+          color: (d.hist as number) >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(244,63,94,0.7)',
+        })) as any
+      )
+      const macdLine = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, title: 'MACD' }, paneIdx)
+      macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
+      const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, title: 'Signal' }, paneIdx)
+      signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
+      chart.panes()[paneIdx]?.setHeight(120)
+    }
+
+    if (showADX) {
+      const paneIdx = nextPane++
+      const adxData = adxSeries(chartData.candles)
+      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2, title: 'ADX' }, paneIdx)
+      adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
+      const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, title: '+DI' }, paneIdx)
+      plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
+      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, title: '-DI' }, paneIdx)
+      minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
+      adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '25' })
+      chart.panes()[paneIdx]?.setHeight(120)
+    }
+
+    if (showKoncorde) {
+      const paneIdx = nextPane++
+      const konData = koncordeSeries(chartData.candles)
+      const verdeLine = chart.addSeries(LineSeries, { color: '#f97316', lineWidth: 2, title: 'Verde (PVI)' }, paneIdx)
+      verdeLine.setData(konData.map(d => ({ time: d.time, value: d.verde })) as any)
+      const marronLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2, title: 'Marrón' }, paneIdx)
+      marronLine.setData(konData.map(d => ({ time: d.time, value: d.marron })) as any)
+      const azulLine = chart.addSeries(LineSeries, { color: '#00FFFF', lineWidth: 1, title: 'Azul (NVI)' }, paneIdx)
+      azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
+      const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, title: 'Media' }, paneIdx)
+      mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
+      chart.panes()[paneIdx]?.setHeight(140)
+    }
+
     chart.timeScale().fitContent()
 
     const handleResize = () => {
@@ -302,11 +363,14 @@ function ChartPageInner() {
       chart.remove()
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval, dailyStats])
+  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
     : null
+
+  const activePanelsCount = [showRSI, showMACD, showADX, showKoncorde].filter(Boolean).length
+  const totalHeight = 420 + activePanelsCount * 130
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
@@ -345,12 +409,17 @@ function ChartPageInner() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
             <button key={iv} onClick={() => setIntervalSel(iv)} disabled={loading} style={filterBtn(interval === iv)}>
-              {iv === '45min' ? '45 min' : iv === '1day' ? 'Diario' : iv === '1week' ? 'Semanal' : 'Mensual'}
+              {iv === '45min' ? '45 min' : iv === '1day' ? '1 día' : iv === '1week' ? '1 semana' : '1 mes'}
             </button>
           ))}
+          <span style={{ width: 1, background: '#222', margin: '2px 4px' }} />
+          <button onClick={() => setShowRSI(v => !v)} style={filterBtn(showRSI)}>RSI</button>
+          <button onClick={() => setShowMACD(v => !v)} style={filterBtn(showMACD)}>MACD</button>
+          <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
+          <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
         </div>
 
         {!ticker && (
@@ -376,7 +445,7 @@ function ChartPageInner() {
                 Actualizando...
               </div>
             )}
-            <div ref={containerRef} style={{ width: '100%', height: 540 }} />
+            <div ref={containerRef} style={{ width: '100%', height: totalHeight }} />
           </div>
         )}
 
