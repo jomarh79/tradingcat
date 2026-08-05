@@ -205,7 +205,7 @@ function ChartPageInner() {
         lineWidth: 1,
         title: MA_LABELS[key] || key,
         priceLineVisible: false,
-        lastValueVisible: true,
+        lastValueVisible: false,
       })
       line.setData(clean as any)
     })
@@ -300,11 +300,11 @@ function ChartPageInner() {
 
     if (showRSI) {
       const paneIdx = nextPane++
-      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: true }, paneIdx)
+      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '30' })
-      chart.panes()[paneIdx]?.setHeight(120)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showMACD) {
@@ -321,7 +321,7 @@ function ChartPageInner() {
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, title: 'Signal' }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes()[paneIdx]?.setHeight(120)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showADX) {
@@ -334,7 +334,7 @@ function ChartPageInner() {
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, title: '-DI' }, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '25' })
-      chart.panes()[paneIdx]?.setHeight(120)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showKoncorde) {
@@ -348,7 +348,7 @@ function ChartPageInner() {
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, title: 'Media' }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      chart.panes()[paneIdx]?.setHeight(140)
+      chart.panes()[paneIdx]?.setHeight(170)
     }
 
     chart.timeScale().fitContent()
