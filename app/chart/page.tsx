@@ -420,7 +420,7 @@ volumeMALine.setData(
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
 
   return (
-    <AppShell>
+    //<AppShell>
       <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -504,7 +504,7 @@ volumeMALine.setData(
         </div>
 
       </div>
-    </AppShell>
+    //</AppShell>
   )
 }
 
