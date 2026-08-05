@@ -246,7 +246,6 @@ volumeMALine.setData(
       const line = chart.addSeries(LineSeries, {
         color: MA_COLORS[key] || '#888',
         lineWidth: 1,
-        //title: MA_LABELS[key] || key,
         priceLineVisible: false,
         lastValueVisible: false,
       })
@@ -343,7 +342,7 @@ volumeMALine.setData(
 
     if (showRSI) {
       const paneIdx = nextPane++
-      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, title: 'RSI', lastValueVisible: false, priceLineVisible: false }, paneIdx)
+      const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
@@ -418,19 +417,22 @@ const VOLUME_HEIGHT = 80
 
 // Altura de cada indicador
 const INDICATOR_HEIGHT = {
-  RSI: 190,
-  MACD: 190,
-  ADX: 190,
-  KONCORDE: 190,
+  RSI: 100,
+  MACD: 100,
+  ADX: 100,
+  KONCORDE: 100,
 }
 
 // Calculamos la altura total del gráfico
-let totalHeight = PRICE_HEIGHT + VOLUME_HEIGHT
-
-if (showRSI) totalHeight += INDICATOR_HEIGHT.RSI
-if (showMACD) totalHeight += INDICATOR_HEIGHT.MACD
-if (showADX) totalHeight += INDICATOR_HEIGHT.ADX
-if (showKoncorde) totalHeight += INDICATOR_HEIGHT.KONCORDE
+// Altura fija del gráfico.
+// Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
+const totalHeight =
+  PRICE_HEIGHT +
+  VOLUME_HEIGHT +
+  INDICATOR_HEIGHT.RSI +
+  INDICATOR_HEIGHT.MACD +
+  INDICATOR_HEIGHT.ADX +
+  INDICATOR_HEIGHT.KONCORDE
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
