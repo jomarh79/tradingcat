@@ -370,7 +370,7 @@ volumeMALine.setData(
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(130)
     }
 
     if (showMACD) {
@@ -387,7 +387,7 @@ volumeMALine.setData(
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(130)
     }
 
     if (showADX) {
@@ -400,7 +400,7 @@ volumeMALine.setData(
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false}, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(130)
     }
 
     if (showKoncorde) {
@@ -414,7 +414,7 @@ volumeMALine.setData(
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      chart.panes()[paneIdx]?.setHeight(150)
+      chart.panes()[paneIdx]?.setHeight(130)
     }
 
     if (visibleRangeRef.current) {
