@@ -323,7 +323,7 @@ volumeMALine.setData(
           color = isFullClose ? '#e5e5e5' : C.danger
         }
         return {
-          time: Math.floor(new Date(e.executed_at).getTime() / 1000),
+          time: e.executed_at.slice(0, 10),
           position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
           color,
           shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
