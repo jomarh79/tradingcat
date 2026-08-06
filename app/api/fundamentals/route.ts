@@ -41,9 +41,6 @@ export async function GET(request: Request) {
       payoutRatio: typeof payoutRatio === 'number' ? payoutRatio : null,
       eps: typeof m.epsTTM === 'number' ? m.epsTTM : null,
       dividendPerShareAnnual: typeof m.dividendPerShareAnnual === 'number' ? m.dividendPerShareAnnual : null,
-      // Se incluye el objeto completo mientras validamos qué campos trae tu plan —
-      // quítalo cuando ya no lo necesites para inspeccionar.
-      raw: m,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 })
