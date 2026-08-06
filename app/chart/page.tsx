@@ -390,7 +390,7 @@ volumeMALine.setData(
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      chart.panes()[paneIdx]?.setHeight(180)
+      chart.panes()[paneIdx]?.setHeight(100)
     }
 
     chart.timeScale().fitContent()
@@ -414,7 +414,7 @@ volumeMALine.setData(
 // Calculamos la altura total del gráfico
 // Altura fija del gráfico.
 // Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
-const totalHeight = 800
+const totalHeight = 700
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
