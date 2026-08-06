@@ -309,12 +309,12 @@ volumeMALine.setData(
       const sorted = [...executions].sort(
         (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
       )
-      let runningQty = 0
-      const markers = sorted.map(e => {
+      let runningQty = Number(selectedTrade?.initial_quantity || 0)
+      const markers = sorted.map((e, index) => {
         const isBuy = e.execution_type === 'buy'
         let color = '#888'
         if (isBuy) {
-          const isOpening = runningQty <= 0.0001
+          const isOpening = index === 0
           runningQty += Number(e.quantity)
           color = isOpening ? C.success : C.accent
         } else {
@@ -447,7 +447,7 @@ volumeMALine.setData(
 // Calculamos la altura total del gráfico
 // Altura fija del gráfico.
 // Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
-const totalHeight = 700
+const totalHeight = 600
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
