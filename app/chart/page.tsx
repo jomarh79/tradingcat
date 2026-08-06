@@ -88,6 +88,7 @@ function ChartPageInner() {
   const cacheRef = useRef<Record<string, any>>({})
   const dailyStatsCacheRef = useRef<Record<string, any>>({})
   const fundamentalsCacheRef = useRef<Record<string, any>>({})
+  const visibleRangeRef = useRef<any>(null)
 
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
@@ -195,6 +196,10 @@ function ChartPageInner() {
       timeScale: { borderColor: '#222', timeVisible: interval === '45min' },
     })
     chartRef.current = chart
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      visibleRangeRef.current = range
+    })
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: C.success, downColor: C.danger, borderVisible: false,
@@ -412,7 +417,11 @@ volumeMALine.setData(
       chart.panes()[paneIdx]?.setHeight(150)
     }
 
-    chart.timeScale().fitContent()
+    if (visibleRangeRef.current) {
+      chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
+    } else {
+      chart.timeScale().fitContent()
+    }
 
     const handleResize = () => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
@@ -420,8 +429,13 @@ volumeMALine.setData(
     window.addEventListener('resize', handleResize)
 
     return () => {
+      visibleRangeRef.current =
+        chart.timeScale().getVisibleLogicalRange()
+
       window.removeEventListener('resize', handleResize)
+
       chart.remove()
+
       chartRef.current = null
     }
   }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde])
@@ -440,7 +454,7 @@ const totalHeight = 700
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
 
   return (
-    //<AppShell>
+    <AppShell>
       <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -539,7 +553,7 @@ const totalHeight = 700
         </div>
 
       </div>
-    //</AppShell>
+    </AppShell>
   )
 }
 
