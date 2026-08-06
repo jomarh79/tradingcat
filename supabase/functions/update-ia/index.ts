@@ -24,8 +24,6 @@ const getEnv = (key: string) => {
 const SUPABASE_URL = getEnv("SUPABASE_URL");
 const SUPABASE_KEY = getEnv("SUPABASE_SERVICE_ROLE_KEY");
 const API_KEY      = getEnv("TWELVEDATA_API_KEY");
-// Agregamos la variable de Finnhub aquí arriba para tenerla disponible globalmente
-const FINNHUB_KEY  = getEnv("FINNHUB_API_KEY");
 
   const dbHeaders = {
     apikey:         SUPABASE_KEY,
@@ -90,7 +88,7 @@ if (!isMarketOpen && !singleTicker) {
 
   try {
     // ── Obtener watchlist ────────────────────────────────────────────────
-    let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0&order=last_updated.asc.nullsfirst&limit=5`;
+    let url =`${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0&order=last_updated.asc.nullsfirst`;
     if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
 
     const res  = await fetch(url, { headers: dbHeaders });
@@ -124,11 +122,9 @@ if (!isMarketOpen && !singleTicker) {
       const item = list[i]
 
       // Delay garantizado entre tickers — SIEMPRE, antes de cualquier lógica
-      if (i > 0) await sleep(3500)
+      if (i > 0) await sleep(1000)
 
       try {
-        // ── Control inteligente de frecuencia ─────────────────
-        const currentPrice = item.current_price || 0
 /*
         if (currentPrice > 0) {
           const distPercent  = Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
@@ -172,67 +168,21 @@ if (!isMarketOpen && !singleTicker) {
         if (prices.length < 15) continue;
 
         const priceName   = tsData.meta?.symbol || item.ticker;
-                // ── Finnhub: Precio y cambio del día en tiempo real ────────
-      
-        // 1. Establecemos valores iniciales basados en TwelveData por si Finnhub falla
-        let price  = prices[prices.length - 1];
-        let change = prices.length >= 2 ? ((price - prices[prices.length - 2]) / prices[prices.length - 2]) * 100 : 0;
-        let finnhubSuccess = false;
 
-        try {
-          // 2. Controlamos el tiempo de espera para que Render no se quede colgado
-          const fController = new AbortController();
-          const fTimeout = setTimeout(() => fController.abort(), 5000);
+        const today = tsData.values[0];
 
-          const fRes = await fetch(
-            `https://finnhub.io/api/v1/quote?symbol=${item.ticker}&token=${FINNHUB_KEY}`,
-            { signal: fController.signal }
-          );
+        const openPrice = Number(today.open);
+        const closePrice = Number(today.close);
 
-          clearTimeout(fTimeout);
+        const price = closePrice;
 
-          if (fRes.ok) {
-            const fData = await fRes.json();
-            console.log(`📈 Finnhub ${item.ticker}:`, JSON.stringify(fData));
-            
-            // 3. Si Finnhub responde con éxito, extraemos el precio actual ('c')
-            if (typeof fData?.c === "number" && fData.c > 0) {
-              price = Number(fData.c);
-              finnhubSuccess = true;
-              
-              // 4. Extraemos la variación diaria ('dp'). Si no existe, la calculamos matemáticamente
-              if (typeof fData.dp === "number" && !isNaN(fData.dp)) {
-                change = Number(fData.dp);
-              } else if (typeof fData.d === "number" && typeof fData.pc === "number" && fData.pc > 0) {
-                change = (fData.d / fData.pc) * 100;
-              }
-              console.log(`✅ ${item.ticker} en tiempo real: ${price} (${change}%)`);
-            }
-          } else {
-            console.error(`⚠️ Finnhub HTTP Error ${item.ticker}: ${fRes.status}`);
-          }
-        } catch (e: any) {
-          console.error(`❌ Finnhub falló para ${item.ticker}:`, e?.name === "AbortError" ? "Timeout de 5s" : e.message);
+        let change = 0;
+
+        if (openPrice > 0) {
+          change = ((closePrice - openPrice) / openPrice) * 100;
         }
 
-        // 5. SISTEMA DE RESPALDO: Si Finnhub falló (por límite de uso en la nube), calculamos los datos con TwelveData
-        if (!finnhubSuccess && tsData.values?.length > 0) {
-          console.log(`🔄 Fallback: Extrayendo variación diaria desde TwelveData para ${item.ticker}`);
-          const latestValue = tsData.values[0]; // Tomamos el día de hoy
-          const openPrice = parseFloat(latestValue.open);
-          const closePrice = parseFloat(latestValue.close);
-          
-          if (!isNaN(closePrice) && closePrice > 0) {
-            price = closePrice;
-            // Variación diaria = ((Cierre de hoy - Apertura de hoy) / Apertura de hoy) * 100
-            change = !isNaN(openPrice) && openPrice > 0 ? ((closePrice - openPrice) / openPrice) * 100 : change;
-          }
-        }
-
-        // 6. Sincronizamos el precio final en el historial para los indicadores técnicos
         prices[prices.length - 1] = price;
-    
-
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);

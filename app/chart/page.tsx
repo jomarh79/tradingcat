@@ -370,7 +370,7 @@ volumeMALine.setData(
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
-      rsiLine.createPriceLine({ price: 0, color: '#ffffff', lineWidth: 1, lineStyle: 3,axisLabelVisible: false})
+      rsiLine.createPriceLine({ price: 50, color: '#ffffff', lineWidth: 1, lineStyle: 3,axisLabelVisible: false})
       chart.panes()[paneIdx]?.setHeight(130)
     }
 
