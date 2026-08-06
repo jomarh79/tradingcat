@@ -346,7 +346,7 @@ volumeMALine.setData(
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showMACD) {
@@ -376,7 +376,7 @@ volumeMALine.setData(
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showKoncorde) {
@@ -414,7 +414,7 @@ volumeMALine.setData(
 // Calculamos la altura total del gráfico
 // Altura fija del gráfico.
 // Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
-const totalHeight = 950
+const totalHeight = 800
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
