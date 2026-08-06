@@ -81,11 +81,13 @@ function ChartPageInner() {
   const [executions, setExecutions] = useState<any[]>([])
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
   const [dailyStats, setDailyStats] = useState<{ max: { price: number; date: string }; min: { price: number; date: string } } | null>(null)
+  const [fundamentals, setFundamentals] = useState<{ pe: number | null; ps: number | null; payoutRatio: number | null } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const cacheRef = useRef<Record<string, any>>({})
   const dailyStatsCacheRef = useRef<Record<string, any>>({})
+  const fundamentalsCacheRef = useRef<Record<string, any>>({})
 
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
@@ -159,6 +161,23 @@ function ChartPageInner() {
         if (data.error) return
         dailyStatsCacheRef.current[ticker] = data
         setDailyStats(data)
+      })
+      .catch(() => {})
+  }, [ticker])
+
+  // ── P/E, P/S, Payout Ratio — una sola vez por ticker (valores actuales, no serie histórica) ──
+  useEffect(() => {
+    if (!ticker) { setFundamentals(null); return }
+    if (fundamentalsCacheRef.current[ticker]) {
+      setFundamentals(fundamentalsCacheRef.current[ticker])
+      return
+    }
+    fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) return
+        fundamentalsCacheRef.current[ticker] = data
+        setFundamentals(data)
       })
       .catch(() => {})
   }, [ticker])
@@ -363,7 +382,7 @@ volumeMALine.setData(
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1 }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes()[paneIdx]?.setHeight(170)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     if (showADX) {
@@ -390,7 +409,7 @@ volumeMALine.setData(
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      chart.panes()[paneIdx]?.setHeight(100)
+      chart.panes()[paneIdx]?.setHeight(150)
     }
 
     chart.timeScale().fitContent()
@@ -449,6 +468,21 @@ const totalHeight = 700
           {pctToMin !== null && (
             <span style={{ fontSize: 10, color: '#f700ff' }}>
               -{pctToMin.toFixed(1)}% al mín 10a
+            </span>
+          )}
+          {fundamentals?.pe != null && (
+            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
+              P/E {fundamentals.pe.toFixed(1)}
+            </span>
+          )}
+          {fundamentals?.ps != null && (
+            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
+              P/S {fundamentals.ps.toFixed(1)}
+            </span>
+          )}
+          {fundamentals?.payoutRatio != null && (
+            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
+              Payout {fundamentals.payoutRatio.toFixed(1)}%
             </span>
           )}
         </div>
