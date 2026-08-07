@@ -582,7 +582,7 @@ const isMarketOpen = () => {
                   ['distancia',     'Dist. %'],
                   ['analyst_target','Analistas'],
                   ['vsAnalyst',     'Vs analistas'],
-                  ['ai_probability','IA señal'],
+                  ['sma200_weekly','Media 200 semanal'],
                   ['rsi',           'RSI'],
                   ['notes',         'Notas'],
                   [null,            ''],
@@ -706,25 +706,11 @@ const isMarketOpen = () => {
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* IA señal — etiqueta + barra */}
-                    <td style={tdStyle}>
-                      {item.ai_probability !== null ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                          <span style={{
-                            color: sig.color, fontSize: 10, fontWeight: 700,
-                            background: sig.bg, padding: '2px 7px', borderRadius: 4,
-                            border: `1px solid ${sig.color}33`, whiteSpace: 'nowrap',
-                          }}>
-                            {sig.label}
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <div style={{ width: 36, background: '#111', height: 2, borderRadius: 1 }}>
-                              <div style={{ width: `${item.ai_probability}%`, background: sig.color, height: '100%', borderRadius: 1 }} />
-                            </div>
-                            <span style={{ fontSize: 9, color: sig.color }}>{item.ai_probability.toFixed(0)}%</span>
-                          </div>
-                        </div>
-                      ) : <span style={{ color: '#333', fontSize: 10 }}>—</span>}
+                    {/* Media 200 semanal */}
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
+                      {item.sma200_weekly
+                        ? `$${Number(item.sma200_weekly).toFixed(2)}`
+                        : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
                     {/* RSI */}
