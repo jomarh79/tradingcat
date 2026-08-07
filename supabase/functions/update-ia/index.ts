@@ -54,13 +54,19 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 7 && time < 15
     }
   } catch { /* sin body está bien */ }
 
-if (!isMarketOpen && !singleTicker) {
-  return new Response("Mercado cerrado", { headers: CORS })
+if (!isMarketOpen && isCron) {
+  return new Response("Mercado cerrado", {
+    headers: CORS,
+  });
 }
-
   const authHeader = req.headers.get("Authorization");
-  const isCron     = authHeader === "Bearer tradingcat-cron-2026";
 
+  const isCron =
+    authHeader === "Bearer tradingcat-cron-2026";
+
+  const isManual =
+    authHeader === "Bearer tradingcat-manual-2026";
+    
   // Si no es cron ni viene de Supabase anon key, rechazar
   if (!isCron && !req.headers.get("apikey")) {
     return new Response("Unauthorized", { status: 401, headers: CORS });

@@ -185,6 +185,24 @@ export default function WatchlistIAPage() {
     return (data as WatchItem[]) || []
   }, [])
 
+const isMarketOpen = () => {
+  const mexico = new Date(
+    new Date().toLocaleString("en-US", {
+      timeZone: "America/Mexico_City",
+    })
+  )
+
+  const day = mexico.getDay()
+  const hour = mexico.getHours() + mexico.getMinutes() / 60
+
+  return (
+    day >= 1 &&
+    day <= 5 &&
+    hour >= 7 &&
+    hour < 15
+  )
+}
+  
   const init = useCallback(async () => {
     setLoading(true)
     const items = await fetchList()
@@ -194,11 +212,30 @@ export default function WatchlistIAPage() {
   }, [fetchList])
 
   useEffect(() => {
-    init()
-    // Auto refresh cada 2 minutos, sin restricción de horario de mercado
-    const interval = setInterval(() => { init() }, 120000)
-    return () => clearInterval(interval)
-  }, [init])
+
+  init()
+
+  const interval = setInterval(async () => {
+
+    if (isMarketOpen()) {
+
+      await triggerIA()
+
+      await new Promise(r => setTimeout(r, 6000))
+
+    }
+
+    const updated = await fetchList()
+
+    setList(updated)
+
+    setLastRefresh(new Date())
+
+  }, 120000)
+
+  return () => clearInterval(interval)
+
+}, [init, fetchList])
 
   // ── Espera a que un ticker específico tenga datos frescos, refrescando la lista mientras tanto ──
   const pollTicker = useCallback((ticker: string, onDone?: () => void) => {
@@ -225,7 +262,7 @@ export default function WatchlistIAPage() {
     localStorage.setItem(GLOBAL_COOLDOWN_KEY, String(triggeredAt))
     await triggerIA()
     for (let i = 0; i < 3; i++) {
-      await new Promise(r => setTimeout(r, 3000))
+      await new Promise(r => setTimeout(r, 5000))
       const updated = await fetchList()
       setList(updated)
     }

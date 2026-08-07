@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const res = await fetch(edgeUrl, {
       method:  'POST',
       headers: {
-        'Authorization':  'Bearer tradingcat-cron-2026',
+        'Authorization':  'Bearer tradingcat-manual-2026',
         'Content-Type':   'application/json',
         'apikey':         supabaseKey,
       },
