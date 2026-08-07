@@ -708,9 +708,7 @@ const isMarketOpen = () => {
 
                     {/* Media 200 semanal */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
-                      {item.sma200_weekly
-                        ? `$${Number(item.sma200_weekly).toFixed(2)}`
-                        : <span style={{ color: '#333' }}>—</span>}
+                     
                     </td>
 
                     {/* RSI */}
