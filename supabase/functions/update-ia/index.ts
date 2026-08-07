@@ -91,13 +91,35 @@ if (!isMarketOpen && !singleTicker && !force) {
 
   // ── Lock — solo para ejecución completa (no para ticker individual) ───────
   if (!singleTicker) {
-    const lockRes  = await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running`, { headers: dbHeaders });
+    const lockRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running,started_at`,
+      {
+      headers: dbHeaders
+      })
     const lockData = await lockRes.json();
-    if (lockData?.[0]?.running) {
-      return new Response("Skip — ocupado", { headers: CORS });
+    const lock = lockData?.[0]
+
+if (lock?.running) {
+
+    const started = lock.started_at
+        ? new Date(lock.started_at).getTime()
+        : 0
+
+    const minutes =
+        (Date.now() - started) / 60000
+
+    if (minutes < 20) {
+
+        return new Response(
+            `Skip — ocupado (${minutes.toFixed(1)} min)`,
+            { headers: CORS }
+        )
+
     }
-    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-      method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: true }),
+
+    console.log("🔓 Lock expirado. Se recupera automáticamente.")
+}
+    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {method: "PATCH", headers: dbHeaders, body: JSON.stringify({running: true, started_at: new Date().toISOString()}),
     });
   }
 
@@ -289,7 +311,12 @@ if (!isMarketOpen && !singleTicker && !force) {
     // Liberar lock solo si fue ejecución completa
     if (!singleTicker) {
       await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-        method: "PATCH", headers: dbHeaders, body: JSON.stringify({ running: false }),
+        method: "PATCH",
+        headers: dbHeaders,
+        body: JSON.stringify({
+          running: false,
+          started_at: null,
+        }),
       });
     }
   }
