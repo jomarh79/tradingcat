@@ -6,6 +6,9 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+// Límite de llamadas de TwelveData Free
+const TWELVEDATA_MAX_CALLS = 8;
+
 // Separación mínima entre dos análisis del MISMO ticker individual (agregar / reanalizar fila).
 // Esto vive del lado del servidor — protege la cuota sin importar de dónde venga la llamada.
 const SINGLE_TICKER_MIN_MINUTES = 1;
@@ -128,12 +131,19 @@ if (lock?.running) {
     let url =`${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0&order=last_updated.asc.nullsfirst`;
     if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
 
-    const res  = await fetch(url, { headers: dbHeaders });
-    const list = await res.json();
+    const res = await fetch(url, { headers: dbHeaders });
+const list = await res.json();
 
-    if (!Array.isArray(list) || list.length === 0) {
-      return new Response(singleTicker ? `Ticker ${singleTicker} no encontrado` : "Watchlist vacía", { headers: CORS });
-    }
+if (!Array.isArray(list) || list.length === 0) {
+  return new Response(
+    singleTicker
+      ? `Ticker ${singleTicker} no encontrado`
+      : "Watchlist vacía",
+    { headers: CORS }
+  );
+}
+
+const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
 
     // ── Protección de frecuencia para ticker individual ────────────────────
     // Esta es la única protección real contra spam: no depende del navegador,
@@ -155,8 +165,8 @@ if (lock?.running) {
 
     console.log(`📊 Procesando ${list.length} tickers`);
 
-    for (let i = 0; i < list.length; i++) {
-      const item = list[i]
+    for (let i = 0; i < processList.length; i++) {
+      const item = processList[i]
 
       // Delay garantizado entre tickers — SIEMPRE, antes de cualquier lógica
       if (i > 0) await sleep(1000)
@@ -302,7 +312,12 @@ if (lock?.running) {
       }
     }
 
-    return new Response(`OK — ${processed}/${list.length} tickers procesados`, { headers: CORS });
+    return new Response(
+  `OK — ${processed}/${list.length} procesados · Pendientes: ${
+    Math.max(0, list.length - processed)
+  }`,
+  { headers: CORS }
+);
 
   } catch (e: any) {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
