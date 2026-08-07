@@ -104,16 +104,34 @@ const rsiColor = (rsi: number | null) => {
 }
 
 // Dispara el análisis IA en tu API de Render (todos los tickers, o uno solo si se pasa)
-async function triggerIA(ticker?: string): Promise<void> {
-  try {
-    await fetch('/api/trigger-ia', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(ticker ? { ticker } : {}),
-    });
-  } catch (error) {
-    console.error("Error al disparar la IA:", error);
-  }
+async function triggerIA(
+    ticker?: string,
+    force = false
+): Promise<void> {
+
+    try {
+
+        await fetch('/api/trigger-ia', {
+
+            method: 'POST',
+
+            headers: {
+                'Content-Type': 'application/json',
+            },
+
+            body: JSON.stringify({
+                ...(ticker ? { ticker } : {}),
+                force,
+            }),
+
+        })
+
+    } catch (error) {
+
+        console.error("Error al disparar la IA:", error)
+
+    }
+
 }
 
 export default function WatchlistIAPage() {
@@ -260,7 +278,7 @@ const isMarketOpen = () => {
     const triggeredAt = Date.now()
     setLastGlobalTrigger(triggeredAt)
     localStorage.setItem(GLOBAL_COOLDOWN_KEY, String(triggeredAt))
-    await triggerIA()
+    await triggerIA(undefined, true)
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 5000))
       const updated = await fetchList()

@@ -44,21 +44,30 @@ const isMarketOpen = day >= 1 && day <= 5 && time >= 7 && time < 15
 
 //(globalThis as any).isMarketOpen = isMarketOpen;
 
-  // ── Ticker específico (cuando se agrega uno nuevo desde el frontend) ──────
-  // Body opcional: { ticker: "AAPL" } para procesar solo ese ticker
-  let singleTicker: string | null = null;
-  try {
-    if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = await req.json().catch(() => ({}));
-      if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
-    }
-  } catch { /* sin body está bien */ }
+  // ── Ticker específico / forzar actualización ─────────────────────────────
+let singleTicker: string | null = null;
+let force = false;
 
-if (!isMarketOpen && isCron) {
-  return new Response("Mercado cerrado", {
-    headers: CORS,
-  });
+try {
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const body = await req.json().catch(() => ({}));
+
+    if (body?.ticker) {
+      singleTicker = String(body.ticker).toUpperCase().trim();
+    }
+
+    force = body?.force === true;
+  }
+} catch {
+  /* sin body está bien */
 }
+
+// Bloquear solo las ejecuciones automáticas fuera de horario.
+// Permitir ticker individual o force manual desde el frontend.
+if (!isMarketOpen && !singleTicker && !force) {
+  return new Response("Mercado cerrado", { headers: CORS });
+}
+
   const authHeader = req.headers.get("Authorization");
 
   const isCron =
