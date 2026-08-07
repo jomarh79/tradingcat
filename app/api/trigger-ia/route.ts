@@ -10,7 +10,12 @@ import { NextResponse } from 'next/server'
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}))
-    const ticker = body?.ticker ? String(body.ticker).toUpperCase().trim() : null
+
+    const ticker = body?.ticker
+      ? String(body.ticker).toUpperCase().trim()
+      : null
+
+    const force = body?.force === true
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -28,7 +33,10 @@ export async function POST(request: Request) {
         'Content-Type':   'application/json',
         'apikey':         supabaseKey,
       },
-      body: ticker ? JSON.stringify({ ticker }) : '{}',
+      body: JSON.stringify({
+        ...(ticker ? { ticker } : {}),
+        force,
+      }),
     })
 
     const text = await res.text()
