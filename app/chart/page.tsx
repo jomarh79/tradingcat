@@ -64,6 +64,45 @@ function computePivots(
   return { resistances, supports }
 }
 
+// Busca el cierre más cercano a una fecha dada (± unos días, por si no coincide exacto con día de mercado)
+function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
+  if (!dailyCloses || !dailyCloses.length) return null
+  const target = new Date(targetDate.split(' ')[0]).getTime()
+  let best: { close: number; diff: number } | null = null
+  for (const d of dailyCloses) {
+    const diff = Math.abs(new Date(d.date).getTime() - target)
+    if (!best || diff < best.diff) best = { close: d.close, diff }
+  }
+  // si el más cercano está a más de 10 días, no es confiable — mejor no usarlo
+  return best && best.diff <= 10 * 86400000 ? best.close : null
+}
+
+// Promedio propio de 5 años — cruza cada 10-K con el precio de esa fecha (no aplica a ETFs, no presentan 10-K)
+function computeOwnFiveYearAvg(
+  ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[],
+  dailyCloses: { date: string; close: number }[]
+) {
+  if (!ownHistory || !ownHistory.length || !dailyCloses || !dailyCloses.length) return null
+
+  const perYear = ownHistory.map(h => {
+    const price = findNearestClose(dailyCloses, h.endDate)
+    if (!price) return null
+    const pe = h.eps && h.eps !== 0 ? price / h.eps : null
+    const ps = h.revenue && h.sharesOutstanding ? (price * h.sharesOutstanding) / h.revenue : null
+    const payoutRatio = h.dividendPerShare != null && h.eps ? (h.dividendPerShare / h.eps) * 100 : null
+    const dividendYield = h.dividendPerShare != null ? (h.dividendPerShare / price) * 100 : null
+    return { pe, ps, payoutRatio, dividendYield }
+  }).filter((v): v is NonNullable<typeof v> => v !== null)
+
+  if (perYear.length === 0) return null
+
+  const avg = (key: 'pe' | 'ps' | 'payoutRatio' | 'dividendYield') => {
+    const vals = perYear.map(p => p[key]).filter((v): v is number => typeof v === 'number')
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+  }
+  return { pe: avg('pe'), ps: avg('ps'), payoutRatio: avg('payoutRatio'), dividendYield: avg('dividendYield'), yearsUsed: perYear.length }
+}
+
 function ChartPageInner() {
   const searchParams = useSearchParams()
   const ticker = (searchParams.get('ticker') || '').toUpperCase()
@@ -80,8 +119,16 @@ function ChartPageInner() {
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
   const [executions, setExecutions] = useState<any[]>([])
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
-  const [dailyStats, setDailyStats] = useState<{ max: { price: number; date: string }; min: { price: number; date: string } } | null>(null)
-  const [fundamentals, setFundamentals] = useState<{ pe: number | null; ps: number | null; payoutRatio: number | null } | null>(null)
+  const [dailyStats, setDailyStats] = useState<{
+    max: { price: number; date: string }; min: { price: number; date: string }
+    dailyCloses: { date: string; close: number }[]
+  } | null>(null)
+  const [fundamentals, setFundamentals] = useState<{
+    pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null
+    sectorAvg: { pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null } | null
+    peerCount: number
+    ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[]
+  } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -166,7 +213,7 @@ function ChartPageInner() {
       .catch(() => {})
   }, [ticker])
 
-  // ── P/E, P/S, Payout Ratio — una sola vez por ticker (valores actuales, no serie histórica) ──
+  // ── P/E, P/S, Payout, Dividend Yield + comparación sector + historial propio — una sola vez por ticker ──
   useEffect(() => {
     if (!ticker) { setFundamentals(null); return }
     if (fundamentalsCacheRef.current[ticker]) {
@@ -209,59 +256,59 @@ function ChartPageInner() {
     candleSeries.setData(chartData.candles as any)
 
     // Barras de volumen
-const volumeSeries = chart.addSeries(HistogramSeries, {
-  priceFormat: { type: 'volume' },
-  priceScaleId: 'volume',
-  lastValueVisible: false,       // opcional
-  priceLineVisible: false,       // ya no necesitamos la línea del último volumen
-})
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      lastValueVisible: false,
+      priceLineVisible: false,
+    })
 
-chart.priceScale('volume').applyOptions({
-  scaleMargins: { top: 0.82, bottom: 0 },
-})
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    })
 
-volumeSeries.setData(
-  chartData.candles.map((c: any) => ({
-    time: c.time,
-    value: c.volume,
-    color: c.close >= c.open
-      ? 'rgba(34,197,94,0.5)'
-      : 'rgba(244,63,94,0.5)',
-  })) as any
-)
+    volumeSeries.setData(
+      chartData.candles.map((c: any) => ({
+        time: c.time,
+        value: c.volume,
+        color: c.close >= c.open
+          ? 'rgba(34,197,94,0.5)'
+          : 'rgba(244,63,94,0.5)',
+      })) as any
+    )
 
-const volumeMALine = chart.addSeries(LineSeries, {
-  priceScaleId: 'volume',
-  color: '#22c55e',
-  lineWidth: 2,
-  lastValueVisible: false,
-  priceLineVisible: false,
-})
+    const volumeMALine = chart.addSeries(LineSeries, {
+      priceScaleId: 'volume',
+      color: '#22c55e',
+      lineWidth: 2,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    })
 
-const period = 20
+    const period = 20
 
-const volumeMA = chartData.candles.map((c: any, i: number) => {
-  if (i < period - 1) {
-    return {
-      time: c.time,
-      value: null,
-    }
-  }
+    const volumeMA = chartData.candles.map((c: any, i: number) => {
+      if (i < period - 1) {
+        return {
+          time: c.time,
+          value: null,
+        }
+      }
 
-  const avg =
-    chartData.candles
-      .slice(i - period + 1, i + 1)
-      .reduce((sum: number, x: any) => sum + x.volume, 0) / period
+      const avg =
+        chartData.candles
+          .slice(i - period + 1, i + 1)
+          .reduce((sum: number, x: any) => sum + x.volume, 0) / period
 
-  return {
-    time: c.time,
-    value: avg,
-  }
-})
+      return {
+        time: c.time,
+        value: avg,
+      }
+    })
 
-volumeMALine.setData(
-  volumeMA.filter(v => v.value !== null) as any
-)
+    volumeMALine.setData(
+      volumeMA.filter(v => v.value !== null) as any
+    )
 
     // Medias móviles — EMA 8/21/50/100/200 (45min y diario) o SMA 10/20/50/100/200 (semanal y mensual)
     Object.entries(chartData.mas).forEach(([key, points]) => {
@@ -446,14 +493,18 @@ volumeMALine.setData(
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
     : null
 
-// Calculamos la altura total del gráfico
-// Altura fija del gráfico.
-// Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
-const totalHeight = 700
+  // Calculamos la altura total del gráfico
+  // Altura fija del gráfico.
+  // Siempre reserva espacio para todos los paneles para evitar que el gráfico cambie de tamaño.
+  const totalHeight = 700
 
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
+
+  const ownFiveYearAvg = fundamentals && dailyStats
+    ? computeOwnFiveYearAvg(fundamentals.ownHistory, dailyStats.dailyCloses)
+    : null
 
   return (
     <AppShell>
@@ -486,22 +537,62 @@ const totalHeight = 700
               -{pctToMin.toFixed(1)}% al mín 10a
             </span>
           )}
-          {fundamentals?.pe != null && (
-            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
-              P/E {fundamentals.pe.toFixed(1)}
-            </span>
-          )}
-          {fundamentals?.ps != null && (
-            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
-              P/S {fundamentals.ps.toFixed(1)}
-            </span>
-          )}
-          {fundamentals?.payoutRatio != null && (
-            <span style={{ fontSize: 10, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 8px' }}>
-              Payout {fundamentals.payoutRatio.toFixed(1)}%
-            </span>
-          )}
         </div>
+
+        {fundamentals && (
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, maxWidth: 620 }}>
+            <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+              Ratios vs. sector {fundamentals.peerCount > 0 ? `(${fundamentals.peerCount} comparables)` : ''}
+              {ownFiveYearAvg ? ` · vs. propio promedio ${ownFiveYearAvg.yearsUsed}A` : ' · sin 10-K propio (ETF u otro caso sin reportes anuales)'}
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr>
+                  {['', ticker, 'Sector', 'Diff', `${ticker} ${ownFiveYearAvg ? ownFiveYearAvg.yearsUsed : 5}A Avg.`, 'Diff'].map((h, i) => (
+                    <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, padding: '2px 6px', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: 'P/E',       own: fundamentals.pe,            sector: fundamentals.sectorAvg?.pe ?? null,            avg5y: ownFiveYearAvg?.pe ?? null,            suffix: '', higherIsBetter: false },
+                  { label: 'P/S',       own: fundamentals.ps,            sector: fundamentals.sectorAvg?.ps ?? null,            avg5y: ownFiveYearAvg?.ps ?? null,            suffix: '', higherIsBetter: false },
+                  { label: 'Payout',    own: fundamentals.payoutRatio,   sector: fundamentals.sectorAvg?.payoutRatio ?? null,   avg5y: ownFiveYearAvg?.payoutRatio ?? null,   suffix: '%', higherIsBetter: false },
+                  { label: 'Div Yield', own: fundamentals.dividendYield, sector: fundamentals.sectorAvg?.dividendYield ?? null, avg5y: ownFiveYearAvg?.dividendYield ?? null, suffix: '%', higherIsBetter: true },
+                ].map(row => {
+                  const diffSector = (row.own != null && row.sector != null && row.sector !== 0)
+                    ? ((row.own - row.sector) / Math.abs(row.sector)) * 100
+                    : null
+                  const diff5y = (row.own != null && row.avg5y != null && row.avg5y !== 0)
+                    ? ((row.own - row.avg5y) / Math.abs(row.avg5y)) * 100
+                    : null
+                  const isGoodSector = diffSector == null ? null : row.higherIsBetter ? diffSector >= 0 : diffSector <= 0
+                  const isGood5y = diff5y == null ? null : row.higherIsBetter ? diff5y >= 0 : diff5y <= 0
+                  return (
+                    <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
+                      <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
+                        {row.own != null ? `${row.own.toFixed(2)}${row.suffix}` : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
+                        {row.sector != null ? `${row.sector.toFixed(2)}${row.suffix}` : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGoodSector == null ? '#444' : isGoodSector ? C.success : C.danger }}>
+                        {diffSector != null ? `${diffSector >= 0 ? '+' : ''}${diffSector.toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
+                        {row.avg5y != null ? `${row.avg5y.toFixed(2)}${row.suffix}` : '—'}
+                      </td>
+                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGood5y == null ? '#444' : isGood5y ? C.success : C.danger }}>
+                        {diff5y != null ? `${diff5y >= 0 ? '+' : ''}${diff5y.toFixed(1)}%` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (

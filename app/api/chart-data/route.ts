@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   }
 
   // Tamaño de la ventana: suficiente para que las medias de 200 periodos tengan sentido
-  const outputsize = interval === '45min' ? 500 : 2500
+  const outputsize = interval === '45min' ? 500 : 500
 
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`
@@ -100,6 +100,61 @@ export async function GET(request: Request) {
       priceName: data.meta?.symbol || symbol,
       candles,
       mas,
+    })
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 })
+  }
+}
+
+// POST /api/chart-data  { symbol: "AAPL" } — máximo/mínimo de los últimos 10 años (siempre en diario, sin importar el intervalo que se esté viendo)
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => ({}))
+  const symbol = String(body?.symbol || '').trim().toUpperCase()
+  if (!symbol) return NextResponse.json({ error: 'Falta symbol' }, { status: 400 })
+
+  const apiKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY
+  if (!apiKey) return NextResponse.json({ error: 'Falta NEXT_PUBLIC_TWELVEDATA_API_KEY' }, { status: 500 })
+
+  try {
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=5000&apikey=${apiKey}`
+    const res = await fetch(url, { cache: 'no-store' })
+    const data = await res.json()
+
+    if (data.status === 'error' || !Array.isArray(data.values) || data.values.length === 0) {
+      return NextResponse.json({ error: data.message || `Sin datos diarios para ${symbol}` }, { status: 502 })
+    }
+
+    const YEARS = 10
+    const cutoff = Date.now() - YEARS * 365 * 24 * 60 * 60 * 1000
+
+    let maxPrice = -Infinity, maxDate = ''
+    let minPrice = Infinity, minDate = ''
+
+    data.values.forEach((v: any) => {
+      const t = new Date(v.datetime + 'T00:00:00').getTime()
+      if (t < cutoff) return
+      const h = parseFloat(v.high)
+      const l = parseFloat(v.low)
+      if (!isNaN(h) && h > maxPrice) { maxPrice = h; maxDate = v.datetime }
+      if (!isNaN(l) && l < minPrice) { minPrice = l; minDate = v.datetime }
+    })
+
+    if (maxPrice === -Infinity || minPrice === Infinity) {
+      return NextResponse.json({ error: 'No se pudo calcular máximo/mínimo' }, { status: 502 })
+    }
+
+    // Velas diarias compactas (fecha + cierre) — se usan para cruzar con fechas de reportes 10-K en /api/fundamentals
+    const dailyCloses = data.values
+      .map((v: any) => ({ date: v.datetime, close: parseFloat(v.close) }))
+      .filter((c: any) => !isNaN(c.close))
+      .reverse() // cronológico
+
+    return NextResponse.json({
+      symbol,
+      years: YEARS,
+      max: { price: maxPrice, date: maxDate },
+      min: { price: minPrice, date: minDate },
+      dailyCloses,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 })

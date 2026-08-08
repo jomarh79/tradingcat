@@ -582,10 +582,10 @@ const isMarketOpen = () => {
                   ['distancia',     'Dist. %'],
                   ['analyst_target','Analistas'],
                   ['vsAnalyst',     'Vs analistas'],
-                  ['sma200_weekly','Media 200 semanal'],
+                  ['sma200_weekly','SMA 200 semanal'],
                   ['rsi',           'RSI'],
                   ['notes',         'Notas'],
-                  [null,            ''],
+                  [null,            'Acciones'],
                 ] as [string | null, string][]).map(([field, label], idx) => (
                   <th key={idx}
                     style={{ ...thStyle, cursor: field ? 'pointer' : 'default' }}
@@ -706,7 +706,7 @@ const isMarketOpen = () => {
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Media 200 semanal */}
+                    {/* SMA 200 semanal */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
                      
                     </td>
