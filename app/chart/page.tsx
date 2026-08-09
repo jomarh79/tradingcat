@@ -414,11 +414,11 @@ function ChartPageInner() {
     // MAX/MIN histórico (10 años) — siempre visible, calculado sobre velas diarias sin importar el intervalo activo
     if (dailyStats) {
       candleSeries.createPriceLine({
-        price: dailyStats.max.price, color: '#f700ff', lineWidth: 4, lineStyle: 2,
+        price: dailyStats.max.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
         axisLabelVisible: true, title: 'Máx',
       })
       candleSeries.createPriceLine({
-        price: dailyStats.min.price, color: '#f700ff', lineWidth: 4, lineStyle: 2,
+        price: dailyStats.min.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
         axisLabelVisible: true, title: 'Mín',
       })
     }
@@ -708,6 +708,13 @@ function ChartPageInner() {
           <span><span style={{ color: C.warning }}>┄</span> Costo promedio</span>
           <span><span style={{ color: '#f97316' }}>┄</span> TP1 / TP2 / TP3</span>
           <span><span style={{ color: C.danger }}>┄</span> Stop loss</span>
+          <span style={{ color: '#444' }}>|</span>
+          {(interval === '45min' || interval === '1day'
+            ? ['ema8', 'ema21', 'ema50', 'ema100', 'ema200']
+            : ['sma10', 'sma20', 'sma50', 'sma100', 'sma200']
+          ).map(key => (
+            <span key={key}><span style={{ color: MA_COLORS[key] }}>▬</span> {MA_LABELS[key]}</span>
+          ))}
         </div>
 
       </div>
