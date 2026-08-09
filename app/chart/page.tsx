@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, Suspense, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
@@ -78,6 +78,7 @@ function findNearestClose(dailyCloses: { date: string; close: number }[], target
 }
 
 // Promedio propio de 5 años — cruza cada 10-K con el precio de esa fecha (no aplica a ETFs, no presentan 10-K)
+// Devuelve tanto el promedio como la serie punto por punto (un punto por año) para poder graficarla.
 function computeOwnFiveYearAvg(
   ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[],
   dailyCloses: { date: string; close: number }[]
@@ -91,8 +92,10 @@ function computeOwnFiveYearAvg(
     const ps = h.revenue && h.sharesOutstanding ? (price * h.sharesOutstanding) / h.revenue : null
     const payoutRatio = h.dividendPerShare != null && h.eps ? (h.dividendPerShare / h.eps) * 100 : null
     const dividendYield = h.dividendPerShare != null ? (h.dividendPerShare / price) * 100 : null
-    return { pe, ps, payoutRatio, dividendYield }
+    const time = Math.floor(new Date(h.endDate.split(' ')[0]).getTime() / 1000)
+    return { year: h.year, time, pe, ps, payoutRatio, dividendYield }
   }).filter((v): v is NonNullable<typeof v> => v !== null)
+    .sort((a, b) => a.time - b.time)
 
   if (perYear.length === 0) return null
 
@@ -100,7 +103,11 @@ function computeOwnFiveYearAvg(
     const vals = perYear.map(p => p[key]).filter((v): v is number => typeof v === 'number')
     return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }
-  return { pe: avg('pe'), ps: avg('ps'), payoutRatio: avg('payoutRatio'), dividendYield: avg('dividendYield'), yearsUsed: perYear.length }
+  return {
+    pe: avg('pe'), ps: avg('ps'), payoutRatio: avg('payoutRatio'), dividendYield: avg('dividendYield'),
+    yearsUsed: perYear.length,
+    series: perYear, // { year, time, pe, ps, payoutRatio, dividendYield }[] — para graficar
+  }
 }
 
 function ChartPageInner() {
@@ -114,6 +121,7 @@ function ChartPageInner() {
   const [showMACD, setShowMACD] = useState(false)
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(false)
+  const [showValuation, setShowValuation] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -229,6 +237,12 @@ function ChartPageInner() {
       })
       .catch(() => {})
   }, [ticker])
+
+  // Serie histórica de P/E (y demás ratios) por año, cruzando fundamentales con precio — memoizado para no recalcular en cada render
+  const ownFiveYearAvg = useMemo(() => {
+    if (!fundamentals || !dailyStats) return null
+    return computeOwnFiveYearAvg(fundamentals.ownHistory, dailyStats.dailyCloses)
+  }, [fundamentals, dailyStats])
 
   // ── Render del gráfico ──
   useEffect(() => {
@@ -466,6 +480,23 @@ function ChartPageInner() {
       chart.panes()[paneIdx]?.setHeight(130)
     }
 
+    if (showValuation && ownFiveYearAvg && ownFiveYearAvg.series.length > 0) {
+      const paneIdx = nextPane++
+      const peSeries = ownFiveYearAvg.series
+        .filter(s => s.pe !== null)
+        .map(s => ({ time: s.time, value: s.pe as number }))
+      if (peSeries.length > 0) {
+        const peLine = chart.addSeries(LineSeries, { color: '#facc15', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
+        peLine.setData(peSeries as any)
+        if (ownFiveYearAvg.pe != null) {
+          peLine.createPriceLine({ price: ownFiveYearAvg.pe, color: '#ffffff', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'Prom.' })
+          peLine.createPriceLine({ price: ownFiveYearAvg.pe * 0.8, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'Barato' })
+          peLine.createPriceLine({ price: ownFiveYearAvg.pe * 1.2, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'Caro' })
+        }
+        chart.panes()[paneIdx]?.setHeight(130)
+      }
+    }
+
     if (visibleRangeRef.current) {
       chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
     } else {
@@ -487,7 +518,7 @@ function ChartPageInner() {
 
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde])
+  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showValuation, ownFiveYearAvg])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
@@ -501,10 +532,6 @@ function ChartPageInner() {
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
-
-  const ownFiveYearAvg = fundamentals && dailyStats
-    ? computeOwnFiveYearAvg(fundamentals.ownHistory, dailyStats.dailyCloses)
-    : null
 
   return (
     <AppShell>
@@ -605,6 +632,9 @@ function ChartPageInner() {
           <button onClick={() => setShowMACD(v => !v)} style={filterBtn(showMACD)}>MACD</button>
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
+          <button onClick={() => setShowValuation(v => !v)} style={filterBtn(showValuation)} disabled={!ownFiveYearAvg}>
+            P/E histórico
+          </button>
         </div>
 
         {!ticker && (

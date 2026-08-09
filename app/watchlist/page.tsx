@@ -582,7 +582,8 @@ const isMarketOpen = () => {
                   ['distancia',     'Dist. %'],
                   ['analyst_target','Analistas'],
                   ['vsAnalyst',     'Vs analistas'],
-                  ['sma200_weekly','SMA 200 semanal'],
+                  ['sma200_weekly','SMA 200 Semanal'],
+                  ['ema200_day','EMA 200 Diaria'],
                   ['rsi',           'RSI'],
                   ['notes',         'Notas'],
                   [null,            'Acciones'],
@@ -705,6 +706,12 @@ const isMarketOpen = () => {
                           </span>
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
+
+                     {/* EMA 200 Diaria */}
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
+                     
+                    </td>
+
 
                     {/* SMA 200 semanal */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
