@@ -55,15 +55,19 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Falta la variable de entorno NEXT_PUBLIC_TWELVEDATA_API_KEY en este proyecto' }, { status: 500 })
   }
 
-  // Tamaño de la ventana: suficiente para que las medias de 200 periodos tengan sentido
-  const outputsizeMap: Record<string, number> = {
-  '45min': 2500,
-  '1day': 2500,
-  '1week': 520,
-  '1month': 210,
-}
+    // Tamaño de la ventana: suficiente para que las medias de 200 periodos tengan sentido
 
-const outputsize = outputsizeMap[interval]
+  const outputsizeMap: Record<string, number> = {
+
+  '45min': 1000,
+
+  '1day': 2500,
+
+  '1week': 520,
+
+  '1month': 210,
+
+}
 
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&apikey=${apiKey}`
@@ -131,19 +135,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data.message || `Sin datos diarios para ${symbol}` }, { status: 502 })
     }
 
-    const YEARS = 10
-    const cutoff = Date.now() - YEARS * 365 * 24 * 60 * 60 * 1000
+    const YEARS_LONG = 10
+    const YEARS_SHORT = 5
+    const cutoffLong = Date.now() - YEARS_LONG * 365 * 24 * 60 * 60 * 1000
+    const cutoffShort = Date.now() - YEARS_SHORT * 365 * 24 * 60 * 60 * 1000
 
     let maxPrice = -Infinity, maxDate = ''
     let minPrice = Infinity, minDate = ''
+    let maxPrice5 = -Infinity, maxDate5 = ''
+    let minPrice5 = Infinity, minDate5 = ''
 
     data.values.forEach((v: any) => {
       const t = new Date(v.datetime + 'T00:00:00').getTime()
-      if (t < cutoff) return
+      if (t < cutoffLong) return
       const h = parseFloat(v.high)
       const l = parseFloat(v.low)
       if (!isNaN(h) && h > maxPrice) { maxPrice = h; maxDate = v.datetime }
       if (!isNaN(l) && l < minPrice) { minPrice = l; minDate = v.datetime }
+      if (t >= cutoffShort) {
+        if (!isNaN(h) && h > maxPrice5) { maxPrice5 = h; maxDate5 = v.datetime }
+        if (!isNaN(l) && l < minPrice5) { minPrice5 = l; minDate5 = v.datetime }
+      }
     })
 
     if (maxPrice === -Infinity || minPrice === Infinity) {
@@ -158,9 +170,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       symbol,
-      years: YEARS,
+      years: YEARS_LONG,
       max: { price: maxPrice, date: maxDate },
       min: { price: minPrice, date: minDate },
+      max5: maxPrice5 !== -Infinity ? { price: maxPrice5, date: maxDate5 } : null,
+      min5: minPrice5 !== Infinity ? { price: minPrice5, date: minDate5 } : null,
       dailyCloses,
     })
   } catch (err: any) {

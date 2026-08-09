@@ -129,6 +129,7 @@ function ChartPageInner() {
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
   const [dailyStats, setDailyStats] = useState<{
     max: { price: number; date: string }; min: { price: number; date: string }
+    max5: { price: number; date: string } | null; min5: { price: number; date: string } | null
     dailyCloses: { date: string; close: number }[]
   } | null>(null)
   const [fundamentals, setFundamentals] = useState<{
@@ -532,6 +533,10 @@ function ChartPageInner() {
   const lastClose = chartData?.candles?.length ? chartData.candles[chartData.candles.length - 1].close : null
   const pctToMax = dailyStats && lastClose ? ((dailyStats.max.price - lastClose) / lastClose) * 100 : null
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
+  const pctToMax5 = dailyStats?.max5 && lastClose ? ((dailyStats.max5.price - lastClose) / lastClose) * 100 : null
+  const pctToMin5 = dailyStats?.min5 && lastClose ? ((lastClose - dailyStats.min5.price) / lastClose) * 100 : null
+
+  const fmtDate = (d: string) => d ? new Date(d.split(' ')[0] + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
   return (
     <AppShell>
@@ -554,72 +559,102 @@ function ChartPageInner() {
               ))}
             </select>
           )}
-          {pctToMax !== null && (
-            <span style={{ fontSize: 10, color: '#f700ff' }}>
-              +{pctToMax.toFixed(1)}% al máx 10a
-            </span>
-          )}
-          {pctToMin !== null && (
-            <span style={{ fontSize: 10, color: '#f700ff' }}>
-              -{pctToMin.toFixed(1)}% al mín 10a
-            </span>
-          )}
         </div>
 
-        {fundamentals && (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, maxWidth: 620 }}>
-            <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-              Ratios vs. sector {fundamentals.peerCount > 0 ? `(${fundamentals.peerCount} comparables)` : ''}
-              {ownFiveYearAvg ? ` · vs. propio promedio ${ownFiveYearAvg.yearsUsed}A` : ' · sin 10-K propio (ETF u otro caso sin reportes anuales)'}
+        <div style={{ display: 'flex', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+          {fundamentals && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', maxWidth: 620 }}>
+              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+                Ratios vs. sector {fundamentals.peerCount > 0 ? `(${fundamentals.peerCount} comparables)` : ''}
+                {ownFiveYearAvg ? ` · vs. propio promedio ${ownFiveYearAvg.yearsUsed}A` : ' · sin 10-K propio (ETF u otro caso sin reportes anuales)'}
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {['', ticker, 'Sector', 'Diff', `${ticker} ${ownFiveYearAvg ? ownFiveYearAvg.yearsUsed : 5}A Avg.`, 'Diff'].map((h, i) => (
+                      <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, padding: '2px 6px', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: 'P/E',       own: fundamentals.pe,            sector: fundamentals.sectorAvg?.pe ?? null,            avg5y: ownFiveYearAvg?.pe ?? null,            suffix: '', higherIsBetter: false },
+                    { label: 'P/S',       own: fundamentals.ps,            sector: fundamentals.sectorAvg?.ps ?? null,            avg5y: ownFiveYearAvg?.ps ?? null,            suffix: '', higherIsBetter: false },
+                    { label: 'Payout',    own: fundamentals.payoutRatio,   sector: fundamentals.sectorAvg?.payoutRatio ?? null,   avg5y: ownFiveYearAvg?.payoutRatio ?? null,   suffix: '%', higherIsBetter: false },
+                    { label: 'Div Yield', own: fundamentals.dividendYield, sector: fundamentals.sectorAvg?.dividendYield ?? null, avg5y: ownFiveYearAvg?.dividendYield ?? null, suffix: '%', higherIsBetter: true },
+                  ].map(row => {
+                    const diffSector = (row.own != null && row.sector != null && row.sector !== 0)
+                      ? ((row.own - row.sector) / Math.abs(row.sector)) * 100
+                      : null
+                    const diff5y = (row.own != null && row.avg5y != null && row.avg5y !== 0)
+                      ? ((row.own - row.avg5y) / Math.abs(row.avg5y)) * 100
+                      : null
+                    const isGoodSector = diffSector == null ? null : row.higherIsBetter ? diffSector >= 0 : diffSector <= 0
+                    const isGood5y = diff5y == null ? null : row.higherIsBetter ? diff5y >= 0 : diff5y <= 0
+                    return (
+                      <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
+                        <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
+                          {row.own != null ? `${row.own.toFixed(2)}${row.suffix}` : '—'}
+                        </td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
+                          {row.sector != null ? `${row.sector.toFixed(2)}${row.suffix}` : '—'}
+                        </td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGoodSector == null ? '#444' : isGoodSector ? C.success : C.danger }}>
+                          {diffSector != null ? `${diffSector >= 0 ? '+' : ''}${diffSector.toFixed(1)}%` : '—'}
+                        </td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
+                          {row.avg5y != null ? `${row.avg5y.toFixed(2)}${row.suffix}` : '—'}
+                        </td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGood5y == null ? '#444' : isGood5y ? C.success : C.danger }}>
+                          {diff5y != null ? `${diff5y >= 0 ? '+' : ''}${diff5y.toFixed(1)}%` : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead>
-                <tr>
-                  {['', ticker, 'Sector', 'Diff', `${ticker} ${ownFiveYearAvg ? ownFiveYearAvg.yearsUsed : 5}A Avg.`, 'Diff'].map((h, i) => (
-                    <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, padding: '2px 6px', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { label: 'P/E',       own: fundamentals.pe,            sector: fundamentals.sectorAvg?.pe ?? null,            avg5y: ownFiveYearAvg?.pe ?? null,            suffix: '', higherIsBetter: false },
-                  { label: 'P/S',       own: fundamentals.ps,            sector: fundamentals.sectorAvg?.ps ?? null,            avg5y: ownFiveYearAvg?.ps ?? null,            suffix: '', higherIsBetter: false },
-                  { label: 'Payout',    own: fundamentals.payoutRatio,   sector: fundamentals.sectorAvg?.payoutRatio ?? null,   avg5y: ownFiveYearAvg?.payoutRatio ?? null,   suffix: '%', higherIsBetter: false },
-                  { label: 'Div Yield', own: fundamentals.dividendYield, sector: fundamentals.sectorAvg?.dividendYield ?? null, avg5y: ownFiveYearAvg?.dividendYield ?? null, suffix: '%', higherIsBetter: true },
-                ].map(row => {
-                  const diffSector = (row.own != null && row.sector != null && row.sector !== 0)
-                    ? ((row.own - row.sector) / Math.abs(row.sector)) * 100
-                    : null
-                  const diff5y = (row.own != null && row.avg5y != null && row.avg5y !== 0)
-                    ? ((row.own - row.avg5y) / Math.abs(row.avg5y)) * 100
-                    : null
-                  const isGoodSector = diffSector == null ? null : row.higherIsBetter ? diffSector >= 0 : diffSector <= 0
-                  const isGood5y = diff5y == null ? null : row.higherIsBetter ? diff5y >= 0 : diff5y <= 0
-                  return (
+          )}
+
+          {dailyStats && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', maxWidth: 320 }}>
+              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+                Máximos / mínimos históricos
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {['', 'Precio', '%', 'Fecha'].map((h, i) => (
+                      <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, padding: '2px 6px', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: 'Máx 10a', price: dailyStats.max.price,   pct: pctToMax,  date: dailyStats.max.date,   color: C.success },
+                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,  date: dailyStats.min.date,   color: C.danger },
+                    { label: 'Máx 5a',  price: dailyStats.max5?.price, pct: pctToMax5, date: dailyStats.max5?.date, color: C.success },
+                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5, date: dailyStats.min5?.date, color: C.danger },
+                  ].map(row => (
                     <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
                       <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
                       <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
-                        {row.own != null ? `${row.own.toFixed(2)}${row.suffix}` : '—'}
+                        {row.price != null ? `$${row.price.toFixed(2)}` : '—'}
                       </td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
-                        {row.sector != null ? `${row.sector.toFixed(2)}${row.suffix}` : '—'}
+                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: row.pct != null ? row.color : '#444' }}>
+                        {row.pct != null ? `${row.label.startsWith('Máx') ? '+' : '-'}${row.pct.toFixed(1)}%` : '—'}
                       </td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGoodSector == null ? '#444' : isGoodSector ? C.success : C.danger }}>
-                        {diffSector != null ? `${diffSector >= 0 ? '+' : ''}${diffSector.toFixed(1)}%` : '—'}
-                      </td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888' }}>
-                        {row.avg5y != null ? `${row.avg5y.toFixed(2)}${row.suffix}` : '—'}
-                      </td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700, color: isGood5y == null ? '#444' : isGood5y ? C.success : C.danger }}>
-                        {diff5y != null ? `${diff5y >= 0 ? '+' : ''}${diff5y.toFixed(1)}%` : '—'}
+                      <td style={{ padding: '4px 6px', textAlign: 'right', color: '#888', whiteSpace: 'nowrap' }}>
+                        {row.date ? fmtDate(row.date) : '—'}
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
