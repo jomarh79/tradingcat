@@ -26,6 +26,8 @@ const MA_LABELS: Record<string, string> = {
   ema8: 'EMA 8', ema21: 'EMA 21', ema50: 'EMA 50', ema100: 'EMA 100', ema200: 'EMA 200',
   sma10: 'SMA 10', sma20: 'SMA 20', sma50: 'SMA 50', sma100: 'SMA 100', sma200: 'SMA 200',
 }
+const EMA_KEYS = ['ema8', 'ema21', 'ema50', 'ema100', 'ema200']
+const SMA_KEYS = ['sma10', 'sma20', 'sma50', 'sma100', 'sma200']
 
 // Figura por grupo de portafolio — "EFT" es excepción por nombre, no por grupo
 function getPortfolioBadge(name: string | undefined, grupo: string | undefined) {
@@ -139,6 +141,10 @@ function ChartPageInner() {
     ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[]
   } | null>(null)
 
+  // Tablas fijas de EMA diario / SMA semanal — independientes del filtro de intervalo del gráfico principal
+  const [emaDailyData, setEmaDailyData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
+  const [smaWeeklyData, setSmaWeeklyData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
+
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const cacheRef = useRef<Record<string, any>>({})
@@ -201,6 +207,25 @@ function ChartPageInner() {
     if (ticker) fetchChartData(ticker, interval)
   }, [ticker, interval, fetchChartData])
 
+  // ── Fetch auxiliar para las tablas fijas de EMA diario / SMA semanal — reutiliza el mismo caché ──
+  const fetchAuxMAs = useCallback(async (sym: string, iv: Interval, setter: (d: any) => void) => {
+    const cacheKey = `${sym}-${iv}`
+    if (cacheRef.current[cacheKey]) { setter(cacheRef.current[cacheKey]); return }
+    try {
+      const res = await fetch(`/api/chart-data?symbol=${encodeURIComponent(sym)}&interval=${iv}`)
+      const data = await res.json()
+      if (data.error) return
+      cacheRef.current[cacheKey] = data
+      setter(data)
+    } catch { /* las tablas simplemente quedan vacías si falla */ }
+  }, [])
+
+  useEffect(() => {
+    if (!ticker) { setEmaDailyData(null); setSmaWeeklyData(null); return }
+    fetchAuxMAs(ticker, '1day', setEmaDailyData)
+    fetchAuxMAs(ticker, '1week', setSmaWeeklyData)
+  }, [ticker, fetchAuxMAs])
+
   // ── MAX/MIN histórico (10 años, siempre diario) — una sola vez por ticker ──
   useEffect(() => {
     if (!ticker) { setDailyStats(null); return }
@@ -244,6 +269,25 @@ function ChartPageInner() {
     if (!fundamentals || !dailyStats) return null
     return computeOwnFiveYearAvg(fundamentals.ownHistory, dailyStats.dailyCloses)
   }, [fundamentals, dailyStats])
+
+  // Filas de las tablas fijas EMA diario / SMA semanal, con % de distancia al precio actual
+  const currentDailyPrice = emaDailyData?.candles?.length
+    ? emaDailyData.candles[emaDailyData.candles.length - 1].close
+    : (smaWeeklyData?.candles?.length ? smaWeeklyData.candles[smaWeeklyData.candles.length - 1].close : null)
+
+  const emaTableRows = useMemo(() => EMA_KEYS.map(key => {
+    const arr = emaDailyData?.mas?.[key]
+    const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
+    const dist = (value != null && currentDailyPrice != null) ? ((currentDailyPrice - value) / value) * 100 : null
+    return { key, label: MA_LABELS[key], value, dist }
+  }), [emaDailyData, currentDailyPrice])
+
+  const smaTableRows = useMemo(() => SMA_KEYS.map(key => {
+    const arr = smaWeeklyData?.mas?.[key]
+    const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
+    const dist = (value != null && currentDailyPrice != null) ? ((currentDailyPrice - value) / value) * 100 : null
+    return { key, label: MA_LABELS[key], value, dist }
+  }), [smaWeeklyData, currentDailyPrice])
 
   // ── Render del gráfico ──
   useEffect(() => {
@@ -561,7 +605,7 @@ function ChartPageInner() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 14, marginBottom: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           {fundamentals && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', maxWidth: 620 }}>
               <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
@@ -652,6 +696,50 @@ function ChartPageInner() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {emaDailyData && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', width: 160 }}>
+              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+                EMA Diario
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {emaTableRows.map(row => (
+                  <div key={row.key} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '4px 8px', borderRadius: 4,
+                    background: row.dist == null ? '#111' : row.dist >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(244,63,94,0.15)',
+                  }}>
+                    <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>{row.label}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: row.dist == null ? '#555' : row.dist >= 0 ? C.success : C.danger }}>
+                      {row.dist != null ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {smaWeeklyData && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', width: 160 }}>
+              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
+                SMA Semanal
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {smaTableRows.map(row => (
+                  <div key={row.key} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '4px 8px', borderRadius: 4,
+                    background: row.dist == null ? '#111' : row.dist >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(244,63,94,0.15)',
+                  }}>
+                    <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>{row.label}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: row.dist == null ? '#555' : row.dist >= 0 ? C.success : C.danger }}>
+                      {row.dist != null ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
