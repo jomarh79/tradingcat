@@ -275,19 +275,34 @@ function ChartPageInner() {
     ? emaDailyData.candles[emaDailyData.candles.length - 1].close
     : (smaWeeklyData?.candles?.length ? smaWeeklyData.candles[smaWeeklyData.candles.length - 1].close : null)
 
-  const emaTableRows = useMemo(() => EMA_KEYS.map(key => {
-    const arr = emaDailyData?.mas?.[key]
-    const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
-    const dist = (value != null && currentDailyPrice != null) ? ((currentDailyPrice - value) / value) * 100 : null
-    return { key, label: MA_LABELS[key], value, dist }
-  }), [emaDailyData, currentDailyPrice])
+  const emaTableRows = useMemo(() => 
+  EMA_KEYS
+    .map(key => {
+      const arr = emaDailyData?.mas?.[key]
+      const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
+      const dist = (value != null && currentDailyPrice != null)
+        ? ((currentDailyPrice - value) / value) * 100
+        : null
 
-  const smaTableRows = useMemo(() => SMA_KEYS.map(key => {
-    const arr = smaWeeklyData?.mas?.[key]
-    const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
-    const dist = (value != null && currentDailyPrice != null) ? ((currentDailyPrice - value) / value) * 100 : null
-    return { key, label: MA_LABELS[key], value, dist }
-  }), [smaWeeklyData, currentDailyPrice])
+      return { key, label: MA_LABELS[key], value, dist }
+    })
+    .sort((a, b) => (b.dist ?? -Infinity) - (a.dist ?? -Infinity)),
+  [emaDailyData, currentDailyPrice]
+)
+  const smaTableRows = useMemo(() => 
+  SMA_KEYS
+    .map(key => {
+      const arr = smaWeeklyData?.mas?.[key]
+      const value = arr && arr.length ? arr[arr.length - 1]?.value ?? null : null
+      const dist = (value != null && currentDailyPrice != null)
+        ? ((currentDailyPrice - value) / value) * 100
+        : null
+
+      return { key, label: MA_LABELS[key], value, dist }
+    })
+    .sort((a, b) => (b.dist ?? -Infinity) - (a.dist ?? -Infinity)),
+  [smaWeeklyData, currentDailyPrice]
+)
 
   // ── Render del gráfico ──
   useEffect(() => {
