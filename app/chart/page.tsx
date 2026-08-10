@@ -715,49 +715,122 @@ function ChartPageInner() {
           )}
 
           {emaDailyData && (
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', width: 160 }}>
-              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-                EMA Diario
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {emaTableRows.map(row => (
-                  <div key={row.key} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '4px 8px', borderRadius: 4,
-                    background: row.dist == null ? '#111' : row.dist >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(244,63,94,0.15)',
-                  }}>
-                    <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>{row.label}</span>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: row.dist == null ? '#555' : row.dist >= 0 ? C.success : C.danger }}>
-                      {row.dist != null ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%` : '—'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+  <div style={{
+    background: C.card,
+    border: `1px solid ${C.border}`,
+    borderRadius: 10,
+    padding: '10px 14px',
+    width: 160
+  }}>
+    <div style={{
+      fontSize: 9,
+      color: '#666',
+      fontWeight: 700,
+      letterSpacing: 0.5,
+      marginBottom: 8,
+      textTransform: 'uppercase'
+    }}>
+      EMA Diario
+    </div>
 
-          {smaWeeklyData && (
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', width: 160 }}>
-              <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-                SMA Semanal
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {smaTableRows.map(row => (
-                  <div key={row.key} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '4px 8px', borderRadius: 4,
-                    background: row.dist == null ? '#111' : row.dist >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(244,63,94,0.15)',
-                  }}>
-                    <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>{row.label}</span>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: row.dist == null ? '#555' : row.dist >= 0 ? C.success : C.danger }}>
-                      {row.dist != null ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%` : '—'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4
+    }}>
+      {emaTableRows.map(row => (
+        <div key={row.key} style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '4px 8px',
+          borderRadius: 4,
+        }}>
+          <span style={{
+            fontSize: 10,
+            color: '#ccc',
+            fontWeight: 700
+          }}>
+            {row.label}
+          </span>
+
+          <span style={{
+            fontSize: 10,
+            fontWeight: 800,
+            color: row.dist == null
+              ? '#555'
+              : row.dist >= 0
+                ? C.success
+                : C.danger
+          }}>
+            {row.dist != null
+              ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%`
+              : '—'}
+          </span>
         </div>
+      ))}
+    </div>
+  </div>
+)}
+
+{ smaWeeklyData && (
+  <div style={{
+    background: C.card,
+    border: `1px solid ${C.border}`,
+    borderRadius: 10,
+    padding: '10px 14px',
+    width: 160
+  }}>
+    <div style={{
+      fontSize: 9,
+      color: '#666',
+      fontWeight: 700,
+      letterSpacing: 0.5,
+      marginBottom: 8,
+      textTransform: 'uppercase'
+    }}>
+      SMA Semanal
+    </div>
+
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4
+    }}>
+      {smaTableRows.map(row => (
+        <div key={row.key} style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '4px 8px',
+          borderRadius: 4,
+        }}>
+          <span style={{
+            fontSize: 10,
+            color: '#ccc',
+            fontWeight: 700
+          }}>
+            {row.label}
+          </span>
+
+          <span style={{
+            fontSize: 10,
+            fontWeight: 800,
+            color: row.dist == null
+              ? '#555'
+              : row.dist >= 0
+                ? C.success
+                : C.danger
+          }}>
+            {row.dist != null
+              ? `${row.dist >= 0 ? '+' : ''}${row.dist.toFixed(2)}%`
+              : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
