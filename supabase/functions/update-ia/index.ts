@@ -267,15 +267,6 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
           updateData.last_alert_date = todayStr;
         }
 
-        // ── Alerta IA ─────────────────────────────────────────────────
-        if (isMarketOpen && probability > 80 && item.last_ai_alert_date !== todayStr) {
-          await sendAlert({
-            ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target,
-            rsi: rsi.toFixed(2), type: `🤖 IA ${signal} (${probability.toFixed(0)}%)`,
-          });
-          updateData.last_ai_alert_date = todayStr;
-        }
-
         // ── Guardar en Supabase ────────────────────────────────────────
         console.log(`💾 Guardando ${item.ticker}:`, updateData)
 
