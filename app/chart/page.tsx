@@ -831,6 +831,7 @@ function ChartPageInner() {
     </div>
   </div>
 )}
+        </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['45min', '1day', '1week', '1month'] as Interval[]).map(iv => (
