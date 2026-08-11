@@ -298,11 +298,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <MenuLink href="/trades"   icon={<BarChart3   size={15} />} label="Nuevo Trade" active={pathname === '/trades'} />
               <MenuLink href="/abiertos" icon={<TrendingUp  size={15} />} label="Abiertos"    active={pathname === '/abiertos'} />
               <MenuLink href="/cerrados" icon={<History     size={15} />} label="Cerrados"    active={pathname === '/cerrados'} />
-
-              <div style={sectionLabel}>
-                <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
-                ANÁLISIS
-              </div>
               <MenuLink href="/watchlist" icon={<SearchCode size={15} />} label="Seguimiento" active={pathname === '/watchlist'} />
 
               <div style={groupHeader}>
