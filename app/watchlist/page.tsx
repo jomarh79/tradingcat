@@ -491,62 +491,6 @@ const isMarketOpen = () => {
           </div>
         </div>
 
-        {/* ── SEÑALES FUERTES ── */}
-        {strongSignals.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
-              <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
-              SEÑALES IA ACTIVAS — TICKERS CON MAYOR PROBABILIDAD
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(strongSignals.length, 6)}, 1fr)`, gap: 10 }}>
-              {strongSignals.map(item => {
-                const sig = signalMeta(item.ai_probability)
-                const rsiVal = Number(item.rsi)
-                const rsiOk  = isFinite(rsiVal) && rsiVal >= 0 && rsiVal <= 100
-                return (
-                  <div key={item.id} style={{
-                    background: sig.bg, border: `1px solid ${sig.color}44`,
-                    borderRadius: 10, padding: '12px 14px', position: 'relative', overflow: 'hidden',
-                  }}>
-                    <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                      <Paw size={44} color={sig.color} opacity={0.07} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ fontWeight: 900, color: '#fff', fontSize: 16 }}>{item.ticker}</div>
-                      <div style={{ fontSize: 18, fontWeight: 900, color: sig.color }}>{item.ai_probability?.toFixed(0)}%</div>
-                    </div>
-                    <div style={{ fontSize: 10, color: sig.color, fontWeight: 700, marginBottom: 6 }}>{item.ai_signal}</div>
-                    <div style={{ background: '#111', height: 3, borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
-                      <div style={{ width: `${item.ai_probability || 0}%`, background: sig.color, height: '100%', borderRadius: 2 }} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 9 }}>
-                      <div>
-                        <div style={{ color: '#666' }}>Precio</div>
-                        <div style={{ color: '#fff', fontWeight: 700 }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#666' }}>RSI</div>
-                        <div style={{ color: rsiColor(rsiOk ? rsiVal : null), fontWeight: 700 }}>
-                          {rsiOk ? rsiVal.toFixed(1) : '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#666' }}>Dist.</div>
-                        <div style={{ color: '#aaa', fontWeight: 700 }}>
-                          {item.current_price
-                            ? `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
-                            : '—'}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 8, color: '#444', marginTop: 6 }}>Análisis: {fmtTime(item.last_updated)}</div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
         {/* ── FORMULARIO ── */}
         <div style={{ display: 'flex', gap: 8, background: '#0a0a0a', padding: 12, borderRadius: 10, marginBottom: 16, border: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
           <input style={inpStyle} placeholder="TICKER" value={newTicker}
@@ -797,6 +741,62 @@ const isMarketOpen = () => {
             </tbody>
           </table>
         </div>
+
+                {/* ── SEÑALES FUERTES ── */}
+        {strongSignals.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
+              SEÑALES IA ACTIVAS — TICKERS CON MAYOR PROBABILIDAD
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(strongSignals.length, 6)}, 1fr)`, gap: 10 }}>
+              {strongSignals.map(item => {
+                const sig = signalMeta(item.ai_probability)
+                const rsiVal = Number(item.rsi)
+                const rsiOk  = isFinite(rsiVal) && rsiVal >= 0 && rsiVal <= 100
+                return (
+                  <div key={item.id} style={{
+                    background: sig.bg, border: `1px solid ${sig.color}44`,
+                    borderRadius: 10, padding: '12px 14px', position: 'relative', overflow: 'hidden',
+                  }}>
+                    <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
+                      <Paw size={44} color={sig.color} opacity={0.07} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 900, color: '#fff', fontSize: 16 }}>{item.ticker}</div>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: sig.color }}>{item.ai_probability?.toFixed(0)}%</div>
+                    </div>
+                    <div style={{ fontSize: 10, color: sig.color, fontWeight: 700, marginBottom: 6 }}>{item.ai_signal}</div>
+                    <div style={{ background: '#111', height: 3, borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+                      <div style={{ width: `${item.ai_probability || 0}%`, background: sig.color, height: '100%', borderRadius: 2 }} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 9 }}>
+                      <div>
+                        <div style={{ color: '#666' }}>Precio</div>
+                        <div style={{ color: '#fff', fontWeight: 700 }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: '#666' }}>RSI</div>
+                        <div style={{ color: rsiColor(rsiOk ? rsiVal : null), fontWeight: 700 }}>
+                          {rsiOk ? rsiVal.toFixed(1) : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: '#666' }}>Dist.</div>
+                        <div style={{ color: '#aaa', fontWeight: 700 }}>
+                          {item.current_price
+                            ? `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
+                            : '—'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 8, color: '#444', marginTop: 6 }}>Análisis: {fmtTime(item.last_updated)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 10, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Paw size={9} color="#333" opacity={0.5} />
