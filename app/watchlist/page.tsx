@@ -57,7 +57,17 @@ const CatTail = ({ color = '#00bfff', opacity = 0.07 }: any) => (
   </svg>
 )
 
-type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'analyst_target' | 'sma200_weekly' | 'ema200_day' | 'rsi' | 'notes'
+type SortField =
+  | 'ticker'
+  | 'price_change'
+  | 'current_price'
+  | 'buy_target'
+  | 'distancia'
+  | 'analyst_target'
+  | 'sma200_weekly'
+  | 'ema200_day'
+  | 'rsi'
+  | 'notes'
 
 interface WatchItem {
   id:                 number
@@ -150,7 +160,7 @@ export default function WatchlistIAPage() {
   const [newAnalyst, setNewAnalyst] = useState('')
   const [newNotes,   setNewNotes]   = useState('')
 
-  const [sortField, setSortField] = useState<SortField>('distancia')
+  const [sortField, setSortField] = useState<SortField>('buy_target')
   const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
