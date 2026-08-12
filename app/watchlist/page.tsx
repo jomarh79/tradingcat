@@ -57,7 +57,7 @@ const CatTail = ({ color = '#00bfff', opacity = 0.07 }: any) => (
   </svg>
 )
 
-type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'distancia' | 'analyst_target' | 'vsAnalyst' | 'ai_probability' | 'rsi' | 'notes'
+type SortField = 'ticker' | 'price_change' | 'current_price' | 'buy_target' | 'analyst_target' | 'sma200_weekly' | 'ema200_day' | 'rsi' | 'notes'
 
 interface WatchItem {
   id:                 number
@@ -71,6 +71,8 @@ interface WatchItem {
   last_updated:       string | null
   rsi:                number | null
   ema20:              number | null
+  ema200_day:         number | null
+  sma200_weekly:      number | null
   volatility:         number | null
   ai_probability:     number | null
   ai_score:           number | null
@@ -571,19 +573,17 @@ const isMarketOpen = () => {
 
         {/* ── TABLA ── */}
         <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1080 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
                 {([
                   ['ticker',        'Ticker'],
-                  ['price_change',  'Var. día'],
+                  ['price_change',  'Var. día %'],
                   ['current_price', 'Precio'],
                   ['buy_target',    'Mi objetivo'],
-                  ['distancia',     'Dist. %'],
                   ['analyst_target','Analistas'],
-                  ['vsAnalyst',     'Vs analistas'],
-                  ['sma200_weekly','SMA 200 Semanal'],
-                  ['ema200_day','EMA 200 Diaria'],
+                  ['sma200_weekly', 'SMA 200 Semanal'],
+                  ['ema200_day',    'EMA 200 Diaria'],
                   ['rsi',           'RSI'],
                   ['notes',         'Notas'],
                   [null,            'Acciones'],
@@ -601,7 +601,7 @@ const isMarketOpen = () => {
             </thead>
             <tbody>
               {displayList.length === 0 && (
-                <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                     <Paw size={28} color="#333" opacity={0.5} />
                     No hay activos. Agrega uno arriba.
@@ -663,7 +663,7 @@ const isMarketOpen = () => {
                       {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Mi objetivo — editable */}
+                    {/* Mi objetivo — % arriba / precio abajo / editable */}
                     <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
                       {editingId === item.id ? (
                         <input autoFocus type="number" min="0"
@@ -675,47 +675,50 @@ const isMarketOpen = () => {
                         />
                       ) : (
                         <span onClick={() => { setEditingId(item.id); setTempTarget(item.buy_target.toString()) }} title="Clic para editar">
-                          ${item.buy_target.toFixed(2)}
+                          <div style={{ fontSize: 11, color: item.distancia >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
+                            {item.current_price ? `${item.distancia >= 0 ? '+' : ''}${item.distancia.toFixed(2)}%` : '—'}
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 2 }}>${item.buy_target.toFixed(2)}</div>
                         </span>
                       )}
                     </td>
 
-                    {/* Distancia */}
-                    <td style={tdStyle}>
-                      {item.current_price
-                        ? <span style={{
-                            color: item.distancia < 0 ? '#f43f5e' : item.distancia < 10 ? '#ffd700' : '#666',
-                            fontWeight: 600,
-                            fontSize: 12
-                          }}>
-                            {item.distancia > 0 ? '+' : ''}{item.distancia.toFixed(2)}%
-                          </span>
-                        : <span style={{ color: '#333' }}>—</span>}
+                    {/* Analistas — % arriba / precio abajo */}
+                    <td style={{ ...tdStyle, fontSize: 12 }}>
+                      {item.analyst_target > 0 ? (
+                        <>
+                          <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                            {item.current_price ? `${item.vsAnalyst >= 0 ? '+' : ''}${item.vsAnalyst.toFixed(2)}%` : '—'}
+                          </div>
+                          <div style={{ color: '#aaa', fontWeight: 600, marginTop: 2 }}>
+                            ${Number(item.analyst_target).toFixed(2)}
+                          </div>
+                        </>
+                      ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Precio analistas */}
-                    <td style={{ ...tdStyle, color: '#666', fontSize: 12 }}>
-                      {item.analyst_target > 0 ? `$${Number(item.analyst_target).toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-
-                    {/* Vs analistas */}
-                    <td style={tdStyle}>
-                      {item.current_price && item.analyst_target > 0
-                        ? <span style={{ color: item.vsAnalyst > 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12 }}>
-                            {item.vsAnalyst > 0 ? '+' : ''}{item.vsAnalyst.toFixed(2)}%
-                          </span>
-                        : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-
-                     {/* EMA 200 Diaria */}
+                    {/* SMA 200 semanal — % arriba / precio abajo */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
-                     
+                      {item.sma200_weekly && item.sma200_weekly > 0 ? (
+                        <>
+                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                            {item.current_price ? `${item.sma200_weekly >= item.current_price ? '+' : ''}${((item.sma200_weekly - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
+                          </div>
+                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.sma200_weekly).toFixed(2)}</div>
+                        </>
+                      ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-
-                    {/* SMA 200 semanal */}
+                    {/* EMA 200 diaria — % arriba / precio abajo */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
-                     
+                      {item.ema200_day && item.ema200_day > 0 ? (
+                        <>
+                          <div style={{ color: item.current_price && item.ema200_day >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                            {item.current_price ? `${item.ema200_day >= item.current_price ? '+' : ''}${((item.ema200_day - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
+                          </div>
+                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.ema200_day).toFixed(2)}</div>
+                        </>
+                      ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
                     {/* RSI */}
