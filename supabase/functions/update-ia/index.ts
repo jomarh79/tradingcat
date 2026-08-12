@@ -172,24 +172,15 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
       if (i > 0) await sleep(1000)
 
       try {
-/*
-        if (currentPrice > 0) {
-          const distPercent  = Math.abs((currentPrice - item.buy_target) / item.buy_target) * 100
-          const lastUpdate   = item.last_updated ? new Date(item.last_updated).getTime() : 0
-          const minutesSince = (Date.now() - lastUpdate) / 60000
-
-          if (distPercent <= 2  && minutesSince < 1)  { console.log(`⏭️ ${item.ticker} skip 1m zona`);  continue }
-          if (distPercent <= 5  && minutesSince < 5)  { console.log(`⏭️ ${item.ticker} skip 5m`);       continue }
-          if (distPercent <= 10 && minutesSince < 10) { console.log(`⏭️ ${item.ticker} skip 10m`);      continue }
-          if (minutesSince < 15)                      { console.log(`⏭️ ${item.ticker} skip 15m`);      continue }
-        }
-*/
-        // ── TwelveData: historial de 100 días para RSI preciso ────────
+        // ── TwelveData: historial largo — con outputsize=100 alcanzaba para RSI/EMA20,
+        // pero para EMA200 (necesita convergencia) y para armar velas semanales y sacar
+        // el SMA200 semanal (resampleando estos mismos datos diarios, sin llamada extra)
+        // se necesita bastante más historial.
         const controller = new AbortController()
 
         const timeout = setTimeout(() => controller.abort(), 8000)
         const tsRes = await fetch(
-          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=100&apikey=${API_KEY}`,
+          `https://api.twelvedata.com/time_series?symbol=${item.ticker}&interval=1day&outputsize=1100&apikey=${API_KEY}`,
           { signal: controller.signal }
         )
 
@@ -207,12 +198,16 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
           continue;
         }
 
-        const prices: number[] = tsData.values
-          .map((v: any) => parseFloat(v.close))
-          .filter((p: number) => !isNaN(p) && p > 0)
+        // Filas diarias ascendentes (fecha + cierre) — se usan para RSI/EMA/EMA200 y para
+        // resamplear a semanal (SMA200). TwelveData regresa del más reciente al más antiguo.
+        const dailyRows: { date: string; close: number }[] = tsData.values
+          .map((v: any) => ({ date: v.datetime, close: parseFloat(v.close) }))
+          .filter((r: any) => !isNaN(r.close) && r.close > 0)
           .reverse();
 
-        if (prices.length < 15) continue;
+        if (dailyRows.length < 15) continue;
+
+        const prices: number[] = dailyRows.map(r => r.close);
 
         const priceName   = tsData.meta?.symbol || item.ticker;
 
@@ -230,6 +225,7 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
         }
 
         prices[prices.length - 1] = price;
+        dailyRows[dailyRows.length - 1] = { ...dailyRows[dailyRows.length - 1], close: price };
 
         // ── Indicadores ────────────────────────────────────────────────
         let rsi = calculateRSI(prices);
@@ -238,7 +234,12 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
         rsi = Math.max(0, Math.min(100, rsi));
 
         const ema20      = calculateEMA(prices, 20);
+        const ema200Day  = prices.length >= 200 ? calculateEMA(prices, 200) : null;
         const volatility = calculateVolatility(prices);
+
+        // SMA 200 semanal — velas semanales armadas agrupando estas mismas filas diarias
+        const weeklyCloses = resampleToWeeklyCloses(dailyRows);
+        const sma200Weekly = calculateSMA(weeklyCloses, 200);
 
         const { probability, score, signal } = predictProbability({
           rsi, price, ema20, volatility,
@@ -254,6 +255,8 @@ const processList = list.slice(0, TWELVEDATA_MAX_CALLS);
           last_updated:   new Date().toISOString(),
           rsi:            parseFloat(rsi.toFixed(2)),
           ema20:          parseFloat(ema20.toFixed(4)),
+          ema200_day:     ema200Day !== null ? parseFloat(ema200Day.toFixed(4)) : null,
+          sma200_weekly:  sma200Weekly !== null ? parseFloat(sma200Weekly.toFixed(4)) : null,
           volatility:     parseFloat(volatility.toFixed(4)),
           ai_probability: parseFloat(probability.toFixed(1)),
           ai_score:       parseFloat(score.toFixed(1)),
@@ -373,7 +376,6 @@ async function sendAlert(payload: Record<string, any>) {
 /**
  * RSI con suavizado de Wilder.
  * prices debe estar ordenado de más antiguo a más reciente.
- * Con outputsize=100 y period=14 tenemos suficiente historia para el suavizado.
  */
 function calculateRSI(prices: number[], period = 14): number {
   if (prices.length <= period) return 50;
@@ -417,6 +419,40 @@ function calculateEMA(prices: number[], period = 20): number {
     ema = prices[i] * k + ema * (1 - k);
   }
   return ema;
+}
+
+function calculateSMA(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  const slice = values.slice(values.length - period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+// Semana ISO (lunes a domingo) para agrupar días en semanas de forma estable entre años
+function getISOWeekKey(dateStr: string): string {
+  const d = new Date(dateStr.split(" ")[0] + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${weekNo}`;
+}
+
+// Agrupa velas diarias (ascendentes) en cierres semanales — toma el último cierre de cada semana ISO
+function resampleToWeeklyCloses(dailyRows: { date: string; close: number }[]): number[] {
+  const weeklyCloses: number[] = [];
+  let currentKey: string | null = null;
+  let lastClose: number | null = null;
+
+  for (const row of dailyRows) {
+    const key = getISOWeekKey(row.date);
+    if (currentKey !== null && key !== currentKey && lastClose !== null) {
+      weeklyCloses.push(lastClose);
+    }
+    currentKey = key;
+    lastClose = row.close;
+  }
+  if (lastClose !== null) weeklyCloses.push(lastClose);
+
+  return weeklyCloses;
 }
 
 function calculateVolatility(prices: number[]): number {
