@@ -161,7 +161,7 @@ export default function WatchlistIAPage() {
   const [newNotes,   setNewNotes]   = useState('')
 
   const [sortField, setSortField] = useState<SortField>('buy_target')
-  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc')
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
   const [filterText,  setFilterText] = useState('')
   const [editingId,   setEditingId]  = useState<number | null>(null)
   const [tempTarget,  setTempTarget] = useState('')
@@ -685,19 +685,19 @@ const isMarketOpen = () => {
                         />
                       ) : (
                         <span onClick={() => { setEditingId(item.id); setTempTarget(item.buy_target.toString()) }} title="Clic para editar">
-                          <div style={{ fontSize: 11, color: item.distancia >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
+                          <div style={{ fontSize: 12, color: item.distancia >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
                             {item.current_price ? `${item.distancia >= 0 ? '+' : ''}${item.distancia.toFixed(2)}%` : '—'}
                           </div>
-                          <div style={{ fontSize: 12, marginTop: 2 }}>${item.buy_target.toFixed(2)}</div>
+                          <div style={{ fontSize: 10, marginTop: 2 }}>${item.buy_target.toFixed(2)}</div>
                         </span>
                       )}
                     </td>
 
                     {/* Analistas — % arriba / precio abajo */}
-                    <td style={{ ...tdStyle, fontSize: 12 }}>
+                    <td style={{ ...tdStyle, fontSize: 10 }}>
                       {item.analyst_target > 0 ? (
                         <>
-                          <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                          <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
                             {item.current_price ? `${item.vsAnalyst >= 0 ? '+' : ''}${item.vsAnalyst.toFixed(2)}%` : '—'}
                           </div>
                           <div style={{ color: '#aaa', fontWeight: 600, marginTop: 2 }}>
@@ -708,10 +708,10 @@ const isMarketOpen = () => {
                     </td>
 
                     {/* SMA 200 semanal — % arriba / precio abajo */}
-                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.sma200_weekly && item.sma200_weekly > 0 ? (
                         <>
-                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
                             {item.current_price ? `${item.sma200_weekly >= item.current_price ? '+' : ''}${((item.sma200_weekly - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
                           </div>
                           <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.sma200_weekly).toFixed(2)}</div>
@@ -720,10 +720,10 @@ const isMarketOpen = () => {
                     </td>
 
                     {/* EMA 200 diaria — % arriba / precio abajo */}
-                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 12 }}>
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.ema200_day && item.ema200_day > 0 ? (
                         <>
-                          <div style={{ color: item.current_price && item.ema200_day >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 11 }}>
+                          <div style={{ color: item.current_price && item.ema200_day >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
                             {item.current_price ? `${item.ema200_day >= item.current_price ? '+' : ''}${((item.ema200_day - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
                           </div>
                           <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.ema200_day).toFixed(2)}</div>
