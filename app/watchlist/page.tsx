@@ -69,6 +69,8 @@ type SortField =
   | 'rsi'
   | 'notes'
 
+type EditableField = 'buy_target' | 'analyst_target' | 'notes'
+
 interface WatchItem {
   id:                 number
   ticker:             string
@@ -163,8 +165,33 @@ export default function WatchlistIAPage() {
   const [sortField, setSortField] = useState<SortField>('buy_target')
   const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
   const [filterText,  setFilterText] = useState('')
-  const [editingId,   setEditingId]  = useState<number | null>(null)
-  const [tempTarget,  setTempTarget] = useState('')
+
+  // ── Edición inline unificada — un solo estado para las 3 celdas editables ──
+  const [editingCell, setEditingCell] = useState<{ id: number; field: EditableField } | null>(null)
+  const [tempValue,   setTempValue]   = useState('')
+
+  const startEdit = (id: number, field: EditableField, currentValue: string) => {
+    setEditingCell({ id, field })
+    setTempValue(currentValue)
+  }
+
+  const cancelEdit = () => setEditingCell(null)
+
+  const saveEdit = async () => {
+    if (!editingCell) return
+    const { id, field } = editingCell
+
+    if (field === 'notes') {
+      await supabase.from('watchlist').update({ notes: tempValue }).eq('id', id)
+      setList(prev => prev.map(i => i.id === id ? { ...i, notes: tempValue } : i))
+    } else {
+      const parsed = parseFloat(parseFloat(tempValue || '0').toFixed(2))
+      const value = isNaN(parsed) ? 0 : parsed
+      await supabase.from('watchlist').update({ [field]: value }).eq('id', id)
+      setList(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
+    }
+    setEditingCell(null)
+  }
 
   // ── Cooldown del botón "Actualizar" (todos los tickers) ──
   const [lastGlobalTrigger, setLastGlobalTrigger] = useState<number | null>(null)
@@ -352,14 +379,6 @@ const isMarketOpen = () => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
     await supabase.from('watchlist').delete().eq('id', id)
     setList(prev => prev.filter(i => i.id !== id))
-  }
-
-  const updateTarget = async (id: number, newPrice: string) => {
-    const price = parseFloat(parseFloat(newPrice).toFixed(2))
-    if (isNaN(price)) { setEditingId(null); return }
-    await supabase.from('watchlist').update({ buy_target: price }).eq('id', id)
-    setList(prev => prev.map(i => i.id === id ? { ...i, buy_target: price } : i))
-    setEditingId(null)
   }
 
   const toggleFavorite = async (id: number, current: boolean | null) => {
@@ -563,13 +582,25 @@ const isMarketOpen = () => {
                 </td></tr>
               )}
               {displayList.map(item => {
-                const sig      = signalMeta(item.ai_probability)
                 const rsiValue = Number(item.rsi)
                 const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
                 const refreshingThis = refreshingTickers.has(item.ticker)
                 const cooldownLeft   = tickerCooldownRemaining(item.last_updated)
                 const sharedGapLeft  = singleTriggerGapRemaining()
                 const canRefresh     = !refreshingThis && cooldownLeft <= 0 && sharedGapLeft <= 0
+
+                const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
+                const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
+                const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
+
+                const editInputProps = {
+                  autoFocus: true,
+                  onBlur: saveEdit,
+                  onKeyDown: (e: React.KeyboardEvent) => {
+                    if (e.key === 'Enter') saveEdit()
+                    if (e.key === 'Escape') cancelEdit()
+                  },
+                }
 
                 return (
                   <tr key={item.id} style={{
@@ -617,41 +648,47 @@ const isMarketOpen = () => {
                       {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Mi objetivo — % arriba / precio abajo / editable */}
-                    <td style={{ ...tdStyle, color: '#ffd700', fontWeight: 700, cursor: 'pointer' }}>
-                      {editingId === item.id ? (
-                        <input autoFocus type="number" min="0"
-                          style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }}
-                          value={tempTarget}
-                          onChange={e => setTempTarget(e.target.value)}
-                          onBlur={() => updateTarget(item.id, tempTarget)}
-                          onKeyDown={e => { if (e.key === 'Enter') updateTarget(item.id, tempTarget); if (e.key === 'Escape') setEditingId(null) }}
-                        />
+                    {/* Mi objetivo — % arriba / precio editable abajo, directo en la celda */}
+                    <td style={{ ...tdStyle, fontWeight: 700 }}>
+                      {editingTarget ? (
+                        <input type="number" min="0" step="0.01" value={tempValue}
+                          onChange={e => setTempValue(e.target.value)}
+                          {...editInputProps}
+                          style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }} />
                       ) : (
-                        <span onClick={() => { setEditingId(item.id); setTempTarget(item.buy_target.toString()) }} title="Clic para editar">
+                        <div onClick={() => startEdit(item.id, 'buy_target', item.buy_target.toString())} style={{ cursor: 'pointer' }} title="Clic para editar">
                           <div style={{ fontSize: 12, color: item.distancia >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700 }}>
                             {item.current_price ? `${item.distancia >= 0 ? '+' : ''}${item.distancia.toFixed(2)}%` : '—'}
                           </div>
-                          <div style={{ fontSize: 10, marginTop: 2 }}>${item.buy_target.toFixed(2)}</div>
-                        </span>
+                          <div style={{ fontSize: 10, marginTop: 2, color: '#ffd700' }}>${item.buy_target.toFixed(2)}</div>
+                        </div>
                       )}
                     </td>
 
-                    {/* Analistas — % arriba / precio abajo */}
-                    <td style={{ ...tdStyle, color: '#666', fontSize: 10, cursor: 'pointer' }} onClick={async () => { const v = prompt('Precio objetivo de analistas:', item.analyst_target?.toString() || ''); if (v !== null && !isNaN(parseFloat(v))) { const value = parseFloat(v); await supabase.from('watchlist').update({ analyst_target: value }).eq('id', item.id); setList(prev => prev.map(i => i.id === item.id ? { ...i, analyst_target: value } : i)) } }}>
-                      {item.analyst_target > 0 ? (
-                        <>
-                          <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
-                            {item.current_price ? `${item.vsAnalyst >= 0 ? '+' : ''}${item.vsAnalyst.toFixed(2)}%` : '—'}
-                          </div>
-                          <div style={{ color: '#aaa', fontWeight: 600, marginTop: 2 }}>
-                            ${Number(item.analyst_target).toFixed(2)}
-                          </div>
-                        </>
-                      ) : <span style={{ color: '#333' }}>—</span>}
+                    {/* Analistas — % arriba / precio editable abajo, directo en la celda */}
+                    <td style={{ ...tdStyle, fontSize: 10 }}>
+                      {editingAnalyst ? (
+                        <input type="number" min="0" step="0.01" value={tempValue}
+                          onChange={e => setTempValue(e.target.value)}
+                          {...editInputProps}
+                          style={{ ...inpStyle, width: 80, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }} />
+                      ) : (
+                        <div onClick={() => startEdit(item.id, 'analyst_target', item.analyst_target ? item.analyst_target.toString() : '')} style={{ cursor: 'pointer' }} title="Clic para editar">
+                          {item.analyst_target > 0 ? (
+                            <>
+                              <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
+                                {item.current_price ? `${item.vsAnalyst >= 0 ? '+' : ''}${item.vsAnalyst.toFixed(2)}%` : '—'}
+                              </div>
+                              <div style={{ color: '#aaa', fontWeight: 600, marginTop: 2 }}>
+                                ${Number(item.analyst_target).toFixed(2)}
+                              </div>
+                            </>
+                          ) : <span style={{ color: '#333' }}>—</span>}
+                        </div>
+                      )}
                     </td>
 
-                    {/* SMA 200 semanal — % arriba / precio abajo */}
+                    {/* SMA 200 semanal — % arriba / precio abajo (solo lectura, viene del cron) */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.sma200_weekly && item.sma200_weekly > 0 ? (
                         <>
@@ -663,7 +700,7 @@ const isMarketOpen = () => {
                       ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* EMA 200 diaria — % arriba / precio abajo */}
+                    {/* EMA 200 diaria — % arriba / precio abajo (solo lectura, viene del cron) */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.ema200_day && item.ema200_day > 0 ? (
                         <>
@@ -682,13 +719,22 @@ const isMarketOpen = () => {
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Notas */}
-                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180, cursor: 'pointer' }} onClick={async () => { const v = prompt('Notas:', item.notes || ''); if (v !== null) { await supabase.from('watchlist').update({ notes: v }).eq('id', item.id); setList(prev => prev.map(i => i.id === item.id ? { ...i, notes: v } : i)) } }}>
-                      {item.notes
-                        ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
-                            {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
-                          </span>
-                        : <span style={{ color: '#333' }}>—</span>}
+                    {/* Notas — editable directo en la celda */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
+                      {editingNotes ? (
+                        <input type="text" value={tempValue}
+                          onChange={e => setTempValue(e.target.value)}
+                          {...editInputProps}
+                          style={{ ...inpStyle, width: 160, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }} />
+                      ) : (
+                        <span onClick={() => startEdit(item.id, 'notes', item.notes || '')} style={{ cursor: 'pointer' }} title="Clic para editar">
+                          {item.notes
+                            ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
+                                {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
+                              </span>
+                            : <span style={{ color: '#333' }}>—</span>}
+                        </span>
+                      )}
                     </td>
 
                     {/* Gráfico + Reanalizar + Estrella + Eliminar */}
@@ -742,9 +788,9 @@ const isMarketOpen = () => {
           </table>
         </div>
 
-                {/* ── SEÑALES FUERTES ── */}
+        {/* ── SEÑALES FUERTES ── */}
         {strongSignals.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
               <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
               SEÑALES IA ACTIVAS — TICKERS CON MAYOR PROBABILIDAD
