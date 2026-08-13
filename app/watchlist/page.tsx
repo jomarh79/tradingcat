@@ -638,7 +638,7 @@ const isMarketOpen = () => {
                     </td>
 
                     {/* Analistas — % arriba / precio abajo */}
-                    <td style={{ ...tdStyle, fontSize: 10 }}>
+                    <td style={{ ...tdStyle, color: '#666', fontSize: 10, cursor: 'pointer' }} onClick={async () => { const v = prompt('Precio objetivo de analistas:', item.analyst_target?.toString() || ''); if (v !== null && !isNaN(parseFloat(v))) { const value = parseFloat(v); await supabase.from('watchlist').update({ analyst_target: value }).eq('id', item.id); setList(prev => prev.map(i => i.id === item.id ? { ...i, analyst_target: value } : i)) } }}>
                       {item.analyst_target > 0 ? (
                         <>
                           <div style={{ color: item.vsAnalyst >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
@@ -683,7 +683,7 @@ const isMarketOpen = () => {
                     </td>
 
                     {/* Notas */}
-                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180, cursor: 'pointer' }} onClick={async () => { const v = prompt('Notas:', item.notes || ''); if (v !== null) { await supabase.from('watchlist').update({ notes: v }).eq('id', item.id); setList(prev => prev.map(i => i.id === item.id ? { ...i, notes: v } : i)) } }}>
                       {item.notes
                         ? <span style={{ color: '#888', fontSize: 11 }} title={item.notes}>
                             {item.notes.length > 30 ? item.notes.slice(0, 30) + '…' : item.notes}
