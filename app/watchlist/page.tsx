@@ -424,6 +424,10 @@ const isMarketOpen = () => {
     return [...filtered].sort((a, b) => {
       let av: any = a[sortField] ?? 0
       let bv: any = b[sortField] ?? 0
+      if (sortField === 'analyst_target') { av = a.vsAnalyst; bv = b.vsAnalyst }
+      if (sortField === 'sma200_weekly') { av = a.current_price ? ((a.sma200_weekly! - a.current_price) / a.current_price) * 100 : 0; bv = b.current_price ? ((b.sma200_weekly! - b.current_price) / b.current_price) * 100 : 0 }
+      if (sortField === 'ema200_day') { av = a.current_price ? ((a.ema200_day! - a.current_price) / a.current_price) * 100 : 0; bv = b.current_price ? ((b.ema200_day! - b.current_price) / b.current_price) * 100 : 0 }
+      if (sortField === 'buy_target') { av = a.distancia; bv = b.distancia }
       if (typeof av === 'string') av = av.toLowerCase()
       if (typeof bv === 'string') bv = bv.toLowerCase()
       if (av < bv) return sortDir === 'asc' ? -1 : 1
@@ -465,12 +469,7 @@ const isMarketOpen = () => {
               <Paw size={20} color="#ffd700" opacity={0.6} />
               <Paw size={14} color="#ffd700" opacity={0.35} />
               <Paw size={9}  color="#ffd700" opacity={0.18} />
-              <FaBell  style={{ color: '#ffd700', fontSize: 18 }} />
-              <FaBrain style={{ color: '#00bfff', fontSize: 16 }} />
-              <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Watchlist & IA Signals</h1>
-            </div>
-            <div style={{ fontSize: 11, color: '#888', marginLeft: 60 }}>
-              Monitoreo de precios · análisis técnico automatizado · alertas inteligentes
+              <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Seguimientos</h1>
             </div>
           </div>
 
