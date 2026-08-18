@@ -442,7 +442,7 @@ const isMarketOpen = () => {
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <FaSort style={{ opacity: 0.3, marginLeft: 3 }} />
-    return sortDir === 'asc'
+    return sortDir === 'desc'
       ? <FaSortUp   style={{ color: '#00bfff', marginLeft: 3 }} />
       : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
