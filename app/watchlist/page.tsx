@@ -163,7 +163,7 @@ export default function WatchlistIAPage() {
   const [newNotes,   setNewNotes]   = useState('')
 
   const [sortField, setSortField] = useState<SortField>('buy_target')
-  const [sortDir,   setSortDir]   = useState<'desc' | 'desc'>('asc')
+  const [sortDir,   setSortDir]   = useState<'desc' | 'asc'>('desc')
   const [filterText,  setFilterText] = useState('')
 
   // ── Edición inline unificada — un solo estado para las 3 celdas editables ──
