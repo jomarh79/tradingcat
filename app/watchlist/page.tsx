@@ -407,7 +407,7 @@ const isMarketOpen = () => {
   , [list])
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    if (sortField === field) setSortDir(d => d === 'desc' ? 'desc' : 'asc')
     else { setSortField(field); setSortDir('desc') }
   }
 
@@ -442,7 +442,7 @@ const isMarketOpen = () => {
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <FaSort style={{ opacity: 0.3, marginLeft: 3 }} />
-    return sortDir === 'desc'
+    return sortDir === 'asc'
       ? <FaSortUp   style={{ color: '#00bfff', marginLeft: 3 }} />
       : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
