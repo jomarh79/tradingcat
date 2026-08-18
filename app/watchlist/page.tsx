@@ -163,7 +163,7 @@ export default function WatchlistIAPage() {
   const [newNotes,   setNewNotes]   = useState('')
 
   const [sortField, setSortField] = useState<SortField>('buy_target')
-  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
+  const [sortDir,   setSortDir]   = useState<'desc' | 'desc'>('asc')
   const [filterText,  setFilterText] = useState('')
 
   // ── Edición inline unificada — un solo estado para las 3 celdas editables ──
@@ -407,7 +407,7 @@ const isMarketOpen = () => {
   , [list])
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) setSortDir(d => d === 'desc' ? 'desc' : 'asc')
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortField(field); setSortDir('desc') }
   }
 
