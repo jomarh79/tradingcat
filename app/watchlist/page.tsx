@@ -554,8 +554,8 @@ const isMarketOpen = () => {
                   ['current_price', 'Precio'],
                   ['buy_target',    'Mi objetivo'],
                   ['analyst_target','Analistas'],
-                  ['sma200_weekly', 'SMA 200 Semanal'],
                   ['ema200_day',    'EMA 200 Diaria'],
+                  ['sma200_weekly', 'SMA 200 Semanal'],
                   ['rsi',           'RSI'],
                   ['notes',         'Notas'],
                   [null,            'Acciones'],
@@ -687,18 +687,6 @@ const isMarketOpen = () => {
                       )}
                     </td>
 
-                    {/* SMA 200 semanal — % arriba / precio abajo (solo lectura, viene del cron) */}
-                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
-                      {item.sma200_weekly && item.sma200_weekly > 0 ? (
-                        <>
-                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
-                            {item.current_price ? `${item.sma200_weekly >= item.current_price ? '+' : ''}${((item.sma200_weekly - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
-                          </div>
-                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.sma200_weekly).toFixed(2)}</div>
-                        </>
-                      ) : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-
                     {/* EMA 200 diaria — % arriba / precio abajo (solo lectura, viene del cron) */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.ema200_day && item.ema200_day > 0 ? (
@@ -707,6 +695,19 @@ const isMarketOpen = () => {
                             {item.current_price ? `${item.ema200_day >= item.current_price ? '+' : ''}${((item.ema200_day - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
                           </div>
                           <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.ema200_day).toFixed(2)}</div>
+                        </>
+                      ) : <span style={{ color: '#333' }}>—</span>}
+                    </td>
+
+
+                    {/* SMA 200 semanal — % arriba / precio abajo (solo lectura, viene del cron) */}
+                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
+                      {item.sma200_weekly && item.sma200_weekly > 0 ? (
+                        <>
+                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
+                            {item.current_price ? `${item.sma200_weekly >= item.current_price ? '+' : ''}${((item.sma200_weekly - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
+                          </div>
+                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.sma200_weekly).toFixed(2)}</div>
                         </>
                       ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
