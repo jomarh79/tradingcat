@@ -11,8 +11,11 @@ export const dynamic = "force-dynamic";
 const APP_KEY = process.env.WEBULL_APP_KEY;
 const APP_SECRET = process.env.WEBULL_KEY_APP_SECRET;
 
+// IMPORTANTE: data-api.webull.com es el endpoint de streaming MQTT,
+// no de REST/HTTP. El Data API (histórico/snapshots vía HTTP) vive en
+// api.webull.com, el mismo host que se usa para auth/token.
 const BASE_URL =
-  process.env.WEBULL_MARKET_DATA_URL || "https://data-api.webull.com";
+  process.env.WEBULL_MARKET_DATA_URL || "https://api.webull.com";
 
 function createHeaders({
   path,
