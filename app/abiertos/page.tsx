@@ -286,7 +286,7 @@ if (tickerSearch.trim() !== "") {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
-                    "Authorization": "Bearer tradingcat-cron-2026"
+                    "Authorization": "Bearer tradingcat-manual-2026"
                   }
                 })
 

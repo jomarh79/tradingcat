@@ -274,9 +274,10 @@ serve(async (req) => {
   }
 
   const authHeader = req.headers.get("Authorization");
-  const isCron     = authHeader === CRON_TOKEN;
+  const isCron      = authHeader === CRON_TOKEN;
+  const isManual    = authHeader === "Bearer tradingcat-manual-2026";
 
-  if (!isCron && !req.headers.get("apikey")) {
+  if (!isCron && !isManual && !req.headers.get("apikey")) {
     return new Response("Unauthorized", { status: 401, headers: CORS });
   }
 

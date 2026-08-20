@@ -6,9 +6,12 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-// Webull permite 60 llamadas/minuto por App ID — mucho más holgado que
-// las 8/min de TwelveData. Dejamos margen de seguridad.
-const WEBULL_MAX_CALLS = 50;
+// Webull permite 60 llamadas/minuto por App ID. El sleep de 1s entre
+// tickers (ver loop principal) ya respeta ese límite, así que no hace
+// falta cortar la lista — se procesa la watchlist completa por corrida.
+// Si tu Edge Function empieza a hacer timeout con listas muy grandes
+// (100+), aquí es donde hay que volver a poner un tope.
+const WEBULL_MAX_CALLS = 500;
 
 // Historial diario a pedir por ticker. Necesario para EMA200 (necesita
 // convergencia) y para resamplear a semanal y sacar SMA200 semanal.
