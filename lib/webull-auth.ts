@@ -1,5 +1,9 @@
-import crypto from "crypto";
 import { supabaseAdmin } from "./supabase-admin";
+import {
+  generateNonce,
+  generateTimestamp,
+  signWebullRequest,
+} from "./webull-signature";
 
 const APP_KEY = process.env.WEBULL_APP_KEY;
 const APP_SECRET = process.env.WEBULL_KEY_APP_SECRET;
@@ -36,87 +40,6 @@ if (!APP_SECRET) {
 }
 
 /**
- * Genera un nonce único para cada petición.
- */
-function generateNonce(): string {
-  return crypto.randomUUID().replace(/-/g, "");
-}
-
-/**
- * Timestamp UTC requerido por Webull.
- */
-function generateTimestamp(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-/**
- * Genera la firma HMAC-SHA1 de Webull.
- *
- * IMPORTANTE:
- * La firma debe generarse para cada petición.
- */
-function generateSignature({
-  path,
-  timestamp,
-  nonce,
-  body = "",
-}: {
-  path: string;
-  timestamp: string;
-  nonce: string;
-  body?: string;
-}) {
-  // Estos son EXACTAMENTE los headers que participan
-  // en la firma según la documentación de Webull.
-  const params: Record<string, string> = {
-    "x-app-key": APP_KEY!,
-    "x-signature-algorithm": "HMAC-SHA1",
-    "x-signature-nonce": nonce,
-    "x-signature-version": "1.0",
-    "x-timestamp": timestamp,
-
-    // MUY IMPORTANTE:
-    // host también forma parte de la firma.
-    host: new URL(WEBULL_BASE_URL).host,
-  };
-
-  // Orden alfabético por nombre del parámetro.
-  const sortedKeys = Object.keys(params).sort();
-
-  // IMPORTANTE:
-  // NO hacemos encodeURIComponent aquí.
-  const str1 = sortedKeys
-    .map((key) => `${key}=${params[key]}`)
-    .join("&");
-
-  let str3 = `${path}&${str1}`;
-
-  // Si existe body, agregamos MD5 en mayúsculas.
-  if (body) {
-    const bodyMd5 = crypto
-      .createHash("md5")
-      .update(body, "utf8")
-      .digest("hex")
-      .toUpperCase();
-
-    str3 += `&${bodyMd5}`;
-  }
-
-  // Webull indica que el URL encoding se realiza
-  // SOBRE TODO str3, no sobre cada parámetro.
-  const encodedString = encodeURIComponent(str3);
-
-  // App Secret + "&"
-  const signingKey = `${APP_SECRET}&`;
-
-  // HMAC-SHA1 + Base64
-  return crypto
-    .createHmac("sha1", signingKey)
-    .update(encodedString, "utf8")
-    .digest("base64");
-}
-
-/**
  * Construye los headers necesarios para Webull.
  */
 function createWebullHeaders(
@@ -127,8 +50,11 @@ function createWebullHeaders(
   const timestamp = generateTimestamp();
   const nonce = generateNonce();
 
-  const signature = generateSignature({
+  const signature = signWebullRequest({
     path,
+    host: new URL(WEBULL_BASE_URL).host,
+    appKey: APP_KEY!,
+    appSecret: APP_SECRET!,
     timestamp,
     nonce,
     body,
@@ -139,7 +65,7 @@ function createWebullHeaders(
     "x-app-key": APP_KEY!,
     "x-timestamp": timestamp,
     "x-signature-version": "1.0",
-    "x-signature-algorithm": "HMAC-SHA1",
+    "x-signature-algorithm": "HMAC-SHA256",
     "x-signature-nonce": nonce,
     "x-version": "v2",
     "x-signature": signature,
@@ -326,7 +252,8 @@ async function updateTokenStatus(
  * Genera un token nuevo.
  *
  * El resultado normalmente será PENDING cuando
- * 2FA está activado.
+ * 2FA está activado (requiere aprobar la notificación
+ * en la app de Webull).
  */
 export async function generateAndStoreWebullToken() {
   const tokenData = await createWebullToken();
@@ -342,8 +269,8 @@ export async function generateAndStoreWebullToken() {
  * 1. Busca token en Supabase.
  * 2. Si existe, comprueba estado.
  * 3. Si NORMAL, lo devuelve.
- * 4. Si no existe o está INVALID/EXPIRED,
- *    crea uno nuevo.
+ * 4. Si PENDING, lo devuelve indicando que falta aprobar 2FA.
+ * 5. Si no existe o está INVALID/EXPIRED, crea uno nuevo.
  */
 export async function getWebullAccessToken() {
   const stored = await getStoredWebullToken();

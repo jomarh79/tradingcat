@@ -1,126 +1,18 @@
-import { NextResponse } from "next/server";
-import crypto from "crypto";
+import { NextRequest, NextResponse } from "next/server";
 import { getWebullAccessToken } from "@/lib/webull-auth";
+import {
+  generateNonce,
+  generateTimestamp,
+  signWebullRequest,
+} from "@/lib/webull-signature";
 
 export const dynamic = "force-dynamic";
 
 const APP_KEY = process.env.WEBULL_APP_KEY;
 const APP_SECRET = process.env.WEBULL_KEY_APP_SECRET;
+
 const BASE_URL =
-  process.env.WEBULL_API_URL || "https://api.webull.com";
-
-function generateNonce(): string {
-  return crypto.randomUUID().replace(/-/g, "");
-}
-
-function generateTimestamp(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-/**
- * Genera la firma Webull.
- *
- * IMPORTANTE:
- * Webull exige incluir en la firma:
- *
- * - path
- * - query parameters
- * - headers de firma
- * - MD5 del body si existe
- *
- * x-access-token NO participa en la firma.
- * x-signature tampoco.
- * x-version tampoco.
- */
-function createSignature({
-  path,
-  queryParams,
-  timestamp,
-  nonce,
-  body = "",
-}: {
-  path: string;
-  queryParams: Record<string, string>;
-  timestamp: string;
-  nonce: string;
-  body?: string;
-}): string {
-  if (!APP_KEY || !APP_SECRET) {
-    throw new Error(
-      "Faltan WEBULL_APP_KEY o WEBULL_KEY_APP_SECRET"
-    );
-  }
-
-  const host = new URL(BASE_URL).host;
-
-  /**
-   * Unimos:
-   *
-   * query params
-   * +
-   * headers que participan en la firma
-   */
-  const params: Record<string, string> = {
-    ...queryParams,
-
-    host,
-
-    "x-app-key": APP_KEY,
-    "x-signature-algorithm": "HMAC-SHA1",
-    "x-signature-nonce": nonce,
-    "x-signature-version": "1.0",
-    "x-timestamp": timestamp,
-  };
-
-  /**
-   * Orden alfabético de TODOS los parámetros.
-   */
-  const sortedKeys = Object.keys(params).sort();
-
-  const queryString = sortedKeys
-    .map((key) => `${key}=${params[key]}`)
-    .join("&");
-
-  /**
-   * Construimos str3.
-   */
-  let signString = `${path}&${queryString}`;
-
-  /**
-   * Para GET no hay body.
-   *
-   * Si en el futuro utilizamos POST con JSON,
-   * aquí se agregará el MD5 del body.
-   */
-  if (body) {
-    const bodyMd5 = crypto
-      .createHash("md5")
-      .update(body, "utf8")
-      .digest("hex")
-      .toUpperCase();
-
-    signString += `&${bodyMd5}`;
-  }
-
-  /**
-   * Webull indica que el URL encoding se aplica
-   * al string completo.
-   */
-  const encoded = encodeURIComponent(signString);
-
-  /**
-   * App Secret + "&"
-   */
-  const signingKey = `${APP_SECRET}&`;
-
-  /**
-   * HMAC-SHA1 + Base64
-   */
-  return crypto
-    .createHmac("sha1", signingKey)
-    .update(encoded, "utf8")
-    .digest("base64");
-}
+  process.env.WEBULL_MARKET_DATA_URL || "https://data-api.webull.com";
 
 function createHeaders({
   path,
@@ -131,53 +23,47 @@ function createHeaders({
   queryParams: Record<string, string>;
   accessToken: string;
 }) {
+  if (!APP_KEY || !APP_SECRET) {
+    throw new Error("Faltan WEBULL_APP_KEY o WEBULL_KEY_APP_SECRET");
+  }
+
   const timestamp = generateTimestamp();
   const nonce = generateNonce();
 
-  const signature = createSignature({
+  const signature = signWebullRequest({
     path,
-    queryParams,
+    host: new URL(BASE_URL).host,
+    appKey: APP_KEY,
+    appSecret: APP_SECRET,
     timestamp,
     nonce,
+    extraParams: queryParams,
   });
 
   return {
     Accept: "application/json",
-
-    "x-app-key": APP_KEY!,
+    "x-app-key": APP_KEY,
     "x-access-token": accessToken,
-
     "x-timestamp": timestamp,
     "x-signature-version": "1.0",
-    "x-signature-algorithm": "HMAC-SHA1",
+    "x-signature-algorithm": "HMAC-SHA256",
     "x-signature-nonce": nonce,
-
     "x-version": "v2",
-
     "x-signature": signature,
   };
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    /**
-     * ------------------------------------------------------------
-     * 1. Obtener símbolo
-     * ------------------------------------------------------------
-     */
-
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = request.nextUrl;
 
     const symbol =
       searchParams.get("ticker")?.toUpperCase().trim() ||
       searchParams.get("symbol")?.toUpperCase().trim() ||
       "AAPL";
 
-    /**
-     * ------------------------------------------------------------
-     * 2. Obtener token Webull
-     * ------------------------------------------------------------
-     */
+    const count = searchParams.get("count") || "10";
+    const timespan = searchParams.get("timespan") || "D";
 
     const auth = await getWebullAccessToken();
 
@@ -192,49 +78,18 @@ export async function GET(request: Request) {
       );
     }
 
-    /**
-     * ------------------------------------------------------------
-     * 3. Endpoint Webull
-     * ------------------------------------------------------------
-     */
+    const path = "/openapi/market-data/stock/bars";
 
-    const path =
-      "/openapi/market-data/stock/bars";
-
-    /**
-     * Parámetros EXACTOS de la petición.
-     *
-     * Estos mismos parámetros deben:
-     *
-     * 1. enviarse en la URL
-     * 2. incluirse en la firma
-     */
     const queryParams: Record<string, string> = {
       symbol,
       category: "US_STOCK",
-      timespan: "D",
-      count: "10",
+      timespan,
+      count,
       real_time_required: "false",
     };
 
-    /**
-     * ------------------------------------------------------------
-     * 4. Construir URL
-     * ------------------------------------------------------------
-     */
-
-    const queryString = new URLSearchParams(
-      queryParams
-    ).toString();
-
-    const url =
-      `${BASE_URL}${path}?${queryString}`;
-
-    /**
-     * ------------------------------------------------------------
-     * 5. Headers firmados
-     * ------------------------------------------------------------
-     */
+    const queryString = new URLSearchParams(queryParams).toString();
+    const url = `${BASE_URL}${path}?${queryString}`;
 
     const headers = createHeaders({
       path,
@@ -242,15 +97,7 @@ export async function GET(request: Request) {
       accessToken: auth.token,
     });
 
-    console.log(
-      `📊 Webull Market Data: ${symbol}`
-    );
-
-    /**
-     * ------------------------------------------------------------
-     * 6. Petición
-     * ------------------------------------------------------------
-     */
+    console.log(`📊 Webull Market Data: ${symbol}`);
 
     const response = await fetch(url, {
       method: "GET",
@@ -259,7 +106,6 @@ export async function GET(request: Request) {
     });
 
     const text = await response.text();
-
     let data: unknown;
 
     try {
@@ -267,12 +113,6 @@ export async function GET(request: Request) {
     } catch {
       data = text;
     }
-
-    /**
-     * ------------------------------------------------------------
-     * 7. Error Webull
-     * ------------------------------------------------------------
-     */
 
     if (!response.ok) {
       console.error(
@@ -288,38 +128,27 @@ export async function GET(request: Request) {
           httpStatus: response.status,
           data,
         },
-        {
-          status: response.status,
-        }
+        { status: response.status }
       );
     }
-
-    /**
-     * ------------------------------------------------------------
-     * 8. Éxito
-     * ------------------------------------------------------------
-     */
 
     return NextResponse.json({
       success: true,
       symbol,
-      count: 10,
+      count: parseInt(count, 10),
       data,
     });
-
   } catch (error) {
-    console.error(
-      "❌ Webull Market Data error:",
-      error
-    );
+    // Imprime el objeto de error completo y su causa en la consola de Next.js
+    console.error("❌ Error detallado en API Webull:", error);
+
+    const fetchError = error as Error & { cause?: unknown };
 
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Error desconocido",
+        error: fetchError.message,
+        cause: fetchError.cause ? String(fetchError.cause) : undefined,
       },
       { status: 500 }
     );
