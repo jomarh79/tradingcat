@@ -654,19 +654,6 @@ function ChartPageInner() {
       chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
     }
 
-    if (showADX) {
-      const paneIdx = nextPane++
-      const adxData = adxSeries(chartData.candles)
-      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
-      adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
-      const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
-      plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
-      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false}, paneIdx)
-      minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
-      adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
-    }
-
     if (showKoncorde) {
       const paneIdx = nextPane++
       const konData = koncordeSeries(chartData.candles)
@@ -681,6 +668,20 @@ function ChartPageInner() {
       mediaLine.createPriceLine({ price: 0, color: '#ffffff', lineWidth: 1, lineStyle: 3, axisLabelVisible: false})
       chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
     }
+
+    if (showADX) {
+      const paneIdx = nextPane++
+      const adxData = adxSeries(chartData.candles)
+      const adxLine = chart.addSeries(LineSeries, { color: C.warning, lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
+      adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
+      const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
+      plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
+      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false}, paneIdx)
+      minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
+      adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
+      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+    }
+
 
     if (visibleRangeRef.current) {
       chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
