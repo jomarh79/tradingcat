@@ -208,7 +208,7 @@ function RatioMiniChart({ title, color, data }: { title: string; color: string; 
     const line = chart.addSeries(LineSeries, {
       color, lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
     })
-    line.setData(data)
+    line.setData(data.map(d => ({ time: d.time, value: d.value })))
 
     const current = data[data.length - 1]?.value
     if (current != null) {
