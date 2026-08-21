@@ -634,7 +634,7 @@ function ChartPageInner() {
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
       rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
       rsiLine.createPriceLine({ price: 50, color: '#ffffff', lineWidth: 1, lineStyle: 3,axisLabelVisible: false})
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes().slice(1).forEach(pane => pane.setHeight(130))
     }
 
     if (showMACD) {
@@ -651,7 +651,7 @@ function ChartPageInner() {
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes().slice(1).forEach(pane => pane.setHeight(130))
     }
 
     if (showADX) {
@@ -664,7 +664,7 @@ function ChartPageInner() {
       const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false}, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes().slice(1).forEach(pane => pane.setHeight(130))
     }
 
     if (showKoncorde) {
@@ -679,7 +679,7 @@ function ChartPageInner() {
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
       mediaLine.createPriceLine({ price: 0, color: '#ffffff', lineWidth: 1, lineStyle: 3, axisLabelVisible: false})
-      chart.panes()[paneIdx]?.setHeight(130)
+      chart.panes().slice(1).forEach(pane => pane.setHeight(130))
     }
 
     if (visibleRangeRef.current) {
@@ -967,8 +967,8 @@ function ChartPageInner() {
           <span style={{ width: 1, background: '#222', margin: '2px 4px' }} />
           <button onClick={() => setShowRSI(v => !v)} style={filterBtn(showRSI)}>RSI</button>
           <button onClick={() => setShowMACD(v => !v)} style={filterBtn(showMACD)}>MACD</button>
-          <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
+          <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
         </div>
 
         {!ticker && (
