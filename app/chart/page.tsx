@@ -208,7 +208,7 @@ function RatioMiniChart({ title, color, data }: { title: string; color: string; 
     const line = chart.addSeries(LineSeries, {
       color, lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
     })
-    line.setData(data as any)
+    line.setData(data)
 
     const current = data[data.length - 1]?.value
     if (current != null) {
@@ -816,11 +816,11 @@ function ChartPageInner() {
                 <tbody>
                   {[
                     { label: 'Máx 10a', price: dailyStats.max.price,   pct: pctToMax,   date: dailyStats.max.date,   color: C.success },
-                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,   date: dailyStats.min.date,   color: C.danger },
                     { label: 'Máx 5a',  price: dailyStats.max5?.price, pct: pctToMax5,  date: dailyStats.max5?.date, color: C.success },
-                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5,  date: dailyStats.min5?.date, color: C.danger },
                     { label: 'Máx 52s', price: dailyStats.max52?.price, pct: pctToMax52, date: dailyStats.max52?.date, color: C.success },
                     { label: 'Mín 52s', price: dailyStats.min52?.price, pct: pctToMin52, date: dailyStats.min52?.date, color: C.danger },
+                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5,  date: dailyStats.min5?.date, color: C.danger },
+                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,   date: dailyStats.min.date,   color: C.danger },
                   ].map(row => (
                     <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
                       <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
