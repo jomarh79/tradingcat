@@ -114,7 +114,8 @@ const outputsize = outputsizeMap[interval]
   }
 }
 
-// POST /api/chart-data  { symbol: "AAPL" } — máximo/mínimo de los últimos 10 años (siempre en diario, sin importar el intervalo que se esté viendo)
+// POST /api/chart-data  { symbol: "AAPL" } — máximo/mínimo de los últimos 10 años, 5 años y 52 semanas
+// (siempre en diario, sin importar el intervalo que se esté viendo)
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const symbol = String(body?.symbol || '').trim().toUpperCase()
@@ -134,13 +135,17 @@ export async function POST(request: Request) {
 
     const YEARS_LONG = 10
     const YEARS_SHORT = 5
+    const WEEKS_52 = 52
     const cutoffLong = Date.now() - YEARS_LONG * 365 * 24 * 60 * 60 * 1000
     const cutoffShort = Date.now() - YEARS_SHORT * 365 * 24 * 60 * 60 * 1000
+    const cutoff52w = Date.now() - WEEKS_52 * 7 * 24 * 60 * 60 * 1000
 
     let maxPrice = -Infinity, maxDate = ''
     let minPrice = Infinity, minDate = ''
     let maxPrice5 = -Infinity, maxDate5 = ''
     let minPrice5 = Infinity, minDate5 = ''
+    let maxPrice52 = -Infinity, maxDate52 = ''
+    let minPrice52 = Infinity, minDate52 = ''
 
     data.values.forEach((v: any) => {
       const t = new Date(v.datetime + 'T00:00:00').getTime()
@@ -152,6 +157,10 @@ export async function POST(request: Request) {
       if (t >= cutoffShort) {
         if (!isNaN(h) && h > maxPrice5) { maxPrice5 = h; maxDate5 = v.datetime }
         if (!isNaN(l) && l < minPrice5) { minPrice5 = l; minDate5 = v.datetime }
+      }
+      if (t >= cutoff52w) {
+        if (!isNaN(h) && h > maxPrice52) { maxPrice52 = h; maxDate52 = v.datetime }
+        if (!isNaN(l) && l < minPrice52) { minPrice52 = l; minDate52 = v.datetime }
       }
     })
 
@@ -172,6 +181,8 @@ export async function POST(request: Request) {
       min: { price: minPrice, date: minDate },
       max5: maxPrice5 !== -Infinity ? { price: maxPrice5, date: maxDate5 } : null,
       min5: minPrice5 !== Infinity ? { price: minPrice5, date: minDate5 } : null,
+      max52: maxPrice52 !== -Infinity ? { price: maxPrice52, date: maxDate52 } : null,
+      min52: minPrice52 !== Infinity ? { price: minPrice52, date: minDate52 } : null,
       dailyCloses,
     })
   } catch (err: any) {

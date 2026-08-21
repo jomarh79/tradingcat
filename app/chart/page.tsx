@@ -79,10 +79,22 @@ function findNearestClose(dailyCloses: { date: string; close: number }[], target
   return best && best.diff <= 10 * 86400000 ? best.close : null
 }
 
+interface OwnHistoryEntry {
+  year: number
+  endDate: string
+  filedDate: string | null
+  eps: number | null
+  revenue: number | null
+  sharesOutstanding: number | null
+  dividendPerShare: number | null
+  operatingCashFlow: number | null
+  stockholdersEquity: number | null
+}
+
 // Promedio propio de 5 años — cruza cada 10-K con el precio de esa fecha (no aplica a ETFs, no presentan 10-K)
 // Devuelve tanto el promedio como la serie punto por punto (un punto por año) para poder graficarla.
 function computeOwnFiveYearAvg(
-  ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[],
+  ownHistory: OwnHistoryEntry[],
   dailyCloses: { date: string; close: number }[]
 ) {
   if (!ownHistory || !ownHistory.length || !dailyCloses || !dailyCloses.length) return null
@@ -112,6 +124,125 @@ function computeOwnFiveYearAvg(
   }
 }
 
+// ── Series diarias de ratios de valuación (P/E, P/S, P/CF, P/B) ────────────
+// Enfoque "función escalón": el precio se mueve todos los días (real, de dailyCloses),
+// pero el fundamental (EPS, ventas, flujo de caja, capital contable) solo se actualiza
+// una vez al año, en la fecha REAL de presentación del 10-K (filedDate) — no en el cierre
+// del año fiscal (endDate), porque el mercado no conoce el número hasta que se presenta.
+function computeDailyRatioSeries(
+  ownHistory: OwnHistoryEntry[] | undefined,
+  dailyCloses: { date: string; close: number }[] | undefined,
+  years = 10
+) {
+  type Point = { time: number; value: number }
+  const empty: { pe: Point[]; ps: Point[]; pcf: Point[]; pb: Point[] } = { pe: [], ps: [], pcf: [], pb: [] }
+  if (!ownHistory || !ownHistory.length || !dailyCloses || !dailyCloses.length) return empty
+
+  const reports = ownHistory
+    .map(h => ({
+      ...h,
+      filedTime: h.filedDate ? new Date(h.filedDate).getTime() : new Date(h.endDate).getTime(),
+    }))
+    .filter(h => !isNaN(h.filedTime))
+    .sort((a, b) => a.filedTime - b.filedTime)
+
+  if (!reports.length) return empty
+
+  const cutoff = Date.now() - years * 365 * 24 * 60 * 60 * 1000
+
+  const closes = dailyCloses
+    .map(c => {
+      const ms = new Date(c.date.split(' ')[0] + 'T00:00:00').getTime()
+      return { time: Math.floor(ms / 1000), close: c.close, ms }
+    })
+    .filter(c => !isNaN(c.close) && c.ms >= cutoff)
+    .sort((a, b) => a.time - b.time)
+
+  const pe: Point[] = []
+  const ps: Point[] = []
+  const pcf: Point[] = []
+  const pb: Point[] = []
+
+  let idx = 0 // puntero al reporte vigente en cada fecha
+
+  for (const day of closes) {
+    while (idx + 1 < reports.length && reports[idx + 1].filedTime <= day.ms) idx++
+    const r = reports[idx]
+    if (r.filedTime > day.ms) continue // todavía no había ningún 10-K presentado en esa fecha
+
+    const shares = r.sharesOutstanding
+    if (r.eps && r.eps > 0) pe.push({ time: day.time, value: day.close / r.eps })
+    if (r.revenue && shares) {
+      const rps = r.revenue / shares
+      if (rps > 0) ps.push({ time: day.time, value: day.close / rps })
+    }
+    if (r.operatingCashFlow && shares) {
+      const cfps = r.operatingCashFlow / shares
+      if (cfps > 0) pcf.push({ time: day.time, value: day.close / cfps })
+    }
+    if (r.stockholdersEquity && shares) {
+      const bvps = r.stockholdersEquity / shares
+      if (bvps > 0) pb.push({ time: day.time, value: day.close / bvps })
+    }
+  }
+
+  return { pe, ps, pcf, pb }
+}
+
+// Mini gráfica independiente para cada ratio — línea + marca punteada en el valor actual
+function RatioMiniChart({ title, color, data }: { title: string; color: string; data: { time: number; value: number }[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!ref.current || !data || data.length === 0) return
+
+    const chart = createChart(ref.current, {
+      layout: { background: { type: ColorType.Solid, color: '#080808' }, textColor: '#999' },
+      grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
+      width: ref.current.clientWidth,
+      height: 220,
+      rightPriceScale: { borderColor: '#222' },
+      timeScale: { borderColor: '#222' },
+    })
+
+    const line = chart.addSeries(LineSeries, {
+      color, lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+    })
+    line.setData(data as any)
+
+    const current = data[data.length - 1]?.value
+    if (current != null) {
+      line.createPriceLine({
+        price: current, color: '#3b82f6', lineWidth: 1, lineStyle: 2,
+        axisLabelVisible: true, title: 'Actual',
+      })
+    }
+
+    chart.timeScale().fitContent()
+
+    const handleResize = () => { if (ref.current) chart.applyOptions({ width: ref.current.clientWidth }) }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.remove()
+    }
+  }, [data, color])
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
+      <div style={{ fontSize: 10, color: '#888', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {title}
+      </div>
+      {(!data || data.length === 0) ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#444', fontSize: 11 }}>Sin datos suficientes</div>
+      ) : (
+        <div ref={ref} style={{ width: '100%', height: 220 }} />
+      )}
+    </div>
+  )
+}
+
 function ChartPageInner() {
   const searchParams = useSearchParams()
   const ticker = (searchParams.get('ticker') || '').toUpperCase()
@@ -123,7 +254,6 @@ function ChartPageInner() {
   const [showMACD, setShowMACD] = useState(false)
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(false)
-  const [showValuation, setShowValuation] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -132,13 +262,14 @@ function ChartPageInner() {
   const [dailyStats, setDailyStats] = useState<{
     max: { price: number; date: string }; min: { price: number; date: string }
     max5: { price: number; date: string } | null; min5: { price: number; date: string } | null
+    max52: { price: number; date: string } | null; min52: { price: number; date: string } | null
     dailyCloses: { date: string; close: number }[]
   } | null>(null)
   const [fundamentals, setFundamentals] = useState<{
     pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null
     sectorAvg: { pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null } | null
     peerCount: number
-    ownHistory: { year: number; endDate: string; eps: number | null; revenue: number | null; sharesOutstanding: number | null; dividendPerShare: number | null }[]
+    ownHistory: OwnHistoryEntry[]
   } | null>(null)
 
   // Tablas fijas de EMA diario / SMA semanal — independientes del filtro de intervalo del gráfico principal
@@ -226,7 +357,7 @@ function ChartPageInner() {
     fetchAuxMAs(ticker, '1week', setSmaWeeklyData)
   }, [ticker, fetchAuxMAs])
 
-  // ── MAX/MIN histórico (10 años, siempre diario) — una sola vez por ticker ──
+  // ── MAX/MIN histórico (10 años, 5 años, 52 semanas — siempre diario) — una sola vez por ticker ──
   useEffect(() => {
     if (!ticker) { setDailyStats(null); return }
     if (dailyStatsCacheRef.current[ticker]) {
@@ -265,10 +396,21 @@ function ChartPageInner() {
   }, [ticker])
 
   // Serie histórica de P/E (y demás ratios) por año, cruzando fundamentales con precio — memoizado para no recalcular en cada render
+  // (se sigue usando en la tabla "Ratios vs. sector", columna "X años Avg.")
   const ownFiveYearAvg = useMemo(() => {
     if (!fundamentals || !dailyStats) return null
     return computeOwnFiveYearAvg(fundamentals.ownHistory, dailyStats.dailyCloses)
   }, [fundamentals, dailyStats])
+
+  // Series diarias de P/E, P/S, P/CF, P/B — para las 4 gráficas independientes de valuación
+  const dailyRatioSeries = useMemo(() => {
+    if (!fundamentals || !dailyStats) return { pe: [], ps: [], pcf: [], pb: [] }
+    return computeDailyRatioSeries(fundamentals.ownHistory, dailyStats.dailyCloses)
+  }, [fundamentals, dailyStats])
+
+  const hasRatioCharts =
+    dailyRatioSeries.pe.length > 0 || dailyRatioSeries.ps.length > 0 ||
+    dailyRatioSeries.pcf.length > 0 || dailyRatioSeries.pb.length > 0
 
   // Filas de las tablas fijas EMA diario / SMA semanal, con % de distancia al precio actual
   const currentDailyPrice = emaDailyData?.candles?.length
@@ -540,23 +682,6 @@ function ChartPageInner() {
       chart.panes()[paneIdx]?.setHeight(130)
     }
 
-    if (showValuation && ownFiveYearAvg && ownFiveYearAvg.series.length > 0) {
-      const paneIdx = nextPane++
-      const peSeries = ownFiveYearAvg.series
-        .filter(s => s.pe !== null)
-        .map(s => ({ time: s.time, value: s.pe as number }))
-      if (peSeries.length > 0) {
-        const peLine = chart.addSeries(LineSeries, { color: '#facc15', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
-        peLine.setData(peSeries as any)
-        if (ownFiveYearAvg.pe != null) {
-          peLine.createPriceLine({ price: ownFiveYearAvg.pe, color: '#ffffff', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: 'Prom.' })
-          peLine.createPriceLine({ price: ownFiveYearAvg.pe * 0.8, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'Barato' })
-          peLine.createPriceLine({ price: ownFiveYearAvg.pe * 1.2, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'Caro' })
-        }
-        chart.panes()[paneIdx]?.setHeight(130)
-      }
-    }
-
     if (visibleRangeRef.current) {
       chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
     } else {
@@ -578,7 +703,7 @@ function ChartPageInner() {
 
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showValuation, ownFiveYearAvg])
+  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
@@ -594,6 +719,8 @@ function ChartPageInner() {
   const pctToMin = dailyStats && lastClose ? ((lastClose - dailyStats.min.price) / lastClose) * 100 : null
   const pctToMax5 = dailyStats?.max5 && lastClose ? ((dailyStats.max5.price - lastClose) / lastClose) * 100 : null
   const pctToMin5 = dailyStats?.min5 && lastClose ? ((lastClose - dailyStats.min5.price) / lastClose) * 100 : null
+  const pctToMax52 = dailyStats?.max52 && lastClose ? ((dailyStats.max52.price - lastClose) / lastClose) * 100 : null
+  const pctToMin52 = dailyStats?.min52 && lastClose ? ((lastClose - dailyStats.min52.price) / lastClose) * 100 : null
 
   const fmtDate = (d: string) => d ? new Date(d.split(' ')[0] + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
@@ -691,10 +818,12 @@ function ChartPageInner() {
                 </thead>
                 <tbody>
                   {[
-                    { label: 'Máx 10a', price: dailyStats.max.price,   pct: pctToMax,  date: dailyStats.max.date,   color: C.success },
-                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,  date: dailyStats.min.date,   color: C.danger },
-                    { label: 'Máx 5a',  price: dailyStats.max5?.price, pct: pctToMax5, date: dailyStats.max5?.date, color: C.success },
-                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5, date: dailyStats.min5?.date, color: C.danger },
+                    { label: 'Máx 10a', price: dailyStats.max.price,   pct: pctToMax,   date: dailyStats.max.date,   color: C.success },
+                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,   date: dailyStats.min.date,   color: C.danger },
+                    { label: 'Máx 5a',  price: dailyStats.max5?.price, pct: pctToMax5,  date: dailyStats.max5?.date, color: C.success },
+                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5,  date: dailyStats.min5?.date, color: C.danger },
+                    { label: 'Máx 52s', price: dailyStats.max52?.price, pct: pctToMax52, date: dailyStats.max52?.date, color: C.success },
+                    { label: 'Mín 52s', price: dailyStats.min52?.price, pct: pctToMin52, date: dailyStats.min52?.date, color: C.danger },
                   ].map(row => (
                     <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
                       <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
@@ -844,9 +973,6 @@ function ChartPageInner() {
           <button onClick={() => setShowMACD(v => !v)} style={filterBtn(showMACD)}>MACD</button>
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
-          <button onClick={() => setShowValuation(v => !v)} style={filterBtn(showValuation)} disabled={!ownFiveYearAvg}>
-            P/E histórico
-          </button>
         </div>
 
         {!ticker && (
@@ -893,6 +1019,24 @@ function ChartPageInner() {
             <span key={key}><span style={{ color: MA_COLORS[key] }}>▬</span> {MA_LABELS[key]}</span>
           ))}
         </div>
+
+        {/* ── Ratios de valuación — 4 gráficas independientes ── */}
+        {ticker && hasRatioCharts && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 11, color: '#666', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Ratios de valuación — últimos 10 años (línea punteada azul = valor actual)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+              <RatioMiniChart title="Price / Earnings" color="#facc15" data={dailyRatioSeries.pe} />
+              <RatioMiniChart title="Price / Sales" color="#22d3ee" data={dailyRatioSeries.ps} />
+              <RatioMiniChart title="Price / Cash Flow" color="#a78bfa" data={dailyRatioSeries.pcf} />
+              <RatioMiniChart title="Price / Book" color="#f97316" data={dailyRatioSeries.pb} />
+            </div>
+            <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
+              El fundamental (EPS, ventas, flujo de caja, capital contable) se actualiza una vez al año en la fecha real de presentación del 10-K ante la SEC; el precio se mueve a diario.
+            </div>
+          </div>
+        )}
 
       </div>
     </AppShell>

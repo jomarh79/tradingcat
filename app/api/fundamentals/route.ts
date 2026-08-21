@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 // GET /api/fundamentals?symbol=AAPL
 // Trae P/E, P/S, Payout Ratio y Dividend Yield desde Finnhub (plan gratuito) — valores actuales (TTM),
 // más el promedio de esos mismos ratios entre las empresas comparables de su sector (peers).
-// No incluye promedio propio de 5 años todavía — pendiente de confirmar profundidad histórica disponible.
+// También trae el historial propio (últimos 5 años de 10-K) incluyendo flujo de caja operativo y
+// capital contable, usado en el chart page para construir las series diarias de P/E, P/S, P/CF y P/B.
 
 function extractRatios(m: Record<string, any>) {
   const payoutDirect = m.payoutRatioTTM ?? m.payoutRatio ?? m.payoutRatioAnnual ?? null
@@ -42,6 +43,14 @@ const CONCEPT_CANDIDATES = {
     'us-gaap_WeightedAverageNumberOfSharesOutstandingBasic',
   ],
   dividendPerShare: ['us-gaap_CommonStockDividendsPerShareDeclared', 'us-gaap_CommonStockDividendsPerShareCashPaid'],
+  operatingCashFlow: [
+    'us-gaap_NetCashProvidedByUsedInOperatingActivities',
+    'us-gaap_NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+  ],
+  stockholdersEquity: [
+    'us-gaap_StockholdersEquity',
+    'us-gaap_StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+  ],
 }
 
 function findConcept(report: any, candidates: string[]): number | null {
@@ -82,10 +91,15 @@ async function fetchOwnHistory(symbol: string, apiKey: string) {
     return lastFive.map(r => ({
       year: r.year,
       endDate: r.endDate,
+      // Fecha real de presentación ante la SEC — el mercado no "sabe" el número hasta este día,
+      // no hasta el cierre del año fiscal (endDate). Se usa para las series diarias de ratios.
+      filedDate: r.filedDate ?? null,
       eps: findConcept(r.report, CONCEPT_CANDIDATES.eps),
       revenue: findConcept(r.report, CONCEPT_CANDIDATES.revenue),
       sharesOutstanding: findConcept(r.report, CONCEPT_CANDIDATES.shares),
       dividendPerShare: findConcept(r.report, CONCEPT_CANDIDATES.dividendPerShare),
+      operatingCashFlow: findConcept(r.report, CONCEPT_CANDIDATES.operatingCashFlow),
+      stockholdersEquity: findConcept(r.report, CONCEPT_CANDIDATES.stockholdersEquity),
     }))
   } catch {
     return [] // ETFs y algunos extranjeros no presentan 10-K — se queda vacío, no rompe el resto
