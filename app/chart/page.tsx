@@ -810,11 +810,7 @@ function ChartPageInner() {
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead>
-                  <tr>
-                    {['', 'Precio', '%', 'Fecha'].map((h, i) => (
-                      <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, padding: '2px 6px', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
+                  
                 </thead>
                 <tbody>
                   {[
@@ -1021,22 +1017,28 @@ function ChartPageInner() {
         </div>
 
         {/* ── Ratios de valuación — 4 gráficas independientes ── */}
-        {ticker && hasRatioCharts && (
-          <div style={{ marginTop: 24 }}>
-            <div style={{ fontSize: 11, color: '#666', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Ratios de valuación — últimos 10 años (línea punteada azul = valor actual)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-              <RatioMiniChart title="Price / Earnings" color="#facc15" data={dailyRatioSeries.pe} />
-              <RatioMiniChart title="Price / Sales" color="#22d3ee" data={dailyRatioSeries.ps} />
-              <RatioMiniChart title="Price / Cash Flow" color="#a78bfa" data={dailyRatioSeries.pcf} />
-              <RatioMiniChart title="Price / Book" color="#f97316" data={dailyRatioSeries.pb} />
-            </div>
-            <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
-              El fundamental (EPS, ventas, flujo de caja, capital contable) se actualiza una vez al año en la fecha real de presentación del 10-K ante la SEC; el precio se mueve a diario.
-            </div>
-          </div>
-        )}
+{ticker && hasRatioCharts && (
+  <div style={{ marginTop: 24 }}>
+    <div style={{ fontSize: 11, color: '#666', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      Ratios de valuación — últimos 10 años (línea punteada azul = valor actual)
+    </div>
+
+    <div style={{ 
+      display: 'grid', 
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', 
+      gap: 12 
+    }}>
+      <RatioMiniChart title="Price / Earnings" color="#facc15" data={dailyRatioSeries.pe} />
+      <RatioMiniChart title="Price / Sales" color="#22d3ee" data={dailyRatioSeries.ps} />
+      <RatioMiniChart title="Price / Cash Flow" color="#a78bfa" data={dailyRatioSeries.pcf} />
+      <RatioMiniChart title="Price / Book" color="#f97316" data={dailyRatioSeries.pb} />
+    </div>
+
+    <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
+      El fundamental (EPS, ventas, flujo de caja, capital contable) se actualiza una vez al año en la fecha real de presentación del 10-K ante la SEC; el precio se mueve a diario.
+    </div>
+  </div>
+)}
 
       </div>
     </AppShell>
