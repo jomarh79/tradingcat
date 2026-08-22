@@ -19,6 +19,12 @@ const isMarketOpen = () => {
   return day >= 1 && day <= 5 && time >= 7.5 && time < 15
 }
 
+// Umbral para considerar un trade "actualizado" (gris) vs "desactualizado" (verde) —
+// un poco por encima de los 5min del cron, para dar margen.
+const FRESH_THRESHOLD_MIN = 6
+// Separación mínima entre refrescos individuales del mismo trade (espejo del cooldown de servidor)
+const SINGLE_TICKER_MIN_MINUTES = 1
+
 // ── Paw SVG ────────────────────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#333', opacity = 1 }: any) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0 }}>
@@ -40,6 +46,7 @@ export default function TradesAbiertosPage() {
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
   const [tickerSearch, setTickerSearch] = useState("")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
+  const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
@@ -79,6 +86,37 @@ export default function TradesAbiertosPage() {
   fetchTrades()
   fetchPortfolios() 
 }, [])
+
+  // ── Refrescar un solo trade — dispara update-trades solo para ese ticker ──
+  const refreshSingleTrade = async (trade: any) => {
+    if (refreshingTickers.has(trade.ticker)) return
+
+    if (trade.last_price_updated_at) {
+      const minutesSince = (Date.now() - new Date(trade.last_price_updated_at).getTime()) / 60000
+      if (minutesSince < SINGLE_TICKER_MIN_MINUTES) return
+    }
+
+    setRefreshingTickers(prev => new Set(prev).add(trade.ticker))
+    try {
+      await fetch("https://kdxqnaglhhjwnzvptqvt.supabase.co/functions/v1/update-trades", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer tradingcat-manual-2026"
+        },
+        body: JSON.stringify({ ticker: trade.ticker }),
+      })
+      await fetchTrades()
+    } catch (err) {
+      console.error("Error refrescando ticker:", trade.ticker, err)
+    } finally {
+      setRefreshingTickers(prev => {
+        const next = new Set(prev)
+        next.delete(trade.ticker)
+        return next
+      })
+    }
+  }
   
   const toggleTarget = async (
     tradeId: string,
@@ -504,6 +542,37 @@ if (tickerSearch.trim() !== "") {
                     {/* Acciones */}
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+                        {(() => {
+                          const refreshingThis = refreshingTickers.has(trade.ticker)
+                          const minutesSince = trade.last_price_updated_at
+                            ? (currentTime.getTime() - new Date(trade.last_price_updated_at).getTime()) / 60000
+                            : Infinity
+                          const isFresh = minutesSince < FRESH_THRESHOLD_MIN
+                          const cooldownActive = minutesSince < SINGLE_TICKER_MIN_MINUTES
+                          const baseColor = refreshingThis ? '#00bfff' : isFresh ? '#333' : '#22c55e'
+                          const title = refreshingThis
+                            ? 'Actualizando...'
+                            : isFresh
+                              ? `Actualizado hace ${minutesSince.toFixed(1)} min`
+                              : cooldownActive
+                                ? 'Espera un momento antes de volver a refrescar'
+                                : 'Desactualizado — clic para refrescar'
+                          return (
+                            <button
+                              onClick={() => refreshSingleTrade(trade)}
+                              disabled={refreshingThis || cooldownActive}
+                              title={title}
+                              style={{
+                                background: 'none', border: 'none', padding: 4,
+                                cursor: (refreshingThis || cooldownActive) ? 'default' : 'pointer',
+                                color: baseColor, transition: 'color 0.2s',
+                              }}
+                              onMouseEnter={e => { if (!refreshingThis) e.currentTarget.style.color = '#00bfff' }}
+                              onMouseLeave={e => { if (!refreshingThis) e.currentTarget.style.color = baseColor }}>
+                              <FaSync style={{ animation: refreshingThis ? 'spin 1s linear infinite' : 'none', fontSize: 12 }} />
+                            </button>
+                          )
+                        })()}
                         <button onClick={() => {
                           setSelectedTrade(trade)
                         }}

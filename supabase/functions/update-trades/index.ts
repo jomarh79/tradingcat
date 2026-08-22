@@ -11,6 +11,9 @@ const CRON_TOKEN = "Bearer tradingcat-cron-2026";
 // Webull permite hasta 20 símbolos por petición de snapshot
 const SNAPSHOT_BATCH_SIZE = 20;
 
+// Separación mínima entre dos refrescos del MISMO trade individual (ícono por fila)
+const SINGLE_TICKER_MIN_MINUTES = 1;
+
 // ── Webull: firma HMAC-SHA256 vía Web Crypto API (compatible con Deno) ─────
 // (Duplicado intencionalmente de update-ia/index.ts para no tocar esa función,
 // que ya está en producción y funcionando.)
@@ -297,6 +300,17 @@ serve(async (req) => {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
+  // ── Ticker específico — refresco individual desde el ícono por fila ───────
+  let singleTicker: string | null = null;
+  try {
+    if (req.headers.get("content-type")?.includes("application/json")) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
+    }
+  } catch {
+    /* sin body está bien */
+  }
+
   const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const WEBULL_APP_KEY     = Deno.env.get("WEBULL_APP_KEY") || "";
@@ -335,14 +349,33 @@ serve(async (req) => {
     }
 
     // ── Trades abiertos ────────────────────────────────────────────────
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/trades?status=eq.open&select=id,ticker,stop_loss,stop_hit,take_profit_1,tp1_hit,take_profit_2,tp2_hit,take_profit_3,tp3_hit,last_trade_alert_date`,
-      { headers }
-    );
+    let tradesUrl = `${SUPABASE_URL}/rest/v1/trades?status=eq.open&select=id,ticker,stop_loss,stop_hit,take_profit_1,tp1_hit,take_profit_2,tp2_hit,take_profit_3,tp3_hit,last_trade_alert_date,last_price_updated_at`;
+    if (singleTicker) {
+      tradesUrl = `${SUPABASE_URL}/rest/v1/trades?status=eq.open&ticker=eq.${singleTicker}&select=id,ticker,stop_loss,stop_hit,take_profit_1,tp1_hit,take_profit_2,tp2_hit,take_profit_3,tp3_hit,last_trade_alert_date,last_price_updated_at`;
+    }
+
+    const res = await fetch(tradesUrl, { headers });
     const trades = await res.json();
 
     if (!Array.isArray(trades) || trades.length === 0) {
-      return new Response("Sin trades abiertos", { headers: CORS });
+      return new Response(
+        singleTicker ? `Ticker ${singleTicker} no encontrado entre trades abiertos` : "Sin trades abiertos",
+        { headers: CORS }
+      );
+    }
+
+    // ── Protección de frecuencia para refresco individual ──────────────
+    if (singleTicker) {
+      const item = trades[0];
+      if (item.last_price_updated_at) {
+        const minutesSince = (Date.now() - new Date(item.last_price_updated_at).getTime()) / 60000;
+        if (minutesSince < SINGLE_TICKER_MIN_MINUTES) {
+          return new Response(
+            `⏭️ ${item.ticker} ya se actualizó hace ${minutesSince.toFixed(1)} min — espera al menos ${SINGLE_TICKER_MIN_MINUTES} min`,
+            { headers: CORS }
+          );
+        }
+      }
     }
 
     // ── Snapshot en lote — dedupe tickers y agrupa en bloques de 20 ─────
@@ -394,6 +427,7 @@ serve(async (req) => {
         const updateData: Record<string, any> = {
           last_price: parseFloat(price.toFixed(4)),
           day_change: parseFloat(change.toFixed(2)),
+          last_price_updated_at: new Date().toISOString(),
         };
 
         // ── Alertas — 1 vez por día por trade ─────────────────────────
