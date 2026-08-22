@@ -379,7 +379,15 @@ serve(async (req) => {
     }
 
     // ── Snapshot en lote — dedupe tickers y agrupa en bloques de 20 ─────
-    const uniqueTickers = Array.from(new Set(trades.map((t: any) => t.ticker)));
+    // Se excluyen proactivamente tickers con espacio (ej. "IVV PESOS") — son
+    // listados fuera de Webull (BMV en pesos) que ningún proveedor reconoce
+    // hoy; reintentarlos cada corrida solo genera error y ruido en logs.
+    const allUniqueTickers = Array.from(new Set(trades.map((t: any) => t.ticker)));
+    const uniqueTickers = allUniqueTickers.filter((t) => !/\s/.test(t));
+    const skippedTickers = allUniqueTickers.filter((t) => /\s/.test(t));
+    if (skippedTickers.length > 0) {
+      console.log(`⏭️ Símbolos excluidos (no soportados por Webull): ${skippedTickers.join(", ")}`);
+    }
     const batches = chunk(uniqueTickers, SNAPSHOT_BATCH_SIZE);
 
     const quoteMap = new Map<string, { price: number; change: number }>();
@@ -403,7 +411,32 @@ serve(async (req) => {
           quoteMap.set(snap.symbol, { price, change });
         }
       } catch (err) {
-        console.error("Error en batch de snapshot:", batch, err);
+        // Un solo símbolo problemático puede tumbar el lote completo (20 tickers).
+        // Fallback: reintentar uno por uno para no perder los que sí son válidos.
+        console.error("Error en batch de snapshot, reintentando individualmente:", batch, err);
+
+        for (const symbol of batch) {
+          try {
+            await sleep(1100); // respeta 1 req/seg
+            const single = await fetchWebullSnapshotBatch(
+              [symbol], auth.token, WEBULL_MARKET_URL, WEBULL_APP_KEY, WEBULL_APP_SECRET
+            );
+            const snap = single[0];
+            if (!snap) continue;
+
+            const price = parseFloat(snap.price) > 0
+              ? parseFloat(snap.price)
+              : parseFloat(snap.pre_close) || 0;
+            if (price <= 0) continue;
+
+            const changeRatio = parseFloat(snap.change_ratio);
+            const change = !isNaN(changeRatio) ? changeRatio * 100 : 0;
+
+            quoteMap.set(snap.symbol, { price, change });
+          } catch (innerErr) {
+            console.error(`Símbolo problemático confirmado: ${symbol}`, innerErr);
+          }
+        }
       }
 
       // Respeta el límite de 1 req/seg si hay más de un lote
@@ -417,7 +450,11 @@ serve(async (req) => {
         const quote = quoteMap.get(trade.ticker);
 
         if (!quote) {
-          console.error(`Sin snapshot Webull para ${trade.ticker}`);
+          if (skippedTickers.includes(trade.ticker)) {
+            console.log(`⏭️ ${trade.ticker} excluido de Webull (símbolo no soportado) — se deja igual`);
+          } else {
+            console.error(`Sin snapshot Webull para ${trade.ticker}`);
+          }
           skipped++;
           continue;
         }

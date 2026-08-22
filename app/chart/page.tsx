@@ -206,7 +206,7 @@ function RatioMiniChart({ title, color, data }: { title: string; color: string; 
     })
 
     const line = chart.addSeries(LineSeries, {
-      color, lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+      color, lineWidth: 2, lastValueVisible: false, priceLineVisible: false,
     })
     line.setData(data as any)
 
@@ -214,7 +214,7 @@ function RatioMiniChart({ title, color, data }: { title: string; color: string; 
     if (current != null) {
       line.createPriceLine({
         price: current, color: '#3b82f6', lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: 'Actual',
+        axisLabelVisible: false, title: 'Actual',
       })
     }
 
@@ -251,8 +251,8 @@ function ChartPageInner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showRSI, setShowRSI] = useState(true)
-  const [showMACD, setShowMACD] = useState(false)
-  const [showADX, setShowADX] = useState(false)
+  const [showMACD, setShowMACD] = useState(true)
+  const [showADX, setShowADX] = useState(true)
   const [showKoncorde, setShowKoncorde] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
@@ -725,6 +725,35 @@ function ChartPageInner() {
 
   const fmtDate = (d: string) => d ? new Date(d.split(' ')[0] + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
+  // Agrupa Máx/Mín cuando coinciden en fecha y precio (ej. Máx 10a = Máx 5a)
+  const maxRowsRaw = [
+    { label: 'Máx 10a', price: dailyStats?.max.price,    pct: pctToMax,   date: dailyStats?.max.date },
+    { label: 'Máx 5a',  price: dailyStats?.max5?.price,  pct: pctToMax5,  date: dailyStats?.max5?.date },
+    { label: 'Máx 52s', price: dailyStats?.max52?.price, pct: pctToMax52, date: dailyStats?.max52?.date },
+  ]
+  const minRowsRaw = [
+    { label: 'Mín 52s', price: dailyStats?.min52?.price, pct: pctToMin52, date: dailyStats?.min52?.date },
+    { label: 'Mín 5a',  price: dailyStats?.min5?.price,  pct: pctToMin5,  date: dailyStats?.min5?.date },
+    { label: 'Mín 10a', price: dailyStats?.min.price,    pct: pctToMin,   date: dailyStats?.min.date },
+  ]
+  const groupStatsRows = (rows: typeof maxRowsRaw) => {
+    const out: typeof maxRowsRaw = []
+    for (const row of rows) {
+      if (row.price == null) continue
+      const last = out[out.length - 1]
+      if (last && last.price === row.price && last.date === row.date) {
+        last.label += ` y ${row.label.split(' ')[1]}`
+      } else {
+        out.push({ ...row })
+      }
+    }
+    return out
+  }
+  const statsRows = [
+    ...groupStatsRows(maxRowsRaw).map(r => ({ ...r, color: C.success })),
+    ...groupStatsRows(minRowsRaw).map(r => ({ ...r, color: C.danger })),
+  ]
+
   return (
     <AppShell>
       <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
@@ -814,14 +843,7 @@ function ChartPageInner() {
                   
                 </thead>
                 <tbody>
-                  {[
-                    { label: 'Máx 10a', price: dailyStats.max.price,   pct: pctToMax,   date: dailyStats.max.date,   color: C.success },
-                    { label: 'Máx 5a',  price: dailyStats.max5?.price, pct: pctToMax5,  date: dailyStats.max5?.date, color: C.success },
-                    { label: 'Máx 52s', price: dailyStats.max52?.price, pct: pctToMax52, date: dailyStats.max52?.date, color: C.success },
-                    { label: 'Mín 52s', price: dailyStats.min52?.price, pct: pctToMin52, date: dailyStats.min52?.date, color: C.danger },
-                    { label: 'Mín 5a',  price: dailyStats.min5?.price, pct: pctToMin5,  date: dailyStats.min5?.date, color: C.danger },
-                    { label: 'Mín 10a', price: dailyStats.min.price,   pct: pctToMin,   date: dailyStats.min.date,   color: C.danger },
-                  ].map(row => (
+                  {statsRows.map(row => (
                     <tr key={row.label} style={{ borderTop: '1px solid #151515' }}>
                       <td style={{ padding: '4px 6px', color: '#aaa' }}>{row.label}</td>
                       <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
