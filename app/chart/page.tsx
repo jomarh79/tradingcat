@@ -104,23 +104,25 @@ function computeOwnFiveYearAvg(
     if (!price) return null
     const pe = h.eps && h.eps !== 0 ? price / h.eps : null
     const ps = h.revenue && h.sharesOutstanding ? (price * h.sharesOutstanding) / h.revenue : null
+    const pcf = h.operatingCashFlow && h.sharesOutstanding ? (price * h.sharesOutstanding) / h.operatingCashFlow : null
+    const pb = h.stockholdersEquity && h.sharesOutstanding ? (price * h.sharesOutstanding) / h.stockholdersEquity : null
     const payoutRatio = h.dividendPerShare != null && h.eps ? (h.dividendPerShare / h.eps) * 100 : null
     const dividendYield = h.dividendPerShare != null ? (h.dividendPerShare / price) * 100 : null
     const time = Math.floor(new Date(h.endDate.split(' ')[0]).getTime() / 1000)
-    return { year: h.year, time, pe, ps, payoutRatio, dividendYield }
+    return { year: h.year, time, pe, ps, pcf, pb, payoutRatio, dividendYield }
   }).filter((v): v is NonNullable<typeof v> => v !== null)
     .sort((a, b) => a.time - b.time)
 
   if (perYear.length === 0) return null
 
-  const avg = (key: 'pe' | 'ps' | 'payoutRatio' | 'dividendYield') => {
+  const avg = (key: 'pe' | 'ps' | 'pcf' | 'pb' | 'payoutRatio' | 'dividendYield') => {
     const vals = perYear.map(p => p[key]).filter((v): v is number => typeof v === 'number')
     return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
   }
   return {
-    pe: avg('pe'), ps: avg('ps'), payoutRatio: avg('payoutRatio'), dividendYield: avg('dividendYield'),
+    pe: avg('pe'), ps: avg('ps'), pcf: avg('pcf'), pb: avg('pb'), payoutRatio: avg('payoutRatio'), dividendYield: avg('dividendYield'),
     yearsUsed: perYear.length,
-    series: perYear, // { year, time, pe, ps, payoutRatio, dividendYield }[] — para graficar
+    series: perYear,
   }
 }
 
@@ -252,8 +254,8 @@ function ChartPageInner() {
   const [error, setError] = useState<string | null>(null)
   const [showRSI, setShowRSI] = useState(true)
   const [showMACD, setShowMACD] = useState(true)
-  const [showADX, setShowADX] = useState(true)
-  const [showKoncorde, setShowKoncorde] = useState(false)
+  const [showADX, setShowADX] = useState(false)
+  const [showKoncorde, setShowKoncorde] = useState(true)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -266,8 +268,8 @@ function ChartPageInner() {
     dailyCloses: { date: string; close: number }[]
   } | null>(null)
   const [fundamentals, setFundamentals] = useState<{
-    pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null
-    sectorAvg: { pe: number | null; ps: number | null; payoutRatio: number | null; dividendYield: number | null } | null
+    pe: number | null; ps: number | null; pcf: number | null; pb: number | null; payoutRatio: number | null; dividendYield: number | null
+    sectorAvg: { pe: number | null; ps: number | null; pcf: number | null; pb: number | null; payoutRatio: number | null; dividendYield: number | null } | null
     peerCount: number
     ownHistory: OwnHistoryEntry[]
   } | null>(null)
@@ -795,9 +797,11 @@ function ChartPageInner() {
                 <tbody>
                   {[
                     { label: 'P/E',       own: fundamentals.pe,            sector: fundamentals.sectorAvg?.pe ?? null,            avg5y: ownFiveYearAvg?.pe ?? null,            suffix: '', higherIsBetter: false },
-                    { label: 'P/S',       own: fundamentals.ps,            sector: fundamentals.sectorAvg?.ps ?? null,            avg5y: ownFiveYearAvg?.ps ?? null,            suffix: '', higherIsBetter: false },
-                    { label: 'Payout',    own: fundamentals.payoutRatio,   sector: fundamentals.sectorAvg?.payoutRatio ?? null,   avg5y: ownFiveYearAvg?.payoutRatio ?? null,   suffix: '%', higherIsBetter: false },
-                    { label: 'Div Yield', own: fundamentals.dividendYield, sector: fundamentals.sectorAvg?.dividendYield ?? null, avg5y: ownFiveYearAvg?.dividendYield ?? null, suffix: '%', higherIsBetter: true },
+{ label: 'P/S',       own: fundamentals.ps,            sector: fundamentals.sectorAvg?.ps ?? null,            avg5y: ownFiveYearAvg?.ps ?? null,            suffix: '', higherIsBetter: false },
+{ label: 'P/Cash Flow', own: fundamentals.pcf,         sector: fundamentals.sectorAvg?.pcf ?? null,           avg5y: ownFiveYearAvg?.pcf ?? null,           suffix: '', higherIsBetter: false },
+{ label: 'P/Book',    own: fundamentals.pb,            sector: fundamentals.sectorAvg?.pb ?? null,            avg5y: ownFiveYearAvg?.pb ?? null,            suffix: '', higherIsBetter: false },
+{ label: 'Payout',    own: fundamentals.payoutRatio,   sector: fundamentals.sectorAvg?.payoutRatio ?? null,   avg5y: ownFiveYearAvg?.payoutRatio ?? null,   suffix: '%', higherIsBetter: false },
+{ label: 'Div Yield', own: fundamentals.dividendYield, sector: fundamentals.sectorAvg?.dividendYield ?? null, avg5y: ownFiveYearAvg?.dividendYield ?? null, suffix: '%', higherIsBetter: true },
                   ].map(row => {
                     const diffSector = (row.own != null && row.sector != null && row.sector !== 0)
                       ? ((row.own - row.sector) / Math.abs(row.sector)) * 100

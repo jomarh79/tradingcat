@@ -17,6 +17,8 @@ function extractRatios(m: Record<string, any>) {
   return {
     pe: typeof m.peTTM === 'number' ? m.peTTM : null,
     ps: typeof m.psTTM === 'number' ? m.psTTM : null,
+    pcf: typeof m.pfcfTTM === 'number' ? m.pfcfTTM : null,
+    pb: typeof m.pb === 'number' ? m.pb : null,
     payoutRatio,
     dividendYield: typeof dividendYield === 'number' ? dividendYield : null,
   }
@@ -148,7 +150,7 @@ export async function GET(request: Request) {
           const vals = peerRatiosList.map(p => p[key]).filter((v): v is number => typeof v === 'number')
           return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
         }
-        sectorAvg = { pe: avgOf('pe'), ps: avgOf('ps'), payoutRatio: avgOf('payoutRatio'), dividendYield: avgOf('dividendYield') }
+        sectorAvg = { pe: avgOf('pe'), ps: avgOf('ps'), pcf: avgOf('pcf'), pb: avgOf('pb'), payoutRatio: avgOf('payoutRatio'), dividendYield: avgOf('dividendYield') }
       }
     } catch {
       // si falla el sector, seguimos devolviendo al menos los valores propios
