@@ -204,12 +204,21 @@ export interface CandlePatternMarker {
   time: number
   position: 'aboveBar' | 'belowBar'
   color: string
-  shape: 'arrowUp' | 'arrowDown' | 'circle'
+  shape: 'arrowUp' | 'arrowDown' | 'circle' | 'square'
   text: string
 }
 
 function bodySize(c: { open: number; close: number }) {
   return Math.abs(c.close - c.open)
+}
+function upperWick(c: { open: number; high: number; close: number }) {
+  return c.high - Math.max(c.open, c.close)
+}
+function lowerWick(c: { open: number; low: number; close: number }) {
+  return Math.min(c.open, c.close) - c.low
+}
+function range(c: { high: number; low: number }) {
+  return c.high - c.low
 }
 function isBullish(c: { open: number; close: number }) {
   return c.close > c.open
@@ -218,7 +227,7 @@ function isBearish(c: { open: number; close: number }) {
   return c.close < c.open
 }
 
-// Estrella de la mañana / vespertina + envolventes alcistas/bajistas.
+// Estrella de la mañana / vespertina, envolventes, martillo y doji.
 // Usa el tamaño promedio de cuerpo de las últimas 14 velas para calibrar
 // qué cuenta como "vela grande" o "vela pequeña" (evita falsos positivos
 // en valores con velas naturalmente chicas o naturalmente grandes).
@@ -257,25 +266,57 @@ export function detectCandlePatterns(
     }
   }
 
-  // ── Envolventes (2 velas) ──
+  // ── Envolventes (2 velas) — exige cuerpo dominante, mechas cortas ──
   for (let i = 1; i < candles.length; i++) {
     const prev = candles[i - 1]
     const curr = candles[i]
+    const wickTotal = upperWick(curr) + lowerWick(curr)
+    const solidBody = bodySize(curr) > wickTotal // el cuerpo manda, no la mecha — descarta martillo/doji
 
     if (
       isBearish(prev) && isBullish(curr) &&
       curr.open <= prev.close && curr.close >= prev.open &&
-      bodySize(curr) > bodySize(prev)
+      bodySize(curr) > bodySize(prev) &&
+      solidBody
     ) {
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'circle', text: 'Envolvente alcista' })
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'circle', text: 'Envolvente' })
     }
 
     if (
       isBullish(prev) && isBearish(curr) &&
       curr.open >= prev.close && curr.close <= prev.open &&
-      bodySize(curr) > bodySize(prev)
+      bodySize(curr) > bodySize(prev) &&
+      solidBody
     ) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#f43f5e', shape: 'circle', text: 'Envolvente bajista' })
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#f43f5e', shape: 'circle', text: 'Envolvente' })
+    }
+  }
+
+  // ── Martillo / martillo invertido (1 vela) ──
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]
+    const body = bodySize(c)
+    const upper = upperWick(c)
+    const lower = lowerWick(c)
+    if (body <= 0) continue
+
+    // Martillo: mecha inferior larga, mecha superior corta, cuerpo chico arriba del rango
+    if (lower >= body * 2 && upper <= body * 0.5) {
+      markers.push({ time: c.time, position: 'belowBar', color: '#a3e635', shape: 'square', text: 'Martillo' })
+    }
+    // Martillo invertido / estrella fugaz: mecha superior larga, mecha inferior corta
+    if (upper >= body * 2 && lower <= body * 0.5) {
+      markers.push({ time: c.time, position: 'aboveBar', color: '#fb923c', shape: 'square', text: 'Martillo invertido' })
+    }
+  }
+
+  // ── Doji (1 vela) — cuerpo casi inexistente frente al rango total ──
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]
+    const r = range(c)
+    if (r <= 0) continue
+    if (bodySize(c) <= r * 0.08) {
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'circle', text: 'Doji' })
     }
   }
 
