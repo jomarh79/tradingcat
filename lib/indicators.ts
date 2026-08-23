@@ -244,27 +244,6 @@ export function detectCandlePatterns(
     return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
   }
 
-  // ── Estrella de la mañana / vespertina (3 velas) ──
-  for (let i = 2; i < candles.length; i++) {
-    const c1 = candles[i - 2]
-    const c2 = candles[i - 1]
-    const c3 = candles[i]
-    const avg = avgBody(i)
-    const c1Mid = (c1.open + c1.close) / 2
-
-    const c1BigBearish = isBearish(c1) && bodySize(c1) > avg * 0.6
-    const c1BigBullish = isBullish(c1) && bodySize(c1) > avg * 0.6
-    const c2Small = bodySize(c2) < avg * 0.5
-    const c3BigBullish = isBullish(c3) && bodySize(c3) > avg * 0.6
-    const c3BigBearish = isBearish(c3) && bodySize(c3) > avg * 0.6
-
-    if (c1BigBearish && c2Small && c3BigBullish && c3.close > c1Mid) {
-      markers.push({ time: c3.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Estrella de la mañana' })
-    }
-    if (c1BigBullish && c2Small && c3BigBearish && c3.close < c1Mid) {
-      markers.push({ time: c3.time, position: 'aboveBar', color: '#f43f5e', shape: 'arrowDown', text: 'Estrella vespertina' })
-    }
-  }
 
   // ── Envolventes (2 velas) — exige cuerpo dominante, mechas cortas ──
   for (let i = 1; i < candles.length; i++) {
