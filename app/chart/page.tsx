@@ -900,7 +900,7 @@ function ChartPageInner() {
         }}>
           <span style={{
             fontSize: 10,
-            color: '#ccc',
+            color: MA_COLORS[row.key],
             fontWeight: 700
           }}>
             {row.label}
@@ -959,7 +959,7 @@ function ChartPageInner() {
         }}>
           <span style={{
             fontSize: 10,
-            color: '#ccc',
+            color: MA_COLORS[row.key],
             fontWeight: 700
           }}>
             {row.label}
