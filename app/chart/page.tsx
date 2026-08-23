@@ -7,7 +7,7 @@ import {
   createSeriesMarkers, ColorType, IChartApi,
 } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
-import { rsiSeries, macdSeries, adxSeries, koncordeSeries } from '@/lib/indicators'
+import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns } from '@/lib/indicators'
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
@@ -256,6 +256,7 @@ function ChartPageInner() {
   const [showMACD, setShowMACD] = useState(true)
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(true)
+  const [showPatterns, setShowPatterns] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -569,13 +570,15 @@ function ChartPageInner() {
       })
     }
 
-    // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
+        // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
+    const allMarkers: any[] = []
+
     if (executions.length > 0) {
       const sorted = [...executions].sort(
         (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
       )
       let runningQty = Number(selectedTrade?.initial_quantity || 0)
-      const markers = sorted.map((e, index) => {
+      sorted.forEach((e, index) => {
         const isBuy = e.execution_type === 'buy'
         let color = '#888'
         if (isBuy) {
@@ -587,14 +590,22 @@ function ChartPageInner() {
           const isFullClose = runningQty <= 0.0001
           color = isFullClose ? '#e5e5e5' : C.danger
         }
-        return {
+        allMarkers.push({
           time: e.executed_at.slice(0, 10),
           position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
           color,
           shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
-        }
+        })
       })
-      createSeriesMarkers(candleSeries, markers as any)
+    }
+
+    // Patrones de velas — estrella de la mañana / vespertina, envolventes
+    if (showPatterns) {
+      allMarkers.push(...detectCandlePatterns(chartData.candles))
+    }
+
+    if (allMarkers.length > 0) {
+      createSeriesMarkers(candleSeries, allMarkers as any)
     }
 
     // Soportes y resistencias — solo en vista semanal/mensual, igual que el Pine original
@@ -706,7 +717,7 @@ function ChartPageInner() {
 
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde])
+  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showPatterns])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
@@ -996,6 +1007,7 @@ function ChartPageInner() {
           <button onClick={() => setShowMACD(v => !v)} style={filterBtn(showMACD)}>MACD</button>
           <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
+          <button onClick={() => setShowPatterns(v => !v)} style={filterBtn(showPatterns)}>Patrones</button>
         </div>
 
         {!ticker && (

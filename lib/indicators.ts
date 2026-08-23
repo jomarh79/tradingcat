@@ -199,3 +199,85 @@ export function koncordeSeries(candles: Candle[]) {
 
   return candles.map((c, i) => ({ time: c.time, verde: verde[i], marron: marron[i], azul: azul[i], media: media[i] }))
 }
+
+export interface CandlePatternMarker {
+  time: number
+  position: 'aboveBar' | 'belowBar'
+  color: string
+  shape: 'arrowUp' | 'arrowDown' | 'circle'
+  text: string
+}
+
+function bodySize(c: { open: number; close: number }) {
+  return Math.abs(c.close - c.open)
+}
+function isBullish(c: { open: number; close: number }) {
+  return c.close > c.open
+}
+function isBearish(c: { open: number; close: number }) {
+  return c.close < c.open
+}
+
+// Estrella de la mañana / vespertina + envolventes alcistas/bajistas.
+// Usa el tamaño promedio de cuerpo de las últimas 14 velas para calibrar
+// qué cuenta como "vela grande" o "vela pequeña" (evita falsos positivos
+// en valores con velas naturalmente chicas o naturalmente grandes).
+export function detectCandlePatterns(
+  candles: { time: number; open: number; high: number; low: number; close: number }[]
+): CandlePatternMarker[] {
+  const markers: CandlePatternMarker[] = []
+  if (candles.length < 3) return markers
+
+  const avgBody = (i: number, period = 14) => {
+    const start = Math.max(0, i - period)
+    const slice = candles.slice(start, i)
+    if (!slice.length) return bodySize(candles[i])
+    return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
+  }
+
+  // ── Estrella de la mañana / vespertina (3 velas) ──
+  for (let i = 2; i < candles.length; i++) {
+    const c1 = candles[i - 2]
+    const c2 = candles[i - 1]
+    const c3 = candles[i]
+    const avg = avgBody(i)
+    const c1Mid = (c1.open + c1.close) / 2
+
+    const c1BigBearish = isBearish(c1) && bodySize(c1) > avg * 0.6
+    const c1BigBullish = isBullish(c1) && bodySize(c1) > avg * 0.6
+    const c2Small = bodySize(c2) < avg * 0.5
+    const c3BigBullish = isBullish(c3) && bodySize(c3) > avg * 0.6
+    const c3BigBearish = isBearish(c3) && bodySize(c3) > avg * 0.6
+
+    if (c1BigBearish && c2Small && c3BigBullish && c3.close > c1Mid) {
+      markers.push({ time: c3.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Estrella de la mañana' })
+    }
+    if (c1BigBullish && c2Small && c3BigBearish && c3.close < c1Mid) {
+      markers.push({ time: c3.time, position: 'aboveBar', color: '#f43f5e', shape: 'arrowDown', text: 'Estrella vespertina' })
+    }
+  }
+
+  // ── Envolventes (2 velas) ──
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1]
+    const curr = candles[i]
+
+    if (
+      isBearish(prev) && isBullish(curr) &&
+      curr.open <= prev.close && curr.close >= prev.open &&
+      bodySize(curr) > bodySize(prev)
+    ) {
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'circle', text: 'Envolvente alcista' })
+    }
+
+    if (
+      isBullish(prev) && isBearish(curr) &&
+      curr.open >= prev.close && curr.close <= prev.open &&
+      bodySize(curr) > bodySize(prev)
+    ) {
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#f43f5e', shape: 'circle', text: 'Envolvente bajista' })
+    }
+  }
+
+  return markers.sort((a, b) => a.time - b.time)
+}
