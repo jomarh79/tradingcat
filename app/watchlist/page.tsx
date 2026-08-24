@@ -117,6 +117,17 @@ const rsiColor = (rsi: number | null) => {
   return '#aaa'
 }
 
+// Trae el precio objetivo consenso de analistas desde Webull (promedio)
+async function fetchAnalystTarget(ticker: string): Promise<number | null> {
+  try {
+    const res = await fetch(`/api/webull/analyst-target?symbol=${encodeURIComponent(ticker)}`)
+    const data = await res.json()
+    return data?.success && data.mean != null ? data.mean : null
+  } catch {
+    return null
+  }
+}
+
 // Dispara el análisis IA en tu API de Render (todos los tickers, o uno solo si se pasa)
 async function triggerIA(
     ticker?: string,
@@ -328,11 +339,14 @@ const isMarketOpen = () => {
   }
 
   // ── Reanalizar un solo ticker desde la fila ──
-  const refreshTicker = async (ticker: string, lastUpdated: string | null) => {
+    const refreshTicker = async (ticker: string, lastUpdated: string | null) => {
     if (tickerCooldownRemaining(lastUpdated) > 0) return
     if (singleTriggerGapRemaining() > 0) return
     setLastSingleTrigger(Date.now())
     setRefreshingTickers(prev => new Set(prev).add(ticker))
+    fetchAnalystTarget(ticker).then(async (auto) => {
+      if (auto) await supabase.from('watchlist').update({ analyst_target: auto }).eq('ticker', ticker)
+    })
     await triggerIA(ticker)
     pollTicker(ticker, () => {
       setRefreshingTickers(prev => {
@@ -344,15 +358,21 @@ const isMarketOpen = () => {
   }
 
   // ── Agregar ticker — inserta en DB y dispara IA solo para ese ticker ───────
-  const agregarEmpresa = async () => {
+    const agregarEmpresa = async () => {
     const ticker = newTicker.trim().toUpperCase()
     if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
     if (singleTriggerGapRemaining() > 0) return alert(`Espera ${Math.ceil(singleTriggerGapRemaining())}s antes de otro análisis individual`)
 
+    let analystTarget = parseFloat(newAnalyst) || 0
+    if (!analystTarget) {
+      const auto = await fetchAnalystTarget(ticker)
+      if (auto) analystTarget = auto
+    }
+
     const { error } = await supabase.from('watchlist').insert({
       ticker,
       buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
-      analyst_target: parseFloat(newAnalyst) || 0,
+      analyst_target: analystTarget,
       notes:          newNotes.trim(),
     })
     if (error) { alert('Error: ' + error.message); return }
