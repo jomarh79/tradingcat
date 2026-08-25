@@ -262,6 +262,7 @@ function ChartPageInner() {
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
   const [executions, setExecutions] = useState<any[]>([])
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
+  const [liveQuote, setLiveQuote] = useState<{ price: number | null; change: number | null } | null>(null)
   const [dailyStats, setDailyStats] = useState<{
     max: { price: number; date: string }; min: { price: number; date: string }
     max5: { price: number; date: string } | null; min5: { price: number; date: string } | null
@@ -272,6 +273,7 @@ function ChartPageInner() {
     pe: number | null; ps: number | null; pcf: number | null; pb: number | null; payoutRatio: number | null; dividendYield: number | null
     sectorAvg: { pe: number | null; ps: number | null; pcf: number | null; pb: number | null; payoutRatio: number | null; dividendYield: number | null } | null
     peerCount: number
+    companyName: string | null
     ownHistory: OwnHistoryEntry[]
   } | null>(null)
 
@@ -359,6 +361,17 @@ function ChartPageInner() {
     fetchAuxMAs(ticker, '1day', setEmaDailyData)
     fetchAuxMAs(ticker, '1week', setSmaWeeklyData)
   }, [ticker, fetchAuxMAs])
+
+  // ── Precio y variación en vivo para el encabezado ──
+useEffect(() => {
+  if (!ticker) { setLiveQuote(null); return }
+  fetch(`/api/webull/quote?symbol=${encodeURIComponent(ticker)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) setLiveQuote({ price: data.price, change: data.change })
+    })
+    .catch(() => {})
+}, [ticker])
 
   // ── MAX/MIN histórico (10 años, 5 años, 52 semanas — siempre diario) — una sola vez por ticker ──
   useEffect(() => {
@@ -771,11 +784,25 @@ function ChartPageInner() {
     <AppShell>
       <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <BarChart2 size={20} color={C.accent} />
           <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>
             {ticker || 'Selecciona un ticker'}
           </h1>
+          {fundamentals?.companyName && (
+            <span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>
+              {fundamentals.companyName}
+            </span>
+          )}
+          {liveQuote?.change != null && (
+            <span style={{
+              fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
+              color: liveQuote.change >= 0 ? C.success : C.danger,
+              background: liveQuote.change >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)',
+            }}>
+              {liveQuote.change >= 0 ? '+' : ''}{liveQuote.change.toFixed(2)}%
+            </span>
+          )}
           {badge && (
             <span style={{ fontSize: 11, color: '#aaa', background: '#111', border: '1px solid #222', borderRadius: 6, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13 }}>{badge.symbol}</span> {badge.label}

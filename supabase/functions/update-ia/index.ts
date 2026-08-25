@@ -17,6 +17,9 @@ const WEBULL_MAX_CALLS = 500;
 // convergencia) y para resamplear a semanal y sacar SMA200 semanal.
 const BARS_COUNT = 1100;
 
+// Webull permite hasta 20 símbolos por petición de snapshot (precio en vivo)
+const SNAPSHOT_BATCH_SIZE = 20;
+
 // Separación mínima entre dos análisis del MISMO ticker individual (agregar / reanalizar fila).
 const SINGLE_TICKER_MIN_MINUTES = 1;
 
@@ -268,6 +271,81 @@ async function fetchWebullBars(
   return data as WebullBar[];
 }
 
+// ── Webull: snapshot en lote (precio EN VIVO) ──────────────────────────────
+// Los bars diarios (arriba) solo sirven para indicadores históricos — la vela
+// "de hoy" no se actualiza intradía. El precio/variación que se muestra en
+// pantalla viene de aquí, igual que en update-trades.
+
+interface WebullSnapshot {
+  symbol: string;
+  price: string;
+  pre_close: string;
+  change_ratio: string;
+}
+
+async function fetchWebullSnapshotBatch(
+  symbols: string[],
+  accessToken: string,
+  marketDataUrl: string,
+  appKey: string,
+  appSecret: string
+): Promise<WebullSnapshot[]> {
+  const path = "/openapi/market-data/stock/snapshot";
+
+  const queryParams: Record<string, string> = {
+    symbols: symbols.join(","),
+    category: "US_STOCK",
+    extend_hour_required: "false",
+    overnight_required: "false",
+  };
+
+  const timestamp = generateTimestamp();
+  const nonce = generateNonce();
+
+  const signature = await signWebullRequest({
+    path,
+    host: new URL(marketDataUrl).host,
+    appKey,
+    appSecret,
+    timestamp,
+    nonce,
+    extraParams: queryParams,
+  });
+
+  const qs = new URLSearchParams(queryParams).toString();
+
+  const res = await fetch(`${marketDataUrl}${path}?${qs}`, {
+    headers: {
+      Accept: "application/json",
+      "x-app-key": appKey,
+      "x-access-token": accessToken,
+      "x-timestamp": timestamp,
+      "x-signature-version": "1.0",
+      "x-signature-algorithm": "HMAC-SHA256",
+      "x-signature-nonce": nonce,
+      "x-version": "v2",
+      "x-signature": signature,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Webull Snapshot ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  if (!Array.isArray(data)) {
+    throw new Error(`Webull Snapshot: respuesta inesperada — ${JSON.stringify(data)}`);
+  }
+  return data as WebullSnapshot[];
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 // ── Handler principal ───────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -389,7 +467,33 @@ serve(async (req) => {
       );
     }
 
-    const processList = list.slice(0, WEBULL_MAX_CALLS);
+        const processList = list.slice(0, WEBULL_MAX_CALLS);
+
+    // ── Snapshot en lote — precio EN VIVO para todos los tickers de la corrida ──
+    // Se excluyen proactivamente tickers con espacio (ej. "IVV PESOS") — símbolos
+    // que ningún proveedor reconoce y que tumbarían el lote completo si se incluyen.
+    const allTickersToQuote = Array.from(new Set(processList.map((t: any) => t.ticker)));
+    const tickersToQuote = allTickersToQuote.filter((t) => !/\s/.test(t));
+    const quoteBatches = chunk(tickersToQuote, SNAPSHOT_BATCH_SIZE);
+    const quoteMap = new Map<string, { price: number; change: number }>();
+
+    for (const batch of quoteBatches) {
+      try {
+        const snapshots = await fetchWebullSnapshotBatch(
+          batch, auth.token, WEBULL_MARKET_URL, WEBULL_APP_KEY, WEBULL_APP_SECRET
+        );
+        for (const snap of snapshots) {
+          const price = parseFloat(snap.price) > 0 ? parseFloat(snap.price) : parseFloat(snap.pre_close) || 0;
+          if (price <= 0) continue;
+          const changeRatio = parseFloat(snap.change_ratio);
+          const change = !isNaN(changeRatio) ? changeRatio * 100 : 0;
+          quoteMap.set(snap.symbol, { price, change });
+        }
+      } catch (err) {
+        console.error("Error en batch de snapshot, se usará el cierre del bar como fallback:", batch, err);
+      }
+      if (quoteBatches.length > 1) await sleep(1100);
+    }
 
     if (singleTicker) {
       const item = list[0];
@@ -434,13 +538,23 @@ serve(async (req) => {
         const prices: number[] = dailyRows.map((r) => r.close);
         const priceName = rawBars[0]?.symbol || item.ticker;
 
-        const today = rawBars[0];
-        const openPrice = parseFloat(today.open);
-        const closePrice = parseFloat(today.close);
-        const price = closePrice;
+                // Precio EN VIVO del snapshot — si por algo no vino (ticker excluido o
+        // falló el lote), se usa el cierre del bar diario como respaldo.
+        const quote = quoteMap.get(item.ticker);
 
-        let change = 0;
-        if (openPrice > 0) change = ((closePrice - openPrice) / openPrice) * 100;
+        let price: number;
+        let change: number;
+
+        if (quote) {
+          price = quote.price;
+          change = quote.change;
+        } else {
+          const today = rawBars[0];
+          const openPrice = parseFloat(today.open);
+          const closePrice = parseFloat(today.close);
+          price = closePrice;
+          change = openPrice > 0 ? ((closePrice - openPrice) / openPrice) * 100 : 0;
+        }
 
         prices[prices.length - 1] = price;
         dailyRows[dailyRows.length - 1] = { ...dailyRows[dailyRows.length - 1], close: price };
