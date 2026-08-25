@@ -784,19 +784,19 @@ useEffect(() => {
     <AppShell>
       <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white' }}>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
           <BarChart2 size={20} color={C.accent} />
-          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>
             {ticker || 'Selecciona un ticker'}
           </h1>
           {fundamentals?.companyName && (
-            <span style={{ fontSize: 13, color: '#888', fontWeight: 500 }}>
+            <span style={{ fontSize: 18, color: '#888', fontWeight: 500 }}>
               {fundamentals.companyName}
             </span>
           )}
           {liveQuote?.change != null && (
             <span style={{
-              fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
+              fontSize: 18, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
               color: liveQuote.change >= 0 ? C.success : C.danger,
               background: liveQuote.change >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)',
             }}>
