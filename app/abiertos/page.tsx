@@ -6,7 +6,6 @@ import { usePrivacy } from "@/lib/PrivacyContext"
 import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import AiInsightPanel from "../components/AiInsightPanel"
-import FundamentalsModal from '../components/FundamentalsModal'
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
 import { TrendingUp, Settings, Trash2, Star, BarChart2, FileText } from 'lucide-react'
 
@@ -50,8 +49,6 @@ export default function TradesAbiertosPage() {
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
-
-  const [fundamentalsTicker, setFundamentalsTicker] = useState<string | null>(null)
 
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({
     key: 'ticker', direction: 'asc'
@@ -593,14 +590,16 @@ if (tickerSearch.trim() !== "") {
                         onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                         <BarChart2 size={14} />
                       </a>
-                      <button
-                        onClick={() => setFundamentalsTicker(trade.ticker)}
+                      
+                        href={`/fundamentals?ticker=${item.ticker}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         title="Ver fundamentales"
-                        style={{ background: 'none', border: 'none', color: '#555', padding: 4, display: 'flex', cursor: 'pointer', transition: 'color 0.2s' }}
+                        style={{ color: '#333', padding: 4, display: 'flex', transition: 'color 0.2s' }}
                         onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
-                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                        onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                         <FileText size={14} />
-                      </button>
+                      </a>
                         <button onClick={() => handleDelete(trade)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2a2a2a', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}

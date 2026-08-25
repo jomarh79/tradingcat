@@ -17,8 +17,6 @@ function extractRatios(m: Record<string, any>) {
   return {
     pe: typeof m.peTTM === 'number' ? m.peTTM : null,
     ps: typeof m.psTTM === 'number' ? m.psTTM : null,
-    pcf: typeof m.pfcfTTM === 'number' ? m.pfcfTTM : null,
-    pb: typeof m.pb === 'number' ? m.pb : null,
     payoutRatio,
     dividendYield: typeof dividendYield === 'number' ? dividendYield : null,
   }
@@ -52,6 +50,11 @@ const CONCEPT_CANDIDATES = {
   stockholdersEquity: [
     'us-gaap_StockholdersEquity',
     'us-gaap_StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+  ],
+  depreciationAmortization: [
+    'us-gaap_DepreciationDepletionAndAmortization',
+    'us-gaap_DepreciationAmortizationAndAccretionNet',
+    'us-gaap_DepreciationAndAmortization',
   ],
 }
 
@@ -102,6 +105,7 @@ async function fetchOwnHistory(symbol: string, apiKey: string) {
       dividendPerShare: findConcept(r.report, CONCEPT_CANDIDATES.dividendPerShare),
       operatingCashFlow: findConcept(r.report, CONCEPT_CANDIDATES.operatingCashFlow),
       stockholdersEquity: findConcept(r.report, CONCEPT_CANDIDATES.stockholdersEquity),
+      depreciationAmortization: findConcept(r.report, CONCEPT_CANDIDATES.depreciationAmortization),
     }))
   } catch {
     return [] // ETFs y algunos extranjeros no presentan 10-K — se queda vacío, no rompe el resto
@@ -150,23 +154,13 @@ export async function GET(request: Request) {
           const vals = peerRatiosList.map(p => p[key]).filter((v): v is number => typeof v === 'number')
           return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null
         }
-        sectorAvg = { pe: avgOf('pe'), ps: avgOf('ps'), pcf: avgOf('pcf'), pb: avgOf('pb'), payoutRatio: avgOf('payoutRatio'), dividendYield: avgOf('dividendYield') }
+        sectorAvg = { pe: avgOf('pe'), ps: avgOf('ps'), payoutRatio: avgOf('payoutRatio'), dividendYield: avgOf('dividendYield') }
       }
     } catch {
       // si falla el sector, seguimos devolviendo al menos los valores propios
     }
 
-        // Nombre real de la empresa (Finnhub Company Profile)
-    let companyName: string | null = null
-    try {
-      const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`, { cache: 'no-store' })
-      const profile = await profileRes.json()
-      companyName = typeof profile?.name === 'string' && profile.name.trim() ? profile.name.trim() : null
-    } catch {
-      // sin nombre no rompe el resto — se queda null
-    }
-
-        return NextResponse.json({ symbol, ...own, sectorAvg, peerCount, companyName, ownHistory: await fetchOwnHistory(symbol, apiKey) })
+    return NextResponse.json({ symbol, ...own, sectorAvg, peerCount, ownHistory: await fetchOwnHistory(symbol, apiKey) })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 })
   }

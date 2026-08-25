@@ -29,7 +29,6 @@ interface RawIncomeEntry {
   diluted_avg_shares: string;
   diluted_eps_incl_extra: string;
   diluted_eps_excl_extra: string;
-  inter_inc_expse_net_non_oper: string;
 }
 
 async function fetchIncomeStatements(
@@ -158,7 +157,6 @@ function parseEntry(e: RawIncomeEntry) {
     netIncome: num(e.net_income),
     dilutedAvgShares: num(e.diluted_avg_shares),
     dilutedEps: num(e.diluted_eps_incl_extra ?? e.diluted_eps_excl_extra),
-    interestNet: num(e.inter_inc_expse_net_non_oper),
   };
 }
 
@@ -229,7 +227,6 @@ export async function GET(request: NextRequest) {
         netIncome: sum("netIncome"),
         dilutedAvgShares: latest.dilutedAvgShares, // no se suma — es un promedio, no un flujo
         dilutedEps: sum("dilutedEps"),
-        interestNet: sum("interestNet"),
       };
     }
 

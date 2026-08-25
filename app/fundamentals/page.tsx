@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState, Fragment } from 'react'
-import { X } from 'lucide-react'
+import { Suspense, useEffect, useState, Fragment } from 'react'
+import { useSearchParams } from 'next/navigation'
+import AppShell from '../AppShell'
+import { BarChart2 } from 'lucide-react'
 
 interface IncomeEntry {
   fiscalYear: number
@@ -21,10 +23,9 @@ interface IncomeEntry {
   netIncome: number | null
   dilutedAvgShares: number | null
   dilutedEps: number | null
-  interestNet: number | null
 }
 
-interface ApiResponse {
+interface IncomeApiResponse {
   success: boolean
   symbol?: string
   annual?: IncomeEntry[]
@@ -33,16 +34,27 @@ interface ApiResponse {
   error?: string
 }
 
-// Columna genérica — puede ser un año real (IncomeEntry) o una columna sintética (TTM/forward)
+interface OwnHistoryEntry {
+  year: number
+  endDate: string
+  depreciationAmortization: number | null
+}
+
+interface FundamentalsApiResponse {
+  ownHistory?: OwnHistoryEntry[]
+  error?: string
+}
+
+// Columna genérica — año real, TTM o forward (estimado)
 type Column = { key: string; label: string; entry: IncomeEntry | null; isForward?: boolean }
 
-type RowKey = keyof Omit<IncomeEntry, 'fiscalYear' | 'fiscalPeriod' | 'endDate' | 'currency'>
+type RowKey = keyof Omit<IncomeEntry, 'fiscalYear' | 'fiscalPeriod' | 'endDate' | 'currency'> | 'ebitda'
 
 interface RowDef {
   label: string
   key: RowKey
   growth?: boolean
-  ratioOf?: RowKey // si está presente, la fila se muestra como % de otra fila (ej. Gross Profit / Revenue)
+  ratioOf?: RowKey
   decimals?: number
   isCurrency?: boolean
 }
@@ -76,6 +88,13 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    title: 'EBITDA',
+    rows: [
+      { label: 'EBITDA (Operating Income + D&A)', key: 'ebitda', growth: true, isCurrency: true },
+      { label: 'EBITDA Ratio', key: 'ebitda', ratioOf: 'revenue' },
+    ],
+  },
+  {
     title: 'Acciones',
     rows: [
       { label: 'Diluted Avg Shares', key: 'dilutedAvgShares', growth: true, isCurrency: true },
@@ -94,7 +113,6 @@ const SECTIONS: Section[] = [
   {
     title: 'Resultado Final',
     rows: [
-      { label: 'Interest (Expense)/Income, Net', key: 'interestNet', isCurrency: true },
       { label: 'Other Net Income', key: 'otherNetIncome', isCurrency: true },
       { label: 'Income Before Tax', key: 'ebt', isCurrency: true },
       { label: 'Income Tax Expense', key: 'incomeTax', isCurrency: true },
@@ -110,7 +128,6 @@ function fmtCurrency(v: number | null): string {
   if (abs >= 1e3) return `$${(v / 1e3).toFixed(2)}K`
   return `$${v.toFixed(2)}`
 }
-
 function fmtShares(v: number | null): string {
   if (v == null) return '—'
   const abs = Math.abs(v)
@@ -119,52 +136,71 @@ function fmtShares(v: number | null): string {
   if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}K`
   return v.toFixed(0)
 }
-
 function fmtNumber(v: number | null, decimals = 2): string {
   if (v == null) return '—'
   return v.toFixed(decimals)
 }
-
 function fmtPercent(v: number | null): string {
   if (v == null) return '—'
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 }
 
-export default function FundamentalsModal({ ticker, onClose }: { ticker: string; onClose: () => void }) {
-  const [data, setData] = useState<ApiResponse | null>(null)
+function FundamentalsPageInner() {
+  const searchParams = useSearchParams()
+  const ticker = (searchParams.get('ticker') || '').toUpperCase()
+
+  const [incomeData, setIncomeData] = useState<IncomeApiResponse | null>(null)
+  const [daByYear, setDaByYear] = useState<Map<number, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!ticker) return
     setLoading(true)
     setError(null)
-    fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`)
-      .then((r) => r.json())
-      .then((json: ApiResponse) => {
-        if (!json.success) { setError(json.error || 'Error desconocido'); return }
-        setData(json)
+
+    Promise.all([
+      fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()),
+      fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
+    ])
+      .then(([income, fund]: [IncomeApiResponse, FundamentalsApiResponse | null]) => {
+        if (!income.success) { setError(income.error || 'Error desconocido'); return }
+        setIncomeData(income)
+
+        // D&A por año fiscal (Finnhub 10-K) — para armar EBITDA junto con Operating Income (Webull)
+        const map = new Map<number, number>()
+        fund?.ownHistory?.forEach((h) => {
+          if (h.depreciationAmortization != null) map.set(h.year, h.depreciationAmortization)
+        })
+        setDaByYear(map)
       })
       .catch((e) => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false))
   }, [ticker])
 
-  const annual = data?.annual || []
+  const annual = incomeData?.annual || []
   const last10 = annual.slice(-10)
 
   const columns: Column[] = [
     ...last10.map((e) => ({ key: String(e.fiscalYear), label: String(e.fiscalYear), entry: e })),
-    { key: 'ttm', label: 'TTM', entry: data?.ttm ?? null },
-    ...(data?.forwardEps
-      ? [{ key: 'fwd', label: `${data.forwardEps.fiscalYear}E`, entry: null, isForward: true }]
+    { key: 'ttm', label: 'TTM', entry: incomeData?.ttm ?? null },
+    ...(incomeData?.forwardEps
+      ? [{ key: 'fwd', label: `${incomeData.forwardEps.fiscalYear}E`, entry: null, isForward: true }]
       : []),
   ]
 
   const getValue = (col: Column, key: RowKey): number | null => {
-    if (col.isForward) {
-      // Solo tenemos EPS estimado hacia adelante — el resto de filas queda vacío en esa columna
-      return key === 'dilutedEps' ? (data?.forwardEps?.eps ?? null) : null
+    if (key === 'ebitda') {
+      if (col.isForward || !col.entry) return null // sin D&A no hay EBITDA para TTM/forward
+      const opIncome = col.entry.opIncome
+      const da = daByYear.get(col.entry.fiscalYear)
+      if (opIncome == null || da == null) return null
+      return opIncome + da
     }
-    return col.entry ? col.entry[key] : null
+    if (col.isForward) {
+      return key === 'dilutedEps' ? (incomeData?.forwardEps?.eps ?? null) : null
+    }
+    return col.entry ? (col.entry[key as keyof IncomeEntry] as number | null) : null
   }
 
   const getGrowth = (colIdx: number, key: RowKey): number | null => {
@@ -189,24 +225,38 @@ export default function FundamentalsModal({ ticker, onClose }: { ticker: string;
     return v != null ? String(v) : '—'
   }
 
+  const hasAnyEbitda = columns.some((c) => getValue(c, 'ebitda') != null)
+
   return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 900, margin: 0, color: '#fff' }}>
-            Fundamentales — {ticker}
-          </h2>
-          <button onClick={onClose} style={closeBtnStyle}>
-            <X size={18} />
-          </button>
+    <AppShell>
+      <div style={{ maxWidth: 1200, margin: '20px auto', padding: '0 28px', color: 'white' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+          <BarChart2 size={20} color="#00bfff" />
+          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>
+            Fundamentales — {ticker || 'Selecciona un ticker'}
+          </h1>
         </div>
 
-        {loading && <div style={{ padding: 40, textAlign: 'center', color: '#666' }}>Cargando estado de resultados...</div>}
-        {error && <div style={{ padding: 40, textAlign: 'center', color: '#f43f5e' }}>{error}</div>}
+        {!ticker && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#666' }}>
+            Abre esta página desde un ticker de tu watchlist o de tus trades — falta <code>?ticker=</code> en la URL.
+          </div>
+        )}
 
-        {!loading && !error && data && (
+        {ticker && loading && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#666' }}>Cargando estado de resultados...</div>
+        )}
+
+        {ticker && error && (
+          <div style={{ padding: 40, textAlign: 'center', color: '#f43f5e', background: '#080808', border: '1px solid #1a1a1a', borderRadius: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {ticker && !loading && !error && incomeData && (
           <>
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto', background: '#080808', border: '1px solid #1a1a1a', borderRadius: 12, padding: 16 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 900 }}>
                 <thead>
                   <tr>
@@ -261,31 +311,30 @@ export default function FundamentalsModal({ ticker, onClose }: { ticker: string;
               </table>
             </div>
 
-            <div style={{ fontSize: 9, color: '#444', marginTop: 12, lineHeight: 1.5 }}>
-              Fuente: Webull Fundamentals API. TTM = suma de los últimos 4 trimestres reportados (acciones diluidas: promedio del trimestre más reciente, no se suma).
-              {data.forwardEps
-                ? ` La columna ${data.forwardEps.fiscalYear}E es EPS estimado por analistas (suma de ${data.forwardEps.quartersCovered} trimestre${data.forwardEps.quartersCovered !== 1 ? 's' : ''} aún no reportado${data.forwardEps.quartersCovered !== 1 ? 's' : ''}) — el resto de las filas no tiene estimado disponible en Webull para ese año.`
+            <div style={{ fontSize: 9, color: '#444', marginTop: 12, lineHeight: 1.6 }}>
+              Fuente: Webull Fundamentals API (estado de resultados) + Finnhub (D&A para EBITDA).
+              TTM = suma de los últimos 4 trimestres reportados (acciones diluidas: promedio del trimestre más reciente, no se suma).
+              {incomeData.forwardEps
+                ? ` La columna ${incomeData.forwardEps.fiscalYear}E es EPS estimado por analistas (suma de ${incomeData.forwardEps.quartersCovered} trimestre${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''} aún no reportado${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''}) — el resto de las filas no tiene estimado disponible para ese año.`
                 : ' No hay estimado de EPS disponible hacia adelante para este símbolo.'}
-              {' '}No se incluyen Basic EPS ni EBITDA real (Webull no expone depreciación/amortización desglosada).
+              {' '}EBITDA = Operating Income (Webull) + Depreciación y Amortización (Finnhub, 10-K) — solo disponible para años anuales con reporte 10-K cruzado (no TTM ni forward). No se incluye Basic EPS (Webull solo expone Diluted EPS).
+              {!hasAnyEbitda && ' No se encontró D&A para este símbolo — puede ser un ETF u otro caso sin 10-K propio.'}
             </div>
           </>
         )}
       </div>
-    </div>
+    </AppShell>
   )
 }
 
-const overlayStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
+export default function FundamentalsPage() {
+  return (
+    <Suspense fallback={<AppShell><div style={{ padding: 40, color: '#666' }}>Cargando...</div></AppShell>}>
+      <FundamentalsPageInner />
+    </Suspense>
+  )
 }
-const modalStyle: React.CSSProperties = {
-  background: '#080808', border: '1px solid #1a1a1a', borderRadius: 12,
-  padding: 20, maxWidth: 1100, width: '100%', maxHeight: '85vh', overflowY: 'auto',
-}
-const closeBtnStyle: React.CSSProperties = {
-  background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4,
-}
+
 const thStyle: React.CSSProperties = {
   padding: '6px 10px', textAlign: 'right', fontSize: 10, fontWeight: 700,
   textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', borderBottom: '1px solid #1a1a1a',
