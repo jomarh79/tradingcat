@@ -6,8 +6,9 @@ import { usePrivacy } from "@/lib/PrivacyContext"
 import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import AiInsightPanel from "../components/AiInsightPanel"
+import FundamentalsModal from '../components/FundamentalsModal'
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
-import { TrendingUp, Settings, Trash2, Star, BarChart2 } from 'lucide-react'
+import { TrendingUp, Settings, Trash2, Star, BarChart2, FileText } from 'lucide-react'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
@@ -49,6 +50,8 @@ export default function TradesAbiertosPage() {
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
+
+  const [fundamentalsTicker, setFundamentalsTicker] = useState<string | null>(null)
 
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({
     key: 'ticker', direction: 'asc'
@@ -590,6 +593,14 @@ if (tickerSearch.trim() !== "") {
                         onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                         <BarChart2 size={14} />
                       </a>
+                      <button
+                        onClick={() => setFundamentalsTicker(trade.ticker)}
+                        title="Ver fundamentales"
+                        style={{ background: 'none', border: 'none', color: '#555', padding: 4, display: 'flex', cursor: 'pointer', transition: 'color 0.2s' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                        <FileText size={14} />
+                      </button>
                         <button onClick={() => handleDelete(trade)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2a2a2a', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
@@ -638,6 +649,10 @@ if (tickerSearch.trim() !== "") {
         )}
       </>
     )}
+
+{fundamentalsTicker && (
+  <FundamentalsModal ticker={fundamentalsTicker} onClose={() => setFundamentalsTicker(null)} />
+)}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </AppShell>
