@@ -8,7 +8,8 @@ import {
   FaBell, FaPlus, FaTrash, FaSpinner,
   FaSort, FaSortUp, FaSortDown, FaSearch, FaSync, FaBrain,
 } from 'react-icons/fa'
-import { AlertTriangle, BarChart2 } from 'lucide-react'
+import FundamentalsModal from '../components/FundamentalsModal'
+import { AlertTriangle, BarChart2, FileText } from 'lucide-react'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -167,6 +168,8 @@ export default function WatchlistIAPage() {
   const [addingNew,   setAddingNew]   = useState(false)  // spinner solo para ticker nuevo
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+
+  const [fundamentalsTicker, setFundamentalsTicker] = useState<string | null>(null)
 
   const [newTicker,  setNewTicker]  = useState('')
   const [newTarget,  setNewTarget]  = useState('')
@@ -771,6 +774,14 @@ const isMarketOpen = () => {
                           <BarChart2 size={14} />
                         </a>
                         <button
+                          onClick={() => setFundamentalsTicker(item.ticker)}
+                          title="Ver fundamentales"
+                          style={{ background: 'none', border: 'none', color: '#333', padding: 4, display: 'flex', cursor: 'pointer', transition: 'color 0.2s' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                          <FileText size={14} />
+                        </button>
+                        <button
                           onClick={() => refreshTicker(item.ticker, item.last_updated)}
                           disabled={!canRefresh}
                           title={
@@ -870,6 +881,10 @@ const isMarketOpen = () => {
         </div>
 
       </div>
+
+      {fundamentalsTicker && (
+        <FundamentalsModal ticker={fundamentalsTicker} onClose={() => setFundamentalsTicker(null)} />
+      )}
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
