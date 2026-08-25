@@ -772,7 +772,7 @@ const isMarketOpen = () => {
                           <BarChart2 size={14} />
                         </a>
                         <a
-                        href={`/fundamentals?ticker=${item.ticker}`}
+                        href={`/fundamentals?ticker=${trade.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Ver fundamentales"
@@ -881,10 +881,6 @@ const isMarketOpen = () => {
         </div>
 
       </div>
-
-      {fundamentalsTicker && (
-        <FundamentalsModal ticker={fundamentalsTicker} onClose={() => setFundamentalsTicker(null)} />
-      )}
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
