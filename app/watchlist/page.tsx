@@ -771,7 +771,7 @@ const isMarketOpen = () => {
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                           <BarChart2 size={14} />
                         </a>
-                        
+                        <a
                         href={`/fundamentals?ticker=${item.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"

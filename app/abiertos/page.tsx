@@ -590,7 +590,7 @@ if (tickerSearch.trim() !== "") {
                         onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                         <BarChart2 size={14} />
                       </a>
-                      
+                      <a
                         href={`/fundamentals?ticker=${item.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
