@@ -156,7 +156,17 @@ export async function GET(request: Request) {
       // si falla el sector, seguimos devolviendo al menos los valores propios
     }
 
-    return NextResponse.json({ symbol, ...own, sectorAvg, peerCount, ownHistory: await fetchOwnHistory(symbol, apiKey) })
+        // Nombre real de la empresa (Finnhub Company Profile)
+    let companyName: string | null = null
+    try {
+      const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`, { cache: 'no-store' })
+      const profile = await profileRes.json()
+      companyName = typeof profile?.name === 'string' && profile.name.trim() ? profile.name.trim() : null
+    } catch {
+      // sin nombre no rompe el resto — se queda null
+    }
+
+        return NextResponse.json({ symbol, ...own, sectorAvg, peerCount, companyName, ownHistory: await fetchOwnHistory(symbol, apiKey) })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? String(err) }, { status: 500 })
   }
