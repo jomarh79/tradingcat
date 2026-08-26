@@ -558,7 +558,7 @@ export default function CerradosPage() {
                   <tr key={t.id} style={trStyle}>
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>
                       {t.ticker}
-                      <div style={{ fontSize: '0.6rem', color: '#777' }}>{t.portfolios?.name}</div>
+
                     </td>
                     <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>
                       {t.open_date ? parseDate(t.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
