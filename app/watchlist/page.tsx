@@ -772,7 +772,7 @@ const isMarketOpen = () => {
                           <BarChart2 size={14} />
                         </a>
                         <a
-                        href={`/fundamentals?ticker=${trade.ticker}`}
+                        href={`/fundamentals?ticker=${item.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Ver fundamentales"
