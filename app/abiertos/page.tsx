@@ -450,9 +450,6 @@ if (tickerSearch.trim() !== "") {
                         {trade.ticker}
                       </a>
 
-                      <div style={{ fontSize: '0.55rem', color: '#444' }}>
-                        {trade.portfolios?.name}
-                      </div>
                     </td>
 
                     {/* Var día */}
