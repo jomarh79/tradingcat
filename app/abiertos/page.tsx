@@ -7,7 +7,7 @@ import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import AiInsightPanel from "../components/AiInsightPanel"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
-import { TrendingUp, Settings, Trash2, Star, BarChart2, FileText } from 'lucide-react'
+import { TrendingUp, Settings, Trash2, Star, BarChart2, FileText, Activity } from 'lucide-react'
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
@@ -587,6 +587,18 @@ if (tickerSearch.trim() !== "") {
                         onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
                         <BarChart2 size={14} />
                       </a>
+
+                       <a
+                        href={`/position?ticker=${trade.ticker}&tradeId=${trade.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Ver radiografía de la posición"
+                        style={{ color: '#555', padding: 4, display: 'flex', transition: 'color 0.2s' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                        <Activity size={14} />
+                      </a>
+
                       <a
                         href={`/fundamentals?ticker=${trade.ticker}`}
                         target="_blank"
