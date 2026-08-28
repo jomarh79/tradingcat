@@ -8,6 +8,59 @@ const WEBULL_APP_KEY = process.env.WEBULL_APP_KEY;
 const WEBULL_APP_SECRET = process.env.WEBULL_KEY_APP_SECRET;
 const WEBULL_MARKET_URL = process.env.WEBULL_MARKET_DATA_URL || "https://api.webull.com";
 
+// ── Diccionario local para industrias frecuentes (Evita llamadas API extras) ──
+const INDUSTRY_DICTIONARY: Record<string, string> = {
+  "Technology": "Tecnología",
+  "Software - Infrastructure": "Software - Infraestructura",
+  "Software - Application": "Software - Aplicaciones",
+  "Semiconductors": "Semiconductores",
+  "Consumer Electronics": "Electrónica de Consumo",
+  "Healthcare": "Salud",
+  "Biotechnology": "Biotecnología",
+  "Drug Manufacturers - General": "Fabricantes de Medicamentos",
+  "Financial Services": "Servicios Financieros",
+  "Credit Services": "Servicios de Crédito",
+  "Banks - Diversified": "Bancos Diversificados",
+  "Consumer Cyclical": "Consumo Cíclico",
+  "Internet Retail": "Comercio Electrónico",
+  "Auto Manufacturers": "Fabricantes de Automóviles",
+  "Industrials": "Industrial",
+  "Communication Services": "Servicios de Comunicación",
+  "Energy": "Energía",
+  "Utilities": "Servicios Públicos",
+  "Real Estate": "Bienes Raíces",
+  "Basic Materials": "Materiales Básicos"
+};
+
+// ── Función para traducir texto usando la API gratuita de Google Translate ──
+async function translateText(text: string): Promise<string> {
+  if (!text || text.trim() === "") return text;
+  try {
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(text)}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return text;
+    const data = await res.json();
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+      return data[0].map((item: any) => item[0]).join("");
+    }
+    return text;
+  } catch {
+    return text; // Si falla, devuelve el texto original en inglés
+  }
+}
+
+// ── Traducir lista de industrias ──
+async function translateIndustries(industries: string[]): Promise<string[]> {
+  return Promise.all(
+    industries.map(async (ind) => {
+      if (INDUSTRY_DICTIONARY[ind]) return INDUSTRY_DICTIONARY[ind];
+      return await translateText(ind);
+    })
+  );
+}
+
 async function webullGet(path: string, params: Record<string, string>, accessToken: string) {
   const timestamp = generateTimestamp();
   const nonce = generateNonce();
@@ -39,7 +92,7 @@ async function webullGet(path: string, params: Record<string, string>, accessTok
     cache: "no-store",
   });
 
-  if (!res.ok) return null; // no rompe el resto — cada sección es opcional
+  if (!res.ok) return null;
   try {
     return await res.json();
   } catch {
@@ -62,28 +115,28 @@ async function fetchDailyBars(symbol: string, accessToken: string): Promise<{ ms
   return (data as WebullBar[])
     .map((b) => ({ ms: new Date(b.time).getTime(), close: parseFloat(b.close) }))
     .filter((b) => !isNaN(b.ms) && !isNaN(b.close) && b.close > 0)
-    .sort((a, b) => a.ms - b.ms); // ascendente
+    .sort((a, b) => a.ms - b.ms);
 }
 
 function findClosestClose(bars: { ms: number; close: number }[], targetMs: number, toleranceDays = 10): number | null {
-  if (!bars.length) return null
-  let best: { ms: number; close: number } | null = null
-  let bestDiff = Infinity
+  if (!bars.length) return null;
+  let best: { ms: number; close: number } | null = null;
+  let bestDiff = Infinity;
   for (const b of bars) {
-    const diff = Math.abs(b.ms - targetMs)
-    if (diff < bestDiff) { bestDiff = diff; best = b }
+    const diff = Math.abs(b.ms - targetMs);
+    if (diff < bestDiff) { bestDiff = diff; best = b; }
   }
-  if (!best || bestDiff > toleranceDays * 86400000) return null
-  return best.close
+  if (!best || bestDiff > toleranceDays * 86400000) return null;
+  return best.close;
 }
 
 function computeReturn(bars: { ms: number; close: number }[], daysBack: number): number | null {
-  if (!bars.length) return null
-  const latest = bars[bars.length - 1].close
-  const targetMs = Date.now() - daysBack * 86400000
-  const past = findClosestClose(bars, targetMs)
-  if (past == null || past === 0) return null
-  return ((latest - past) / past) * 100
+  if (!bars.length) return null;
+  const latest = bars[bars.length - 1].close;
+  const targetMs = Date.now() - daysBack * 86400000;
+  const past = findClosestClose(bars, targetMs);
+  if (past == null || past === 0) return null;
+  return ((latest - past) / past) * 100;
 }
 
 const PERIODS = [
@@ -123,21 +176,29 @@ export async function GET(request: NextRequest) {
       fetchDailyBars("SPY", auth.token),
     ]);
 
-    // ── Perfil de empresa ──
-    const profile = profileRaw
-      ? {
-          companyName: profileRaw.company_name ?? null,
-          establishDate: profileRaw.establish_date ?? null,
-          exchange: profileRaw.exhibition_code ?? null,
-          description: profileRaw.profile ?? null,
-          employees: profileRaw.employees ? parseInt(profileRaw.employees, 10) : null,
-          address: profileRaw.address ?? null,
-          ceo: profileRaw.ceo ?? null,
-          industries: Array.isArray(profileRaw.industries) ? profileRaw.industries : [],
-        }
-      : null;
+    // ── Perfil de empresa (Traducido al español) ──
+    let profile = null;
+    if (profileRaw) {
+      const translatedDescription = profileRaw.profile
+        ? await translateText(profileRaw.profile)
+        : null;
 
-    // ── Próximo earnings — el de fecha más próxima hacia adelante ──
+      const rawIndustries = Array.isArray(profileRaw.industries) ? profileRaw.industries : [];
+      const translatedIndustries = await translateIndustries(rawIndustries);
+
+      profile = {
+        companyName: profileRaw.company_name ?? null,
+        establishDate: profileRaw.establish_date ?? null,
+        exchange: profileRaw.exhibition_code ?? null,
+        description: translatedDescription,
+        employees: profileRaw.employees ? parseInt(profileRaw.employees, 10) : null,
+        address: profileRaw.address ?? null,
+        ceo: profileRaw.ceo ?? null,
+        industries: translatedIndustries,
+      };
+    }
+
+    // ── Próximo earnings ──
     let nextEarnings: any = null;
     if (Array.isArray(earningsRaw) && earningsRaw.length > 0) {
       const now = Date.now();
@@ -156,7 +217,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ── Próximo dividendo — el de fecha ex-div más próxima hacia adelante ──
+    // ── Próximo dividendo ──
     let nextDividend: any = null;
     if (Array.isArray(dividendRaw) && dividendRaw.length > 0) {
       const now = Date.now();
