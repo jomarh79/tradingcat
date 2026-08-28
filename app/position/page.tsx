@@ -1202,27 +1202,6 @@ function PositionPageInner() {
               </table>
             )}
 
-            {detail?.performance &&
-              detail.performance
-                .dataCoverageYears < 4.8 && (
-                <div
-                  style={{
-                    fontSize: 9,
-                    color: '#444',
-                    marginTop: 8,
-                  }}
-                >
-                  Nota: solo hay{' '}
-                  {detail.performance
-                    .dataCoverageYears.toFixed(
-                      1
-                    )}{' '}
-                  años de historial disponible
-                  para este símbolo — los
-                  periodos más largos pueden no
-                  estar completos.
-                </div>
-              )}
           </div>
 
           {/* ═══════════════════════════════════════════════════
