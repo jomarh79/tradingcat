@@ -1,5 +1,6 @@
 'use client' 
-import { Suspense, useEffect, useState } from 'react' import { useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase' 
 import AppShell from '../AppShell'
 import { Activity, Building2, Calendar, DollarSign, TrendingUp, TrendingDown, } from 'lucide-react'
