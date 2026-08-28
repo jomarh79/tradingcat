@@ -573,6 +573,7 @@ if (tickerSearch.trim() !== "") {
                         <button onClick={() => {
                           setSelectedTrade(trade)
                         }}
+                          title="Editar trade"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
@@ -582,6 +583,7 @@ if (tickerSearch.trim() !== "") {
                         href={`/chart?ticker=${trade.ticker}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        title="Ver graficos"
                         style={{ color: '#555', padding: 4, display: 'flex', transition: 'color 0.2s' }}
                         onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
                         onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
@@ -610,12 +612,14 @@ if (tickerSearch.trim() !== "") {
                         <FileText size={14} />
                       </a>
                         <button onClick={() => handleDelete(trade)}
+                        title="Eliminar trade"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2a2a2a', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#2a2a2a')}>
                           <Trash2 size={14} />
                         </button>
                         <button onClick={() => handleTogglePriority(trade)}
+                        title="Seleccionar trade"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
                           <Star size={13} fill={trade.priority ? '#ffd700' : 'none'} color={trade.priority ? '#ffd700' : '#333'} />
                         </button>
