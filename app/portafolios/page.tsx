@@ -963,7 +963,11 @@ setWalletPnL(pnlMap)
                 ))}
               </div>
 
-             <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
+                           <label style={lbl}>Fecha del spin-off (según el broker/mercado)</label>
+              <input type="date" value={spinoffDate}
+                onChange={e => { setSpinoffDate(e.target.value); setSpinoffPreview([]) }} style={inp} disabled={spinoffNoOrigin} />
+
+              <label style={lbl}>Ticker original (empresa que hace spin-off)</label>
               {!spinoffNoOrigin && (
                 <select value={spinoffOriginal} onChange={e => { setSpinoffOriginal(e.target.value); setSpinoffPreview([]) }} style={inp}>
                   <option value="">Selecciona ticker...</option>
@@ -979,15 +983,12 @@ setWalletPnL(pnlMap)
                 Se desconoce la empresa origen
               </label>
 
-              {spinoffNoOrigin && (
-                <>
-                                <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
+              <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
               <select value={spinoffPortfolio} onChange={e => setSpinoffPortfolio(e.target.value)} style={inp}>
                 <option value="">Selecciona portafolio...</option>
                 {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-                </>
-              )}
+
 
               <label style={lbl}>Ticker nuevo (empresa que se separa)</label>
               <input placeholder="Ej: HONA" value={spinoffNew}
@@ -1124,9 +1125,6 @@ setWalletPnL(pnlMap)
               <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#eab308' }}>
                 En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones se actualizan con la nueva cantidad y precio proporcional.
               </div>
-                            <label style={lbl}>Fecha del spin-off (según el broker/mercado)</label>
-              <input type="date" value={spinoffDate}
-                onChange={e => { setSpinoffDate(e.target.value); setSpinoffPreview([]) }} style={inp} disabled={spinoffNoOrigin} />
               <label style={lbl}>Ticker original (empresa absorbida)</label>
               <select value={mergerTicker} onChange={e => { setMergerTicker(e.target.value); setMergerPreview([]) }} style={inp}>
                 <option value="">Selecciona ticker...</option>
