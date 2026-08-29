@@ -61,6 +61,8 @@ export default function PortafoliosPage() {
   const [walletMoveCount, setWalletMoveCount] = useState<Record<string, number>>({})
   const [walletPnL, setWalletPnL] = useState<Record<string, number>>({})
 
+  const [spinoffDate, setSpinoffDate] = useState(new Date().toISOString().split('T')[0])
+
   // Transferencia entre cuentas
   const [showTransfer,    setShowTransfer]    = useState(false)
   const [showActions, setShowActions] = useState(false)
@@ -324,10 +326,11 @@ setWalletPnL(pnlMap)
   }, [splitTicker, splitFrom, splitTo, splitType])
 
 // ── Spin-off preview ─────────────────────────────────────────────────────
-  const previewSpinoff = useCallback(async () => {
+    const previewSpinoff = useCallback(async () => {
     const newTick  = spinoffNew.trim().toUpperCase()
     const ratio    = parseFloat(spinoffRatio)
     if (!newTick || isNaN(ratio) || ratio <= 0) return
+    if (!spinoffNoOrigin && !spinoffDate) return alert('Indica la fecha del spin-off')
     setSpinoffLoading(true)
 
     // Caso sin empresa origen — crear preview sintético
@@ -336,7 +339,11 @@ setWalletPnL(pnlMap)
         id: null,
         ticker: '—',
         qtyOriginal: 0,
-        qtyNew: ratio, // aquí ratio ES la cantidad directa
+        qtyPre: 0,
+        qtyPost: 0,
+        investedPre: 0,
+        investedPost: 0,
+        qtyNew: ratio,
         priceNew: parseFloat(spinoffNewPrice || '0'),
         totalInvested: 0,
         priceOriginalAfter: 0,
@@ -350,28 +357,63 @@ setWalletPnL(pnlMap)
     if (!original) { setSpinoffLoading(false); return }
     const { data: trades } = await supabase
       .from('trades')
-      .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested')
+      .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested,portfolio_id')
       .eq('ticker', original)
       .eq('status', 'open')
     if (!trades?.length) { setSpinoffPreview([]); setSpinoffLoading(false); return }
-    setSpinoffPreview(trades.map(tr => ({
-      id:          tr.id,
-      ticker:      tr.ticker,
-      qtyOriginal: parseFloat(Number(tr.quantity).toFixed(6)),
-      qtyNew:      parseFloat((Number(tr.quantity) * ratio).toFixed(6)),
-      priceNew:    parseFloat(spinoffNewPrice || '0'),
-      totalInvested: tr.total_invested,
-      // Si es con reducción, el precio original se ajusta
-      priceOriginalAfter: spinoffType === 'with_reduction' && spinoffOriginalNewPrice
-        ? parseFloat(parseFloat(spinoffOriginalNewPrice).toFixed(4))
-        : Number(tr.entry_price),
-    })))
-    setSpinoffLoading(false)
-  }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType, spinoffOriginalNewPrice])
 
-  const applySpinoff = async () => {
+    const cutoff = new Date(spinoffDate + 'T23:59:59').getTime()
+    const previews: any[] = []
+
+    for (const tr of trades) {
+      const { data: execs } = await supabase
+        .from('trade_executions')
+        .select('id,execution_type,quantity,price,executed_at')
+        .eq('trade_id', tr.id)
+
+      const preBuys  = (execs || []).filter(e => e.execution_type === 'buy' && new Date(e.executed_at).getTime() <= cutoff)
+      const postBuys = (execs || []).filter(e => e.execution_type === 'buy' && new Date(e.executed_at).getTime() > cutoff)
+
+      const qtyPre        = preBuys.reduce((a, e) => a + Number(e.quantity), 0)
+      const qtyPost        = postBuys.reduce((a, e) => a + Number(e.quantity), 0)
+      const investedPre    = preBuys.reduce((a, e) => a + Number(e.quantity) * Number(e.price), 0)
+      const investedPost   = postBuys.reduce((a, e) => a + Number(e.quantity) * Number(e.price), 0)
+
+      // Si no hay ejecuciones registradas o no cuadran con la cantidad actual, se trata todo como "antes"
+      const hasExecData = (execs?.length || 0) > 0 && Math.abs((qtyPre + qtyPost) - Number(tr.quantity)) < 0.000001
+
+      const effQtyPre      = hasExecData ? qtyPre      : Number(tr.quantity)
+      const effQtyPost     = hasExecData ? qtyPost     : 0
+      const effInvestedPre = hasExecData ? investedPre  : Number(tr.total_invested)
+      const effInvestedPost= hasExecData ? investedPost : 0
+
+      previews.push({
+        id: tr.id,
+        ticker: tr.ticker,
+        portfolioId: tr.portfolio_id,
+        hasExecData,
+        qtyOriginal: parseFloat(Number(tr.quantity).toFixed(6)),
+        qtyPre: parseFloat(effQtyPre.toFixed(6)),
+        qtyPost: parseFloat(effQtyPost.toFixed(6)),
+        investedPre: parseFloat(effInvestedPre.toFixed(2)),
+        investedPost: parseFloat(effInvestedPost.toFixed(2)),
+        qtyNew: parseFloat((effQtyPre * ratio).toFixed(6)),
+        priceNew: parseFloat(spinoffNewPrice || '0'),
+        totalInvested: tr.total_invested,
+        priceOriginalAfter: spinoffType === 'with_reduction' && spinoffOriginalNewPrice
+          ? parseFloat(parseFloat(spinoffOriginalNewPrice).toFixed(4))
+          : Number(tr.entry_price),
+      })
+    }
+
+    setSpinoffPreview(previews)
+    setSpinoffLoading(false)
+  }, [spinoffOriginal, spinoffNew, spinoffRatio, spinoffNewPrice, spinoffType, spinoffOriginalNewPrice, spinoffDate, spinoffNoOrigin])
+
+    const applySpinoff = async () => {
     if (!spinoffPreview.length) return
-    setSplitSaving(true) // reutilizamos el estado de saving
+    if (!spinoffPortfolio) return alert('Selecciona el portafolio donde registrar la nueva empresa')
+    setSplitSaving(true)
     setSpinoffSaving(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -381,10 +423,9 @@ setWalletPnL(pnlMap)
         // Caso sin origen — solo crear el nuevo trade sin modificar nada
         if (tr.noOrigin) {
           const totalInvNew = parseFloat((tr.qtyNew * tr.priceNew).toFixed(2))
-          const { data: anyTrade } = await supabase.from('trades').select('portfolio_id').eq('user_id', user.id).limit(1).single()
           await supabase.from('trades').insert({
             user_id:             user.id,
-            portfolio_id: spinoffPortfolio,
+            portfolio_id:        spinoffPortfolio,
             ticker:              spinoffNew.trim().toUpperCase(),
             type:                'long',
             status:              'open',
@@ -399,23 +440,30 @@ setWalletPnL(pnlMap)
           continue
         }
 
-        // Si es con reducción, ajustar precio Y cantidad de la posición original
+        // Si es con reducción, ajustar SOLO la porción comprada antes del spin-off;
+        // la porción comprada después se conserva intacta y se suma de vuelta.
         if (spinoffType === 'with_reduction' && tr.priceOriginalAfter > 0) {
+          const adjustedPreQty   = tr.qtyNew
+          const adjustedPrePrice = tr.priceOriginalAfter
+          const finalQty      = parseFloat((adjustedPreQty + tr.qtyPost).toFixed(6))
+          const finalInvested = parseFloat((adjustedPreQty * adjustedPrePrice + tr.investedPost).toFixed(2))
+          const finalAvgPrice = finalQty > 0 ? parseFloat((finalInvested / finalQty).toFixed(4)) : adjustedPrePrice
+
           await supabase.from('trades').update({
-            entry_price:         tr.priceOriginalAfter,
-            initial_entry_price: tr.priceOriginalAfter,
-            quantity:            tr.qtyNew, // misma cantidad que HONA
-            initial_quantity:    tr.qtyNew,
-            total_invested:      parseFloat((tr.qtyNew * tr.priceOriginalAfter).toFixed(2)),
+            entry_price:         finalAvgPrice,
+            initial_entry_price: finalAvgPrice,
+            quantity:            finalQty,
+            initial_quantity:    finalQty,
+            total_invested:      finalInvested,
           }).eq('id', tr.id)
         }
 
-        // Crear nuevo trade para la empresa spin-off
+        // Crear nuevo trade para la empresa spin-off — solo con la porción elegible (pre-fecha)
         if (tr.priceNew > 0 && tr.qtyNew > 0) {
           const totalInvNew = parseFloat((tr.qtyNew * tr.priceNew).toFixed(2))
           await supabase.from('trades').insert({
             user_id:              user.id,
-            portfolio_id:         (await supabase.from('trades').select('portfolio_id').eq('id', tr.id).single()).data?.portfolio_id,
+            portfolio_id:         spinoffPortfolio,
             ticker:               spinoffNew.trim().toUpperCase(),
             type:                 'long',
             status:               'open',
@@ -425,7 +473,7 @@ setWalletPnL(pnlMap)
             initial_entry_price:  tr.priceNew,
             total_invested:       totalInvNew,
             open_date:            new Date().toLocaleDateString('sv-SE'),
-            notes:                `Spin-off de ${spinoffOriginal.toUpperCase()} — ratio ${spinoffRatio}:1`,
+            notes:                `Spin-off de ${spinoffOriginal.toUpperCase()} — ratio ${spinoffRatio}:1 (fecha del spin-off: ${spinoffDate})`,
           })
         }
       }
@@ -434,6 +482,7 @@ setWalletPnL(pnlMap)
       setShowSpinoff(false)
       setSpinoffPreview([])
       setSpinoffOriginal(''); setSpinoffNew(''); setSpinoffRatio(''); setSpinoffNewPrice('')
+      setSpinoffPortfolio(''); setSpinoffDate(new Date().toISOString().split('T')[0])
     } catch (err) { alert('Error: ' + err) }
     finally { setSpinoffSaving(false) }
   }
@@ -932,11 +981,11 @@ setWalletPnL(pnlMap)
 
               {spinoffNoOrigin && (
                 <>
-                  <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
-                  <select value={spinoffPortfolio} onChange={e => setSpinoffPortfolio(e.target.value)} style={inp}>
-                    <option value="">Selecciona portafolio...</option>
-                    {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                                <label style={lbl}>Portafolio donde registrar la nueva empresa</label>
+              <select value={spinoffPortfolio} onChange={e => setSpinoffPortfolio(e.target.value)} style={inp}>
+                <option value="">Selecciona portafolio...</option>
+                {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
                 </>
               )}
 
@@ -1075,6 +1124,9 @@ setWalletPnL(pnlMap)
               <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#eab308' }}>
                 En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones se actualizan con la nueva cantidad y precio proporcional.
               </div>
+                            <label style={lbl}>Fecha del spin-off (según el broker/mercado)</label>
+              <input type="date" value={spinoffDate}
+                onChange={e => { setSpinoffDate(e.target.value); setSpinoffPreview([]) }} style={inp} disabled={spinoffNoOrigin} />
               <label style={lbl}>Ticker original (empresa absorbida)</label>
               <select value={mergerTicker} onChange={e => { setMergerTicker(e.target.value); setMergerPreview([]) }} style={inp}>
                 <option value="">Selecciona ticker...</option>
