@@ -413,6 +413,7 @@ setWalletPnL(pnlMap)
           ? parseFloat(parseFloat(spinoffOriginalNewPrice).toFixed(4))
           : Number(tr.entry_price),
       })
+      }
 
     setSpinoffPreview(previews)
     setSpinoffLoading(false)
