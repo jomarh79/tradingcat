@@ -62,6 +62,7 @@ export default function PortafoliosPage() {
   const [walletPnL, setWalletPnL] = useState<Record<string, number>>({})
 
   const [spinoffDate, setSpinoffDate] = useState(new Date().toISOString().split('T')[0])
+  const [spinoffQtyReductionRatio, setSpinoffQtyReductionRatio] = useState('') // fracción que conservas de tu cantidad original (ej. 0.5 = la mitad) — puede ser distinto al ratio de acciones nuevas
 
   // Transferencia entre cuentas
   const [showTransfer,    setShowTransfer]    = useState(false)
@@ -387,6 +388,10 @@ setWalletPnL(pnlMap)
       const effInvestedPre = hasExecData ? investedPre  : Number(tr.total_invested)
       const effInvestedPost= hasExecData ? investedPost : 0
 
+            const qtyReductionRatio = spinoffType === 'with_reduction'
+        ? parseFloat(spinoffQtyReductionRatio || '1')
+        : 1
+
       previews.push({
         id: tr.id,
         ticker: tr.ticker,
@@ -397,6 +402,10 @@ setWalletPnL(pnlMap)
         qtyPost: parseFloat(effQtyPost.toFixed(6)),
         investedPre: parseFloat(effInvestedPre.toFixed(2)),
         investedPost: parseFloat(effInvestedPost.toFixed(2)),
+        // Cantidad de la empresa ORIGINAL después del spin-off — usa su propia fracción,
+        // NO el ratio de acciones nuevas (son números independientes en GBM).
+        originalQtyAfter: parseFloat((effQtyPre * qtyReductionRatio).toFixed(6)),
+        // Acciones de la empresa NUEVA (spin-off) — sigue usando el ratio de distribución.
         qtyNew: parseFloat((effQtyPre * ratio).toFixed(6)),
         priceNew: parseFloat(spinoffNewPrice || '0'),
         totalInvested: tr.total_invested,
@@ -404,7 +413,6 @@ setWalletPnL(pnlMap)
           ? parseFloat(parseFloat(spinoffOriginalNewPrice).toFixed(4))
           : Number(tr.entry_price),
       })
-    }
 
     setSpinoffPreview(previews)
     setSpinoffLoading(false)
@@ -440,10 +448,11 @@ setWalletPnL(pnlMap)
           continue
         }
 
-        // Si es con reducción, ajustar SOLO la porción comprada antes del spin-off;
+                // Si es con reducción, ajustar SOLO la porción comprada antes del spin-off;
         // la porción comprada después se conserva intacta y se suma de vuelta.
+        // originalQtyAfter usa SU PROPIA fracción de reducción — no el ratio de acciones nuevas.
         if (spinoffType === 'with_reduction' && tr.priceOriginalAfter > 0) {
-          const adjustedPreQty   = tr.qtyNew
+          const adjustedPreQty   = tr.originalQtyAfter
           const adjustedPrePrice = tr.priceOriginalAfter
           const finalQty      = parseFloat((adjustedPreQty + tr.qtyPost).toFixed(6))
           const finalInvested = parseFloat((adjustedPreQty * adjustedPrePrice + tr.investedPost).toFixed(2))
@@ -451,9 +460,11 @@ setWalletPnL(pnlMap)
 
           await supabase.from('trades').update({
             entry_price:         finalAvgPrice,
-            initial_entry_price: finalAvgPrice,
+            // initial_quantity / initial_entry_price representan SOLO el lote de "Apertura"
+            // ajustado por el spin-off — NO se mezclan con las recompras posteriores.
+            initial_entry_price: adjustedPrePrice,
             quantity:            finalQty,
-            initial_quantity:    finalQty,
+            initial_quantity:    adjustedPreQty,
             total_invested:      finalInvested,
           }).eq('id', tr.id)
         }
@@ -1014,12 +1025,17 @@ setWalletPnL(pnlMap)
               <input type="number" min="0" step="0.01" placeholder="0.00" value={spinoffNewPrice}
                 onChange={e => { setSpinoffNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
 
-              {spinoffType === 'with_reduction' && !spinoffNoOrigin && (
+                            {spinoffType === 'with_reduction' && !spinoffNoOrigin && (
                 <>
                   <label style={lbl}>Costo promedio de {spinoffOriginal || 'la empresa original'} después del spin-off (según tu broker)</label>
                   <input type="number" min="0" step="0.01" placeholder="Ej: 268.98 (costo promedio según GBM)"
                     value={spinoffOriginalNewPrice || ''}
                     onChange={e => { setSpinoffOriginalNewPrice(e.target.value); setSpinoffPreview([]) }} style={inp} />
+
+                  <label style={lbl}>Fracción de {spinoffOriginal || 'la empresa original'} que conservas (según tu broker — puede ser distinta al ratio de acciones nuevas)</label>
+                  <input type="number" min="0.0001" max="1" step="0.0001" placeholder="Ej: 0.5 (conservas la mitad de tus acciones originales)"
+                    value={spinoffQtyReductionRatio}
+                    onChange={e => { setSpinoffQtyReductionRatio(e.target.value); setSpinoffPreview([]) }} style={inp} />
                 </>
               )}
 
@@ -1052,12 +1068,19 @@ setWalletPnL(pnlMap)
                             </td>
                             <td style={{ padding: '6px 12px', fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>{tr.qtyNew} {spinoffNew}</td>
                             </tr>
-                            {spinoffType === 'with_reduction' && (
-                              <tr key={`${i}-p`} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Precio original ajustado</td>
-                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>—</td>
-                                <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>${tr.priceOriginalAfter}</td>
-                              </tr>
+                                                        {spinoffType === 'with_reduction' && (
+                              <>
+                                <tr key={`${i}-oq`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Cantidad original después</td>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{tr.qtyPre} {spinoffOriginal}</td>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>{tr.originalQtyAfter} {spinoffOriginal}</td>
+                                </tr>
+                                <tr key={`${i}-p`} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Precio original ajustado</td>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>—</td>
+                                  <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>${tr.priceOriginalAfter}</td>
+                                </tr>
+                              </>
                             )}
                             <tr key={`${i}-np`} style={{ borderBottom: '1px solid #0a0a0a' }}>
                               <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>Precio apertura {spinoffNew}</td>
