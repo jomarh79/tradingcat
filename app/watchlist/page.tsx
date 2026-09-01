@@ -798,6 +798,7 @@ const isMarketOpen = () => {
                         </button>
                         <button
                           onClick={() => toggleFavorite(item.id, item.favorite)}
+                          title="Seleccionar"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4,
                             color: item.favorite ? '#ffd700' : '#333', fontSize: 16, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#ffd700')}
@@ -805,6 +806,7 @@ const isMarketOpen = () => {
                           ★
                         </button>
                         <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
+                        title="Eliminar"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
