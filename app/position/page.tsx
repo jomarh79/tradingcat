@@ -279,7 +279,7 @@ function PositionPageInner() {
      CARGAR TRADE
   ─────────────────────────────────────────────────────────── */
 
-  useEffect(() => {
+    useEffect(() => {
     if (!ticker) return
 
     const loadTrade = tradeId
@@ -305,9 +305,21 @@ function PositionPageInner() {
           .from('trade_executions')
           .select('*')
           .eq('trade_id', data.id)
-          .order('executed_at', { ascending: true })
           .then(({ data: execs }) => {
-            setExecutions(execs || [])
+            // "Apertura" no vive en trade_executions — se reconstruye desde
+            // trade.initial_quantity / initial_entry_price / open_date,
+            // igual que hace TradeManagerModal.
+            const opening = {
+              id: 'apertura',
+              executed_at: data.open_date,
+              execution_type: 'apertura',
+              quantity: data.initial_quantity ?? data.quantity,
+              price: data.initial_entry_price ?? data.entry_price,
+            }
+            const merged = [opening, ...(execs || [])].sort(
+              (a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
+            )
+            setExecutions(merged)
           })
       }
     })
@@ -1208,6 +1220,43 @@ function PositionPageInner() {
               FILA 3 — DESCRIPCIÓN
           ═══════════════════════════════════════════════════ */}
 
+          {trade?.notes && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                background: C.card,
+                border: `1px solid ${C.border}`,
+                borderRadius: 12,
+                padding: 16,
+                minWidth: 0,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  color: '#888',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  marginBottom: 8,
+                }}
+              >
+                Observaciones
+              </div>
+
+              <p
+                style={{
+                  fontSize: 12,
+                  color: '#bbb',
+                  lineHeight: 1.6,
+                  margin: 0,
+                }}
+              >
+                {trade.notes}
+              </p>
+            </div>
+          )}
+
           {detail?.profile?.description && (
             <div
               style={{
@@ -1250,4 +1299,11 @@ function PositionPageInner() {
               FILA 4 — HISTORIAL DE OPERACIONES
           ═══════════════════════════════════════════════════ */}
 
-          {executions.length > 0 && ( <div style={{ gridColumn: '1 / -1', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, minWidth: 0, }} > <div style={{ fontSize: 11, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12, }} > Historial de operaciones </div> <div style={{ overflowX: 'auto', }} > <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, }} > <thead> <tr> {[ 'Fecha', 'Tipo', 'Cantidad', 'Precio', 'Total', ].map((h, i) => ( <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 10, fontWeight: 700, padding: '4px 8px', textTransform: 'uppercase', }} > {h} </th> ))} </tr> </thead> <tbody> {executions.map((e) => ( <tr key={e.id} style={{ borderTop: '1px solid #151515', }} > <td style={{ padding: '6px 8px', color: '#aaa', }} > {fmtDate( e.executed_at )} </td> <td style={{ padding: '6px 8px', textAlign: 'right', color: e.execution_type === 'buy' ? C.success : C.danger, fontWeight: 700, }} > {e.execution_type === 'buy' ? 'Compra' : 'Venta'} </td> <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', }} > {Number( e.quantity ).toLocaleString( 'en-US', { maximumFractionDigits: 4, } )} </td> <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', }} > {fmtMoney( Number(e.price) )} </td> <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', fontWeight: 700, }} > {fmtMoney( Number(e.price) * Number( e.quantity ) )} </td> </tr> ))} </tbody> </table> </div> </div> )} </div> </div> </AppShell> ) } /* ───────────────────────────────────────────────────────────── EXPORT ───────────────────────────────────────────────────────────── */ export default function PositionPage() { return ( <Suspense fallback={ <AppShell> <div style={{ padding: 40, color: '#666', }} > Cargando... </div> </AppShell> } > <PositionPageInner /> </Suspense> ) }
+          {executions.length > 0 && ( <div style={{ gridColumn: '1 / -1', background: C.card, border: `1px solid ${C.border}`,borderRadius: 12, padding: 16, minWidth: 0, }} > <div style={{ fontSize: 11, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12, }} > Historial de operaciones </div> 
+          <div style={{ overflowX: 'auto', }} > <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, }} > <thead> <tr> {[ 'Fecha', 'Tipo', 'Cantidad', 'Precio', 'Total', ].map((h, i) => ( <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', color: '#555', fontSize: 10, fontWeight: 700, padding: '4px 8px', textTransform: 'uppercase', }} > {h} </th> ))} </tr> </thead> 
+          <tbody> {executions.map((e) => ( <tr key={e.id} style={{ borderTop: '1px solid #151515', }} > <td style={{ padding: '6px 8px', color: '#aaa', }} > {fmtDate( e.executed_at )} </td>
+          <td style={{ padding: '6px 8px', textAlign: 'right', color: (e.execution_type === 'buy' || e.execution_type === 'apertura') ? C.success : C.danger, fontWeight: 700, }} > {e.execution_type === 'apertura' ? 'Apertura' : e.execution_type === 'buy' ? 'Compra' : 'Venta'} </td>
+          <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', }} > {Number( e.quantity ).toLocaleString( 'en-US', { maximumFractionDigits: 4, } )} </td> <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', }} > {fmtMoney( Number(e.price) )} </td>
+          <td style={{ padding: '6px 8px', textAlign: 'right', color: '#ddd', fontWeight: 700, }} > {fmtMoney( Number(e.price) * Number( e.quantity ) )} </td> </tr> ))} </tbody> </table> </div> </div> )} </div> </div> </AppShell> ) }
+           /* ───────────────────────────────────────────────────────────── EXPORT ───────────────────────────────────────────────────────────── */
+           export default function PositionPage() { return ( <Suspense fallback={ <AppShell> <div style={{ padding: 40, color: '#666', }} > Cargando... </div> </AppShell> } > <PositionPageInner /> </Suspense> ) }
