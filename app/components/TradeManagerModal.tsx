@@ -107,8 +107,19 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
     .eq("trade_id", trade.id).order('executed_at', { ascending: true })
 
   // 🔥 CAMBIO: Usar los valores iniciales fijos
-  const initialPrice = parseFloat(Number(freshTrade?.initial_entry_price || trade.entry_price).toFixed(2))
-  const initialQty   = parseFloat(Number(freshTrade?.initial_quantity || trade.quantity).toFixed(6))
+  const initialPrice = parseFloat(
+  Number(
+    freshTrade?.initial_entry_price ??
+    trade.entry_price
+  ).toFixed(2)
+)
+
+const initialQty = parseFloat(
+  Number(
+    freshTrade?.initial_quantity ??
+    trade.quantity
+  ).toFixed(6)
+)
 
   const opening = {
     id: 'apertura', 
@@ -144,8 +155,16 @@ export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
     .eq("trade_id", trade.id).order('executed_at', { ascending: true })
 
   // 🔥 Empezar siempre con la base inmutable
-  let cQty = parseFloat(Number(t.initial_quantity || t.quantity).toFixed(6))
-  let cCap = parseFloat((cQty * Number(t.initial_entry_price || t.entry_price)).toFixed(2))
+  let cQty = parseFloat(
+  Number(t.initial_quantity ?? t.quantity).toFixed(6)
+)
+
+let cCap = parseFloat(
+  (
+    cQty *
+    Number(t.initial_entry_price ?? t.entry_price)
+  ).toFixed(4)
+)
   let cPnl = 0
 
   if (ex) {
