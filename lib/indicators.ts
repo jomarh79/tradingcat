@@ -267,7 +267,7 @@ export function detectCandlePatterns(
       bodySize(curr) > bodySize(prev) &&
       solidBody
     ) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#f43f5e', shape: 'circle', text: '' })
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#eab308', shape: 'arrowdown', text: '' })
     }
   }
 
@@ -281,11 +281,11 @@ export function detectCandlePatterns(
 
     // Martillo: mecha inferior larga, mecha superior corta, cuerpo chico arriba del rango
     if (lower >= body * 2 && upper <= body * 0.5) {
-      markers.push({ time: c.time, position: 'belowBar', color: '#a3e635', shape: 'square', text: '' })
+      markers.push({ time: c.time, position: 'belowBar', color: '#eab308', shape: 'arrowdown', text: '' })
     }
     // Martillo invertido / estrella fugaz: mecha superior larga, mecha inferior corta
     if (upper >= body * 2 && lower <= body * 0.5) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#fb923c', shape: 'square', text: '' })
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowdown', text: '' })
     }
   }
 
@@ -295,7 +295,7 @@ export function detectCandlePatterns(
     const r = range(c)
     if (r <= 0) continue
     if (bodySize(c) <= r * 0.08) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowUp', text: '' })
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowdown', text: '' })
     }
   }
 
