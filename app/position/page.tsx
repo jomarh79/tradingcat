@@ -761,7 +761,7 @@ const saveNotes = async () => {
               FILA 1 — RIESGO
           ═══════════════════════════════════════════════════ */}
 
-          <Card
+                    <Card
               title="Gestión de Riesgo & Eficiencia"
               icon={<TrendingUp size={14} color={C.accent} />}
               gridColumn="span 3"
@@ -772,10 +772,28 @@ const saveNotes = async () => {
                 color={C.danger}
               />
               <StatRow
-                label="Ratio Riesgo / Beneficio"
+                label="R/B a TP 1"
                 value={
-                  trade?.take_profit_1 && trade?.stop_loss
+                  trade?.take_profit_1 && trade?.stop_loss && avgPrice !== trade.stop_loss
                     ? `1 : ${((trade.take_profit_1 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
+                    : '—'
+                }
+                color={C.accent}
+              />
+              <StatRow
+                label="R/B a TP 2"
+                value={
+                  trade?.take_profit_2 && trade?.stop_loss && avgPrice !== trade.stop_loss
+                    ? `1 : ${((trade.take_profit_2 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
+                    : '—'
+                }
+                color={C.accent}
+              />
+              <StatRow
+                label="R/B a TP 3"
+                value={
+                  trade?.take_profit_3 && trade?.stop_loss && avgPrice !== trade.stop_loss
+                    ? `1 : ${((trade.take_profit_3 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
                     : '—'
                 }
                 color={C.accent}
