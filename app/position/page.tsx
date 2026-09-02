@@ -839,6 +839,45 @@ const saveNotes = async () => {
             )}
           </Card>
 
+{/* ═══════════════════════════════════════════════════
+              FILA 1 — RIESGO
+          ═══════════════════════════════════════════════════ */}
+
+
+          <Card
+  title="Gestión de Riesgo & Eficiencia"
+  icon={<TrendingUp size={14} color={C.accent} />}
+  gridColumn="span 4"
+>
+  <StatRow
+    label="Pérdida Máx. Potencial (SL)"
+    value={fmtMoney((trade?.stop_loss - avgPrice) * qty)}
+    color={C.danger}
+  />
+  <StatRow
+    label="Ratio Riesgo / Beneficio"
+    value={
+      trade?.take_profit_1 && trade?.stop_loss
+        ? `1 : ${((trade.take_profit_1 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
+        : '—'
+    }
+    color={C.accent}
+  />
+  <StatRow
+    label="Días en Posición"
+    value={`${Math.floor((new Date().getTime() - new Date(trade?.open_date).getTime()) / (1000 * 60 * 60 * 24))} días`}
+  />
+  <StatRow
+    label="Yield sobre Costo"
+    value={
+      detail?.nextDividend?.amount && avgPrice > 0
+        ? `${((detail.nextDividend.amount * 4 / avgPrice) * 100).toFixed(2)}%`
+        : '—'
+    }
+    color={C.success}
+  />
+</Card>
+
           {/* ═══════════════════════════════════════════════════
               FILA 2 — EARNINGS
           ═══════════════════════════════════════════════════ */}
