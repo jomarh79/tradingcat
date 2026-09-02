@@ -295,7 +295,7 @@ export function detectCandlePatterns(
     const r = range(c)
     if (r <= 0) continue
     if (bodySize(c) <= r * 0.08) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowdown', text: '' })
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowDown', text: '' })
     }
   }
 
