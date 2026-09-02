@@ -304,16 +304,31 @@ function ChartPageInner() {
 
   const selectedTrade = openTrades.find(t => t.id === selectedTradeId) || null
 
-  // ── Ejecuciones (compras/ventas) del trade seleccionado ──
+    // ── Ejecuciones (compras/ventas) del trade seleccionado ──
+  // "Apertura" no vive en trade_executions — se reconstruye desde
+  // trade.initial_quantity / initial_entry_price / open_date.
   useEffect(() => {
     if (!selectedTradeId) { setExecutions([]); return }
+    const trade = openTrades.find(t => t.id === selectedTradeId)
+    if (!trade) { setExecutions([]); return }
     supabase
       .from('trade_executions')
       .select('*')
       .eq('trade_id', selectedTradeId)
-      .order('executed_at', { ascending: true })
-      .then(({ data }) => setExecutions(data || []))
-  }, [selectedTradeId])
+      .then(({ data }) => {
+        const opening = {
+          id: 'apertura',
+          executed_at: trade.open_date,
+          execution_type: 'apertura',
+          quantity: trade.initial_quantity ?? trade.quantity,
+          price: trade.initial_entry_price ?? trade.entry_price,
+        }
+        const merged = [opening, ...(data || [])].sort(
+          (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
+        )
+        setExecutions(merged)
+      })
+  }, [selectedTradeId, openTrades])
 
   // ── Velas + medias móviles (con caché por sesión, ticker+intervalo) ──
   const fetchChartData = useCallback(async (sym: string, iv: Interval) => {
@@ -586,16 +601,16 @@ useEffect(() => {
         // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
     const allMarkers: any[] = []
 
-    if (executions.length > 0) {
+        if (executions.length > 0) {
       const sorted = [...executions].sort(
         (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
       )
-      let runningQty = Number(selectedTrade?.initial_quantity || 0)
-      sorted.forEach((e, index) => {
-        const isBuy = e.execution_type === 'buy'
+      let runningQty = 0
+      sorted.forEach((e) => {
+        const isOpening = e.execution_type === 'apertura'
+        const isBuy = isOpening || e.execution_type === 'buy'
         let color = '#888'
         if (isBuy) {
-          const isOpening = index === 0
           runningQty += Number(e.quantity)
           color = isOpening ? C.success : C.accent
         } else {
