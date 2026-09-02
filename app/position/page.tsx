@@ -1,5 +1,5 @@
 'use client' 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase' 
 import AppShell from '../AppShell'
@@ -276,6 +276,20 @@ function PositionPageInner() {
   const [error, setError] = useState<string | null>(null)
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const adjustTextareaHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
+    }
+  }
+
+  useEffect(() => {
+    if (editingNotes) {
+      adjustTextareaHeight()
+    }
+  }, [editingNotes, notesValue])
 
   /* ───────────────────────────────────────────────────────────
      CARGAR TRADE
@@ -572,9 +586,12 @@ const saveNotes = async () => {
             Earnings | Dividendo | Empresa | S&P 500
 
             FILA 3:
-            Descripción
+            Observaciones
 
             FILA 4:
+            Descripción
+
+            FILA 5:
             Historial
         ===================================================== */}
 
@@ -1226,7 +1243,7 @@ const saveNotes = async () => {
           </div>
 
           {/* ═══════════════════════════════════════════════════
-              FILA 3 — DESCRIPCIÓN
+              FILA 3 — observaciones
           ═══════════════════════════════════════════════════ */}
 
                     {trade && (
@@ -1254,10 +1271,15 @@ const saveNotes = async () => {
               </div>
 
               {editingNotes ? (
+
                 <textarea
+                  ref={textareaRef}
                   autoFocus
                   value={notesValue}
-                  onChange={(e) => setNotesValue(e.target.value)}
+                  onChange={(e) => {
+                    setNotesValue(e.target.value)
+                    adjustTextareaHeight()
+                  }}
                   onBlur={saveNotes}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1268,7 +1290,9 @@ const saveNotes = async () => {
                   }}
                   style={{
                     width: '100%',
-                    minHeight: 70,
+                    minHeight: 40,
+                    height: 'auto',
+                    overflow: 'hidden',
                     background: '#000',
                     color: 'white',
                     border: '1px solid #333',
@@ -1277,7 +1301,7 @@ const saveNotes = async () => {
                     fontSize: 12,
                     lineHeight: 1.6,
                     outline: 'none',
-                    resize: 'vertical',
+                    resize: 'none',
                     boxSizing: 'border-box',
                     fontFamily: 'inherit',
                   }}
