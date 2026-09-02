@@ -330,15 +330,15 @@ function PositionPageInner() {
   /* ───────────────────────────────────────────────────────────
      CARGAR DATOS WEBULL
   ─────────────────────────────────────────────────────────── */
-
-  useEffect(() => {
-
-    const saveNotes = async () => {
+const saveNotes = async () => {
     if (!trade?.id) { setEditingNotes(false); return }
     await supabase.from('trades').update({ notes: notesValue }).eq('id', trade.id)
     setTrade((prev: any) => prev ? { ...prev, notes: notesValue } : prev)
     setEditingNotes(false)
   }
+
+  useEffect(() => {
+   
     if (!ticker) return
 
     setLoading(true)
