@@ -274,6 +274,8 @@ function PositionPageInner() {
   const [detail, setDetail] = useState<PositionDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [notesValue, setNotesValue] = useState('')
 
   /* ───────────────────────────────────────────────────────────
      CARGAR TRADE
@@ -330,6 +332,13 @@ function PositionPageInner() {
   ─────────────────────────────────────────────────────────── */
 
   useEffect(() => {
+
+    const saveNotes = async () => {
+    if (!trade?.id) { setEditingNotes(false); return }
+    await supabase.from('trades').update({ notes: notesValue }).eq('id', trade.id)
+    setTrade((prev: any) => prev ? { ...prev, notes: notesValue } : prev)
+    setEditingNotes(false)
+  }
     if (!ticker) return
 
     setLoading(true)
@@ -1220,7 +1229,7 @@ function PositionPageInner() {
               FILA 3 — DESCRIPCIÓN
           ═══════════════════════════════════════════════════ */}
 
-          {trade?.notes && (
+                    {trade && (
             <div
               style={{
                 gridColumn: '1 / -1',
@@ -1244,18 +1253,57 @@ function PositionPageInner() {
                 Observaciones
               </div>
 
-              <p
-                style={{
-                  fontSize: 12,
-                  color: '#bbb',
-                  lineHeight: 1.6,
-                  margin: 0,
-                }}
-              >
-                {trade.notes}
-              </p>
+              {editingNotes ? (
+                <textarea
+                  autoFocus
+                  value={notesValue}
+                  onChange={(e) => setNotesValue(e.target.value)}
+                  onBlur={saveNotes}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      saveNotes()
+                    }
+                    if (e.key === 'Escape') setEditingNotes(false)
+                  }}
+                  style={{
+                    width: '100%',
+                    minHeight: 70,
+                    background: '#000',
+                    color: 'white',
+                    border: '1px solid #333',
+                    borderRadius: 6,
+                    padding: 10,
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    outline: 'none',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
+                  }}
+                />
+              ) : (
+                <p
+                  onClick={() => { setNotesValue(trade.notes || ''); setEditingNotes(true) }}
+                  title="Clic para editar"
+                  style={{
+                    fontSize: 12,
+                    color: trade.notes ? '#bbb' : '#444',
+                    lineHeight: 1.6,
+                    margin: 0,
+                    cursor: 'pointer',
+                    minHeight: 18,
+                  }}
+                >
+                  {trade.notes || 'Sin observaciones — clic para agregar'}
+                </p>
+              )}
             </div>
           )}
+
+          {/* ═══════════════════════════════════════════════════
+              FILA 4 — DESCRIPCIÓN
+          ═══════════════════════════════════════════════════ */}
 
           {detail?.profile?.description && (
             <div
@@ -1296,7 +1344,7 @@ function PositionPageInner() {
           )}
 
           {/* ═══════════════════════════════════════════════════
-              FILA 4 — HISTORIAL DE OPERACIONES
+              FILA 5 — HISTORIAL DE OPERACIONES
           ═══════════════════════════════════════════════════ */}
 
           {executions.length > 0 && ( <div style={{ gridColumn: '1 / -1', background: C.card, border: `1px solid ${C.border}`,borderRadius: 12, padding: 16, minWidth: 0, }} > <div style={{ fontSize: 11, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12, }} > Historial de operaciones </div> 
