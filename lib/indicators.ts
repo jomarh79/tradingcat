@@ -245,31 +245,47 @@ export function detectCandlePatterns(
   }
 
 
-  // ── Envolventes (2 velas) — exige cuerpo dominante, mechas cortas ──
-  for (let i = 1; i < candles.length; i++) {
+    // ── Envolventes (2 velas) — Corregido y Filtrado por Tendencia ──
+  for (let i = 2; i < candles.length; i++) {
     const prev = candles[i - 1]
     const curr = candles[i]
-    const wickTotal = upperWick(curr) + lowerWick(curr)
-    const solidBody = bodySize(curr) > wickTotal // el cuerpo manda, no la mecha — descarta martillo/doji
+    
+    // Detectar tendencia previa inmediata (mismo método que usamos para los martillos)
+    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
+    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
 
+    // El cuerpo actual debe ser mayor que el cuerpo anterior
+    const cutsPreviousBody = bodySize(curr) > bodySize(prev)
+    // El cuerpo actual debe ser una "vela grande" en comparación al promedio del mercado
+    const isBigCandle = bodySize(curr) > avgBody(i) * 0.8 
+
+    // ENVOLVENTE ALCISTA (Bullish Engulfing)
     if (
-      isBearish(prev) && isBullish(curr) &&
-      curr.open <= prev.close && curr.close >= prev.open &&
-      bodySize(curr) > bodySize(prev) &&
-      solidBody
+      isDownTrend &&           // Viene de tendencia bajista
+      isBearish(prev) &&       // Vela anterior roja
+      isBullish(curr) &&       // Vela actual verde
+      curr.close >= prev.open && // Cierre actual supera la apertura anterior
+      curr.open <= prev.close && // Apertura actual cubre el cierre anterior
+      cutsPreviousBody &&
+      isBigCandle
     ) {
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Envolvente' })
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Env. Alcista' })
     }
 
+    // ENVOLVENTE BAJISTA (Bearish Engulfing)
     if (
-      isBullish(prev) && isBearish(curr) &&
-      curr.open >= prev.close && curr.close <= prev.open &&
-      bodySize(curr) > bodySize(prev) &&
-      solidBody
+      isUpTrend &&             // Viene de tendencia alcista
+      isBullish(prev) &&       // Vela anterior verde
+      isBearish(curr) &&       // Vela actual roja
+      curr.close <= prev.open && // Cierre actual cae por debajo de la apertura anterior
+      curr.open >= prev.close && // Apertura actual cubre el cierre anterior
+      cutsPreviousBody &&
+      isBigCandle
     ) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Envolvente' })
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Env. Bajista' })
     }
   }
+
 
     // ── Martillo, Hombre Colgado, Martillo Invertido y Estrella Fugaz (1 vela) ──
   for (let i = 2; i < candles.length; i++) {
@@ -313,7 +329,7 @@ export function detectCandlePatterns(
     const r = range(c)
     if (r <= 0) continue
     if (bodySize(c) <= r * 0.08) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowDown', text: 'Doji' })
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'circle', text: 'Doji' })
     }
   }
 
