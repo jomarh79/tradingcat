@@ -258,7 +258,7 @@ export function detectCandlePatterns(
       bodySize(curr) > bodySize(prev) &&
       solidBody
     ) {
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: '' })
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Envolvente' })
     }
 
     if (
@@ -267,7 +267,7 @@ export function detectCandlePatterns(
       bodySize(curr) > bodySize(prev) &&
       solidBody
     ) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: '' })
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Envolvente' })
     }
   }
 
@@ -313,7 +313,7 @@ export function detectCandlePatterns(
     const r = range(c)
     if (r <= 0) continue
     if (bodySize(c) <= r * 0.08) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowDown', text: '' })
+      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'arrowDown', text: 'Doji' })
     }
   }
 
