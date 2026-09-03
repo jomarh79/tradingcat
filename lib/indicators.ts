@@ -374,7 +374,7 @@ export function detectCandlePatterns(
   }
 
   if (result.level === 'WATCH') {
-    return `🟡 Vigilar (${result.score})`
+    return `🟡  (${result.score})`
   }
 
   return null
@@ -393,7 +393,7 @@ const getBearishLabel = () => {
   }
 
   if (result.level === 'WATCH') {
-    return `🟡 Vigilar (${result.score})`
+    return `🟡  (${result.score})`
   }
 
   return null
