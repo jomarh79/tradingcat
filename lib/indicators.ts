@@ -323,15 +323,46 @@ export function detectCandlePatterns(
   }
 
 
-  // ── Doji (1 vela) — cuerpo casi inexistente frente al rango total ──
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i]
-    const r = range(c)
-    if (r <= 0) continue
-    if (bodySize(c) <= r * 0.08) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#eab308', shape: 'circle', text: 'Doji' })
+    // ── Patrones Doji de Reversión de 3 velas (Estrella de la Mañana y Vespertina) ──
+  for (let i = 2; i < candles.length; i++) {
+    const pPrev = candles[i - 2] // Vela 1 (La tendencia que viene)
+    const prev = candles[i - 1]  // Vela 2 (El Doji)
+    const curr = candles[i]      // Vela 3 (La confirmación del giro)
+
+    // 1. Identificar si la vela del medio realmente es un Doji
+    const rDoji = range(prev)
+    if (rDoji <= 0) continue
+    const isDoji = bodySize(prev) <= rDoji * 0.10 // Tolerancia del 10% de cuerpo
+
+    if (isDoji) {
+      const avg = avgBody(i)
+      
+      // Requisito: Las velas de los extremos deben tener cuerpos considerables (no microvelas)
+      const pPrevBig = bodySize(pPrev) > avg * 0.7
+      const currBig = bodySize(curr) > avg * 0.7
+
+      // ── ESTRELLA DE LA MAÑANA DOJI (Giro Alcista) ──
+      // Vela 1 Roja Grande -> Vela 2 Doji -> Vela 3 Verde Grande
+      if (
+        isBearish(pPrev) && pPrevBig &&
+        isBullish(curr) && currBig &&
+        curr.close > (pPrev.open + pPrev.close) / 2 // La verde debe cerrar arriba de la mitad de la roja
+      ) {
+        markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Estrella Mañana' })
+      }
+
+      // ── ESTRELLA VESPERTINA DOJI (Giro Bajista) ──
+      // Vela 1 Verde Grande -> Vela 2 Doji -> Vela 3 Roja Grande
+      if (
+        isBullish(pPrev) && pPrevBig &&
+        isBearish(curr) && currBig &&
+        curr.close < (pPrev.open + pPrev.close) / 2 // La roja debe cerrar abajo de la mitad de la verde
+      ) {
+        markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Estrella Tarde' })
+      }
     }
   }
+
 
   return markers.sort((a, b) => a.time - b.time)
 }
