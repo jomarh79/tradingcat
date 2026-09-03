@@ -211,8 +211,121 @@ export interface CandlePatternMarker {
 }
 
 export interface MarketContext {
+  // Fundamentales
   isUndervalued?: boolean
+
+  // Tendencia
   isAboveEma200Day?: boolean
+  isRecoveringEma200?: boolean
+
+  // Ubicación
+  isAtSupport?: boolean
+  isAtResistance?: boolean
+
+  // Momentum
+  rsiBullish?: boolean
+  rsiBearish?: boolean
+  macdBullish?: boolean
+  macdBearish?: boolean
+
+  // Tendencia / fuerza
+  trendBullish?: boolean
+  trendBearish?: boolean
+
+  // Flujo / Koncorde
+  koncordeBullish?: boolean
+  koncordeBearish?: boolean
+}
+
+interface SignalScore {
+  score: number
+  level: 'NONE' | 'WATCH' | 'AP' | 'AP_PLUS' | 'RC' | 'RC_STRONG'
+}
+
+function getBullishScore(
+  context?: MarketContext,
+  hasBullishPattern = false
+): SignalScore {
+  if (!context) {
+    return {
+      score: hasBullishPattern ? 2 : 0,
+      level: 'NONE'
+    }
+  }
+
+  let score = 0
+
+  // Fundamentales
+  if (context.isUndervalued) score += 2
+
+  // Patrón de vela = trigger
+  if (hasBullishPattern) score += 2
+
+  // Ubicación
+  if (context.isAtSupport) score += 2
+
+  // Momentum
+  if (context.rsiBullish) score += 2
+  if (context.macdBullish) score += 1
+
+  // Flujo / Koncorde
+  if (context.koncordeBullish) score += 2
+
+  // Tendencia
+  if (context.isAboveEma200Day) score += 1
+  if (context.isRecoveringEma200) score += 1
+  if (context.trendBullish) score += 1
+
+  let level: SignalScore['level'] = 'NONE'
+
+  if (score >= 10) level = 'AP_PLUS'
+  else if (score >= 7) level = 'AP'
+  else if (score >= 4) level = 'WATCH'
+
+  return { score, level }
+}
+
+
+function getBearishScore(
+  context?: MarketContext,
+  hasBearishPattern = false
+): SignalScore {
+  if (!context) {
+    return {
+      score: hasBearishPattern ? 2 : 0,
+      level: 'NONE'
+    }
+  }
+
+  let score = 0
+
+  // Fundamentales
+  if (context.isUndervalued === false) score += 2
+
+  // Patrón de vela = trigger
+  if (hasBearishPattern) score += 2
+
+  // Ubicación
+  if (context.isAtResistance) score += 2
+
+  // Momentum
+  if (context.rsiBearish) score += 2
+  if (context.macdBearish) score += 1
+
+  // Flujo / Koncorde
+  if (context.koncordeBearish) score += 2
+
+  // Tendencia
+  if (context.isAboveEma200Day === false) score += 1
+  if (context.trendBearish) score += 1
+
+  let level: SignalScore['level'] = 'NONE'
+
+  if (score >= 10) level = 'RC_STRONG'
+  else if (score >= 7) level = 'RC'
+  else if (score >= 4) level = 'WATCH'
+
+  return { score, level }
 }
 
 function bodySize(c: { open: number; close: number }) {
@@ -249,8 +362,42 @@ export function detectCandlePatterns(
   }
 
   // Filtros de Contexto Avanzado
-  const isHighProbabilityLong = context?.isUndervalued && context?.isAboveEma200Day;
-  const isHighProbabilityShort = !context?.isUndervalued && !context?.isAboveEma200Day; // Caro + Bajo EMA 200
+  const getBullishLabel = () => {
+  const result = getBullishScore(context, true)
+
+  if (result.level === 'AP_PLUS') {
+    return `🔥🔥 AP+ (${result.score})`
+  }
+
+  if (result.level === 'AP') {
+    return `🔥 AP (${result.score})`
+  }
+
+  if (result.level === 'WATCH') {
+    return `🟡 Vigilar (${result.score})`
+  }
+
+  return null
+}
+
+
+const getBearishLabel = () => {
+  const result = getBearishScore(context, true)
+
+  if (result.level === 'RC_STRONG') {
+    return `🚨 RC+ (${result.score})`
+  }
+
+  if (result.level === 'RC') {
+    return `⚠️ RC (${result.score})`
+  }
+
+  if (result.level === 'WATCH') {
+    return `🟡 Vigilar (${result.score})`
+  }
+
+  return null
+}
 
   const occupiedCandles = new Set<number>()
 
@@ -274,7 +421,11 @@ export function detectCandlePatterns(
 
       // Estrella de la Mañana Doji (Alcista)
       if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {
-        const txt = isHighProbabilityLong ? '🔥 Est. Mañana (AP)' : 'Estrella Mañana'
+        const signal = getBullishLabel()
+
+const txt = signal
+  ? `Est. Mañana ${signal}`
+  : 'Est. Mañana'
         markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -282,7 +433,11 @@ export function detectCandlePatterns(
 
       // Estrella Vespertina Doji (Bajista)
       if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {
-        const txt = isHighProbabilityShort ? '⚠️ Estrella Tarde (RC)' : 'Estrella Tarde'
+        const signal = getBearishLabel()
+
+const txt = signal
+  ? `Est. Tarde ${signal}`
+  : 'Est. Tarde'
         markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -295,7 +450,11 @@ export function detectCandlePatterns(
 
     // Envolvente Alcista
     if (isDownTrend && isBearish(prev) && isBullish(curr) && curr.close >= prev.open && curr.open <= prev.close && cutsPreviousBody && isBigCandle) {
-      const txt = isHighProbabilityLong ? '🔥 Env. Alcista (AP)' : 'Env. Alcista'
+      const signal = getBullishLabel()
+
+const txt = signal
+  ? `Env. Alcista ${signal}`
+  : 'Env. Alcista'
       markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -303,7 +462,11 @@ export function detectCandlePatterns(
 
     // Envolvente Bajista
     if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {
-      const txt = isHighProbabilityShort ? '⚠️ Env. Bajista (RC)' : 'Env. Bajista'
+      const signal = getBearishLabel()
+
+const txt = signal
+  ? `Env. Bajista ${signal}`
+  : 'Env. Bajista'
       markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -326,10 +489,18 @@ export function detectCandlePatterns(
     // 1. Cuerpo Arriba, Mecha Abajo (Martillo / Hombre Colgado)
     if (lower >= body * 2 && upper <= body * 0.5) {
       if (isDownTrend) {
-        const txt = isHighProbabilityLong ? '🔥 Martillo (AP)' : 'Martillo'
+        const signal = getBullishLabel()
+
+const txt = signal
+  ? `Martillo ${signal}`
+  : 'Martillo'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
-        const txt = isHighProbabilityShort ? '⚠️ H. Colgado (RC)' : 'H. Colgado'
+        const signal = getBearishLabel()
+
+const txt = signal
+  ? `H. colgado ${signal}`
+  : 'H. Colgado'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
@@ -337,10 +508,18 @@ export function detectCandlePatterns(
     // 2. Cuerpo Abajo, Mecha Arriba (Martillo Invertido / Estrella Fugaz)
     if (upper >= body * 2 && lower <= body * 0.5) {
       if (isDownTrend) {
-        const txt = isHighProbabilityLong ? '🔥 M. Invertido (AP)' : 'M. Invertido'
+        const signal = getBullishLabel()
+
+const txt = signal
+  ? `M: Invertido ${signal}`
+  : 'M. Invertido'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
-        const txt = isHighProbabilityShort ? '⚠️ E. Fugaz (RC)' : 'E. Fugaz'
+        const signal = getBearishLabel()
+
+const txt = signal
+  ? `E. Fugaz ${signal}`
+  : 'E. Fugaz'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
