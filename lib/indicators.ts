@@ -417,8 +417,8 @@ const getBearishLabel = () => {
         const signal = getBullishLabel()
 
 const txt = signal
-  ? `E. M. ${signal}`
-  : 'E. M.'
+  ? `Est. M. ${signal}`
+  : 'Est. M.'
         markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -429,8 +429,8 @@ const txt = signal
         const signal = getBearishLabel()
 
 const txt = signal
-  ? `E. T. ${signal}`
-  : 'E. T.'
+  ? `Est. T. ${signal}`
+  : 'Est. T.'
         markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -504,15 +504,15 @@ const txt = signal
         const signal = getBullishLabel()
 
 const txt = signal
-  ? `M. I. ${signal}`
-  : 'M. I.'
+  ? `M. Inv. ${signal}`
+  : 'M. Inv.'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         const signal = getBearishLabel()
 
 const txt = signal
-  ? `E. F. ${signal}`
-  : 'E. F.'
+  ? `Est. F. ${signal}`
+  : 'Est. F.'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
