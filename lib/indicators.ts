@@ -271,23 +271,41 @@ export function detectCandlePatterns(
     }
   }
 
-  // ── Martillo / martillo invertido (1 vela) ──
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i]
-    const body = bodySize(c)
-    const upper = upperWick(c)
-    const lower = lowerWick(c)
-    if (body <= 0) continue
+    // ── Martillo, Hombre Colgado, Martillo Invertido y Estrella Fugaz (1 vela) ──
+  for (let i = 2; i < candles.length; i++) {
+    const c = candles[i];
+    const body = bodySize(c);
+    const upper = upperWick(c);
+    const lower = lowerWick(c);
+    if (body <= 0) continue;
 
-    // Martillo: mecha inferior larga, mecha superior corta, cuerpo chico arriba del rango
+    // Detectar tendencia previa (comparando con el cierre de hace 2 velas)
+    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close;
+    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close;
+
+    // 1. Cuerpo Arriba, Mecha Abajo (lower >= body * 2)
     if (lower >= body * 2 && upper <= body * 0.5) {
-      markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: '' })
+      if (isDownTrend) {
+        // Martillo (Giro Alcista) -> Flecha VERDE abajo de la barra
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Martillo' });
+      } else if (isUpTrend) {
+        // Hombre Colgado (Giro Bajista) -> Flecha ROJA arriba de la barra
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'H. Colgado' });
+      }
     }
-    // Martillo invertido / estrella fugaz: mecha superior larga, mecha inferior corta
+
+    // 2. Cuerpo Abajo, Mecha Arriba (upper >= body * 2)
     if (upper >= body * 2 && lower <= body * 0.5) {
-      markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: '' })
+      if (isDownTrend) {
+        // Martillo Invertido (Giro Alcista) -> Flecha VERDE abajo de la barra
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'M. Invertido' });
+      } else if (isUpTrend) {
+        // Estrella Fugaz (Giro Bajista) -> Flecha ROJA arriba de la barra
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'E. Fugaz' });
+      }
     }
   }
+
 
   // ── Doji (1 vela) — cuerpo casi inexistente frente al rango total ──
   for (let i = 0; i < candles.length; i++) {
