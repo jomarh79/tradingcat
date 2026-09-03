@@ -645,11 +645,9 @@ const saveNotes = async () => {
 
             <StatRow
               label="PnL no realizado"
-              value={`${fmtMoney(
-                unrealizedPnl
-              )} (${fmtPercent(
-                unrealizedPnlPct
-              )})`}
+              value={`(${fmtPercent(unrealizedPnlPct)})
+                    ${fmtMoney(unrealizedPnl)} 
+                    `}
               color={
                 unrealizedPnl >= 0
                   ? C.success
@@ -697,7 +695,7 @@ const saveNotes = async () => {
             />
 
             <StatRow
-              label={`TP 1 (${fmtMoney(
+              label={`Take Profit 1 (${fmtMoney(
                 trade?.take_profit_1
               )})`}
               value={
@@ -717,7 +715,7 @@ const saveNotes = async () => {
             />
 
             <StatRow
-              label={`TP 2 (${fmtMoney(
+              label={`Take Profit 2 (${fmtMoney(
                 trade?.take_profit_2
               )})`}
               value={
@@ -737,7 +735,7 @@ const saveNotes = async () => {
             />
 
             <StatRow
-              label={`TP 3 (${fmtMoney(
+              label={`Take Profit 3 (${fmtMoney(
                 trade?.take_profit_3
               )})`}
               value={
@@ -772,7 +770,7 @@ const saveNotes = async () => {
                 color={C.danger}
               />
               <StatRow
-                label="R/B a TP 1"
+                label="Riesgo / Beneficio a TP 1"
                 value={
                   trade?.take_profit_1 && trade?.stop_loss && avgPrice !== trade.stop_loss
                     ? `1 : ${((trade.take_profit_1 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
@@ -781,7 +779,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
               <StatRow
-                label="R/B a TP 2"
+                label="Riesgo / Beneficio a TP 2"
                 value={
                   trade?.take_profit_2 && trade?.stop_loss && avgPrice !== trade.stop_loss
                     ? `1 : ${((trade.take_profit_2 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
@@ -790,7 +788,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
               <StatRow
-                label="R/B a TP 3"
+                label="Riesgo / Beneficio a TP 3"
                 value={
                   trade?.take_profit_3 && trade?.stop_loss && avgPrice !== trade.stop_loss
                     ? `1 : ${((trade.take_profit_3 - avgPrice) / Math.abs(avgPrice - trade.stop_loss)).toFixed(2)}`
