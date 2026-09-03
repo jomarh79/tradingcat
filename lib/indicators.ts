@@ -248,8 +248,9 @@ export function detectCandlePatterns(
     return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
   }
 
-  // Activar Filtro de Alta Probabilidad si el activo está barato y sobre su EMA 200 Diaria
+  // Filtros de Contexto Avanzado
   const isHighProbabilityLong = context?.isUndervalued && context?.isAboveEma200Day;
+  const isHighProbabilityShort = !context?.isUndervalued && !context?.isAboveEma200Day; // Caro + Bajo EMA 200
 
   const occupiedCandles = new Set<number>()
 
@@ -263,7 +264,7 @@ export function detectCandlePatterns(
     const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
     const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
 
-    // ── A. Estrellas Doji de Reversión (3 velas) ──
+    // A. Estrellas Doji de Reversión (3 velas)
     const rDoji = range(prev)
     const isDoji = rDoji > 0 && bodySize(prev) <= rDoji * 0.10
     
@@ -281,13 +282,14 @@ export function detectCandlePatterns(
 
       // Estrella Vespertina Doji (Bajista)
       if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {
-        markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Estrella Tarde' })
+        const txt = isHighProbabilityShort ? '⚠️ Estrella Tarde (RC)' : 'Estrella Tarde'
+        markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
       }
     }
 
-    // ── B. Envolventes (2 velas) ──
+    // B. Envolventes (2 velas)
     const cutsPreviousBody = bodySize(curr) > bodySize(prev)
     const isBigCandle = bodySize(curr) > avg * 0.8
 
@@ -301,7 +303,8 @@ export function detectCandlePatterns(
 
     // Envolvente Bajista
     if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Env. Bajista' })
+      const txt = isHighProbabilityShort ? '⚠️ Env. Bajista (RC)' : 'Env. Bajista'
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
     }
@@ -326,7 +329,8 @@ export function detectCandlePatterns(
         const txt = isHighProbabilityLong ? '🔥 Martillo (AP)' : 'Martillo'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'H. Colgado' })
+        const txt = isHighProbabilityShort ? '⚠️ H. Colgado (RC)' : 'H. Colgado'
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
 
@@ -336,7 +340,8 @@ export function detectCandlePatterns(
         const txt = isHighProbabilityLong ? '🔥 M. Invertido (AP)' : 'M. Invertido'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'E. Fugaz' })
+        const txt = isHighProbabilityShort ? '⚠️ E. Fugaz (RC)' : 'E. Fugaz'
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
   }

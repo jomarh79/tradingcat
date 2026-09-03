@@ -256,7 +256,7 @@ function ChartPageInner() {
   const [showMACD, setShowMACD] = useState(true)
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(true)
-  const [showPatterns, setShowPatterns] = useState(false)
+  const [showPatterns, setShowPatterns] = useState(true)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -627,20 +627,20 @@ useEffect(() => {
       })
     }
 
-        // Patrones de velas — estrella de la mañana / vespertina, envolventes
+    // Patrones de velas — estrella de la mañana / vespertina, envolventes
     if (showPatterns) {
-      // 1. Calcular dinámicamente si el precio actual está por encima de su EMA 200 diaria
       const ema200Arr = chartData.mas?.ema200 || []
       const currentPrice = chartData.candles[chartData.candles.length - 1]?.close
       const latestEma200 = ema200Arr.length ? ema200Arr[ema200Arr.length - 1]?.value : null
       const isAboveEma200Day = currentPrice != null && latestEma200 != null ? currentPrice > latestEma200 : false
 
-      // 2. Calcular dinámicamente si el múltiplo P/E actual es inferior a su promedio histórico de 5 años
       const currentPE = fundamentals?.pe
       const historyAvgPE = ownFiveYearAvg?.pe
+      
+      // IMPORTANTE: Definición estricta de subvalorado (precio/ganancia atractivo)
       const isUndervalued = currentPE != null && historyAvgPE != null ? currentPE < historyAvgPE : false
 
-      // 3. Empaquetar y despachar el contexto hacia la librería de indicadores
+      // Enviamos el mismo contexto; lib/indicators se encargará de evaluar si es AP o RC
       const marketCtx = { isUndervalued, isAboveEma200Day }
       allMarkers.push(...detectCandlePatterns(chartData.candles, marketCtx))
     }
