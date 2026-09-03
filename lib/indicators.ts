@@ -200,12 +200,19 @@ export function koncordeSeries(candles: Candle[]) {
   return candles.map((c, i) => ({ time: c.time, verde: verde[i], marron: marron[i], azul: azul[i], media: media[i] }))
 }
 
+// ... (Tus funciones matemáticas previas: rsiSeries, macdSeries, adxSeries, koncordeSeries quedan intactas)
+
 export interface CandlePatternMarker {
   time: number
   position: 'aboveBar' | 'belowBar'
   color: string
   shape: 'arrowUp' | 'arrowDown' | 'circle' | 'square'
   text: string
+}
+
+export interface MarketContext {
+  isUndervalued?: boolean
+  isAboveEma200Day?: boolean
 }
 
 function bodySize(c: { open: number; close: number }) {
@@ -227,11 +234,9 @@ function isBearish(c: { open: number; close: number }) {
   return c.close < c.open
 }
 
-// Estrella de la mañana / vespertina, envolventes, martillo y doji.
-// Usa el tamaño promedio de cuerpo de las últimas 14 velas para calibrar
-// qué cuenta como "vela grande" o "vela pequeña" (evita falsos positivos).
 export function detectCandlePatterns(
-  candles: { time: number; open: number; high: number; low: number; close: number }[]
+  candles: { time: number; open: number; high: number; low: number; close: number }[],
+  context?: MarketContext
 ): CandlePatternMarker[] {
   const markers: CandlePatternMarker[] = []
   if (candles.length < 3) return markers
@@ -243,14 +248,16 @@ export function detectCandlePatterns(
     return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
   }
 
-  // Set para registrar los timestamps de las velas donde ya pusimos un patrón fuerte (Envolvente o Doji Star)
+  // Activar Filtro de Alta Probabilidad si el activo está barato y sobre su EMA 200 Diaria
+  const isHighProbabilityLong = context?.isUndervalued && context?.isAboveEma200Day;
+
   const occupiedCandles = new Set<number>()
 
   // ── PASO 1: DETECTAR PATRONES COMPUESTOS FUERTES (3 y 2 Velas) ──
   for (let i = 2; i < candles.length; i++) {
-    const pPrev = candles[i - 2] // Vela 1
-    const prev = candles[i - 1]  // Vela 2 (Doji / Prev Envolvente)
-    const curr = candles[i]      // Vela 3 (Confirmación / Curr Envolvente)
+    const pPrev = candles[i - 2]
+    const prev = candles[i - 1]
+    const curr = candles[i]
     
     const avg = avgBody(i)
     const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
@@ -266,9 +273,10 @@ export function detectCandlePatterns(
 
       // Estrella de la Mañana Doji (Alcista)
       if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {
-        markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Estrella Mañana' })
+        const txt = isHighProbabilityLong ? '🔥 Est. Mañana (AP)' : 'Estrella Mañana'
+        markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
-        continue // Si activa este patrón de 3 velas, saltamos para evitar conflictos
+        continue
       }
 
       // Estrella Vespertina Doji (Bajista)
@@ -279,27 +287,20 @@ export function detectCandlePatterns(
       }
     }
 
-    // ── B. Envolventes (2 velas) — Corregidas por Tendencia y Volatilidad ──
+    // ── B. Envolventes (2 velas) ──
     const cutsPreviousBody = bodySize(curr) > bodySize(prev)
     const isBigCandle = bodySize(curr) > avg * 0.8
 
     // Envolvente Alcista
-    if (
-      isDownTrend && isBearish(prev) && isBullish(curr) &&
-      curr.close >= prev.open && curr.open <= prev.close &&
-      cutsPreviousBody && isBigCandle
-    ) {
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Env. Alcista' })
+    if (isDownTrend && isBearish(prev) && isBullish(curr) && curr.close >= prev.open && curr.open <= prev.close && cutsPreviousBody && isBigCandle) {
+      const txt = isHighProbabilityLong ? '🔥 Env. Alcista (AP)' : 'Env. Alcista'
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
     }
 
     // Envolvente Bajista
-    if (
-      isUpTrend && isBullish(prev) && isBearish(curr) &&
-      curr.close <= prev.open && curr.open >= prev.close &&
-      cutsPreviousBody && isBigCandle
-    ) {
+    if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {
       markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Env. Bajista' })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -309,8 +310,6 @@ export function detectCandlePatterns(
   // ── PASO 2: DETECTAR PATRONES INDIVIDUALES (Martillos) EN VELAS LIBRES ──
   for (let i = 2; i < candles.length; i++) {
     const c = candles[i]
-    
-    // FILTRO ANTIRRUIDO: Si la vela actual ya pertenece a una Envolvente o una Estrella Doji, se ignora
     if (occupiedCandles.has(c.time)) continue
 
     const body = bodySize(c)
@@ -324,7 +323,8 @@ export function detectCandlePatterns(
     // 1. Cuerpo Arriba, Mecha Abajo (Martillo / Hombre Colgado)
     if (lower >= body * 2 && upper <= body * 0.5) {
       if (isDownTrend) {
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Martillo' })
+        const txt = isHighProbabilityLong ? '🔥 Martillo (AP)' : 'Martillo'
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'H. Colgado' })
       }
@@ -333,7 +333,8 @@ export function detectCandlePatterns(
     // 2. Cuerpo Abajo, Mecha Arriba (Martillo Invertido / Estrella Fugaz)
     if (upper >= body * 2 && lower <= body * 0.5) {
       if (isDownTrend) {
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'M. Invertido' })
+        const txt = isHighProbabilityLong ? '🔥 M. Invertido (AP)' : 'M. Invertido'
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'E. Fugaz' })
       }

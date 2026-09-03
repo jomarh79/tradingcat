@@ -627,10 +627,24 @@ useEffect(() => {
       })
     }
 
-    // Patrones de velas — estrella de la mañana / vespertina, envolventes
+        // Patrones de velas — estrella de la mañana / vespertina, envolventes
     if (showPatterns) {
-      allMarkers.push(...detectCandlePatterns(chartData.candles))
+      // 1. Calcular dinámicamente si el precio actual está por encima de su EMA 200 diaria
+      const ema200Arr = chartData.mas?.ema200 || []
+      const currentPrice = chartData.candles[chartData.candles.length - 1]?.close
+      const latestEma200 = ema200Arr.length ? ema200Arr[ema200Arr.length - 1]?.value : null
+      const isAboveEma200Day = currentPrice != null && latestEma200 != null ? currentPrice > latestEma200 : false
+
+      // 2. Calcular dinámicamente si el múltiplo P/E actual es inferior a su promedio histórico de 5 años
+      const currentPE = fundamentals?.pe
+      const historyAvgPE = ownFiveYearAvg?.pe
+      const isUndervalued = currentPE != null && historyAvgPE != null ? currentPE < historyAvgPE : false
+
+      // 3. Empaquetar y despachar el contexto hacia la librería de indicadores
+      const marketCtx = { isUndervalued, isAboveEma200Day }
+      allMarkers.push(...detectCandlePatterns(chartData.candles, marketCtx))
     }
+
 
     if (allMarkers.length > 0) {
       createSeriesMarkers(candleSeries, allMarkers as any)
