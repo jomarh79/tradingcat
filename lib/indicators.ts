@@ -366,15 +366,15 @@ export function detectCandlePatterns(
   const result = getBullishScore(context, true)
 
   if (result.level === 'AP_PLUS') {
-    return `🔥🔥 AP+ (${result.score})`
+    return `🔥🔥 AP+`
   }
 
   if (result.level === 'AP') {
-    return `🔥 AP (${result.score})`
+    return `🔥 AP`
   }
 
   if (result.level === 'WATCH') {
-    return `🟡  (${result.score})`
+    return `🟡`
   }
 
   return null
@@ -385,15 +385,15 @@ const getBearishLabel = () => {
   const result = getBearishScore(context, true)
 
   if (result.level === 'RC_STRONG') {
-    return `🚨 RC+ (${result.score})`
+    return `🚨 RC+`
   }
 
   if (result.level === 'RC') {
-    return `⚠️ RC (${result.score})`
+    return `⚠️ RC`
   }
 
   if (result.level === 'WATCH') {
-    return `🟡  (${result.score})`
+    return `🟡`
   }
 
   return null
