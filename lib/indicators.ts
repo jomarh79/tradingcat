@@ -229,8 +229,7 @@ function isBearish(c: { open: number; close: number }) {
 
 // Estrella de la mañana / vespertina, envolventes, martillo y doji.
 // Usa el tamaño promedio de cuerpo de las últimas 14 velas para calibrar
-// qué cuenta como "vela grande" o "vela pequeña" (evita falsos positivos
-// en valores con velas naturalmente chicas o naturalmente grandes).
+// qué cuenta como "vela grande" o "vela pequeña" (evita falsos positivos).
 export function detectCandlePatterns(
   candles: { time: number; open: number; high: number; low: number; close: number }[]
 ): CandlePatternMarker[] {
@@ -244,125 +243,102 @@ export function detectCandlePatterns(
     return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
   }
 
+  // Set para registrar los timestamps de las velas donde ya pusimos un patrón fuerte (Envolvente o Doji Star)
+  const occupiedCandles = new Set<number>()
 
-    // ── Envolventes (2 velas) — Corregido y Filtrado por Tendencia ──
+  // ── PASO 1: DETECTAR PATRONES COMPUESTOS FUERTES (3 y 2 Velas) ──
   for (let i = 2; i < candles.length; i++) {
-    const prev = candles[i - 1]
-    const curr = candles[i]
+    const pPrev = candles[i - 2] // Vela 1
+    const prev = candles[i - 1]  // Vela 2 (Doji / Prev Envolvente)
+    const curr = candles[i]      // Vela 3 (Confirmación / Curr Envolvente)
     
-    // Detectar tendencia previa inmediata (mismo método que usamos para los martillos)
+    const avg = avgBody(i)
     const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
     const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
 
-    // El cuerpo actual debe ser mayor que el cuerpo anterior
-    const cutsPreviousBody = bodySize(curr) > bodySize(prev)
-    // El cuerpo actual debe ser una "vela grande" en comparación al promedio del mercado
-    const isBigCandle = bodySize(curr) > avgBody(i) * 0.8 
-
-    // ENVOLVENTE ALCISTA (Bullish Engulfing)
-    if (
-      isDownTrend &&           // Viene de tendencia bajista
-      isBearish(prev) &&       // Vela anterior roja
-      isBullish(curr) &&       // Vela actual verde
-      curr.close >= prev.open && // Cierre actual supera la apertura anterior
-      curr.open <= prev.close && // Apertura actual cubre el cierre anterior
-      cutsPreviousBody &&
-      isBigCandle
-    ) {
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Env. Alcista' })
-    }
-
-    // ENVOLVENTE BAJISTA (Bearish Engulfing)
-    if (
-      isUpTrend &&             // Viene de tendencia alcista
-      isBullish(prev) &&       // Vela anterior verde
-      isBearish(curr) &&       // Vela actual roja
-      curr.close <= prev.open && // Cierre actual cae por debajo de la apertura anterior
-      curr.open >= prev.close && // Apertura actual cubre el cierre anterior
-      cutsPreviousBody &&
-      isBigCandle
-    ) {
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Env. Bajista' })
-    }
-  }
-
-
-    // ── Martillo, Hombre Colgado, Martillo Invertido y Estrella Fugaz (1 vela) ──
-  for (let i = 2; i < candles.length; i++) {
-    const c = candles[i];
-    const body = bodySize(c);
-    const upper = upperWick(c);
-    const lower = lowerWick(c);
-    if (body <= 0) continue;
-
-    // Detectar tendencia previa (comparando con el cierre de hace 2 velas)
-    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close;
-    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close;
-
-    // 1. Cuerpo Arriba, Mecha Abajo (lower >= body * 2)
-    if (lower >= body * 2 && upper <= body * 0.5) {
-      if (isDownTrend) {
-        // Martillo (Giro Alcista) -> Flecha VERDE abajo de la barra
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Martillo' });
-      } else if (isUpTrend) {
-        // Hombre Colgado (Giro Bajista) -> Flecha ROJA arriba de la barra
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'H. Colgado' });
-      }
-    }
-
-    // 2. Cuerpo Abajo, Mecha Arriba (upper >= body * 2)
-    if (upper >= body * 2 && lower <= body * 0.5) {
-      if (isDownTrend) {
-        // Martillo Invertido (Giro Alcista) -> Flecha VERDE abajo de la barra
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'M. Invertido' });
-      } else if (isUpTrend) {
-        // Estrella Fugaz (Giro Bajista) -> Flecha ROJA arriba de la barra
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'E. Fugaz' });
-      }
-    }
-  }
-
-
-    // ── Patrones Doji de Reversión de 3 velas (Estrella de la Mañana y Vespertina) ──
-  for (let i = 2; i < candles.length; i++) {
-    const pPrev = candles[i - 2] // Vela 1 (La tendencia que viene)
-    const prev = candles[i - 1]  // Vela 2 (El Doji)
-    const curr = candles[i]      // Vela 3 (La confirmación del giro)
-
-    // 1. Identificar si la vela del medio realmente es un Doji
+    // ── A. Estrellas Doji de Reversión (3 velas) ──
     const rDoji = range(prev)
-    if (rDoji <= 0) continue
-    const isDoji = bodySize(prev) <= rDoji * 0.10 // Tolerancia del 10% de cuerpo
-
+    const isDoji = rDoji > 0 && bodySize(prev) <= rDoji * 0.10
+    
     if (isDoji) {
-      const avg = avgBody(i)
-      
-      // Requisito: Las velas de los extremos deben tener cuerpos considerables (no microvelas)
       const pPrevBig = bodySize(pPrev) > avg * 0.7
       const currBig = bodySize(curr) > avg * 0.7
 
-      // ── ESTRELLA DE LA MAÑANA DOJI (Giro Alcista) ──
-      // Vela 1 Roja Grande -> Vela 2 Doji -> Vela 3 Verde Grande
-      if (
-        isBearish(pPrev) && pPrevBig &&
-        isBullish(curr) && currBig &&
-        curr.close > (pPrev.open + pPrev.close) / 2 // La verde debe cerrar arriba de la mitad de la roja
-      ) {
+      // Estrella de la Mañana Doji (Alcista)
+      if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {
         markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Estrella Mañana' })
+        occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
+        continue // Si activa este patrón de 3 velas, saltamos para evitar conflictos
       }
 
-      // ── ESTRELLA VESPERTINA DOJI (Giro Bajista) ──
-      // Vela 1 Verde Grande -> Vela 2 Doji -> Vela 3 Roja Grande
-      if (
-        isBullish(pPrev) && pPrevBig &&
-        isBearish(curr) && currBig &&
-        curr.close < (pPrev.open + pPrev.close) / 2 // La roja debe cerrar abajo de la mitad de la verde
-      ) {
+      // Estrella Vespertina Doji (Bajista)
+      if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {
         markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Estrella Tarde' })
+        occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
+        continue
       }
+    }
+
+    // ── B. Envolventes (2 velas) — Corregidas por Tendencia y Volatilidad ──
+    const cutsPreviousBody = bodySize(curr) > bodySize(prev)
+    const isBigCandle = bodySize(curr) > avg * 0.8
+
+    // Envolvente Alcista
+    if (
+      isDownTrend && isBearish(prev) && isBullish(curr) &&
+      curr.close >= prev.open && curr.open <= prev.close &&
+      cutsPreviousBody && isBigCandle
+    ) {
+      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Env. Alcista' })
+      occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
+      continue
+    }
+
+    // Envolvente Bajista
+    if (
+      isUpTrend && isBullish(prev) && isBearish(curr) &&
+      curr.close <= prev.open && curr.open >= prev.close &&
+      cutsPreviousBody && isBigCandle
+    ) {
+      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'Env. Bajista' })
+      occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
+      continue
     }
   }
 
+  // ── PASO 2: DETECTAR PATRONES INDIVIDUALES (Martillos) EN VELAS LIBRES ──
+  for (let i = 2; i < candles.length; i++) {
+    const c = candles[i]
+    
+    // FILTRO ANTIRRUIDO: Si la vela actual ya pertenece a una Envolvente o una Estrella Doji, se ignora
+    if (occupiedCandles.has(c.time)) continue
+
+    const body = bodySize(c)
+    const upper = upperWick(c)
+    const lower = lowerWick(c)
+    if (body <= 0) continue
+
+    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
+    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
+
+    // 1. Cuerpo Arriba, Mecha Abajo (Martillo / Hombre Colgado)
+    if (lower >= body * 2 && upper <= body * 0.5) {
+      if (isDownTrend) {
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Martillo' })
+      } else if (isUpTrend) {
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'H. Colgado' })
+      }
+    }
+
+    // 2. Cuerpo Abajo, Mecha Arriba (Martillo Invertido / Estrella Fugaz)
+    if (upper >= body * 2 && lower <= body * 0.5) {
+      if (isDownTrend) {
+        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'M. Invertido' })
+      } else if (isUpTrend) {
+        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: 'E. Fugaz' })
+      }
+    }
+  }
 
   return markers.sort((a, b) => a.time - b.time)
 }
