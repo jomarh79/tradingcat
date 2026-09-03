@@ -239,7 +239,7 @@ export interface MarketContext {
 
 interface SignalScore {
   score: number
-  level: 'NONE' | 'WATCH' | 'AP' | 'AP_PLUS' | 'RC' | 'RC_STRONG'
+  level: 'NONE' | 'AP' | 'AP_PLUS' | 'RC' | 'RC_STRONG'
 }
 
 function getBullishScore(
@@ -280,7 +280,7 @@ function getBullishScore(
 
   if (score >= 10) level = 'AP_PLUS'
   else if (score >= 7) level = 'AP'
-  else if (score >= 4) level = 'WATCH'
+  
 
   return { score, level }
 }
@@ -323,7 +323,6 @@ function getBearishScore(
 
   if (score >= 10) level = 'RC_STRONG'
   else if (score >= 7) level = 'RC'
-  else if (score >= 4) level = 'WATCH'
 
   return { score, level }
 }
@@ -373,9 +372,6 @@ export function detectCandlePatterns(
     return `🔥 AP`
   }
 
-  if (result.level === 'WATCH') {
-    return `🟡`
-  }
 
   return null
 }
@@ -392,9 +388,6 @@ const getBearishLabel = () => {
     return `⚠️ RC`
   }
 
-  if (result.level === 'WATCH') {
-    return `🟡`
-  }
 
   return null
 }
@@ -424,8 +417,8 @@ const getBearishLabel = () => {
         const signal = getBullishLabel()
 
 const txt = signal
-  ? `Est. Mañana ${signal}`
-  : 'Est. Mañana'
+  ? `E. M. ${signal}`
+  : 'E. M.'
         markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -436,8 +429,8 @@ const txt = signal
         const signal = getBearishLabel()
 
 const txt = signal
-  ? `Est. Tarde ${signal}`
-  : 'Est. Tarde'
+  ? `E. T. ${signal}`
+  : 'E. T.'
         markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -453,8 +446,8 @@ const txt = signal
       const signal = getBullishLabel()
 
 const txt = signal
-  ? `Env. Alcista ${signal}`
-  : 'Env. Alcista'
+  ? `Env. A. ${signal}`
+  : 'Env. A.'
       markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -465,8 +458,8 @@ const txt = signal
       const signal = getBearishLabel()
 
 const txt = signal
-  ? `Env. Bajista ${signal}`
-  : 'Env. Bajista'
+  ? `Env. B. ${signal}`
+  : 'Env. B.'
       markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -492,15 +485,15 @@ const txt = signal
         const signal = getBullishLabel()
 
 const txt = signal
-  ? `Martillo ${signal}`
-  : 'Martillo'
+  ? `M. ${signal}`
+  : 'M.'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         const signal = getBearishLabel()
 
 const txt = signal
-  ? `H. colgado ${signal}`
-  : 'H. Colgado'
+  ? `H. C. ${signal}`
+  : 'H. C.'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
@@ -511,15 +504,15 @@ const txt = signal
         const signal = getBullishLabel()
 
 const txt = signal
-  ? `M: Invertido ${signal}`
-  : 'M. Invertido'
+  ? `M. I. ${signal}`
+  : 'M. I.'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         const signal = getBearishLabel()
 
 const txt = signal
-  ? `E. Fugaz ${signal}`
-  : 'E. Fugaz'
+  ? `E. F. ${signal}`
+  : 'E. F.'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
