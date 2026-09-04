@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase' 
 import AppShell from '../AppShell'
 import { Activity, Building2, Calendar, DollarSign, TrendingUp, TrendingDown, } from 'lucide-react'
+import ValuationModelsCard from '../components/ValuationModelsCard'
 
 const C = {
   accent: '#00bfff',
@@ -892,7 +893,12 @@ const saveNotes = async () => {
               </>
             )}
           </Card>
+          
+{/* ═══════════════════════════════════════════════════
+              FILA 1 — valuaciones
+          ═══════════════════════════════════════════════════ */}
 
+          <ValuationModelsCard ticker={ticker} />
 
           {/* ═══════════════════════════════════════════════════
               FILA 2 — EARNINGS
