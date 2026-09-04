@@ -617,7 +617,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
             }
-            gridColumn="span 2"
+            gridColumn="span 3"
           >
             <StatRow
               label="Invertido"
@@ -679,7 +679,7 @@ const saveNotes = async () => {
                 color={C.danger}
               />
             }
-            gridColumn="span 2"
+            gridColumn="span 3"
           >
             <StatRow
               label={`Stop Loss (${fmtMoney(
@@ -763,7 +763,7 @@ const saveNotes = async () => {
                     <Card
               title="Gestión de Riesgo & Eficiencia"
               icon={<TrendingUp size={14} color={C.accent} />}
-              gridColumn="span 2"
+              gridColumn="span 3"
             >
               <StatRow
                 label="Pérdida Máx. Potencial (SL)"
@@ -824,7 +824,7 @@ const saveNotes = async () => {
                 color={C.warning}
               />
             }
-            gridColumn="span 2"
+            gridColumn="span 3"
           >
             {loading ? (
               <div
