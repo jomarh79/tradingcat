@@ -157,8 +157,11 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
     { label: 'Objetivo 12 meses (Forward EPS)', value: forwardValue },
   ]
 
-  const validValues = models.map((m) => m.value).filter((v): v is number => v != null && v > 0)
-  const suggested = validValues.length > 0 ? validValues.reduce((a, b) => a + b, 0) / validValues.length : null
+    // Promedio SOLO de los modelos de valor intrínseco actual (DCF, Graham, Múltiplos) —
+  // Forward EPS queda fuera porque responde una pregunta distinta (dónde podría estar
+  // el precio en 12 meses, no cuánto vale hoy) y mezclarlos distorsiona el promedio.
+  const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
+  const suggested = intrinsicValues.length > 0 ? intrinsicValues.reduce((a, b) => a + b, 0) / intrinsicValues.length : null
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px' }}>
@@ -173,9 +176,9 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
         <div style={{ color: '#555', fontSize: 11 }}>Cargando...</div>
       ) : (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <tbody>
-              {models.map((m) => (
+              {models.slice(0, 3).map((m) => (
                 <tr key={m.label} style={{ borderTop: '1px solid #151515' }}>
                   <td style={{ padding: '4px 6px', color: '#aaa' }}>{m.label}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
@@ -185,12 +188,23 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
               ))}
               {suggested != null && (
                 <tr style={{ borderTop: '2px solid #222' }}>
-                  <td style={{ padding: '5px 6px', color: C.accent, fontWeight: 700 }}>Precio sugerido (promedio)</td>
+                  <td style={{ padding: '5px 6px', color: C.accent, fontWeight: 700 }}>Valor intrínseco (promedio)</td>
                   <td style={{ padding: '5px 6px', textAlign: 'right', color: C.accent, fontWeight: 900 }}>
                     {fmtMoney(suggested)}
                   </td>
                 </tr>
               )}
+              <tr style={{ borderTop: '1px solid #222' }}>
+                <td colSpan={2} style={{ padding: '8px 6px 2px', fontSize: 8, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Proyección a 12 meses (no es "valor hoy")
+                </td>
+              </tr>
+              <tr>
+                <td style={{ padding: '4px 6px', color: '#aaa' }}>{models[3].label}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', color: C.warning, fontWeight: 700 }}>
+                  {fmtMoney(models[3].value)}
+                </td>
+              </tr>
             </tbody>
           </table>
 
