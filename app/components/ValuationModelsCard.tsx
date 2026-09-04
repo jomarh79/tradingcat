@@ -165,7 +165,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <Calculator size={12} color={C.warning} />
         <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          Modelos de valuación
+          Modelos
         </div>
       </div>
 

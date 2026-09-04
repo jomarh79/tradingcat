@@ -581,7 +581,7 @@ const saveNotes = async () => {
             GRID PRINCIPAL
 
             FILA 1:
-            Posición | Stop Loss / TP | Analistas
+            Posición | Stop Loss / TP | Analistas | valuación
 
             FILA 2:
             Earnings | Dividendo | Empresa | S&P 500
@@ -895,10 +895,11 @@ const saveNotes = async () => {
           </Card>
           
           {/* ═══════════════════════════════════════════════════
-              FILA 1 — valuaciones
-          ═══════════════════════════════════════════════════ */}
-
-          <ValuationModelsCard ticker={ticker} />
+               FILA 1 — valuaciones
+           ═══════════════════════════════════════════════════ */}
+            <div style={{ gridColumn: 'span 3' }}>
+              <ValuationModelsCard ticker={ticker} />
+            </div>
 
           {/* ═══════════════════════════════════════════════════
               FILA 2 — EARNINGS
