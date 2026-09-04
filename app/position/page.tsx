@@ -617,7 +617,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
             }
-            gridColumn="span 5"
+            gridColumn="span 2"
           >
             <StatRow
               label="Invertido"
@@ -679,7 +679,7 @@ const saveNotes = async () => {
                 color={C.danger}
               />
             }
-            gridColumn="span 5"
+            gridColumn="span 2"
           >
             <StatRow
               label={`Stop Loss (${fmtMoney(
@@ -763,7 +763,7 @@ const saveNotes = async () => {
                     <Card
               title="Gestión de Riesgo & Eficiencia"
               icon={<TrendingUp size={14} color={C.accent} />}
-              gridColumn="span 5"
+              gridColumn="span 2"
             >
               <StatRow
                 label="Pérdida Máx. Potencial (SL)"
@@ -824,7 +824,7 @@ const saveNotes = async () => {
                 color={C.warning}
               />
             }
-            gridColumn="span 5"
+            gridColumn="span 2"
           >
             {loading ? (
               <div
@@ -912,7 +912,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
             }
-            gridColumn="span 4"
+            gridColumn="span 3"
           >
             {loading ? (
               <div
@@ -983,7 +983,7 @@ const saveNotes = async () => {
                 color={C.success}
               />
             }
-            gridColumn="span 4"
+            gridColumn="span 3"
           >
             {loading ? (
               <div
@@ -1053,7 +1053,7 @@ const saveNotes = async () => {
                 color={C.accent}
               />
             }
-            gridColumn="span 4"
+            gridColumn="span 3"
           >
             {loading ? (
               <div
@@ -1134,7 +1134,7 @@ const saveNotes = async () => {
 
           <div
             style={{
-              gridColumn: 'span 4',
+              gridColumn: 'span 3',
               background: C.card,
               border: `1px solid ${C.border}`,
               borderRadius: 12,
