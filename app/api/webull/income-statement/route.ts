@@ -230,29 +230,27 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // ── Forward EPS — suma de trimestres NO reportados (estimados) del próximo año fiscal ──
+        // ── Forward EPS — suma de los PRÓXIMOS 4 TRIMESTRES consecutivos (no por año fiscal
+    // calendario) — Webull solo regresa ~5 trimestres en total, casi nunca 4 completos
+    // dentro de un mismo año fiscal, así que agrupar por año daba sumas parciales
+    // (1-2 trimestres) disfrazadas de "EPS anual", muy por debajo del real.
     let forwardEps: { fiscalYear: number; eps: number; quartersCovered: number } | null = null;
-    const unreported = forecast.filter((f) => !f.reported && f.est != null);
-    if (unreported.length > 0) {
-      const byYear = new Map<number, number[]>();
-      unreported.forEach((f) => {
-        const est = num(f.est);
-        if (est == null) return;
-        const arr = byYear.get(f.fiscal_year) || [];
-        arr.push(est);
-        byYear.set(f.fiscal_year, arr);
-      });
-      // Año con más trimestres cubiertos (el próximo año fiscal completo, si está disponible)
-      let bestYear: number | null = null;
-      let bestArr: number[] = [];
-      for (const [year, arr] of byYear.entries()) {
-        if (arr.length > bestArr.length) { bestYear = year; bestArr = arr; }
-      }
-      if (bestYear != null) {
+
+    const future = forecast
+      .filter((f) => f.actual == null && f.est != null) // sin resultado real todavía = a futuro
+      .sort((a, b) => a.fiscal_year * 10 + a.fiscal_period - (b.fiscal_year * 10 + b.fiscal_period));
+
+    const next4 = future.slice(0, 4);
+
+    // Solo se reporta si hay 4 trimestres consecutivos reales — una suma parcial
+    // (1-3 trimestres) es peor que no mostrar nada, porque parece un EPS anual y no lo es.
+    if (next4.length === 4) {
+      const epsValues = next4.map((f) => num(f.est)).filter((v): v is number => v != null);
+      if (epsValues.length === 4) {
         forwardEps = {
-          fiscalYear: bestYear,
-          eps: bestArr.reduce((a, b) => a + b, 0),
-          quartersCovered: bestArr.length,
+          fiscalYear: next4[next4.length - 1].fiscal_year,
+          eps: epsValues.reduce((a, b) => a + b, 0),
+          quartersCovered: 4,
         };
       }
     }
