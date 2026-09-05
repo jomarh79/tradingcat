@@ -1,35 +1,22 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
-import { Calculator } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Calculator, RotateCcw } from 'lucide-react'
 
 const C = {
-  accent: '#00bfff',
-  success: '#22c55e',
-  danger: '#f43f5e',
-  warning: '#eab308',
-  card: '#080808',
-  border: '#1a1a1a',
+  accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
+  card: '#080808', border: '#1a1a1a',
 }
 
-const DCF_DISCOUNT_RATE = 0.09
-const DCF_TERMINAL_GROWTH = 0.025
-const DCF_PROJECTION_YEARS = 5
-const DCF_GROWTH_MIN = 0
-const DCF_GROWTH_MAX = 0.12
-
-const GRAHAM_GROWTH_MIN = 0.03 // Suelo de 3% para evitar valoraciones destruidas en defensivas
-const GRAHAM_GROWTH_MAX = 0.15
-const CURRENT_AAA_YIELD = 5.4 // Moody's Seasoned Aaa Corporate Bond Yield — actualizar periódicamente, se mueve con el mercado
+// Rango razonable para el crecimiento de EPS usado en el estimado genérico (fallback)
+// cuando Webull no trae los 4 trimestres de forecast completos.
+const FALLBACK_GROWTH_MIN = 0.04
+const FALLBACK_GROWTH_MAX = 0.12
 
 interface OwnHistoryEntry {
   year: number
   endDate: string
   eps: number | null
-  revenue: number | null
-  sharesOutstanding: number | null
-  operatingCashFlow: number | null
-  capitalExpenditures?: number | null
 }
 
 interface FundamentalsApiResponse {
@@ -40,7 +27,7 @@ interface FundamentalsApiResponse {
 
 interface IncomeApiResponse {
   success: boolean
-  ttm?: { dilutedEps: number | null; dilutedAvgShares: number | null } | null
+  ttm?: { dilutedEps: number | null } | null
   forwardEps?: { eps: number } | null
 }
 
@@ -53,26 +40,15 @@ function cagr(startValue: number, endValue: number, periods: number): number | n
   if (startValue <= 0 || endValue <= 0 || periods <= 0) return null
   return Math.pow(endValue / startValue, 1 / periods) - 1
 }
-
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
-
 function fmtMoney(v: number | null): string {
   if (v == null || isNaN(v)) return '—'
   return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function calculateMedian(values: number[]): number | null {
-  if (!values.length) return null
-  const sorted = [...values].sort((a, b) => a - b)
-  const middle = Math.floor(sorted.length / 2)
-  if (sorted.length % 2 === 0) {
-    return (sorted[middle - 1] + sorted[middle]) / 2
-  }
-  return sorted[middle]
-}
-
+// Cierre más cercano a una fecha dada (± hasta 10 días) — para cruzar cada 10-K con el precio de esa fecha
 function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
   if (!dailyCloses?.length) return null
   const target = new Date(targetDate.split(' ')[0]).getTime()
@@ -89,10 +65,12 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
   const [fundamentals, setFundamentals] = useState<FundamentalsApiResponse | null>(null)
   const [income, setIncome] = useState<IncomeApiResponse | null>(null)
   const [dailyCloses, setDailyCloses] = useState<{ date: string; close: number }[]>([])
+  const [customEps, setCustomEps] = useState<string>('')
 
   useEffect(() => {
     if (!ticker) return
     setLoading(true)
+    setCustomEps('') // al cambiar de ticker, se limpia el override manual
 
     Promise.all([
       fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
@@ -102,22 +80,21 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: ticker }),
       }).then((r) => r.json()).catch(() => null),
-    ]).then(([fund, inc, chart]) => {
+    ]).then(([fund, inc, chart]: [FundamentalsApiResponse | null, IncomeApiResponse | null, ChartDataPostResponse | null]) => {
       setFundamentals(fund)
       setIncome(inc)
       setDailyCloses(chart?.dailyCloses || [])
     }).finally(() => setLoading(false))
   }, [ticker])
 
-  const valuationResults = useMemo(() => {
+  const base = useMemo(() => {
     const ttmEps = income?.ttm?.dilutedEps ?? null
-    const ttmShares = income?.ttm?.dilutedAvgShares ?? null
     const rawForwardEps = income?.forwardEps?.eps ?? null
     const currentPE = fundamentals?.pe ?? null
 
     const history = (fundamentals?.ownHistory || []).slice().sort((a, b) => a.year - b.year)
 
-    // P/E Histórico Promedio
+    // P/E histórico promedio — cruza cada 10-K con el precio de esa fecha
     const historicalPEs = history
       .map((h) => {
         const price = findNearestClose(dailyCloses, h.endDate)
@@ -127,166 +104,105 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
       .filter((v): v is number => v != null)
     const historicalPE = historicalPEs.length > 0 ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length : null
 
-    // Cálculo FCF
-    const historyWithFCF = history.map((h) => ({
-      ...h,
-      fcf: h.operatingCashFlow != null ? h.operatingCashFlow - Math.abs(h.capitalExpenditures || 0) : null,
-    }))
-
-    const oldestWithFCF = historyWithFCF.find((h) => h.fcf != null && h.fcf > 0)
-    const newestWithFCF = [...historyWithFCF].reverse().find((h) => h.fcf != null && h.fcf > 0)
+    // Estimado genérico de EPS forward (fallback) — solo se usa si Webull no trae el dato real
     const oldestWithEPS = history.find((h) => h.eps != null && h.eps > 0)
     const newestWithEPS = [...history].reverse().find((h) => h.eps != null && h.eps > 0)
-    const latestShares = [...history].reverse().find((h) => h.sharesOutstanding != null)?.sharesOutstanding ?? ttmShares
-
-    // 1. DCF — base de FCF suavizada con CapEx promedio (últimos 3 años disponibles),
-    // en vez de solo el último año. Un CapEx puntualmente disparado (ej. supercíclo de
-    // inversión en IA) distorsiona el DCF si se usa como base fija de una proyección a 5 años.
-    let dcfValue: number | null = null
-    let estimatedGrowth = 0.05
-    let isCapexElevated = false
-    let capexElevatedRatio: number | null = null
-
-    const yearsWithCapex = history.filter((h) => h.capitalExpenditures != null && h.capitalExpenditures !== 0)
-    const recentCapexYears = yearsWithCapex.slice(-3)
-    const avgCapex = recentCapexYears.length > 0
-      ? recentCapexYears.reduce((sum, h) => sum + Math.abs(h.capitalExpenditures || 0), 0) / recentCapexYears.length
-      : null
-
-    const latestYearData = [...history].reverse().find((h) => h.operatingCashFlow != null)
-    const latestCapex = latestYearData?.capitalExpenditures != null ? Math.abs(latestYearData.capitalExpenditures) : null
-
-    if (latestCapex != null && avgCapex != null && avgCapex > 0) {
-      capexElevatedRatio = latestCapex / avgCapex
-      isCapexElevated = capexElevatedRatio > 1.5 // CapEx actual >50% arriba del promedio reciente
-    }
-
-    if (oldestWithFCF && newestWithFCF && oldestWithFCF !== newestWithFCF && latestShares) {
-      const yearsBetween = newestWithFCF.year - oldestWithFCF.year
-      const rawGrowth = cagr(oldestWithFCF.fcf!, newestWithFCF.fcf!, yearsBetween)
-      estimatedGrowth = rawGrowth != null ? clamp(rawGrowth, DCF_GROWTH_MIN, DCF_GROWTH_MAX) : 0.05
-
-      // Base del año más reciente, pero con CapEx PROMEDIO (no el del último año) —
-      // suaviza picos puntuales de inversión sin perder la tendencia de crecimiento real.
-      const baseFCF = latestYearData && avgCapex != null
-        ? latestYearData.operatingCashFlow! - avgCapex
-        : newestWithFCF.fcf!
-
-      let sumPV = 0
-      let fcfT = baseFCF
-      for (let t = 1; t <= DCF_PROJECTION_YEARS; t++) {
-        fcfT = fcfT * (1 + estimatedGrowth)
-        sumPV += fcfT / Math.pow(1 + DCF_DISCOUNT_RATE, t)
-      }
-      const terminalValue = (fcfT * (1 + DCF_TERMINAL_GROWTH)) / (DCF_DISCOUNT_RATE - DCF_TERMINAL_GROWTH)
-      const pvTerminal = terminalValue / Math.pow(1 + DCF_DISCOUNT_RATE, DCF_PROJECTION_YEARS)
-      dcfValue = (sumPV + pvTerminal) / latestShares
-    }
-
-    // 2. Graham (Con suelo de crecimiento)
-    let grahamValue: number | null = null
-    if (ttmEps && ttmEps > 0 && oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
+    let fallbackEps: number | null = null
+    if (ttmEps && oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
       const yearsBetween = newestWithEPS.year - oldestWithEPS.year
       const rawGrowth = cagr(oldestWithEPS.eps!, newestWithEPS.eps!, yearsBetween)
-      const growthPct = rawGrowth != null ? clamp(rawGrowth, GRAHAM_GROWTH_MIN, GRAHAM_GROWTH_MAX) * 100 : 5
-      
-      const multiplier = Math.max(15, 8.5 + 2 * growthPct) // Mínimo múltiplo de 15x
-      grahamValue = (ttmEps * multiplier * 4.4) / CURRENT_AAA_YIELD
+      const growth = rawGrowth != null ? clamp(rawGrowth, FALLBACK_GROWTH_MIN, FALLBACK_GROWTH_MAX) : FALLBACK_GROWTH_MIN
+      fallbackEps = ttmEps * (1 + growth)
     }
 
-    // 3. Múltiplos Históricos
-    const multiplesValue = ttmEps && historicalPE ? ttmEps * historicalPE : null
-
-// 4. Forward EPS (Con Fallback y crecimiento mínimo asegurado)
-    // Si estimatedGrowth es cercano a 0, aplica un mínimo razonable (ej. 4%) para que no duplique el resultado de múltiplos
-    const growthForForward = Math.max(0.04, estimatedGrowth)
-    const forwardEps = rawForwardEps ?? (ttmEps ? ttmEps * (1 + growthForForward) : null)
-
+    const isForwardEpsReal = rawForwardEps != null
+    const defaultForwardEps = rawForwardEps ?? fallbackEps
     const targetPE = historicalPE || currentPE
-    const forwardValue = forwardEps && targetPE ? forwardEps * targetPE : null
 
-    // Mediana en lugar de promedio simple
-    const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
-    const suggested = calculateMedian(intrinsicValues)
-
-        return {
-      dcfValue,
-      grahamValue,
-      multiplesValue,
-      forwardValue,
-      suggested,
-      isCapexElevated,
-      capexElevatedRatio,
-    }
+    return { ttmEps, historicalPE, currentPE, isForwardEpsReal, defaultForwardEps, targetPE }
   }, [fundamentals, income, dailyCloses])
 
-  const models = [
-    { label: 'DCF (Flujo de caja libre descontado)', value: valuationResults.dcfValue },
-    { label: 'Graham (Ajustado por tasa AAA)', value: valuationResults.grahamValue },
-    { label: 'Múltiplos históricos (P/E Prom.)', value: valuationResults.multiplesValue },
-    { label: 'Objetivo 12 meses (Forward EPS)', value: valuationResults.forwardValue },
-  ]
+  const multiplesValue = base.ttmEps && base.historicalPE ? base.ttmEps * base.historicalPE : null
+
+  const activeEps = customEps.trim() !== '' ? parseFloat(customEps) : base.defaultForwardEps
+  const forwardValue = activeEps && !isNaN(activeEps) && base.targetPE ? activeEps * base.targetPE : null
+  const isCustom = customEps.trim() !== '' && !isNaN(parseFloat(customEps))
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <Calculator size={12} color={C.warning} />
         <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          Modelos de Valoración
+          Modelos de valuación
         </div>
       </div>
 
       {loading ? (
-        <div style={{ color: '#555', fontSize: 11 }}>Cargando modelos...</div>
+        <div style={{ color: '#555', fontSize: 11 }}>Cargando...</div>
       ) : (
         <>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <tbody>
-                            <tr style={{ borderTop: '1px solid #151515' }}>
-                <td style={{ padding: '4px 6px', color: '#aaa' }}>{models[0].label}</td>
+              <tr style={{ borderTop: '1px solid #151515' }}>
+                <td style={{ padding: '4px 6px', color: '#aaa' }}>Múltiplos históricos (P/E Prom.)</td>
                 <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
-                  {fmtMoney(models[0].value)}
+                  {fmtMoney(multiplesValue)}
                 </td>
               </tr>
-              {valuationResults.isCapexElevated && (
-                <tr>
-                  <td colSpan={2} style={{ padding: '2px 6px 6px', fontSize: 8, color: C.warning }}>
-                    ⚠️ CapEx del último año {valuationResults.capexElevatedRatio!.toFixed(1)}× el promedio reciente — el DCF puede no reflejar bien un ciclo de inversión puntual (ej. IA/data centers)
-                  </td>
-                </tr>
-              )}
-              {models.slice(1, 3).map((m) => (
-                <tr key={m.label} style={{ borderTop: '1px solid #151515' }}>
-                  <td style={{ padding: '4px 6px', color: '#aaa' }}>{m.label}</td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
-                    {fmtMoney(m.value)}
-                  </td>
-                </tr>
-              ))}
-              {valuationResults.suggested != null && (
-                <tr style={{ borderTop: '2px solid #222' }}>
-                  <td style={{ padding: '5px 6px', color: C.accent, fontWeight: 700 }}>Valor intrínseco (mediana)</td>
-                  <td style={{ padding: '5px 6px', textAlign: 'right', color: C.accent, fontWeight: 900 }}>
-                    {fmtMoney(valuationResults.suggested)}
-                  </td>
-                </tr>
-              )}
-              <tr style={{ borderTop: '1px solid #222' }}>
+
+              <tr style={{ borderTop: '2px solid #222' }}>
                 <td colSpan={2} style={{ padding: '8px 6px 2px', fontSize: 8, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Proyección a 12 meses (no es "valor hoy")
+                  Objetivo 12 meses (proyección, no es "valor hoy")
                 </td>
               </tr>
+
               <tr>
-                <td style={{ padding: '4px 6px', color: '#aaa' }}>{models[3].label}</td>
-                <td style={{ padding: '4px 6px', textAlign: 'right', color: C.warning, fontWeight: 700 }}>
-                  {fmtMoney(models[3].value)}
+                <td style={{ padding: '4px 6px', color: '#aaa', verticalAlign: 'middle' }}>
+                  EPS a 12 meses
+                  <div style={{ fontSize: 8, color: base.isForwardEpsReal ? C.success : C.warning, marginTop: 2 }}>
+                    {base.isForwardEpsReal ? 'estimado real (analistas)' : 'estimado genérico (sin dato real de Webull)'}
+                  </div>
+                </td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={base.defaultForwardEps != null ? base.defaultForwardEps.toFixed(2) : '—'}
+                      value={customEps}
+                      onChange={(e) => setCustomEps(e.target.value)}
+                      style={{
+                        width: 70, background: '#000', color: isCustom ? C.accent : '#fff',
+                        border: `1px solid ${isCustom ? C.accent : '#333'}`, borderRadius: 4,
+                        padding: '3px 6px', fontSize: 11, textAlign: 'right', outline: 'none',
+                      }}
+                    />
+                    {isCustom && (
+                      <button
+                        onClick={() => setCustomEps('')}
+                        title="Volver al estimado del sistema"
+                        style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2, display: 'flex' }}
+                      >
+                        <RotateCcw size={11} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+
+              <tr style={{ borderTop: '1px solid #151515' }}>
+                <td style={{ padding: '4px 6px', color: '#aaa' }}>
+                  Precio objetivo {isCustom ? '(con tu EPS)' : ''}
+                </td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', color: isCustom ? C.accent : C.warning, fontWeight: 700 }}>
+                  {fmtMoney(forwardValue)}
                 </td>
               </tr>
             </tbody>
           </table>
 
           <div style={{ fontSize: 8, color: '#444', marginTop: 8, lineHeight: 1.5 }}>
-            DCF: tasa de descuento {(DCF_DISCOUNT_RATE * 100).toFixed(0)}%, crecimiento terminal {(DCF_TERMINAL_GROWTH * 100).toFixed(1)}%, proyección {DCF_PROJECTION_YEARS} años (FCF = OCF - Capex). Graham ajustado a tasa AAA ({CURRENT_AAA_YIELD}%). Estimaciones informativas.
+            Precio objetivo = EPS a 12 meses × P/E promedio histórico (o P/E actual si no hay histórico). Puedes editar el EPS para simular tu propio escenario — se restablece al estimado del sistema con el ícono ↺ o al cambiar de ticker. Ninguno de los dos valores es una recomendación.
           </div>
         </>
       )}
