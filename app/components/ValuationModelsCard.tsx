@@ -173,11 +173,14 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
     // 3. Múltiplos Históricos
     const multiplesValue = ttmEps && historicalPE ? ttmEps * historicalPE : null
 
-    // 4. Forward EPS (Con Fallback si API falla)
-    const forwardEps = rawForwardEps ?? (ttmEps ? ttmEps * (1 + estimatedGrowth) : null)
+// 4. Forward EPS (Con Fallback y crecimiento mínimo asegurado)
+    // Si estimatedGrowth es cercano a 0, aplica un mínimo razonable (ej. 4%) para que no duplique el resultado de múltiplos
+    const growthForForward = Math.max(0.04, estimatedGrowth)
+    const forwardEps = rawForwardEps ?? (ttmEps ? ttmEps * (1 + growthForForward) : null)
+
     const targetPE = historicalPE || currentPE
     const forwardValue = forwardEps && targetPE ? forwardEps * targetPE : null
-
+    
     // Mediana en lugar de promedio simple
     const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
     const suggested = calculateMedian(intrinsicValues)
