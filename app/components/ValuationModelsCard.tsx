@@ -4,8 +4,12 @@ import { useEffect, useState, useMemo } from 'react'
 import { Calculator } from 'lucide-react'
 
 const C = {
-  accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
-  card: '#080808', border: '#1a1a1a',
+  accent: '#00bfff',
+  success: '#22c55e',
+  danger: '#f43f5e',
+  warning: '#eab308',
+  card: '#080808',
+  border: '#1a1a1a',
 }
 
 const DCF_DISCOUNT_RATE = 0.09
@@ -13,9 +17,10 @@ const DCF_TERMINAL_GROWTH = 0.025
 const DCF_PROJECTION_YEARS = 5
 const DCF_GROWTH_MIN = 0
 const DCF_GROWTH_MAX = 0.12
-const GRAHAM_GROWTH_MIN = 0
+
+const GRAHAM_GROWTH_MIN = 0.03 // Suelo de 3% para evitar valoraciones destruidas en defensivas
 const GRAHAM_GROWTH_MAX = 0.15
-const CURRENT_AAA_YIELD = 4.5 // Tasa de bonos AAA / referencia de tasas
+const CURRENT_AAA_YIELD = 4.5
 
 interface OwnHistoryEntry {
   year: number
@@ -24,7 +29,7 @@ interface OwnHistoryEntry {
   revenue: number | null
   sharesOutstanding: number | null
   operatingCashFlow: number | null
-  capitalExpenditures?: number | null // Agregado Capex
+  capitalExpenditures?: number | null
 }
 
 interface FundamentalsApiResponse {
@@ -56,6 +61,16 @@ function clamp(v: number, min: number, max: number): number {
 function fmtMoney(v: number | null): string {
   if (v == null || isNaN(v)) return '—'
   return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function calculateMedian(values: number[]): number | null {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2
+  }
+  return sorted[middle]
 }
 
 function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
@@ -97,7 +112,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
   const valuationResults = useMemo(() => {
     const ttmEps = income?.ttm?.dilutedEps ?? null
     const ttmShares = income?.ttm?.dilutedAvgShares ?? null
-    const forwardEps = income?.forwardEps?.eps ?? null
+    const rawForwardEps = income?.forwardEps?.eps ?? null
     const currentPE = fundamentals?.pe ?? null
 
     const history = (fundamentals?.ownHistory || []).slice().sort((a, b) => a.year - b.year)
@@ -112,7 +127,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
       .filter((v): v is number => v != null)
     const historicalPE = historicalPEs.length > 0 ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length : null
 
-    // Cálculo de FCF Real (OCF - Capex)
+    // Cálculo FCF
     const historyWithFCF = history.map((h) => ({
       ...h,
       fcf: h.operatingCashFlow != null ? h.operatingCashFlow - Math.abs(h.capitalExpenditures || 0) : null,
@@ -124,18 +139,19 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
     const newestWithEPS = [...history].reverse().find((h) => h.eps != null && h.eps > 0)
     const latestShares = [...history].reverse().find((h) => h.sharesOutstanding != null)?.sharesOutstanding ?? ttmShares
 
-    // 1. DCF Simplificado (Usando FCF)
+    // 1. DCF
     let dcfValue: number | null = null
+    let estimatedGrowth = 0.05
     if (oldestWithFCF && newestWithFCF && oldestWithFCF !== newestWithFCF && latestShares) {
       const yearsBetween = newestWithFCF.year - oldestWithFCF.year
       const rawGrowth = cagr(oldestWithFCF.fcf!, newestWithFCF.fcf!, yearsBetween)
-      const growth = rawGrowth != null ? clamp(rawGrowth, DCF_GROWTH_MIN, DCF_GROWTH_MAX) : 0.05
+      estimatedGrowth = rawGrowth != null ? clamp(rawGrowth, DCF_GROWTH_MIN, DCF_GROWTH_MAX) : 0.05
       const baseFCF = newestWithFCF.fcf!
 
       let sumPV = 0
       let fcfT = baseFCF
       for (let t = 1; t <= DCF_PROJECTION_YEARS; t++) {
-        fcfT = fcfT * (1 + growth)
+        fcfT = fcfT * (1 + estimatedGrowth)
         sumPV += fcfT / Math.pow(1 + DCF_DISCOUNT_RATE, t)
       }
       const terminalValue = (fcfT * (1 + DCF_TERMINAL_GROWTH)) / (DCF_DISCOUNT_RATE - DCF_TERMINAL_GROWTH)
@@ -143,24 +159,28 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
       dcfValue = (sumPV + pvTerminal) / latestShares
     }
 
-    // 2. Benjamin Graham Ajustado por Tasas
+    // 2. Graham (Con suelo de crecimiento)
     let grahamValue: number | null = null
     if (ttmEps && ttmEps > 0 && oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
       const yearsBetween = newestWithEPS.year - oldestWithEPS.year
       const rawGrowth = cagr(oldestWithEPS.eps!, newestWithEPS.eps!, yearsBetween)
       const growthPct = rawGrowth != null ? clamp(rawGrowth, GRAHAM_GROWTH_MIN, GRAHAM_GROWTH_MAX) * 100 : 5
-      grahamValue = (ttmEps * (8.5 + 2 * growthPct) * 4.4) / CURRENT_AAA_YIELD
+      
+      const multiplier = Math.max(15, 8.5 + 2 * growthPct) // Mínimo múltiplo de 15x
+      grahamValue = (ttmEps * multiplier * 4.4) / CURRENT_AAA_YIELD
     }
 
     // 3. Múltiplos Históricos
     const multiplesValue = ttmEps && historicalPE ? ttmEps * historicalPE : null
 
-    // 4. Objetivo 12 Meses (Usando P/E Promedio Histórico o Actual)
+    // 4. Forward EPS (Con Fallback si API falla)
+    const forwardEps = rawForwardEps ?? (ttmEps ? ttmEps * (1 + estimatedGrowth) : null)
     const targetPE = historicalPE || currentPE
     const forwardValue = forwardEps && targetPE ? forwardEps * targetPE : null
 
+    // Mediana en lugar de promedio simple
     const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
-    const suggested = intrinsicValues.length > 0 ? intrinsicValues.reduce((a, b) => a + b, 0) / intrinsicValues.length : null
+    const suggested = calculateMedian(intrinsicValues)
 
     return {
       dcfValue,
@@ -203,7 +223,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
               ))}
               {valuationResults.suggested != null && (
                 <tr style={{ borderTop: '2px solid #222' }}>
-                  <td style={{ padding: '5px 6px', color: C.accent, fontWeight: 700 }}>Valor intrínseco (promedio)</td>
+                  <td style={{ padding: '5px 6px', color: C.accent, fontWeight: 700 }}>Valor intrínseco (mediana)</td>
                   <td style={{ padding: '5px 6px', textAlign: 'right', color: C.accent, fontWeight: 900 }}>
                     {fmtMoney(valuationResults.suggested)}
                   </td>
@@ -224,7 +244,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
           </table>
 
           <div style={{ fontSize: 8, color: '#444', marginTop: 8, lineHeight: 1.5 }}>
-            DCF: tasa de descuento {(DCF_DISCOUNT_RATE * 100).toFixed(0)}%, crecimiento terminal {(DCF_TERMINAL_GROWTH * 100).toFixed(1)}%, proyección {DCF_PROJECTION_YEARS} años (FCF = OCF - Capex). Graham ajustado a tasa de referencia ({CURRENT_AAA_YIELD}%). Estimaciones simplificadas informativas.
+            DCF: tasa de descuento {(DCF_DISCOUNT_RATE * 100).toFixed(0)}%, crecimiento terminal {(DCF_TERMINAL_GROWTH * 100).toFixed(1)}%, proyección {DCF_PROJECTION_YEARS} años (FCF = OCF - Capex). Graham ajustado a tasa AAA ({CURRENT_AAA_YIELD}%). Estimaciones informativas.
           </div>
         </>
       )}
