@@ -139,14 +139,38 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
     const newestWithEPS = [...history].reverse().find((h) => h.eps != null && h.eps > 0)
     const latestShares = [...history].reverse().find((h) => h.sharesOutstanding != null)?.sharesOutstanding ?? ttmShares
 
-    // 1. DCF
+    // 1. DCF — base de FCF suavizada con CapEx promedio (últimos 3 años disponibles),
+    // en vez de solo el último año. Un CapEx puntualmente disparado (ej. supercíclo de
+    // inversión en IA) distorsiona el DCF si se usa como base fija de una proyección a 5 años.
     let dcfValue: number | null = null
     let estimatedGrowth = 0.05
+    let isCapexElevated = false
+    let capexElevatedRatio: number | null = null
+
+    const yearsWithCapex = history.filter((h) => h.capitalExpenditures != null && h.capitalExpenditures !== 0)
+    const recentCapexYears = yearsWithCapex.slice(-3)
+    const avgCapex = recentCapexYears.length > 0
+      ? recentCapexYears.reduce((sum, h) => sum + Math.abs(h.capitalExpenditures || 0), 0) / recentCapexYears.length
+      : null
+
+    const latestYearData = [...history].reverse().find((h) => h.operatingCashFlow != null)
+    const latestCapex = latestYearData?.capitalExpenditures != null ? Math.abs(latestYearData.capitalExpenditures) : null
+
+    if (latestCapex != null && avgCapex != null && avgCapex > 0) {
+      capexElevatedRatio = latestCapex / avgCapex
+      isCapexElevated = capexElevatedRatio > 1.5 // CapEx actual >50% arriba del promedio reciente
+    }
+
     if (oldestWithFCF && newestWithFCF && oldestWithFCF !== newestWithFCF && latestShares) {
       const yearsBetween = newestWithFCF.year - oldestWithFCF.year
       const rawGrowth = cagr(oldestWithFCF.fcf!, newestWithFCF.fcf!, yearsBetween)
       estimatedGrowth = rawGrowth != null ? clamp(rawGrowth, DCF_GROWTH_MIN, DCF_GROWTH_MAX) : 0.05
-      const baseFCF = newestWithFCF.fcf!
+
+      // Base del año más reciente, pero con CapEx PROMEDIO (no el del último año) —
+      // suaviza picos puntuales de inversión sin perder la tendencia de crecimiento real.
+      const baseFCF = latestYearData && avgCapex != null
+        ? latestYearData.operatingCashFlow! - avgCapex
+        : newestWithFCF.fcf!
 
       let sumPV = 0
       let fcfT = baseFCF
@@ -185,12 +209,14 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
     const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
     const suggested = calculateMedian(intrinsicValues)
 
-    return {
+        return {
       dcfValue,
       grahamValue,
       multiplesValue,
       forwardValue,
       suggested,
+      isCapexElevated,
+      capexElevatedRatio,
     }
   }, [fundamentals, income, dailyCloses])
 
@@ -216,7 +242,20 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
         <>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <tbody>
-              {models.slice(0, 3).map((m) => (
+                            <tr style={{ borderTop: '1px solid #151515' }}>
+                <td style={{ padding: '4px 6px', color: '#aaa' }}>{models[0].label}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
+                  {fmtMoney(models[0].value)}
+                </td>
+              </tr>
+              {valuationResults.isCapexElevated && (
+                <tr>
+                  <td colSpan={2} style={{ padding: '2px 6px 6px', fontSize: 8, color: C.warning }}>
+                    ⚠️ CapEx del último año {valuationResults.capexElevatedRatio!.toFixed(1)}× el promedio reciente — el DCF puede no reflejar bien un ciclo de inversión puntual (ej. IA/data centers)
+                  </td>
+                </tr>
+              )}
+              {models.slice(1, 3).map((m) => (
                 <tr key={m.label} style={{ borderTop: '1px solid #151515' }}>
                   <td style={{ padding: '4px 6px', color: '#aaa' }}>{m.label}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
