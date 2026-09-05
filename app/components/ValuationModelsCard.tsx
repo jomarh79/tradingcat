@@ -20,7 +20,7 @@ const DCF_GROWTH_MAX = 0.12
 
 const GRAHAM_GROWTH_MIN = 0.03 // Suelo de 3% para evitar valoraciones destruidas en defensivas
 const GRAHAM_GROWTH_MAX = 0.15
-const CURRENT_AAA_YIELD = 4.5
+const CURRENT_AAA_YIELD = 5.4 // Moody's Seasoned Aaa Corporate Bond Yield — actualizar periódicamente, se mueve con el mercado
 
 interface OwnHistoryEntry {
   year: number
@@ -180,7 +180,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
 
     const targetPE = historicalPE || currentPE
     const forwardValue = forwardEps && targetPE ? forwardEps * targetPE : null
-    
+
     // Mediana en lugar de promedio simple
     const intrinsicValues = [dcfValue, grahamValue, multiplesValue].filter((v): v is number => v != null && v > 0)
     const suggested = calculateMedian(intrinsicValues)
