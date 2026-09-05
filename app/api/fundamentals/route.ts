@@ -51,12 +51,18 @@ const CONCEPT_CANDIDATES = {
     'us-gaap_StockholdersEquity',
     'us-gaap_StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
   ],
-  depreciationAmortization: [
+    depreciationAmortization: [
     'us-gaap_DepreciationDepletionAndAmortization',
     'us-gaap_DepreciationAmortizationAndAccretionNet',
     'us-gaap_DepreciationAndAmortization',
   ],
+  capitalExpenditures: [
+    'us-gaap_PaymentsToAcquirePropertyPlantAndEquipment',
+    'us-gaap_PaymentsToAcquireProductiveAssets',
+    'us-gaap_PaymentsForCapitalImprovements',
+  ],
 }
+
 
 function findConcept(report: any, candidates: string[]): number | null {
   const sections = ['ic', 'bs', 'cf'] // income statement, balance sheet, cash flow
@@ -106,6 +112,7 @@ async function fetchOwnHistory(symbol: string, apiKey: string) {
       operatingCashFlow: findConcept(r.report, CONCEPT_CANDIDATES.operatingCashFlow),
       stockholdersEquity: findConcept(r.report, CONCEPT_CANDIDATES.stockholdersEquity),
       depreciationAmortization: findConcept(r.report, CONCEPT_CANDIDATES.depreciationAmortization),
+      capitalExpenditures: findConcept(r.report, CONCEPT_CANDIDATES.capitalExpenditures),
     }))
   } catch {
     return [] // ETFs y algunos extranjeros no presentan 10-K — se queda vacío, no rompe el resto
