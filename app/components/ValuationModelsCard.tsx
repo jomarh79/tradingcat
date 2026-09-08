@@ -250,10 +250,6 @@ export default function ValuationModelsCard({ ticker, currentPrice }: ValuationM
               </tr>
             </tbody>
           </table>
-
-          <div style={{ fontSize: 8, color: '#444', marginTop: 8, lineHeight: 1.5 }}>
-                        Precio objetivo = EPS proyectado × P/E promedio histórico (o P/E actual si no hay histórico). "Ganancia total" es el % desde el precio actual hasta el precio objetivo.
-          </div>
         </>
       )}
     </div>
