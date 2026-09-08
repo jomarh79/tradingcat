@@ -8,10 +8,11 @@ const C = {
   card: '#080808', border: '#1a1a1a',
 }
 
-// Rango razonable para el crecimiento de EPS usado en el estimado genérico (fallback)
-// cuando Webull no trae los 4 trimestres de forecast completos.
 const FALLBACK_GROWTH_MIN = 0.04
 const FALLBACK_GROWTH_MAX = 0.12
+const DEFAULT_YEARS = 1
+const MIN_YEARS = 1
+const MAX_YEARS = 10
 
 interface OwnHistoryEntry {
   year: number
@@ -47,8 +48,11 @@ function fmtMoney(v: number | null): string {
   if (v == null || isNaN(v)) return '—'
   return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
+function fmtPercent(v: number | null): string {
+  if (v == null || isNaN(v)) return '—'
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
+}
 
-// Cierre más cercano a una fecha dada (± hasta 10 días) — para cruzar cada 10-K con el precio de esa fecha
 function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
   if (!dailyCloses?.length) return null
   const target = new Date(targetDate.split(' ')[0]).getTime()
@@ -60,17 +64,23 @@ function findNearestClose(dailyCloses: { date: string; close: number }[], target
   return best && best.diff <= 10 * 86400000 ? best.close : null
 }
 
-export default function ValuationModelsCard({ ticker }: { ticker: string }) {
+interface ValuationModelsCardProps {
+  ticker: string
+  currentPrice?: number | null // opcional — si no se pasa, usa el último cierre diario como aproximación
+}
+
+export default function ValuationModelsCard({ ticker, currentPrice }: ValuationModelsCardProps) {
   const [loading, setLoading] = useState(true)
   const [fundamentals, setFundamentals] = useState<FundamentalsApiResponse | null>(null)
   const [income, setIncome] = useState<IncomeApiResponse | null>(null)
   const [dailyCloses, setDailyCloses] = useState<{ date: string; close: number }[]>([])
   const [customEps, setCustomEps] = useState<string>('')
+  const [years, setYears] = useState<number>(DEFAULT_YEARS)
 
   useEffect(() => {
     if (!ticker) return
     setLoading(true)
-    setCustomEps('') // al cambiar de ticker, se limpia el override manual
+    setCustomEps('')
 
     Promise.all([
       fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
@@ -94,7 +104,6 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
 
     const history = (fundamentals?.ownHistory || []).slice().sort((a, b) => a.year - b.year)
 
-    // P/E histórico promedio — cruza cada 10-K con el precio de esa fecha
     const historicalPEs = history
       .map((h) => {
         const price = findNearestClose(dailyCloses, h.endDate)
@@ -104,29 +113,41 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
       .filter((v): v is number => v != null)
     const historicalPE = historicalPEs.length > 0 ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length : null
 
-    // Estimado genérico de EPS forward (fallback) — solo se usa si Webull no trae el dato real
     const oldestWithEPS = history.find((h) => h.eps != null && h.eps > 0)
     const newestWithEPS = [...history].reverse().find((h) => h.eps != null && h.eps > 0)
-    let fallbackEps: number | null = null
-    if (ttmEps && oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
+    let epsGrowthRate = FALLBACK_GROWTH_MIN
+    if (oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
       const yearsBetween = newestWithEPS.year - oldestWithEPS.year
       const rawGrowth = cagr(oldestWithEPS.eps!, newestWithEPS.eps!, yearsBetween)
-      const growth = rawGrowth != null ? clamp(rawGrowth, FALLBACK_GROWTH_MIN, FALLBACK_GROWTH_MAX) : FALLBACK_GROWTH_MIN
-      fallbackEps = ttmEps * (1 + growth)
+      epsGrowthRate = rawGrowth != null ? clamp(rawGrowth, FALLBACK_GROWTH_MIN, FALLBACK_GROWTH_MAX) : FALLBACK_GROWTH_MIN
     }
 
-    const isForwardEpsReal = rawForwardEps != null
-    const defaultForwardEps = rawForwardEps ?? fallbackEps
     const targetPE = historicalPE || currentPE
+    const effectivePrice = currentPrice ?? (dailyCloses.length ? dailyCloses[dailyCloses.length - 1].close : null)
 
-    return { ttmEps, historicalPE, currentPE, isForwardEpsReal, defaultForwardEps, targetPE }
-  }, [fundamentals, income, dailyCloses])
+    return { ttmEps, historicalPE, currentPE, rawForwardEps, epsGrowthRate, targetPE, effectivePrice }
+  }, [fundamentals, income, dailyCloses, currentPrice])
 
   const multiplesValue = base.ttmEps && base.historicalPE ? base.ttmEps * base.historicalPE : null
 
-  const activeEps = customEps.trim() !== '' ? parseFloat(customEps) : base.defaultForwardEps
-  const forwardValue = activeEps && !isNaN(activeEps) && base.targetPE ? activeEps * base.targetPE : null
+  // EPS proyectado a "years" — si years=1 y Webull dio un forward real, se usa tal cual (más preciso);
+  // para cualquier otro horizonte, se compone el crecimiento histórico de EPS sobre el TTM.
+  const isForwardEpsReal = years === 1 && base.rawForwardEps != null
+  const defaultProjectedEps = isForwardEpsReal
+    ? base.rawForwardEps
+    : (base.ttmEps != null ? base.ttmEps * Math.pow(1 + base.epsGrowthRate, years) : null)
+
+  const activeEps = customEps.trim() !== '' && !isNaN(parseFloat(customEps)) ? parseFloat(customEps) : defaultProjectedEps
   const isCustom = customEps.trim() !== '' && !isNaN(parseFloat(customEps))
+
+  const targetPrice = activeEps != null && base.targetPE ? activeEps * base.targetPE : null
+
+  const totalGainPct = targetPrice != null && base.effectivePrice
+    ? ((targetPrice - base.effectivePrice) / base.effectivePrice) * 100
+    : null
+  const annualizedGainPct = targetPrice != null && base.effectivePrice && years > 0
+    ? (Math.pow(targetPrice / base.effectivePrice, 1 / years) - 1) * 100
+    : null
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px' }}>
@@ -151,16 +172,31 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
               </tr>
 
               <tr style={{ borderTop: '2px solid #222' }}>
-                <td colSpan={2} style={{ padding: '8px 6px 2px', fontSize: 8, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Objetivo 12 meses (proyección, no es "valor hoy")
+                <td colSpan={2} style={{ padding: '8px 6px 2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 8, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Objetivo a {years} {years === 1 ? 'año' : 'años'} (proyección, no es "valor hoy")
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        onClick={() => setYears((y) => clamp(y - 1, MIN_YEARS, MAX_YEARS))}
+                        style={yearBtn}
+                      >−</button>
+                      <span style={{ fontSize: 10, color: C.accent, fontWeight: 700, minWidth: 14, textAlign: 'center' }}>{years}</span>
+                      <button
+                        onClick={() => setYears((y) => clamp(y + 1, MIN_YEARS, MAX_YEARS))}
+                        style={yearBtn}
+                      >+</button>
+                    </div>
+                  </div>
                 </td>
               </tr>
 
               <tr>
                 <td style={{ padding: '4px 6px', color: '#aaa', verticalAlign: 'middle' }}>
-                  EPS a 12 meses
-                  <div style={{ fontSize: 8, color: base.isForwardEpsReal ? C.success : C.warning, marginTop: 2 }}>
-                    {base.isForwardEpsReal ? 'estimado real (analistas)' : 'estimado genérico (sin dato real de Webull)'}
+                  EPS a {years} {years === 1 ? 'año' : 'años'}
+                  <div style={{ fontSize: 8, color: isForwardEpsReal ? C.success : C.warning, marginTop: 2 }}>
+                    {isForwardEpsReal ? 'estimado real (analistas)' : `proyectado (crecimiento histórico ${(base.epsGrowthRate * 100).toFixed(1)}%/año)`}
                   </div>
                 </td>
                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>
@@ -168,7 +204,7 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
                     <input
                       type="number"
                       step="0.01"
-                      placeholder={base.defaultForwardEps != null ? base.defaultForwardEps.toFixed(2) : '—'}
+                      placeholder={defaultProjectedEps != null ? defaultProjectedEps.toFixed(2) : '—'}
                       value={customEps}
                       onChange={(e) => setCustomEps(e.target.value)}
                       style={{
@@ -195,17 +231,36 @@ export default function ValuationModelsCard({ ticker }: { ticker: string }) {
                   Precio objetivo {isCustom ? '(con tu EPS)' : ''}
                 </td>
                 <td style={{ padding: '4px 6px', textAlign: 'right', color: isCustom ? C.accent : C.warning, fontWeight: 700 }}>
-                  {fmtMoney(forwardValue)}
+                  {fmtMoney(targetPrice)}
+                </td>
+              </tr>
+
+              <tr>
+                <td style={{ padding: '4px 6px', color: '#aaa' }}>Ganancia total ({years}a)</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', color: totalGainPct != null && totalGainPct >= 0 ? C.success : C.danger, fontWeight: 700 }}>
+                  {fmtPercent(totalGainPct)}
+                </td>
+              </tr>
+
+              <tr style={{ borderTop: '1px solid #151515' }}>
+                <td style={{ padding: '4px 6px', color: '#aaa', fontWeight: 700 }}>Ganancia anualizada</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', color: annualizedGainPct != null && annualizedGainPct >= 0 ? C.success : C.danger, fontWeight: 900 }}>
+                  {fmtPercent(annualizedGainPct)}
                 </td>
               </tr>
             </tbody>
           </table>
 
           <div style={{ fontSize: 8, color: '#444', marginTop: 8, lineHeight: 1.5 }}>
-            Precio objetivo = EPS a 12 meses × P/E promedio histórico (o P/E actual si no hay histórico). Puedes editar el EPS para simular tu propio escenario — se restablece al estimado del sistema con el ícono ↺ o al cambiar de ticker. Ninguno de los dos valores es una recomendación.
+                        Precio objetivo = EPS proyectado × P/E promedio histórico (o P/E actual si no hay histórico). "Ganancia total" es el % de subida/bajada desde el precio actual hasta el precio objetivo en el periodo elegido; "Ganancia anualizada" es ese mismo resultado repartido por año. Puedes editar el EPS para tu propio escenario y mover los años con +/−. Ninguno de estos valores es una recomendación.
           </div>
         </>
       )}
     </div>
   )
+}
+
+const yearBtn: React.CSSProperties = {
+  background: '#111', border: '1px solid #333', color: '#aaa', borderRadius: 4,
+  width: 18, height: 18, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
 }
