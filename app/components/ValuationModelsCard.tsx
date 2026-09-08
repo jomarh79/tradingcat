@@ -252,7 +252,7 @@ export default function ValuationModelsCard({ ticker, currentPrice }: ValuationM
           </table>
 
           <div style={{ fontSize: 8, color: '#444', marginTop: 8, lineHeight: 1.5 }}>
-                        Precio objetivo = EPS proyectado × P/E promedio histórico (o P/E actual si no hay histórico). "Ganancia total" es el % de subida/bajada desde el precio actual hasta el precio objetivo en el periodo elegido; "Ganancia anualizada" es ese mismo resultado repartido por año. Puedes editar el EPS para tu propio escenario y mover los años con +/−. Ninguno de estos valores es una recomendación.
+                        Precio objetivo = EPS proyectado × P/E promedio histórico (o P/E actual si no hay histórico). "Ganancia total" es el % desde el precio actual hasta el precio objetivo.
           </div>
         </>
       )}
