@@ -20,7 +20,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Consumo Cíclico":           ["Automotriz", "E-commerce", "Lujo", "Turismo", "Ropa y Calzado", "Bebidas No Alcohólicas", "Comercio minorista", "Restaurantes", "Resorts y casinos", "Construcción", "Textiles", "Juguetes"],
   "Consumo Defensivo":         ["Bebidas", "Alimentos", "Supermercados", "Comercio minorista", "Tabaco", "Cuidado personal", "Ocio", "Dulces"],
   "Financiero":                ["Bancos", "Seguros", "Fintech", "Pagos", "Publicidad", "Fideicomiso", "Brokers"],
-  "Energía":                   ["Petróleo", "Gas", "Solar", "Eólica"],
+  "Energía":                   ["Petróleo", "Gas", "Solar", "Eólica", "Nuclear", "Geotermica"],
   "Industrial":                ["Aeroespacial", "Logística", "Maquinaria", "Productos agrícolas", "Productos eléctricos", "Materiales de construcción", "Químicos", "Contenedores", "Aerolíneas", "Construcción", "Ferrocarriles", "Medioambiente", "Metales", "Fabricación de productos"],
   "Materiales básicos":        ["Minería", "Litio", "Química", "Agricultura"],
   "Servicios Públicos":        ["Electricidad", "Agua"],
@@ -28,7 +28,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Servicios de comunicación": ["Internet", "Telecomunicaciones", "Multimedia", "Entretenimiento"],
 }
 
-const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia", "Singapur", "Paises Bajos"]
+const PAISES = ["Estados Unidos", "México", "España", "Japón", "Argentina", "Brasil", "Canadá", "China", "Reino Unido", "Dinamarca", "India", "Irlanda", "Taiwan", "Bermudas", "Luxemburgo", "Suiza", "Italia", "Alemania", "Francia", "Singapur", "Paises Bajos","Islas Caiman"]
 
 // ── Elementos decorativos ─────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
@@ -68,7 +68,7 @@ const CatTail = ({ color = '#00bfff', opacity = 0.08 }: any) => (
 export default function RegistroInicialTrade() {
   const router = useRouter()
   const { money } = usePrivacy()
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Mexico_City' })
 
   const [wallets,        setWallets]        = useState<any[]>([])
   const [selectedWallet, setSelectedWallet] = useState('')
