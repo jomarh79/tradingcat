@@ -812,6 +812,181 @@ const saveNotes = async () => {
               />
             </Card>
 
+             {/* ═══════════════════════════════════════════════════
+              FILA 2 — RENDIMIENTO VS S&P 500
+          ═══════════════════════════════════════════════════ */}
+
+          <div
+            style={{
+              gridColumn: 'span 3',
+              background: C.card,
+              border: `1px solid ${C.border}`,
+              borderRadius: 12,
+              padding: 16,
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: '#888',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                marginBottom: 12,
+              }}
+            >
+              Rendimiento vs S&amp;P 500
+            </div>
+
+            {loading ? (
+              <div
+                style={{
+                  color: '#555',
+                  fontSize: 12,
+                  padding: 20,
+                  textAlign: 'center',
+                }}
+              >
+                Cargando...
+              </div>
+            ) : (
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr>
+                    {[
+                      'Periodo',
+                      ticker,
+                      'S&P 500',
+                      'Alfa',
+                    ].map((h, i) => (
+                      <th
+                        key={i}
+                        style={{
+                          textAlign:
+                            i === 0
+                              ? 'left'
+                              : 'right',
+                          color: '#555',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding:
+                            '4px 4px',
+                          textTransform:
+                            'uppercase',
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {detail?.performance?.periods.map(
+                    (p) => (
+                      <tr
+                        key={p.label}
+                        style={{
+                          borderTop:
+                            '1px solid #151515',
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding:
+                              '6px 4px',
+                            color: '#aaa',
+                          }}
+                        >
+                          {p.label}
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '6px 4px',
+                            textAlign:
+                              'right',
+                            color:
+                              p.stockReturn !=
+                                null &&
+                              p.stockReturn >=
+                                0
+                                ? C.success
+                                : C.danger,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {fmtPercent(
+                            p.stockReturn
+                          )}
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '6px 4px',
+                            textAlign:
+                              'right',
+                            color:
+                              p.spyReturn !=
+                                null &&
+                              p.spyReturn >=
+                                0
+                                ? C.success
+                                : C.danger,
+                          }}
+                        >
+                          {fmtPercent(
+                            p.spyReturn
+                          )}
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '6px 4px',
+                            textAlign:
+                              'right',
+                            fontWeight: 700,
+                            color:
+                              p.alpha == null
+                                ? '#444'
+                                : p.alpha >= 0
+                                ? C.success
+                                : C.danger,
+                          }}
+                        >
+                          {p.alpha == null ? (
+                            '—'
+                          ) : (
+                            <>
+                              {p.alpha >= 0
+                                ? '▲'
+                                : '▼'}{' '}
+                              {Math.abs(
+                                p.alpha
+                              ).toFixed(1)}
+                              %
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            )}
+
+          </div>
+
           {/* ═══════════════════════════════════════════════════
               FILA 1 — ANALISTAS
           ═══════════════════════════════════════════════════ */}
@@ -1129,180 +1304,49 @@ const saveNotes = async () => {
             )}
           </Card>
 
-          {/* ═══════════════════════════════════════════════════
-              FILA 2 — RENDIMIENTO VS S&P 500
+         
+
+           {/* ═══════════════════════════════════════════════════
+              FILA 4 — DESCRIPCIÓN
           ═══════════════════════════════════════════════════ */}
 
-          <div
-            style={{
-              gridColumn: 'span 3',
-              background: C.card,
-              border: `1px solid ${C.border}`,
-              borderRadius: 12,
-              padding: 16,
-              minWidth: 0,
-            }}
-          >
+          {detail?.profile?.description && (
             <div
               style={{
-                fontSize: 11,
-                color: '#888',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                marginBottom: 12,
+                gridColumn: '1 / -1',
+                background: C.card,
+                border: `1px solid ${C.border}`,
+                borderRadius: 12,
+                padding: 16,
+                minWidth: 0,
               }}
             >
-              Rendimiento vs S&amp;P 500
-            </div>
-
-            {loading ? (
               <div
                 style={{
-                  color: '#555',
-                  fontSize: 12,
-                  padding: 20,
-                  textAlign: 'center',
+                  fontSize: 11,
+                  color: '#888',
+                  fontWeight: 700,
+                  textTransform:
+                    'uppercase',
+                  letterSpacing: 0.5,
+                  marginBottom: 8,
                 }}
               >
-                Cargando...
+                Descripción
               </div>
-            ) : (
-              <table
+
+              <p
                 style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
                   fontSize: 12,
+                  color: '#bbb',
+                  lineHeight: 1.6,
+                  margin: 0,
                 }}
               >
-                <thead>
-                  <tr>
-                    {[
-                      'Periodo',
-                      ticker,
-                      'S&P 500',
-                      'Alfa',
-                    ].map((h, i) => (
-                      <th
-                        key={i}
-                        style={{
-                          textAlign:
-                            i === 0
-                              ? 'left'
-                              : 'right',
-                          color: '#555',
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding:
-                            '4px 4px',
-                          textTransform:
-                            'uppercase',
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {detail?.performance?.periods.map(
-                    (p) => (
-                      <tr
-                        key={p.label}
-                        style={{
-                          borderTop:
-                            '1px solid #151515',
-                        }}
-                      >
-                        <td
-                          style={{
-                            padding:
-                              '6px 4px',
-                            color: '#aaa',
-                          }}
-                        >
-                          {p.label}
-                        </td>
-
-                        <td
-                          style={{
-                            padding:
-                              '6px 4px',
-                            textAlign:
-                              'right',
-                            color:
-                              p.stockReturn !=
-                                null &&
-                              p.stockReturn >=
-                                0
-                                ? C.success
-                                : C.danger,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {fmtPercent(
-                            p.stockReturn
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            padding:
-                              '6px 4px',
-                            textAlign:
-                              'right',
-                            color:
-                              p.spyReturn !=
-                                null &&
-                              p.spyReturn >=
-                                0
-                                ? C.success
-                                : C.danger,
-                          }}
-                        >
-                          {fmtPercent(
-                            p.spyReturn
-                          )}
-                        </td>
-
-                        <td
-                          style={{
-                            padding:
-                              '6px 4px',
-                            textAlign:
-                              'right',
-                            fontWeight: 700,
-                            color:
-                              p.alpha == null
-                                ? '#444'
-                                : p.alpha >= 0
-                                ? C.success
-                                : C.danger,
-                          }}
-                        >
-                          {p.alpha == null ? (
-                            '—'
-                          ) : (
-                            <>
-                              {p.alpha >= 0
-                                ? '▲'
-                                : '▼'}{' '}
-                              {Math.abs(
-                                p.alpha
-                              ).toFixed(1)}
-                              %
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
-            )}
-
-          </div>
+                {detail.profile.description}
+              </p>
+            </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════
               FILA 3 — observaciones
@@ -1387,47 +1431,7 @@ const saveNotes = async () => {
             </div>
           )}
 
-          {/* ═══════════════════════════════════════════════════
-              FILA 4 — DESCRIPCIÓN
-          ═══════════════════════════════════════════════════ */}
-
-          {detail?.profile?.description && (
-            <div
-              style={{
-                gridColumn: '1 / -1',
-                background: C.card,
-                border: `1px solid ${C.border}`,
-                borderRadius: 12,
-                padding: 16,
-                minWidth: 0,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 11,
-                  color: '#888',
-                  fontWeight: 700,
-                  textTransform:
-                    'uppercase',
-                  letterSpacing: 0.5,
-                  marginBottom: 8,
-                }}
-              >
-                Descripción
-              </div>
-
-              <p
-                style={{
-                  fontSize: 12,
-                  color: '#bbb',
-                  lineHeight: 1.6,
-                  margin: 0,
-                }}
-              >
-                {detail.profile.description}
-              </p>
-            </div>
-          )}
+         
 
           {/* ═══════════════════════════════════════════════════
               FILA 5 — HISTORIAL DE OPERACIONES
