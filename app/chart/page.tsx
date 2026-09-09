@@ -7,7 +7,7 @@ import {
   createSeriesMarkers, ColorType, IChartApi,
 } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
-import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns } from '@/lib/indicators'
+import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns, mogalefBandsSeries } from '@/lib/indicators'
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
@@ -257,6 +257,7 @@ function ChartPageInner() {
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(true)
   const [showPatterns, setShowPatterns] = useState(true)
+  const [showMogalef, setShowMogalef] = useState(false)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
@@ -570,6 +571,20 @@ useEffect(() => {
       line.setData(clean as any)
     })
 
+        // Bandas de Mogalef — overlay directo en el panel principal
+    if (showMogalef) {
+      const mogalefData = mogalefBandsSeries(chartData.candles)
+
+      const supLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
+
+      const medLine = chart.addSeries(LineSeries, { color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
+      medLine.setData(mogalefData.filter(p => p.mediana !== null).map(p => ({ time: p.time, value: p.mediana })) as any)
+
+      const infLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      infLine.setData(mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf })) as any)
+    }
+
     // Costo promedio (amarillo) / TP1-3 (naranja) / Stop loss (rojo) — punteadas
     if (selectedTrade) {
       const qty = Number(selectedTrade.quantity || 0)
@@ -759,7 +774,7 @@ useEffect(() => {
 
       chartRef.current = null
     }
-  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showPatterns])
+  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showPatterns, showMogalef])
 
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
@@ -1064,6 +1079,7 @@ useEffect(() => {
           <button onClick={() => setShowKoncorde(v => !v)} style={filterBtn(showKoncorde)}>Koncorde</button>
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowPatterns(v => !v)} style={filterBtn(showPatterns)}>Patrones</button>
+          <button onClick={() => setShowMogalef(v => !v)} style={filterBtn(showMogalef)}>Mogalef</button>
         </div>
 
         {!ticker && (

@@ -520,3 +520,110 @@ const txt = signal
 
   return markers.sort((a, b) => a.time - b.time)
 }
+
+export interface MogalefPoint {
+  time: number
+  mediana: number | null
+  sup: number | null
+  inf: number | null
+}
+
+// Regresión lineal de una ventana de valores, evaluada en el último punto (offset 0) —
+// misma fórmula que ta.linreg de Pine Script.
+function linregAt(values: number[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
+  for (let k = 0; k < length; k++) {
+    const x = k
+    const y = values[endIndex - length + 1 + k]
+    sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x
+  }
+  const n = length
+  const denom = n * sumX2 - sumX * sumX
+  if (denom === 0) return sumY / n
+  const slope = (n * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / n
+  return intercept + slope * (n - 1) // offset = 0
+}
+
+function smaAt(values: (number | null)[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  let sum = 0
+  for (let k = endIndex - length + 1; k <= endIndex; k++) {
+    const v = values[k]
+    if (v == null) return null
+    sum += v
+  }
+  return sum / length
+}
+
+// Bandas de Mogalef (Eric Lefort, 2010) — mediana por regresión lineal + bandas de
+// volatilidad que se mantienen "congeladas" (planas) hasta que el cierre rompe alguno
+// de los extremos, momento en el que saltan al valor teórico vigente.
+export function mogalefBandsSeries(
+  candles: { time: number; high: number; low: number; close: number }[],
+  lenMediana = 3,
+  lenBandas = 7,
+  multiplicador = 1.0
+): MogalefPoint[] {
+  const n = candles.length
+  const closes = candles.map(c => c.close)
+  const highs = candles.map(c => c.high)
+  const lows = candles.map(c => c.low)
+
+  // 1. Mediana teórica (regresión lineal) — serie completa
+  const mediana: (number | null)[] = closes.map((_, i) => linregAt(closes, i, lenMediana))
+
+  // 2. Distancias — SMA de (high - mediana) y (mediana - low), solo válidas cuando mediana lo es
+  const distArribaRaw: (number | null)[] = highs.map((h, i) => (mediana[i] != null ? h - mediana[i]! : null))
+  const distAbajoRaw: (number | null)[] = lows.map((l, i) => (mediana[i] != null ? mediana[i]! - l : null))
+
+  const distanciaMax: (number | null)[] = distArribaRaw.map((_, i) => {
+    const v = smaAt(distArribaRaw, i, lenBandas)
+    return v != null ? v * multiplicador : null
+  })
+  const distanciaMin: (number | null)[] = distAbajoRaw.map((_, i) => {
+    const v = smaAt(distAbajoRaw, i, lenBandas)
+    return v != null ? v * multiplicador : null
+  })
+
+  const bandaSupTeorica: (number | null)[] = mediana.map((m, i) =>
+    m != null && distanciaMax[i] != null ? m + distanciaMax[i]! : null
+  )
+  const bandaInfTeorica: (number | null)[] = mediana.map((m, i) =>
+    m != null && distanciaMin[i] != null ? m - distanciaMin[i]! : null
+  )
+
+  // 3. Persistencia — se congela hasta que el cierre rompe la banda vigente
+  const out: MogalefPoint[] = []
+  let persistMediana: number | null = null
+  let persistSup: number | null = null
+  let persistInf: number | null = null
+  let initialized = false
+
+  for (let i = 0; i < n; i++) {
+    if (!initialized && bandaSupTeorica[i] != null && bandaInfTeorica[i] != null) {
+      // Primera barra con cálculo válido — inicializa (equivalente práctico de barstate.isfirst)
+      persistMediana = mediana[i]
+      persistSup = bandaSupTeorica[i]
+      persistInf = bandaInfTeorica[i]
+      initialized = true
+    } else if (initialized && persistSup != null && persistInf != null) {
+      const close = closes[i]
+      if (close > persistSup || close < persistInf) {
+        persistMediana = mediana[i]
+        persistSup = bandaSupTeorica[i]
+        persistInf = bandaInfTeorica[i]
+      }
+    }
+
+    out.push({
+      time: candles[i].time,
+      mediana: initialized ? persistMediana : null,
+      sup: initialized ? persistSup : null,
+      inf: initialized ? persistInf : null,
+    })
+  }
+
+  return out
+}
