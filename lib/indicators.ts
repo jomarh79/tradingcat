@@ -162,7 +162,7 @@ export function koncordeSeries(candles: Candle[]) {
     xmf[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg)
   }
 
-  // Oscilador de Bollinger (25, 2 desviaciones) sobre precio OHLC4
+  // Oscilador de Bollinger (25, 2 desviaciones) sobre precio OHLC4 
   const bollPeriod = 25
   const bollOsc = new Array(n).fill(0)
   for (let i = bollPeriod - 1; i < n; i++) {
@@ -200,7 +200,7 @@ export function koncordeSeries(candles: Candle[]) {
   return candles.map((c, i) => ({ time: c.time, verde: verde[i], marron: marron[i], azul: azul[i], media: media[i] }))
 }
 
-// ── Patrones de velas + scoring de contexto (AP/RC) ────────────────────────
+// ... (Tus funciones matemáticas previas: rsiSeries, macdSeries, adxSeries, koncordeSeries quedan intactas)
 
 export interface CandlePatternMarker {
   time: number
@@ -280,9 +280,11 @@ function getBullishScore(
 
   if (score >= 10) level = 'AP_PLUS'
   else if (score >= 7) level = 'AP'
+  
 
   return { score, level }
 }
+
 
 function getBearishScore(
   context?: MarketContext,
@@ -360,31 +362,35 @@ export function detectCandlePatterns(
 
   // Filtros de Contexto Avanzado
   const getBullishLabel = () => {
-    const result = getBullishScore(context, true)
+  const result = getBullishScore(context, true)
 
-    if (result.level === 'AP_PLUS') {
-      return `🔥🔥 AP+`
-    }
-
-    if (result.level === 'AP') {
-      return `🔥 AP`
-    }
-
-    return null
+  if (result.level === 'AP_PLUS') {
+    return `🔥🔥 AP+`
   }
-  const getBearishLabel = () => {
-    const result = getBearishScore(context, true)
 
-    if (result.level === 'RC_STRONG') {
-      return `🚨 RC+`
-    }
-
-    if (result.level === 'RC') {
-      return `⚠️ RC`
-    }
-
-    return null
+  if (result.level === 'AP') {
+    return `🔥 AP`
   }
+
+
+  return null
+}
+
+
+const getBearishLabel = () => {
+  const result = getBearishScore(context, true)
+
+  if (result.level === 'RC_STRONG') {
+    return `🚨 RC+`
+  }
+
+  if (result.level === 'RC') {
+    return `⚠️ RC`
+  }
+
+
+  return null
+}
 
   const occupiedCandles = new Set<number>()
 
@@ -393,7 +399,7 @@ export function detectCandlePatterns(
     const pPrev = candles[i - 2]
     const prev = candles[i - 1]
     const curr = candles[i]
-
+    
     const avg = avgBody(i)
     const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
     const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
@@ -401,7 +407,7 @@ export function detectCandlePatterns(
     // A. Estrellas Doji de Reversión (3 velas)
     const rDoji = range(prev)
     const isDoji = rDoji > 0 && bodySize(prev) <= rDoji * 0.10
-
+    
     if (isDoji) {
       const pPrevBig = bodySize(pPrev) > avg * 0.7
       const currBig = bodySize(curr) > avg * 0.7
@@ -409,7 +415,10 @@ export function detectCandlePatterns(
       // Estrella de la Mañana Doji (Alcista)
       if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {
         const signal = getBullishLabel()
-        const txt = signal ? `Est. M. ${signal}` : 'Est. M.'
+
+const txt = signal
+  ? `Est. M. ${signal}`
+  : 'Est. M.'
         markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -418,7 +427,10 @@ export function detectCandlePatterns(
       // Estrella Vespertina Doji (Bajista)
       if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {
         const signal = getBearishLabel()
-        const txt = signal ? `Est. T. ${signal}` : 'Est. T.'
+
+const txt = signal
+  ? `Est. T. ${signal}`
+  : 'Est. T.'
         markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
         occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
         continue
@@ -432,7 +444,10 @@ export function detectCandlePatterns(
     // Envolvente Alcista
     if (isDownTrend && isBearish(prev) && isBullish(curr) && curr.close >= prev.open && curr.open <= prev.close && cutsPreviousBody && isBigCandle) {
       const signal = getBullishLabel()
-      const txt = signal ? `Env. A. ${signal}` : 'Env. A.'
+
+const txt = signal
+  ? `Env. A. ${signal}`
+  : 'Env. A.'
       markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -441,7 +456,10 @@ export function detectCandlePatterns(
     // Envolvente Bajista
     if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {
       const signal = getBearishLabel()
-      const txt = signal ? `Env. B. ${signal}` : 'Env. B.'
+
+const txt = signal
+  ? `Env. B. ${signal}`
+  : 'Env. B.'
       markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
       continue
@@ -465,11 +483,17 @@ export function detectCandlePatterns(
     if (lower >= body * 2 && upper <= body * 0.5) {
       if (isDownTrend) {
         const signal = getBullishLabel()
-        const txt = signal ? `M. ${signal}` : 'M.'
+
+const txt = signal
+  ? `M. ${signal}`
+  : 'M.'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         const signal = getBearishLabel()
-        const txt = signal ? `H. C. ${signal}` : 'H. C.'
+
+const txt = signal
+  ? `H. C. ${signal}`
+  : 'H. C.'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
@@ -478,11 +502,17 @@ export function detectCandlePatterns(
     if (upper >= body * 2 && lower <= body * 0.5) {
       if (isDownTrend) {
         const signal = getBullishLabel()
-        const txt = signal ? `M. Inv. ${signal}` : 'M. Inv.'
+
+const txt = signal
+  ? `M. Inv. ${signal}`
+  : 'M. Inv.'
         markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
       } else if (isUpTrend) {
         const signal = getBearishLabel()
-        const txt = signal ? `Est. F. ${signal}` : 'Est. F.'
+
+const txt = signal
+  ? `Est. F. ${signal}`
+  : 'Est. F.'
         markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
       }
     }
@@ -491,21 +521,17 @@ export function detectCandlePatterns(
   return markers.sort((a, b) => a.time - b.time)
 }
 
-// ── Bandas de Mogalef (Éric Lefort) ─────────────────────────────────────
-// Precio ponderado (O+H+L+2C)/5, línea central por regresión lineal (3 periodos
-// por defecto), bandas = centro ± multiplicador × desviación estándar (7 periodos
-// por defecto). Las bandas quedan "congeladas" (horizontales) hasta que el cierre
-// rompe alguno de los extremos vigentes, momento en que saltan al nuevo nivel.
+
+// Bandas de Mogalef (Eric Lefort, 2010) — mediana por regresión lineal + bandas de
 
 export interface MogalefPoint {
   time: number
   sup: number | null
   inf: number | null
-  center: number | null
 }
 
 // Regresión lineal simple evaluada en el último punto de la ventana — misma
-// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n, offset 0).
+// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n).
 function linregAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
@@ -525,15 +551,70 @@ function linregAt(values: number[], endIndex: number, length: number): number | 
 
 function stdevAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
-  const startIndex = endIndex - length + 1
   let mean = 0
-  for (let t = 0; t < length; t++) mean += values[startIndex + t]
+  for (let t = 0; t < length; t++) mean += values[endIndex - t]
   mean /= length
   let sumSq = 0
-  for (let t = 0; t < length; t++) sumSq += Math.pow(values[startIndex + t] - mean, 2)
+  for (let t = 0; t < length; t++) sumSq += Math.pow(values[endIndex - t] - mean, 2)
   return Math.sqrt(sumSq / length)
 }
 
+// Bandas de Mogalef — precio ponderado (O+H+L+2C)/5, línea central por regresión
+export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number }
+
+export interface MogalefPoint {
+  time: number
+  sup: number | null
+  inf: number | null
+  center: number | null // Añadido por si quieres graficar la línea central
+}
+
+// Regresión lineal simple evaluada exactamente en la vela actual (Offset = 0)
+// Réplica exacta de ta.linreg(src, length, 0) de Pine Script
+function linregAt(values: number[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
+  const startIndex = endIndex - length + 1
+
+  for (let t = 0; t < length; t++) {
+    const x = t + 1 // x va de 1 a length
+    const y = values[startIndex + t]
+    
+    sumX += x
+    sumY += y
+    sumXY += x * y
+    sumX2 += x * x
+  }
+
+  const denom = length * sumX2 - sumX * sumX
+  if (denom === 0) return sumY / length
+
+  const slope = (length * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / length
+
+  // Evaluamos en 'length' para obtener el valor ajustado de la última vela de la ventana
+  return slope * length + intercept
+}
+
+function stdevAt(values: number[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  
+  const startIndex = endIndex - length + 1
+  let mean = 0
+  for (let t = 0; t < length; t++) {
+    mean += values[startIndex + t]
+  }
+  mean /= length
+
+  let sumSq = 0
+  for (let t = 0; t < length; t++) {
+    sumSq += Math.pow(values[startIndex + t] - mean, 2)
+  }
+  return Math.sqrt(sumSq / length)
+}
+
+// Bandas de Mogalef (Éric Lefort)
 export function mogalefBandsSeries(
   candles: Candle[],
   regPeriod = 3,
@@ -544,8 +625,7 @@ export function mogalefBandsSeries(
   if (n === 0) return []
 
   const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
-  const closes = candles.map(c => c.close)
-
+  
   const centerRaw: (number | null)[] = weighted.map((_, i) => linregAt(weighted, i, regPeriod))
   const stdRaw: (number | null)[] = weighted.map((_, i) => stdevAt(weighted, i, stdPeriod))
 
@@ -557,18 +637,22 @@ export function mogalefBandsSeries(
   for (let i = 0; i < n; i++) {
     const center = centerRaw[i]
     const std = stdRaw[i]
-    const close = closes[i]
+    const close = candles[i].close
 
     if (!initialized) {
-      if (center != null && std != null) {
+      if (center !== null && std !== null) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
         initialized = true
       }
-    } else if (center != null && std != null && currentUpper != null && currentLower != null) {
-      if (close > currentUpper || close < currentLower) {
-        currentUpper = center + multiplier * std
-        currentLower = center - multiplier * std
+    } else {
+      // Si ya está inicializado, verificamos primero si el precio actual rompe las bandas vigentes
+      if (center !== null && std !== null && currentUpper !== null && currentLower !== null) {
+        if (close > currentUpper || close < currentLower) {
+          // El precio sale del rango estable: las bandas saltan a la nueva realidad del mercado
+          currentUpper = center + multiplier * std
+          currentLower = center - multiplier * std
+        }
       }
     }
 
@@ -576,7 +660,7 @@ export function mogalefBandsSeries(
       time: candles[i].time,
       sup: initialized ? currentUpper : null,
       inf: initialized ? currentLower : null,
-      center: initialized ? center : null,
+      center: initialized ? center : null
     })
   }
 
