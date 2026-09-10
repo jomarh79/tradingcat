@@ -521,21 +521,24 @@ const txt = signal
   return markers.sort((a, b) => a.time - b.time)
 }
 
+
+// Bandas de Mogalef (Eric Lefort, 2010) — mediana por regresión lineal + bandas de
+
 export interface MogalefPoint {
   time: number
-  mediana: number | null
   sup: number | null
   inf: number | null
 }
 
-// Regresión lineal de una ventana de valores, evaluada en el último punto (offset 0) —
-// misma fórmula que ta.linreg de Pine Script.
+// Regresión lineal simple evaluada en el último punto de la ventana — misma
+// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n).
 function linregAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  for (let k = 0; k < length; k++) {
-    const x = k
-    const y = values[endIndex - length + 1 + k]
+  for (let t = 0; t < length; t++) {
+    const idx = endIndex - (length - 1) + t
+    const x = t + 1
+    const y = values[idx]
     sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x
   }
   const n = length
@@ -543,85 +546,62 @@ function linregAt(values: number[], endIndex: number, length: number): number | 
   if (denom === 0) return sumY / n
   const slope = (n * sumXY - sumX * sumY) / denom
   const intercept = (sumY - slope * sumX) / n
-  return intercept + slope * (n - 1) // offset = 0
+  return slope * n + intercept
 }
 
-function smaAt(values: (number | null)[], endIndex: number, length: number): number | null {
+function stdevAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
-  let sum = 0
-  for (let k = endIndex - length + 1; k <= endIndex; k++) {
-    const v = values[k]
-    if (v == null) return null
-    sum += v
-  }
-  return sum / length
+  let mean = 0
+  for (let t = 0; t < length; t++) mean += values[endIndex - t]
+  mean /= length
+  let sumSq = 0
+  for (let t = 0; t < length; t++) sumSq += Math.pow(values[endIndex - t] - mean, 2)
+  return Math.sqrt(sumSq / length)
 }
 
-// Bandas de Mogalef (Eric Lefort, 2010) — mediana por regresión lineal + bandas de
-// volatilidad que se mantienen "congeladas" (planas) hasta que el cierre rompe alguno
-// de los extremos, momento en el que saltan al valor teórico vigente.
+// Bandas de Mogalef — precio ponderado (O+H+L+2C)/5, línea central por regresión
+// lineal (3 periodos por defecto), bandas = centro ± multiplicador × desviación
+// estándar (7 periodos por defecto). Las bandas quedan "congeladas" (horizontales)
+// hasta que el cierre rompe alguno de los extremos vigentes, momento en que saltan
+// al nuevo nivel calculado.
 export function mogalefBandsSeries(
-  candles: { time: number; high: number; low: number; close: number }[],
-  lenMediana = 3,
-  lenBandas = 7,
-  multiplicador = 1.0
+  candles: { time: number; open: number; high: number; low: number; close: number }[],
+  regPeriod = 3,
+  stdPeriod = 7,
+  multiplier = 2.0
 ): MogalefPoint[] {
   const n = candles.length
+  const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
   const closes = candles.map(c => c.close)
-  const highs = candles.map(c => c.high)
-  const lows = candles.map(c => c.low)
 
-  // 1. Mediana teórica (regresión lineal) — serie completa
-  const mediana: (number | null)[] = closes.map((_, i) => linregAt(closes, i, lenMediana))
+  const centerRaw: (number | null)[] = weighted.map((_, i) => linregAt(weighted, i, regPeriod))
+  const stdRaw: (number | null)[] = weighted.map((_, i) => stdevAt(weighted, i, stdPeriod))
 
-  // 2. Distancias — SMA de (high - mediana) y (mediana - low), solo válidas cuando mediana lo es
-  const distArribaRaw: (number | null)[] = highs.map((h, i) => (mediana[i] != null ? h - mediana[i]! : null))
-  const distAbajoRaw: (number | null)[] = lows.map((l, i) => (mediana[i] != null ? mediana[i]! - l : null))
-
-  const distanciaMax: (number | null)[] = distArribaRaw.map((_, i) => {
-    const v = smaAt(distArribaRaw, i, lenBandas)
-    return v != null ? v * multiplicador : null
-  })
-  const distanciaMin: (number | null)[] = distAbajoRaw.map((_, i) => {
-    const v = smaAt(distAbajoRaw, i, lenBandas)
-    return v != null ? v * multiplicador : null
-  })
-
-  const bandaSupTeorica: (number | null)[] = mediana.map((m, i) =>
-    m != null && distanciaMax[i] != null ? m + distanciaMax[i]! : null
-  )
-  const bandaInfTeorica: (number | null)[] = mediana.map((m, i) =>
-    m != null && distanciaMin[i] != null ? m - distanciaMin[i]! : null
-  )
-
-  // 3. Persistencia — se congela hasta que el cierre rompe la banda vigente
   const out: MogalefPoint[] = []
-  let persistMediana: number | null = null
-  let persistSup: number | null = null
-  let persistInf: number | null = null
+  let currentUpper: number | null = null
+  let currentLower: number | null = null
   let initialized = false
 
   for (let i = 0; i < n; i++) {
-    if (!initialized && bandaSupTeorica[i] != null && bandaInfTeorica[i] != null) {
-      // Primera barra con cálculo válido — inicializa (equivalente práctico de barstate.isfirst)
-      persistMediana = mediana[i]
-      persistSup = bandaSupTeorica[i]
-      persistInf = bandaInfTeorica[i]
+    const center = centerRaw[i]
+    const std = stdRaw[i]
+
+    if (!initialized && center != null && std != null) {
+      currentUpper = center + multiplier * std
+      currentLower = center - multiplier * std
       initialized = true
-    } else if (initialized && persistSup != null && persistInf != null) {
+    } else if (initialized && center != null && std != null && currentUpper != null && currentLower != null) {
       const close = closes[i]
-      if (close > persistSup || close < persistInf) {
-        persistMediana = mediana[i]
-        persistSup = bandaSupTeorica[i]
-        persistInf = bandaInfTeorica[i]
+      if (close > currentUpper || close < currentLower) {
+        currentUpper = center + multiplier * std
+        currentLower = center - multiplier * std
       }
     }
 
     out.push({
       time: candles[i].time,
-      mediana: initialized ? persistMediana : null,
-      sup: initialized ? persistSup : null,
-      inf: initialized ? persistInf : null,
+      sup: initialized ? currentUpper : null,
+      inf: initialized ? currentLower : null,
     })
   }
 
