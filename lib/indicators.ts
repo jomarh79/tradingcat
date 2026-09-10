@@ -560,20 +560,72 @@ function stdevAt(values: number[], endIndex: number, length: number): number | n
 }
 
 // Bandas de Mogalef — precio ponderado (O+H+L+2C)/5, línea central por regresión
-// lineal (3 periodos por defecto), bandas = centro ± multiplicador × desviación
-// estándar (7 periodos por defecto). Las bandas quedan "congeladas" (horizontales)
-// hasta que el cierre rompe alguno de los extremos vigentes, momento en que saltan
-// al nuevo nivel calculado.
+export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number }
+
+export interface MogalefPoint {
+  time: number
+  sup: number | null
+  inf: number | null
+  center: number | null // Añadido por si quieres graficar la línea central
+}
+
+// Regresión lineal simple evaluada exactamente en la vela actual (Offset = 0)
+// Réplica exacta de ta.linreg(src, length, 0) de Pine Script
+function linregAt(values: number[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
+  const startIndex = endIndex - length + 1
+
+  for (let t = 0; t < length; t++) {
+    const x = t + 1 // x va de 1 a length
+    const y = values[startIndex + t]
+    
+    sumX += x
+    sumY += y
+    sumXY += x * y
+    sumX2 += x * x
+  }
+
+  const denom = length * sumX2 - sumX * sumX
+  if (denom === 0) return sumY / length
+
+  const slope = (length * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / length
+
+  // Evaluamos en 'length' para obtener el valor ajustado de la última vela de la ventana
+  return slope * length + intercept
+}
+
+function stdevAt(values: number[], endIndex: number, length: number): number | null {
+  if (endIndex < length - 1) return null
+  
+  const startIndex = endIndex - length + 1
+  let mean = 0
+  for (let t = 0; t < length; t++) {
+    mean += values[startIndex + t]
+  }
+  mean /= length
+
+  let sumSq = 0
+  for (let t = 0; t < length; t++) {
+    sumSq += Math.pow(values[startIndex + t] - mean, 2)
+  }
+  return Math.sqrt(sumSq / length)
+}
+
+// Bandas de Mogalef (Éric Lefort)
 export function mogalefBandsSeries(
-  candles: { time: number; open: number; high: number; low: number; close: number }[],
+  candles: Candle[],
   regPeriod = 3,
   stdPeriod = 7,
   multiplier = 2.0
 ): MogalefPoint[] {
   const n = candles.length
-  const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
-  const closes = candles.map(c => c.close)
+  if (n === 0) return []
 
+  const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
+  
   const centerRaw: (number | null)[] = weighted.map((_, i) => linregAt(weighted, i, regPeriod))
   const stdRaw: (number | null)[] = weighted.map((_, i) => stdevAt(weighted, i, stdPeriod))
 
@@ -585,16 +637,22 @@ export function mogalefBandsSeries(
   for (let i = 0; i < n; i++) {
     const center = centerRaw[i]
     const std = stdRaw[i]
+    const close = candles[i].close
 
-    if (!initialized && center != null && std != null) {
-      currentUpper = center + multiplier * std
-      currentLower = center - multiplier * std
-      initialized = true
-    } else if (initialized && center != null && std != null && currentUpper != null && currentLower != null) {
-      const close = closes[i]
-      if (close > currentUpper || close < currentLower) {
+    if (!initialized) {
+      if (center !== null && std !== null) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
+        initialized = true
+      }
+    } else {
+      // Si ya está inicializado, verificamos primero si el precio actual rompe las bandas vigentes
+      if (center !== null && std !== null && currentUpper !== null && currentLower !== null) {
+        if (close > currentUpper || close < currentLower) {
+          // El precio sale del rango estable: las bandas saltan a la nueva realidad del mercado
+          currentUpper = center + multiplier * std
+          currentLower = center - multiplier * std
+        }
       }
     }
 
@@ -602,6 +660,7 @@ export function mogalefBandsSeries(
       time: candles[i].time,
       sup: initialized ? currentUpper : null,
       inf: initialized ? currentLower : null,
+      center: initialized ? center : null
     })
   }
 

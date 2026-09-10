@@ -571,44 +571,103 @@ useEffect(() => {
       line.setData(clean as any)
     })
 
-            // Bandas de Mogalef — overlay directo en el panel principal
-    if (showMogalef) {
-      const mogalefData = mogalefBandsSeries(chartData.candles)
+// 1. Define estas referencias arriba en tu componente (fuera del useEffect del chart)
+const supLineRef = useRef<any>(null)
+const infLineRef = useRef<any>(null)
+const priceLinesRef = useRef<any[]>([]) // Para almacenar las líneas de costo, TP y SL
 
-      const supLine = chart.addSeries(LineSeries, { color: '#ffe600', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
-      supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
+// 2. Dentro de tu useEffect de inicialización/actualización de la gráfica:
 
-      const infLine = chart.addSeries(LineSeries, { color: '#eeff00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
-      infLine.setData(mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf })) as any)
-    }
+// ── LIMPIEZA DE SERIES E INDICADORES PREVIOS ───────────────────────────
+if (supLineRef.current) {
+  chart.removeSeries(supLineRef.current)
+  supLineRef.current = null
+}
+if (infLineRef.current) {
+  chart.removeSeries(infLineRef.current)
+  infLineRef.current = null
+}
 
-    // Costo promedio (amarillo) / TP1-3 (naranja) / Stop loss (rojo) — punteadas
-    if (selectedTrade) {
-      const qty = Number(selectedTrade.quantity || 0)
-      const invested = Number(selectedTrade.total_invested || 0)
-      const avgCost = qty > 0 ? invested / qty : Number(selectedTrade.entry_price || 0)
+// ── RENDER DE BANDAS DE MOGALEF ────────────────────────────────────────
+if (showMogalef && chartData?.candles?.length > 0) {
+  const mogalefData = mogalefBandsSeries(chartData.candles)
 
-      if (avgCost > 0) {
-        candleSeries.createPriceLine({
-          price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true,
-        })
-      }
-      if (selectedTrade.stop_loss) {
-        candleSeries.createPriceLine({
-          price: Number(selectedTrade.stop_loss), color: C.danger, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true,
-        })
-      }
-      ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach((tp, i) => {
-        if (tp) {
-          candleSeries.createPriceLine({
-            price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: true,
-          })
-        }
+  // Crear y guardar referencia de la Banda Superior
+  supLineRef.current = chart.addSeries(LineSeries, { 
+    color: '#ffe600', 
+    lineWidth: 2, 
+    lastValueVisible: false, 
+    priceLineVisible: false 
+  })
+  supLineRef.current.setData(
+    mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup! }))
+  )
+
+  // Crear y guardar referencia de la Banda Inferior
+  infLineRef.current = chart.addSeries(LineSeries, { 
+    color: '#eeff00', 
+    lineWidth: 2, 
+    lastValueVisible: false, 
+    priceLineVisible: false 
+  })
+  infLineRef.current.setData(
+    mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf! }))
+  )
+}
+
+// ── LIMPIEZA DE LÍNEAS DE PRECIO (TRADE) ANTERIORES ────────────────────
+// Esto evita que al cambiar de Trade se queden dibujadas las líneas del trade anterior
+priceLinesRef.current.forEach(line => {
+  try { candleSeries.removePriceLine(line) } catch (e) {}
+})
+priceLinesRef.current = []
+
+// ── RENDER DE COSTO PROMEDIO / TP / SL ─────────────────────────────────
+if (selectedTrade && candleSeries) {
+  const qty = Number(selectedTrade.quantity || 0)
+  const invested = Number(selectedTrade.total_invested || 0)
+  const avgCost = qty > 0 ? invested / qty : Number(selectedTrade.entry_price || 0)
+
+  if (avgCost > 0) {
+    const avgLine = candleSeries.createPriceLine({
+      price: avgCost, 
+      color: C.warning, 
+      lineWidth: 1, 
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: 'Avg Cost'
+    })
+    priceLinesRef.current.push(avgLine)
+  }
+
+  if (selectedTrade.stop_loss) {
+    const slLine = candleSeries.createPriceLine({
+      price: Number(selectedTrade.stop_loss), 
+      color: C.danger, 
+      lineWidth: 1, 
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: 'SL'
+    })
+    priceLinesRef.current.push(slLine)
+  }
+
+  // Iterar y crear TPs
+  ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach((tp, i) => {
+    if (tp) {
+      const tpLine = candleSeries.createPriceLine({
+        price: Number(tp), 
+        color: '#f97316', 
+        lineWidth: 1, 
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `TP${i + 1}`
       })
+      priceLinesRef.current.push(tpLine)
     }
+  })
+}
+
 
         // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
     const allMarkers: any[] = []
