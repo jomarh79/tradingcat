@@ -1170,4 +1170,4 @@ export default function ChartPage() {
       <ChartPageInner />
     </Suspense>
   )
-}
+} 
