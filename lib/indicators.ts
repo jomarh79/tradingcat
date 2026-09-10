@@ -54,6 +54,65 @@ export function macdSeries(candles: Candle[], fast = 12, slow = 26, signalPeriod
   return candles.map((c, i) => ({ time: c.time, macd: macdLine[i], signal: signal[i], hist: hist[i] }))
 }
 
+// ── ADX / +DI / -DI (14, suavizado de Wilder) ───────────────────────────
+export function adxSeries(candles: Candle[], period = 14) {
+  const n = candles.length
+  const plusDM = new Array(n).fill(0)
+  const minusDM = new Array(n).fill(0)
+  const tr = new Array(n).fill(0)
+
+  for (let i = 1; i < n; i++) {
+    const upMove = candles[i].high - candles[i - 1].high
+    const downMove = candles[i - 1].low - candles[i].low
+    plusDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0
+    minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0
+    tr[i] = Math.max(
+      candles[i].high - candles[i].low,
+      Math.abs(candles[i].high - candles[i - 1].close),
+      Math.abs(candles[i].low - candles[i - 1].close)
+    )
+  }
+
+  const wilderSmooth = (arr: number[]) => {
+    const out = new Array(n).fill(NaN)
+    let sum = 0
+    for (let i = 1; i <= period; i++) sum += arr[i] || 0
+    out[period] = sum
+    for (let i = period + 1; i < n; i++) out[i] = out[i - 1] - out[i - 1] / period + arr[i]
+    return out
+  }
+
+  const trSm = wilderSmooth(tr)
+  const plusDMSm = wilderSmooth(plusDM)
+  const minusDMSm = wilderSmooth(minusDM)
+
+  const plusDI: (number | null)[] = new Array(n).fill(null)
+  const minusDI: (number | null)[] = new Array(n).fill(null)
+  const dx: (number | null)[] = new Array(n).fill(null)
+
+  for (let i = period; i < n; i++) {
+    if (!trSm[i]) continue
+    plusDI[i] = (plusDMSm[i] / trSm[i]) * 100
+    minusDI[i] = (minusDMSm[i] / trSm[i]) * 100
+    const sum = (plusDI[i] as number) + (minusDI[i] as number)
+    dx[i] = sum > 0 ? Math.abs((plusDI[i] as number) - (minusDI[i] as number)) / sum * 100 : 0
+  }
+
+  const adx: (number | null)[] = new Array(n).fill(null)
+  let seed = 0, count = 0
+  for (let i = period; i < period * 2 && i < n; i++) {
+    if (dx[i] != null) { seed += dx[i] as number; count++ }
+  }
+  if (count > 0 && period * 2 - 1 < n) adx[period * 2 - 1] = seed / count
+  for (let i = period * 2; i < n; i++) {
+    if (adx[i - 1] != null && dx[i] != null) {
+      adx[i] = ((adx[i - 1] as number) * (period - 1) + (dx[i] as number)) / period
+    }
+  }
+
+  return candles.map((c, i) => ({ time: c.time, adx: adx[i], plusDI: plusDI[i], minusDI: minusDI[i] }))
+}
+
 // ── Koncorde (PVI/NVI + MFI + Oscilador de Bollinger + RSI, combinados) ──
 export function koncordeSeries(candles: Candle[]) {
   const n = candles.length
