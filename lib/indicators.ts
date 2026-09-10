@@ -570,34 +570,8 @@ export interface MogalefPoint {
 }
 
 // Regresión lineal simple evaluada exactamente en la vela actual (Offset = 0)
-// Réplica exacta de ta.linreg(src, length, 0) de Pine Script
-function linregAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  const startIndex = endIndex - length + 1
-
-  for (let t = 0; t < length; t++) {
-    const x = t + 1 // x va de 1 a length
-    const y = values[startIndex + t]
-    
-    sumX += x
-    sumY += y
-    sumXY += x * y
-    sumX2 += x * x
-  }
-
-  const denom = length * sumX2 - sumX * sumX
-  if (denom === 0) return sumY / length
-
-  const slope = (length * sumXY - sumX * sumY) / denom
-  const intercept = (sumY - slope * sumX) / length
-
-  // Evaluamos en 'length' para obtener el valor ajustado de la última vela de la ventana
-  return slope * length + intercept
-}
-
-function stdevAt(values: number[], endIndex: number, length: number): number | null {
+// Cambiamos el nombre local a 'mogalefStdevAt' para que NUNCA choque con otras funciones del archivo
+function mogalefStdevAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
   
   const startIndex = endIndex - length + 1
@@ -627,7 +601,9 @@ export function mogalefBandsSeries(
   const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
   
   const centerRaw: (number | null)[] = weighted.map((_, i) => linregAt(weighted, i, regPeriod))
-  const stdRaw: (number | null)[] = weighted.map((_, i) => stdevAt(weighted, i, stdPeriod))
+  
+  // Apuntamos a la nueva función renombrada 'mogalefStdevAt' (o usa 'stdevAt' a secas si borraste la duplicada)
+  const stdRaw: (number | null)[] = weighted.map((_, i) => mogalefStdevAt(weighted, i, stdPeriod))
 
   const out: MogalefPoint[] = []
   let currentUpper: number | null = null
@@ -646,10 +622,8 @@ export function mogalefBandsSeries(
         initialized = true
       }
     } else {
-      // Si ya está inicializado, verificamos primero si el precio actual rompe las bandas vigentes
       if (center !== null && std !== null && currentUpper !== null && currentLower !== null) {
         if (close > currentUpper || close < currentLower) {
-          // El precio sale del rango estable: las bandas saltan a la nueva realidad del mercado
           currentUpper = center + multiplier * std
           currentLower = center - multiplier * std
         }
