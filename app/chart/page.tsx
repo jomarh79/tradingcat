@@ -289,6 +289,11 @@ function ChartPageInner() {
   const fundamentalsCacheRef = useRef<Record<string, any>>({})
   const visibleRangeRef = useRef<any>(null)
 
+  const supLineRef = useRef<any>(null)
+  const infLineRef = useRef<any>(null)
+  const priceLinesRef = useRef<any[]>([])
+  
+
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
     if (!ticker) return
@@ -572,9 +577,7 @@ useEffect(() => {
     })
 
 // 1. Define estas referencias arriba en tu componente (fuera del useEffect del chart)
-const supLineRef = useRef<any>(null)
-const infLineRef = useRef<any>(null)
-const priceLinesRef = useRef<any[]>([]) // Para almacenar las líneas de costo, TP y SL
+// Para almacenar las líneas de costo, TP y SL
 
 // 2. Dentro de tu useEffect de inicialización/actualización de la gráfica:
 
