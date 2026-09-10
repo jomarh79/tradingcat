@@ -571,17 +571,14 @@ useEffect(() => {
       line.setData(clean as any)
     })
 
-        // Bandas de Mogalef — overlay directo en el panel principal
+            // Bandas de Mogalef — overlay directo en el panel principal
     if (showMogalef) {
       const mogalefData = mogalefBandsSeries(chartData.candles)
 
-      const supLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      const supLine = chart.addSeries(LineSeries, { color: '#ffe600', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
       supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
 
-      const medLine = chart.addSeries(LineSeries, { color: '#3b82f6', lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
-      medLine.setData(mogalefData.filter(p => p.mediana !== null).map(p => ({ time: p.time, value: p.mediana })) as any)
-
-      const infLine = chart.addSeries(LineSeries, { color: '#22c55e', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      const infLine = chart.addSeries(LineSeries, { color: '#eeff00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
       infLine.setData(mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf })) as any)
     }
 
