@@ -162,7 +162,7 @@ export function koncordeSeries(candles: Candle[]) {
     xmf[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg)
   }
 
-  // Oscilador de Bollinger (25, 2 desviaciones) sobre precio OHLC4
+  // Oscilador de Bollinger (25, 2 desviaciones) sobre precio OHLC4 
   const bollPeriod = 25
   const bollOsc = new Array(n).fill(0)
   for (let i = bollPeriod - 1; i < n; i++) {
