@@ -174,7 +174,7 @@ export function koncordeSeries(candles: Candle[]) {
     bollOsc[i] = (upper - lower) !== 0 ? (tprice[i] - (upper + lower) / 2) / (upper - lower) * 100 : 0
   }
 
-  // RSI(14) sobre OHLC4, como en el Koncorde original (no es el mismo RSI del panel aparte)
+  // RSI(14) sobre OHLC4, como en el Koncorde original
   const rsiOnTprice = new Array(n).fill(50)
   if (n > 14) {
     let avgGain = 0, avgLoss = 0
@@ -200,8 +200,6 @@ export function koncordeSeries(candles: Candle[]) {
   return candles.map((c, i) => ({ time: c.time, verde: verde[i], marron: marron[i], azul: azul[i], media: media[i] }))
 }
 
-// ... (Tus funciones matemáticas previas: rsiSeries, macdSeries, adxSeries, koncordeSeries quedan intactas)
-
 export interface CandlePatternMarker {
   time: number
   position: 'aboveBar' | 'belowBar'
@@ -211,28 +209,17 @@ export interface CandlePatternMarker {
 }
 
 export interface MarketContext {
-  // Fundamentales
   isUndervalued?: boolean
-
-  // Tendencia
   isAboveEma200Day?: boolean
   isRecoveringEma200?: boolean
-
-  // Ubicación
   isAtSupport?: boolean
   isAtResistance?: boolean
-
-  // Momentum
   rsiBullish?: boolean
   rsiBearish?: boolean
   macdBullish?: boolean
   macdBearish?: boolean
-
-  // Tendencia / fuerza
   trendBullish?: boolean
   trendBearish?: boolean
-
-  // Flujo / Koncorde
   koncordeBullish?: boolean
   koncordeBearish?: boolean
 }
@@ -242,401 +229,31 @@ interface SignalScore {
   level: 'NONE' | 'AP' | 'AP_PLUS' | 'RC' | 'RC_STRONG'
 }
 
-function getBullishScore(
-  context?: MarketContext,
-  hasBullishPattern = false
-): SignalScore {
-  if (!context) {
-    return {
-      score: hasBullishPattern ? 2 : 0,
-      level: 'NONE'
-    }
-  }
-
+function getBullishScore(context?: MarketContext, hasBullishPattern = false): SignalScore {
+  if (!context) return { score: hasBullishPattern ? 2 : 0, level: 'NONE' }
   let score = 0
-
-  // Fundamentales
   if (context.isUndervalued) score += 2
-
-  // Patrón de vela = trigger
   if (hasBullishPattern) score += 2
-
-  // Ubicación
   if (context.isAtSupport) score += 2
-
-  // Momentum
   if (context.rsiBullish) score += 2
   if (context.macdBullish) score += 1
-
-  // Flujo / Koncorde
   if (context.koncordeBullish) score += 2
-
-  // Tendencia
   if (context.isAboveEma200Day) score += 1
   if (context.isRecoveringEma200) score += 1
   if (context.trendBullish) score += 1
 
   let level: SignalScore['level'] = 'NONE'
-
   if (score >= 10) level = 'AP_PLUS'
   else if (score >= 7) level = 'AP'
-  
-
   return { score, level }
 }
 
-
-function getBearishScore(
-  context?: MarketContext,
-  hasBearishPattern = false
-): SignalScore {
-  if (!context) {
-    return {
-      score: hasBearishPattern ? 2 : 0,
-      level: 'NONE'
-    }
-  }
-
+function getBearishScore(context?: MarketContext, hasBearishPattern = false): SignalScore {
+  if (!context) return { score: hasBearishPattern ? 2 : 0, level: 'NONE' }
   let score = 0
-
-  // Fundamentales
   if (context.isUndervalued === false) score += 2
-
-  // Patrón de vela = trigger
   if (hasBearishPattern) score += 2
-
-  // Ubicación
   if (context.isAtResistance) score += 2
-
-  // Momentum
   if (context.rsiBearish) score += 2
   if (context.macdBearish) score += 1
-
-  // Flujo / Koncorde
-  if (context.koncordeBearish) score += 2
-
-  // Tendencia
-  if (context.isAboveEma200Day === false) score += 1
-  if (context.trendBearish) score += 1
-
-  let level: SignalScore['level'] = 'NONE'
-
-  if (score >= 10) level = 'RC_STRONG'
-  else if (score >= 7) level = 'RC'
-
-  return { score, level }
-}
-
-function bodySize(c: { open: number; close: number }) {
-  return Math.abs(c.close - c.open)
-}
-function upperWick(c: { open: number; high: number; close: number }) {
-  return c.high - Math.max(c.open, c.close)
-}
-function lowerWick(c: { open: number; low: number; close: number }) {
-  return Math.min(c.open, c.close) - c.low
-}
-function range(c: { high: number; low: number }) {
-  return c.high - c.low
-}
-function isBullish(c: { open: number; close: number }) {
-  return c.close > c.open
-}
-function isBearish(c: { open: number; close: number }) {
-  return c.close < c.open
-}
-
-export function detectCandlePatterns(
-  candles: { time: number; open: number; high: number; low: number; close: number }[],
-  context?: MarketContext
-): CandlePatternMarker[] {
-  const markers: CandlePatternMarker[] = []
-  if (candles.length < 3) return markers
-
-  const avgBody = (i: number, period = 14) => {
-    const start = Math.max(0, i - period)
-    const slice = candles.slice(start, i)
-    if (!slice.length) return bodySize(candles[i])
-    return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
-  }
-
-  // Filtros de Contexto Avanzado
-  const getBullishLabel = () => {
-  const result = getBullishScore(context, true)
-
-  if (result.level === 'AP_PLUS') {
-    return `🔥🔥 AP+`
-  }
-
-  if (result.level === 'AP') {
-    return `🔥 AP`
-  }
-
-
-  return null
-}
-
-
-const getBearishLabel = () => {
-  const result = getBearishScore(context, true)
-
-  if (result.level === 'RC_STRONG') {
-    return `🚨 RC+`
-  }
-
-  if (result.level === 'RC') {
-    return `⚠️ RC`
-  }
-
-
-  return null
-}
-
-  const occupiedCandles = new Set<number>()
-
-  // ── PASO 1: DETECTAR PATRONES COMPUESTOS FUERTES (3 y 2 Velas) ──
-  for (let i = 2; i < candles.length; i++) {
-    const pPrev = candles[i - 2]
-    const prev = candles[i - 1]
-    const curr = candles[i]
-    
-    const avg = avgBody(i)
-    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
-    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
-
-    // A. Estrellas Doji de Reversión (3 velas)
-    const rDoji = range(prev)
-    const isDoji = rDoji > 0 && bodySize(prev) <= rDoji * 0.10
-    
-    if (isDoji) {
-      const pPrevBig = bodySize(pPrev) > avg * 0.7
-      const currBig = bodySize(curr) > avg * 0.7
-
-      // Estrella de la Mañana Doji (Alcista)
-      if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {
-        const signal = getBullishLabel()
-
-const txt = signal
-  ? `Est. M. ${signal}`
-  : 'Est. M.'
-        markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
-        occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
-        continue
-      }
-
-      // Estrella Vespertina Doji (Bajista)
-      if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {
-        const signal = getBearishLabel()
-
-const txt = signal
-  ? `Est. T. ${signal}`
-  : 'Est. T.'
-        markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
-        occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
-        continue
-      }
-    }
-
-    // B. Envolventes (2 velas)
-    const cutsPreviousBody = bodySize(curr) > bodySize(prev)
-    const isBigCandle = bodySize(curr) > avg * 0.8
-
-    // Envolvente Alcista
-    if (isDownTrend && isBearish(prev) && isBullish(curr) && curr.close >= prev.open && curr.open <= prev.close && cutsPreviousBody && isBigCandle) {
-      const signal = getBullishLabel()
-
-const txt = signal
-  ? `Env. A. ${signal}`
-  : 'Env. A.'
-      markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
-      occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
-      continue
-    }
-
-    // Envolvente Bajista
-    if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {
-      const signal = getBearishLabel()
-
-const txt = signal
-  ? `Env. B. ${signal}`
-  : 'Env. B.'
-      markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
-      occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)
-      continue
-    }
-  }
-
-  // ── PASO 2: DETECTAR PATRONES INDIVIDUALES (Martillos) EN VELAS LIBRES ──
-  for (let i = 2; i < candles.length; i++) {
-    const c = candles[i]
-    if (occupiedCandles.has(c.time)) continue
-
-    const body = bodySize(c)
-    const upper = upperWick(c)
-    const lower = lowerWick(c)
-    if (body <= 0) continue
-
-    const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].close
-    const isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].close
-
-    // 1. Cuerpo Arriba, Mecha Abajo (Martillo / Hombre Colgado)
-    if (lower >= body * 2 && upper <= body * 0.5) {
-      if (isDownTrend) {
-        const signal = getBullishLabel()
-
-const txt = signal
-  ? `M. ${signal}`
-  : 'M.'
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
-      } else if (isUpTrend) {
-        const signal = getBearishLabel()
-
-const txt = signal
-  ? `H. C. ${signal}`
-  : 'H. C.'
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
-      }
-    }
-
-    // 2. Cuerpo Abajo, Mecha Arriba (Martillo Invertido / Estrella Fugaz)
-    if (upper >= body * 2 && lower <= body * 0.5) {
-      if (isDownTrend) {
-        const signal = getBullishLabel()
-
-const txt = signal
-  ? `M. Inv. ${signal}`
-  : 'M. Inv.'
-        markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })
-      } else if (isUpTrend) {
-        const signal = getBearishLabel()
-
-const txt = signal
-  ? `Est. F. ${signal}`
-  : 'Est. F.'
-        markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })
-      }
-    }
-  }
-
-  return markers.sort((a, b) => a.time - b.time)
-}
-
-
-// Bandas de Mogalef (Eric Lefort, 2010) — mediana por regresión lineal + bandas de
-
-export interface MogalefPoint {
-  time: number
-  sup: number | null
-  inf: number | null
-}
-
-// Regresión lineal simple evaluada en el último punto de la ventana — misma
-// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n).
-function linregAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  for (let t = 0; t < length; t++) {
-    const idx = endIndex - (length - 1) + t
-    const x = t + 1
-    const y = values[idx]
-    sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x
-  }
-  const n = length
-  const denom = n * sumX2 - sumX * sumX
-  if (denom === 0) return sumY / n
-  const slope = (n * sumXY - sumX * sumY) / denom
-  const intercept = (sumY - slope * sumX) / n
-  return slope * n + intercept
-}
-
-function stdevAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  let mean = 0
-  for (let t = 0; t < length; t++) mean += values[endIndex - t]
-  mean /= length
-  let sumSq = 0
-  for (let t = 0; t < length; t++) sumSq += Math.pow(values[endIndex - t] - mean, 2)
-  return Math.sqrt(sumSq / length)
-}
-
-// Bandas de Mogalef — precio ponderado (O+H+L+2C)/5, línea central por regresión
-export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number }
-
-export interface MogalefPoint {
-  time: number
-  sup: number | null
-  inf: number | null
-  center: number | null // Añadido por si quieres graficar la línea central
-}
-
-// Regresión lineal simple evaluada exactamente en la vela actual (Offset = 0)
-// Cambiamos el nombre local a 'mogalefStdevAt' para que NUNCA choque con otras funciones del archivo
-function mogalefStdevAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  
-  const startIndex = endIndex - length + 1
-  let mean = 0
-  for (let t = 0; t < length; t++) {
-    mean += values[startIndex + t]
-  }
-  mean /= length
-
-  let sumSq = 0
-  for (let t = 0; t < length; t++) {
-    sumSq += Math.pow(values[startIndex + t] - mean, 2)
-  }
-  return Math.sqrt(sumSq / length)
-}
-
-// Bandas de Mogalef (Éric Lefort)
-export function mogalefBandsSeries(
-  candles: Candle[],
-  regPeriod = 3,
-  stdPeriod = 7,
-  multiplier = 2.0
-): MogalefPoint[] {
-  const n = candles.length
-  if (n === 0) return []
-
-  const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)
-  
-  const centerRaw: (number | null)[] = weighted.map((_, i) => linregAt(weighted, i, regPeriod))
-  
-  // Apuntamos a la nueva función renombrada 'mogalefStdevAt' (o usa 'stdevAt' a secas si borraste la duplicada)
-  const stdRaw: (number | null)[] = weighted.map((_, i) => mogalefStdevAt(weighted, i, stdPeriod))
-
-  const out: MogalefPoint[] = []
-  let currentUpper: number | null = null
-  let currentLower: number | null = null
-  let initialized = false
-
-  for (let i = 0; i < n; i++) {
-    const center = centerRaw[i]
-    const std = stdRaw[i]
-    const close = candles[i].close
-
-    if (!initialized) {
-      if (center !== null && std !== null) {
-        currentUpper = center + multiplier * std
-        currentLower = center - multiplier * std
-        initialized = true
-      }
-    } else {
-      if (center !== null && std !== null && currentUpper !== null && currentLower !== null) {
-        if (close > currentUpper || close < currentLower) {
-          currentUpper = center + multiplier * std
-          currentLower = center - multiplier * std
-        }
-      }
-    }
-
-    out.push({
-      time: candles[i].time,
-      sup: initialized ? currentUpper : null,
-      inf: initialized ? currentLower : null,
-      center: initialized ? center : null
-    })
-  }
-
-  return out
-}
+if (context.koncordeBearish) score += 2if (context.isAboveEma200Day === false) score += 1if (context.trendBearish) score += 1let level: SignalScore['level'] = 'NONE'if (score >= 10) level = 'RC_STRONG'else if (score >= 7) level = 'RC'return { score, level }}function bodySize(c: { open: number; close: number }) { return Math.abs(c.close - c.open) }function upperWick(c: { open: number; high: number; close: number }) { return c.high - Math.max(c.open, c.close) }function lowerWick(c: { open: number; low: number; close: number }) { return Math.min(c.open, c.close) - c.low }function range(c: { high: number; low: number }) { return c.high - c.low }function isBullish(c: { open: number; close: number }) { return c.close > c.open }function isBearish(c: { open: number; close: number }) { return c.close < c.open }export function detectCandlePatterns(candles: Candle[], context?: MarketContext): CandlePatternMarker[] {const markers: CandlePatternMarker[] = []if (candles.length < 3) return markersconst avgBody = (i: number, period = 14) => {const start = Math.max(0, i - period)const slice = candles.slice(start, i)if (!slice.length) return bodySize(candles[i])return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length}const getBullishLabel = () => {const result = getBullishScore(context, true)if (result.level === 'AP_PLUS') return 🔥🔥 AP+if (result.level === 'AP') return 🔥 APreturn null}const getBearishLabel = () => {const result = getBearishScore(context, true)if (result.level === 'RC_STRONG') return 🚨 RC+if (result.level === 'RC') return ⚠️ RCreturn null}const occupiedCandles = new Set()for (let i = 2; i < candles.length; i++) {const pPrev = candles[i - 2]const prev = candles[i - 1]const curr = candles[i]const avg = avgBody(i)const isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].closeconst isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].closeconst rDoji = range(prev)const isDoji = rDoji > 0 && bodySize(prev) <= rDoji * 0.10if (isDoji) {const pPrevBig = bodySize(pPrev) > avg * 0.7const currBig = bodySize(curr) > avg * 0.7if (isBearish(pPrev) && pPrevBig && isBullish(curr) && currBig && curr.close > (pPrev.open + pPrev.close) / 2) {const signal = getBullishLabel()const txt = signal ? Est. M. ${signal} : 'Est. M.'markers.push({ time: prev.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)continue}if (isBullish(pPrev) && pPrevBig && isBearish(curr) && currBig && curr.close < (pPrev.open + pPrev.close) / 2) {const signal = getBearishLabel()const txt = signal ? Est. T. ${signal} : 'Est. T.'markers.push({ time: prev.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })occupiedCandles.add(pPrev.time); occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)continue}}const cutsPreviousBody = bodySize(curr) > bodySize(prev)const isBigCandle = bodySize(curr) > avg * 0.8if (isDownTrend && isBearish(prev) && isBullish(curr) && curr.close >= prev.open && curr.open <= prev.close && cutsPreviousBody && isBigCandle) {const signal = getBullishLabel()const txt = signal ? Env. A. ${signal} : 'Env. A.'markers.push({ time: curr.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)continue}if (isUpTrend && isBullish(prev) && isBearish(curr) && curr.close <= prev.open && curr.open >= prev.close && cutsPreviousBody && isBigCandle) {const signal = getBearishLabel()const txt = signal ? Env. B. ${signal} : 'Env. B.'markers.push({ time: curr.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })occupiedCandles.add(prev.time); occupiedCandles.add(curr.time)continue}}for (let i = 2; i < candles.length; i++) {const c = candles[i]if (occupiedCandles.has(c.time)) continueconst body = bodySize(c)const upper = upperWick(c)const lower = lowerWick(c)if (body <= 0) continueconst isDownTrend = candles[i - 1].close < candles[Math.max(0, i - 3)].closeconst isUpTrend = candles[i - 1].close > candles[Math.max(0, i - 3)].closeif (lower >= body * 2 && upper <= body * 0.5) {if (isDownTrend) {const signal = getBullishLabel()const txt = signal ? M. ${signal} : 'M.'markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })} else if (isUpTrend) {const signal = getBearishLabel()const txt = signal ? H. C. ${signal} : 'H. C.'markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })}}if (upper >= body * 2 && lower <= body * 0.5) {if (isDownTrend) {const signal = getBullishLabel()const txt = signal ? M. Inv. ${signal} : 'M. Inv.'markers.push({ time: c.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: txt })} else if (isUpTrend) {const signal = getBearishLabel()const txt = signal ? Est. F. ${signal} : 'Est. F.'markers.push({ time: c.time, position: 'aboveBar', color: '#ff0101', shape: 'arrowDown', text: txt })}}}return markers.sort((a, b) => a.time - b.time)}// ── BANDAS DE MOGALEF (Éric Lefort, 2010) ──────────────────────────────────export interface MogalefPoint {time: numbersup: number | nullinf: number | nullcenter: number | null}// Regresión lineal simple calculando correctamente sobre la vela actual (Offset = 0)// Réplica idéntica a ta.linreg de Pine Script usando mínimos cuadradosfunction mogalefLinregAt(values: number[], endIndex: number, length: number): number | null {if (endIndex < length - 1) return nulllet sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0const startIndex = endIndex - length + 1for (let t = 0; t < length; t++) {const x = t + 1 // x va de 1 a lengthconst y = values[startIndex + t]sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x}const denom = length * sumX2 - sumX * sumXif (denom === 0) return sumY / lengthconst slope = (length * sumXY - sumX * sumY) / denomconst intercept = (sumY - slope * sumX) / length// Evaluamos en la última posición (length) para situarnos exactamente en la vela actualreturn slope * length + intercept}function mogalefStdevAt(values: number[], endIndex: number, length: number): number | null {if (endIndex < length - 1) return nullconst startIndex = endIndex - length + 1let mean = 0for (let t = 0; t < length; t++) mean += values[startIndex + t]mean /= lengthlet sumSq = 0for (let t = 0; t < length; t++) sumSq += Math.pow(values[startIndex + t] - mean, 2)return Math.sqrt(sumSq / length)}export function mogalefBandsSeries(candles: Candle[],regPeriod = 3,stdPeriod = 7,multiplier = 2.0): MogalefPoint[] {const n = candles.lengthif (n === 0) return []// Precio ponderado original de Mogalef: (O + H + L + 2C) / 5const weighted = candles.map(c => (c.open + c.high + c.low + 2 * c.close) / 5)const centerRaw: (number | null)[] = weighted.map((, i) => mogalefLinregAt(weighted, i, regPeriod))const stdRaw: (number | null)[] = weighted.map((, i) => mogalefStdevAt(weighted, i, stdPeriod))const out: MogalefPoint[] = []let currentUpper: number | null = nulllet currentLower: number | null = nulllet initialized = falsefor (let i = 0; i < n; i++) {const center = centerRaw[i]const std = stdRaw[i]const close = candles[i].closeif (!initialized) {if (center !== null && std !== null) {currentUpper = center + multiplier * stdcurrentLower = center - multiplier * stdinitialized = true}} else {if (center !== null && std !== null && currentUpper !== null && currentLower !== null) {// Las bandas se quedan estables hasta que el precio de cierre rompe el nivelif (close > currentUpper || close < currentLower) {currentUpper = center + multiplier * stdcurrentLower = center - multiplier * std}}}out.push({time: candles[i].time,sup: initialized ? currentUpper : null,inf: initialized ? currentLower : null,center: initialized ? center : null})}return out}
