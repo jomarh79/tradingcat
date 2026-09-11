@@ -497,43 +497,6 @@ export function detectCandlePatterns(
 // por defecto). Las bandas quedan "congeladas" (horizontales) hasta que el cierre
 // rompe alguno de los extremos vigentes, momento en que saltan al nuevo nivel.
 
-export interface MogalefPoint {
-  time: number
-  sup: number | null
-  inf: number | null
-  center: number | null
-}
-
-// Regresión lineal simple evaluada en el último punto de la ventana — misma
-// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n, offset 0).
-function linregAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  for (let t = 0; t < length; t++) {
-    const idx = endIndex - (length - 1) + t
-    const x = t + 1
-    const y = values[idx]
-    sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x
-  }
-  const n = length
-  const denom = n * sumX2 - sumX * sumX
-  if (denom === 0) return sumY / n
-  const slope = (n * sumXY - sumX * sumY) / denom
-  const intercept = (sumY - slope * sumX) / n
-  return slope * n + intercept
-}
-
-function stdevAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  const startIndex = endIndex - length + 1
-  let mean = 0
-  for (let t = 0; t < length; t++) mean += values[startIndex + t]
-  mean /= length
-  let sumSq = 0
-  for (let t = 0; t < length; t++) sumSq += Math.pow(values[startIndex + t] - mean, 2)
-  return Math.sqrt(sumSq / length)
-}
-
 export function mogalefBandsSeries(
   candles: Candle[],
   regPeriod = 3,
@@ -552,6 +515,7 @@ export function mogalefBandsSeries(
   const out: MogalefPoint[] = []
   let currentUpper: number | null = null
   let currentLower: number | null = null
+  let currentCenter: number | null = null
   let initialized = false
 
   for (let i = 0; i < n; i++) {
@@ -563,12 +527,16 @@ export function mogalefBandsSeries(
       if (center != null && std != null) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
+        currentCenter = center
         initialized = true
       }
     } else if (center != null && std != null && currentUpper != null && currentLower != null) {
+      // Condición de ruptura: solo si el cierre rompe el canal vigente
       if (close > currentUpper || close < currentLower) {
+        // Al romper, calculamos y "congelamos" el nuevo nivel basado en el momento del quiebre
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
+        currentCenter = center
       }
     }
 
@@ -576,7 +544,7 @@ export function mogalefBandsSeries(
       time: candles[i].time,
       sup: initialized ? currentUpper : null,
       inf: initialized ? currentLower : null,
-      center: initialized ? center : null,
+      center: initialized ? currentCenter : null, // Mantiene la línea central fija o alineada al canal congelado
     })
   }
 
