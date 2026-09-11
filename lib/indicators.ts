@@ -567,11 +567,12 @@ export function mogalefBandsSeries(
         initialized = true
       }
     } else if (center != null && std != null && currentUpper != null && currentLower != null) {
-      if (close > currentUpper || close < currentLower) {
-        currentUpper = center + multiplier * std
-        currentLower = center - multiplier * std
-        currentCenter = center
-      }
+      // En lugar de solo 'close', prueba evaluando high y low:
+if (candles[i].high > currentUpper || candles[i].low < currentLower) {
+  currentUpper = center + multiplier * std
+  currentLower = center - multiplier * std
+  currentCenter = center
+}
     }
 
     out.push({
