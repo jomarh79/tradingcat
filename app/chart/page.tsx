@@ -288,6 +288,11 @@ function ChartPageInner() {
   const dailyStatsCacheRef = useRef<Record<string, any>>({})
   const fundamentalsCacheRef = useRef<Record<string, any>>({})
   const visibleRangeRef = useRef<any>(null)
+  const candleSeriesRef = useRef<any>(null)
+const tradePriceLinesRef = useRef<any[]>([])
+const maxMinPriceLinesRef = useRef<any[]>([])
+const mogalefSeriesRef = useRef<any[]>([])
+const panelSeriesRef = useRef<any[]>([])
 
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
@@ -478,7 +483,10 @@ useEffect(() => {
   [smaWeeklyData, currentDailyPrice]
 )
 
-  // ── Render del gráfico ──
+// ══════════════════════════════════════════════════════════════════════
+  // EFECTO 1 — Gráfico base: velas, volumen, medias móviles, soportes/resistencias.
+  // El único que crea/destruye el objeto `chart`. Solo se dispara con chartData/interval.
+  // ══════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!containerRef.current || !chartData || chartData.candles.length === 0) return
 
@@ -491,6 +499,11 @@ useEffect(() => {
       timeScale: { borderColor: '#222', timeVisible: interval === '45min' },
     })
     chartRef.current = chart
+    // Se invalida cualquier referencia de series/líneas de efectos anteriores — el chart es nuevo
+    tradePriceLinesRef.current = []
+    maxMinPriceLinesRef.current = []
+    mogalefSeriesRef.current = []
+    panelSeriesRef.current = []
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       visibleRangeRef.current = range
@@ -502,6 +515,7 @@ useEffect(() => {
       priceLineColor: '#ffffff',
     })
     candleSeries.setData(chartData.candles as any)
+    candleSeriesRef.current = candleSeries
 
     // Barras de volumen
     const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -536,27 +550,15 @@ useEffect(() => {
     const period = 20
 
     const volumeMA = chartData.candles.map((c: any, i: number) => {
-      if (i < period - 1) {
-        return {
-          time: c.time,
-          value: null,
-        }
-      }
-
+      if (i < period - 1) return { time: c.time, value: null }
       const avg =
         chartData.candles
           .slice(i - period + 1, i + 1)
           .reduce((sum: number, x: any) => sum + x.volume, 0) / period
-
-      return {
-        time: c.time,
-        value: avg,
-      }
+      return { time: c.time, value: avg }
     })
 
-    volumeMALine.setData(
-      volumeMA.filter(v => v.value !== null) as any
-    )
+    volumeMALine.setData(volumeMA.filter(v => v.value !== null) as any)
 
     // Medias móviles — EMA 8/21/50/100/200 (45min y diario) o SMA 10/20/50/100/200 (semanal y mensual)
     Object.entries(chartData.mas).forEach(([key, points]) => {
@@ -571,49 +573,116 @@ useEffect(() => {
       line.setData(clean as any)
     })
 
-            // Bandas de Mogalef — overlay directo en el panel principal
-    if (showMogalef) {
-      const mogalefData = mogalefBandsSeries(chartData.candles, 10, 30, 1.5);
-
-      const supLine = chart.addSeries(LineSeries, { color: '#ffe600', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
-      supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
-
-      const infLine = chart.addSeries(LineSeries, { color: '#eeff00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
-      infLine.setData(mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf })) as any)
+    // Soportes y resistencias — solo en vista semanal/mensual, igual que el Pine original
+    if (interval === '1week' || interval === '1month') {
+      const { resistances, supports } = computePivots(chartData.candles)
+      resistances.forEach(price => {
+        candleSeries.createPriceLine({
+          price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
+          axisLabelVisible: false,
+        })
+      })
+      supports.forEach(price => {
+        candleSeries.createPriceLine({
+          price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
+          axisLabelVisible: false,
+        })
+      })
     }
 
-    // Costo promedio (amarillo) / TP1-3 (naranja) / Stop loss (rojo) — punteadas
+    if (visibleRangeRef.current) {
+      chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
+    } else {
+      chart.timeScale().fitContent()
+    }
+
+    const handleResize = () => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
+    }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      visibleRangeRef.current = chart.timeScale().getVisibleLogicalRange()
+      window.removeEventListener('resize', handleResize)
+      chart.remove()
+      chartRef.current = null
+      candleSeriesRef.current = null
+    }
+  }, [chartData, interval])
+
+  // ══════════════════════════════════════════════════════════════════════
+  // EFECTO 2 — Líneas de precio del trade (costo promedio / stop / TP1-3).
+  // Solo quita/pone sus propias líneas — no toca velas ni nada más.
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current
+    if (!candleSeries) return
+
+    tradePriceLinesRef.current.forEach(line => candleSeries.removePriceLine(line))
+    tradePriceLinesRef.current = []
+
     if (selectedTrade) {
       const qty = Number(selectedTrade.quantity || 0)
       const invested = Number(selectedTrade.total_invested || 0)
       const avgCost = qty > 0 ? invested / qty : Number(selectedTrade.entry_price || 0)
 
       if (avgCost > 0) {
-        candleSeries.createPriceLine({
+        tradePriceLinesRef.current.push(candleSeries.createPriceLine({
           price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
           axisLabelVisible: true,
-        })
+        }))
       }
       if (selectedTrade.stop_loss) {
-        candleSeries.createPriceLine({
+        tradePriceLinesRef.current.push(candleSeries.createPriceLine({
           price: Number(selectedTrade.stop_loss), color: C.danger, lineWidth: 1, lineStyle: 2,
           axisLabelVisible: true,
-        })
+        }))
       }
-      ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach((tp, i) => {
+      ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach(tp => {
         if (tp) {
-          candleSeries.createPriceLine({
+          tradePriceLinesRef.current.push(candleSeries.createPriceLine({
             price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
             axisLabelVisible: true,
-          })
+          }))
         }
       })
     }
+  }, [chartData, interval, selectedTrade])
 
-        // Marcadores de operaciones — color = tipo (apertura/recompra/venta parcial/cierre)
+  // ══════════════════════════════════════════════════════════════════════
+  // EFECTO 3 — Líneas de máximo/mínimo histórico (10 años).
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current
+    if (!candleSeries) return
+
+    maxMinPriceLinesRef.current.forEach(line => candleSeries.removePriceLine(line))
+    maxMinPriceLinesRef.current = []
+
+    if (dailyStats) {
+      maxMinPriceLinesRef.current.push(candleSeries.createPriceLine({
+        price: dailyStats.max.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
+        axisLabelVisible: true, title: 'Máx',
+      }))
+      maxMinPriceLinesRef.current.push(candleSeries.createPriceLine({
+        price: dailyStats.min.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
+        axisLabelVisible: true, title: 'Mín',
+      }))
+    }
+  }, [chartData, interval, dailyStats])
+
+  // ══════════════════════════════════════════════════════════════════════
+  // EFECTO 4 — Marcadores: ejecuciones del trade + patrones de velas.
+  // createSeriesMarkers REEMPLAZA todos los marcadores en cada llamada,
+  // así que no hace falta trackear/quitar nada manualmente.
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current
+    if (!candleSeries || !chartData) return
+
     const allMarkers: any[] = []
 
-        if (executions.length > 0) {
+    if (executions.length > 0) {
       const sorted = [...executions].sort(
         (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
       )
@@ -639,7 +708,6 @@ useEffect(() => {
       })
     }
 
-    // Patrones de velas — estrella de la mañana / vespertina, envolventes
     if (showPatterns) {
       const ema200Arr = chartData.mas?.ema200 || []
       const currentPrice = chartData.candles[chartData.candles.length - 1]?.close
@@ -648,66 +716,70 @@ useEffect(() => {
 
       const currentPE = fundamentals?.pe
       const historyAvgPE = ownFiveYearAvg?.pe
-      
-      // IMPORTANTE: Definición estricta de subvalorado (precio/ganancia atractivo)
       const isUndervalued = currentPE != null && historyAvgPE != null ? currentPE < historyAvgPE : false
 
-      // Enviamos el mismo contexto; lib/indicators se encargará de evaluar si es AP o RC
       const marketCtx = { isUndervalued, isAboveEma200Day }
       allMarkers.push(...detectCandlePatterns(chartData.candles, marketCtx))
     }
 
-
     if (allMarkers.length > 0) {
       createSeriesMarkers(candleSeries, allMarkers as any)
+    } else {
+      createSeriesMarkers(candleSeries, [])
     }
+  }, [chartData, interval, executions, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
 
-    // Soportes y resistencias — solo en vista semanal/mensual, igual que el Pine original
-    if (interval === '1week' || interval === '1month') {
-      const { resistances, supports } = computePivots(chartData.candles)
-      resistances.forEach(price => {
-        candleSeries.createPriceLine({
-          price, color: '#22d3ee', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false,
-        })
-      })
-      supports.forEach(price => {
-        candleSeries.createPriceLine({
-          price, color: '#a3e635', lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false,
-        })
-      })
+  // ══════════════════════════════════════════════════════════════════════
+  // EFECTO 5 — Bandas de Mogalef (overlay en el panel principal).
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+
+    mogalefSeriesRef.current.forEach(s => { try { chart.removeSeries(s) } catch { /* ya no existe */ } })
+    mogalefSeriesRef.current = []
+
+    if (showMogalef && chartData) {
+      const mogalefData = mogalefBandsSeries(chartData.candles, 10, 30, 1.5)
+
+      const supLine = chart.addSeries(LineSeries, { color: '#ffe600', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
+
+      const infLine = chart.addSeries(LineSeries, { color: '#eeff00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
+      infLine.setData(mogalefData.filter(p => p.inf !== null).map(p => ({ time: p.time, value: p.inf })) as any)
+
+      mogalefSeriesRef.current = [supLine, infLine]
     }
+  }, [chartData, interval, showMogalef])
 
-    // MAX/MIN histórico (10 años) — siempre visible, calculado sobre velas diarias sin importar el intervalo activo
-    if (dailyStats) {
-      candleSeries.createPriceLine({
-        price: dailyStats.max.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
-        axisLabelVisible: true, title: 'Máx',
-      })
-      candleSeries.createPriceLine({
-        price: dailyStats.min.price, color: '#f700ff', lineWidth: 2, lineStyle: 2,
-        axisLabelVisible: true, title: 'Mín',
-      })
-    }
+  // ══════════════════════════════════════════════════════════════════════
+  // EFECTO 6 — Paneles de indicadores (RSI, MACD, Koncorde, ADX).
+  // El único que sigue rehaciéndose junto — pero SIN tocar el gráfico principal.
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !chartData) return
 
-    // ── Paneles de indicadores ──
+    panelSeriesRef.current.forEach(s => { try { chart.removeSeries(s) } catch { /* ya no existe */ } })
+    panelSeriesRef.current = []
+
     let nextPane = 1
+    const added: any[] = []
 
     if (showRSI) {
       const paneIdx = nextPane++
       const rsiLine = chart.addSeries(LineSeries, { color: '#a78bfa', lineWidth: 2, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       rsiLine.setData(rsiSeries(chartData.candles).filter(p => p.value !== null) as any)
       rsiLine.createPriceLine({ price: 70, color: '#f43f5e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '70' })
-      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible:false, title: '30' })
-      rsiLine.createPriceLine({ price: 50, color: '#ffffff', lineWidth: 1, lineStyle: 3,axisLabelVisible: false})
-      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+      rsiLine.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '30' })
+      rsiLine.createPriceLine({ price: 50, color: '#ffffff', lineWidth: 1, lineStyle: 3, axisLabelVisible: false })
+      added.push(rsiLine)
     }
 
     if (showMACD) {
       const paneIdx = nextPane++
       const macdData = macdSeries(chartData.candles)
-      const histSeries = chart.addSeries(HistogramSeries,{lastValueVisible: false, priceLineVisible: false}, paneIdx)
+      const histSeries = chart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false }, paneIdx)
       histSeries.setData(
         macdData.filter(d => d.hist !== null).map(d => ({
           time: d.time, value: d.hist as number,
@@ -718,7 +790,7 @@ useEffect(() => {
       macdLine.setData(macdData.filter(d => d.macd !== null).map(d => ({ time: d.time, value: d.macd })) as any)
       const signalLine = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       signalLine.setData(macdData.filter(d => d.signal !== null).map(d => ({ time: d.time, value: d.signal })) as any)
-      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+      added.push(histSeries, macdLine, signalLine)
     }
 
     if (showKoncorde) {
@@ -732,8 +804,8 @@ useEffect(() => {
       azulLine.setData(konData.map(d => ({ time: d.time, value: d.azul })) as any)
       const mediaLine = chart.addSeries(LineSeries, { color: '#f43f5e', lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       mediaLine.setData(konData.map(d => ({ time: d.time, value: d.media })) as any)
-      mediaLine.createPriceLine({ price: 0, color: '#ffffff', lineWidth: 1, lineStyle: 3, axisLabelVisible: false})
-      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+      mediaLine.createPriceLine({ price: 0, color: '#ffffff', lineWidth: 1, lineStyle: 3, axisLabelVisible: false })
+      added.push(verdeLine, marronLine, azulLine, mediaLine)
     }
 
     if (showADX) {
@@ -743,36 +815,16 @@ useEffect(() => {
       adxLine.setData(adxData.filter(d => d.adx !== null).map(d => ({ time: d.time, value: d.adx })) as any)
       const plusDI = chart.addSeries(LineSeries, { color: C.success, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       plusDI.setData(adxData.filter(d => d.plusDI !== null).map(d => ({ time: d.time, value: d.plusDI })) as any)
-      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false}, paneIdx)
+      const minusDI = chart.addSeries(LineSeries, { color: C.danger, lineWidth: 1, lastValueVisible: false, priceLineVisible: false }, paneIdx)
       minusDI.setData(adxData.filter(d => d.minusDI !== null).map(d => ({ time: d.time, value: d.minusDI })) as any)
       adxLine.createPriceLine({ price: 25, color: '#666', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '25' })
-      chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+      added.push(adxLine, plusDI, minusDI)
     }
 
-
-    if (visibleRangeRef.current) {
-      chart.timeScale().setVisibleLogicalRange(visibleRangeRef.current)
-    } else {
-      chart.timeScale().fitContent()
-    }
-
-    const handleResize = () => {
-      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
-    }
-    window.addEventListener('resize', handleResize)
-
-    return () => {
-      visibleRangeRef.current =
-        chart.timeScale().getVisibleLogicalRange()
-
-      window.removeEventListener('resize', handleResize)
-
-      chart.remove()
-
-      chartRef.current = null
-    }
-  }, [chartData, selectedTrade, executions, interval, dailyStats, showRSI, showMACD, showADX, showKoncorde, showPatterns, showMogalef])
-
+    chart.panes().slice(1).forEach(pane => pane.setStretchFactor(1))
+    panelSeriesRef.current = added
+  }, [chartData, interval, showRSI, showMACD, showKoncorde, showADX])
+  
   const badge = selectedTrade
     ? getPortfolioBadge(selectedTrade.portfolios?.name, selectedTrade.portfolios?.grupo)
     : null
