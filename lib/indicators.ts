@@ -497,42 +497,6 @@ export function detectCandlePatterns(
 // por defecto). Las bandas quedan "congeladas" (horizontales) hasta que el cierre
 // rompe alguno de los extremos vigentes, momento en que saltan al nuevo nivel.
 
-export interface MogalefPoint {
-  time: number
-  sup: number | null
-  inf: number | null
-  center: number | null
-}
-
-// Regresión lineal simple evaluada en el último punto de la ventana
-function linregAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
-  for (let t = 0; t < length; t++) {
-    const idx = endIndex - (length - 1) + t
-    const x = t + 1
-    const y = values[idx]
-    sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x
-  }
-  const n = length
-  const denom = n * sumX2 - sumX * sumX
-  if (denom === 0) return sumY / n
-  const slope = (n * sumXY - sumX * sumY) / denom
-  const intercept = (sumY - slope * sumX) / n
-  return slope * n + intercept
-}
-
-function stdevAt(values: number[], endIndex: number, length: number): number | null {
-  if (endIndex < length - 1) return null
-  const startIndex = endIndex - length + 1
-  let mean = 0
-  for (let t = 0; t < length; t++) mean += values[startIndex + t]
-  mean /= length
-  let sumSq = 0
-  for (let t = 0; t < length; t++) sumSq += Math.pow(values[startIndex + t] - mean, 2)
-  return Math.sqrt(sumSq / length)
-}
-
 export function mogalefBandsSeries(
   candles: Candle[],
   regPeriod = 3,
@@ -567,12 +531,12 @@ export function mogalefBandsSeries(
         initialized = true
       }
     } else if (center != null && std != null && currentUpper != null && currentLower != null) {
-      // En lugar de solo 'close', prueba evaluando high y low:
-if (candles[i].high > currentUpper || candles[i].low < currentLower) {
-  currentUpper = center + multiplier * std
-  currentLower = center - multiplier * std
-  currentCenter = center
-}
+      // Usar estrictamente 'close' para evitar falsos positivos y reducir saltos
+      if (close > currentUpper || close < currentLower) {
+        currentUpper = center + multiplier * std
+        currentLower = center - multiplier * std
+        currentCenter = center
+      }
     }
 
     out.push({
