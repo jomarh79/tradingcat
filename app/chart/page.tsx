@@ -573,7 +573,7 @@ useEffect(() => {
 
             // Bandas de Mogalef — overlay directo en el panel principal
     if (showMogalef) {
-      const mogalefData = mogalefBandsSeries(chartData.candles, 10, 30, 1.7);
+      const mogalefData = mogalefBandsSeries(chartData.candles, 10, 30, 1.5);
 
       const supLine = chart.addSeries(LineSeries, { color: '#ffe600', lineWidth: 2, lastValueVisible: false, priceLineVisible: false })
       supLine.setData(mogalefData.filter(p => p.sup !== null).map(p => ({ time: p.time, value: p.sup })) as any)
