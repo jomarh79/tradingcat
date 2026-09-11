@@ -504,7 +504,8 @@ export interface MogalefPoint {
   center: number | null
 }
 
-// Regresión lineal simple evaluada en el último punto de la ventana
+// Regresión lineal simple evaluada en el último punto de la ventana — misma
+// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n, offset 0).
 function linregAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
@@ -551,7 +552,6 @@ export function mogalefBandsSeries(
   const out: MogalefPoint[] = []
   let currentUpper: number | null = null
   let currentLower: number | null = null
-  let currentCenter: number | null = null
   let initialized = false
 
   for (let i = 0; i < n; i++) {
@@ -563,15 +563,12 @@ export function mogalefBandsSeries(
       if (center != null && std != null) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
-        currentCenter = center
         initialized = true
       }
     } else if (center != null && std != null && currentUpper != null && currentLower != null) {
-      // Validación estricta con el cierre para mantener el congelamiento el mayor tiempo posible
       if (close > currentUpper || close < currentLower) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
-        currentCenter = center
       }
     }
 
@@ -579,7 +576,7 @@ export function mogalefBandsSeries(
       time: candles[i].time,
       sup: initialized ? currentUpper : null,
       inf: initialized ? currentLower : null,
-      center: initialized ? currentCenter : null,
+      center: initialized ? center : null,
     })
   }
 
