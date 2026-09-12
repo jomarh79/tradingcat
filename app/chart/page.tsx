@@ -293,6 +293,8 @@ const tradePriceLinesRef = useRef<any[]>([])
 const maxMinPriceLinesRef = useRef<any[]>([])
 const mogalefSeriesRef = useRef<any[]>([])
 const panelSeriesRef = useRef<any[]>([])
+const markersPluginRef = useRef<any>(null)
+
 
   // ── Trades abiertos para este ticker ──
   useEffect(() => {
@@ -504,6 +506,7 @@ useEffect(() => {
     maxMinPriceLinesRef.current = []
     mogalefSeriesRef.current = []
     panelSeriesRef.current = []
+    markersPluginRef.current = null
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       visibleRangeRef.current = range
@@ -722,10 +725,10 @@ useEffect(() => {
       allMarkers.push(...detectCandlePatterns(chartData.candles, marketCtx))
     }
 
-    if (allMarkers.length > 0) {
-      createSeriesMarkers(candleSeries, allMarkers as any)
+        if (!markersPluginRef.current) {
+      markersPluginRef.current = createSeriesMarkers(candleSeries, allMarkers as any)
     } else {
-      createSeriesMarkers(candleSeries, [])
+      markersPluginRef.current.setMarkers(allMarkers as any)
     }
   }, [chartData, interval, executions, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
 
