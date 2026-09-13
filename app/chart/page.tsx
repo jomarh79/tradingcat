@@ -571,7 +571,7 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   const line = chart.addSeries(LineSeries, {
     color: MA_COLORS[key] || '#888',
     // Si la clave es 'ema8' O es 'sma20', el grosor será 2; de lo contrario, 1.
-    lineWidth: (key === 'ema8' || key === 'sma20') ? 2 : 1,
+    lineWidth: (key === 'ema8' || key === 'sma10') ? 2 : 1,
     priceLineVisible: false,
     lastValueVisible: false,
   })
