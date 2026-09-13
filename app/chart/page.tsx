@@ -257,7 +257,7 @@ function ChartPageInner() {
   const [showADX, setShowADX] = useState(false)
   const [showKoncorde, setShowKoncorde] = useState(true)
   const [showPatterns, setShowPatterns] = useState(true)
-  const [showMogalef, setShowMogalef] = useState(false)
+  const [showMogalef, setShowMogalef] = useState(true)
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
