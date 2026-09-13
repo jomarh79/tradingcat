@@ -11,6 +11,8 @@ import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns,
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
+import DividendsChart from '../components/DividendsChart'
+
 type Interval = '45min' | '1day' | '1week' | '1month'
 
 const C = {
@@ -1205,6 +1207,13 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   </div>
 )}
 
+        {/* ── Historial de dividendos ── */}
+        {ticker && (
+          <div style={{ marginTop: 24 }}>
+            <DividendsChart ticker={ticker} years={10} />
+          </div>
+        )}
+        
       </div>
     </AppShell>
   )
