@@ -19,8 +19,8 @@ const C = {
 }
 
 const MA_COLORS: Record<string, string> = {
-  ema8: '#eab308', ema21: '#e5e5e5', ema50: '#3b82f6', ema100: '#f97316', ema200: '#f43f5e',
-  sma10: '#eab308', sma20: '#e5e5e5', sma50: '#3b82f6', sma100: '#f97316', sma200: '#f43f5e',
+  ema8: '#e5e5e5', ema21: '#eab308', ema50: '#3b82f6', ema100: '#f97316', ema200: '#f43f5e',
+  sma10: '#e5e5e5', sma20: '#eab308', sma50: '#3b82f6', sma100: '#f97316', sma200: '#f43f5e',
 }
 const MA_LABELS: Record<string, string> = {
   ema8: 'EMA 8', ema21: 'EMA 21', ema50: 'EMA 50', ema100: 'EMA 100', ema200: 'EMA 200',
