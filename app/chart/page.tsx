@@ -564,17 +564,19 @@ useEffect(() => {
     volumeMALine.setData(volumeMA.filter(v => v.value !== null) as any)
 
     // Medias móviles — EMA 8/21/50/100/200 (45min y diario) o SMA 10/20/50/100/200 (semanal y mensual)
-    Object.entries(chartData.mas).forEach(([key, points]) => {
-      const clean = (points as any[]).filter(p => p.value !== null)
-      if (!clean.length) return
-      const line = chart.addSeries(LineSeries, {
-        color: MA_COLORS[key] || '#888',
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      })
-      line.setData(clean as any)
-    })
+Object.entries(chartData.mas).forEach(([key, points]) => {
+  const clean = (points as any[]).filter(p => p.value !== null)
+  if (!clean.length) return
+  
+  const line = chart.addSeries(LineSeries, {
+    color: MA_COLORS[key] || '#888',
+    // Si la clave es 'ema8' O es 'sma20', el grosor será 2; de lo contrario, 1.
+    lineWidth: (key === 'ema8' || key === 'sma20') ? 2 : 1,
+    priceLineVisible: false,
+    lastValueVisible: false,
+  })
+  line.setData(clean as any)
+})
 
     // Soportes y resistencias — solo en vista semanal/mensual, igual que el Pine original
     if (interval === '1week' || interval === '1month') {
