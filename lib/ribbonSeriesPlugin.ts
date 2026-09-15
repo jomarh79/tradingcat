@@ -6,6 +6,7 @@ import type {
   PriceToCoordinateConverter,
   Time,
   WhitespaceData,
+  CustomSeriesOptions,
 } from 'lightweight-charts'
 import type { CanvasRenderingTarget2D } from 'fancy-canvas'
 
@@ -14,17 +15,20 @@ export interface RibbonData extends CustomData<Time> {
   slow: number
 }
 
-export interface RibbonSeriesOptions {
-  color: string // <-- 1. Añadido para satisfacer a CustomStyleOptions
+export interface RibbonSeriesOptions extends CustomSeriesOptions {
   upColor: string
   downColor: string
 }
 
-const defaults: RibbonSeriesOptions = {
-  color: 'rgba(34, 197, 94, 0.25)', // <-- 2. Valor por defecto obligatorio
+const defaults = {
+  color: 'rgba(34, 197, 94, 0.25)',
+  visible: true,
+  title: '',
+  lastValueVisible: true,
+  priceLineVisible: true,
   upColor: 'rgba(34, 197, 94, 0.25)',
   downColor: 'rgba(244, 63, 94, 0.25)',
-}
+} as RibbonSeriesOptions
 
 class RibbonRenderer implements ICustomSeriesPaneRenderer {
   private _data: PaneRendererCustomData<Time, RibbonData> | null = null
