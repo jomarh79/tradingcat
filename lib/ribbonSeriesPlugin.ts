@@ -15,11 +15,13 @@ export interface RibbonData extends CustomData<Time> {
 }
 
 export interface RibbonSeriesOptions {
+  color: string // <-- 1. Añadido para satisfacer a CustomStyleOptions
   upColor: string
   downColor: string
 }
 
 const defaults: RibbonSeriesOptions = {
+  color: 'rgba(34, 197, 94, 0.25)', // <-- 2. Valor por defecto obligatorio
   upColor: 'rgba(34, 197, 94, 0.25)',
   downColor: 'rgba(244, 63, 94, 0.25)',
 }
