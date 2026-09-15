@@ -12,6 +12,7 @@ import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
 import DividendsChart from '../components/DividendsChart'
+import { RibbonSeries } from '@/lib/ribbonSeriesPlugin'
 
 type Interval = '45min' | '1day' | '1week' | '1month'
 
@@ -510,9 +511,29 @@ useEffect(() => {
     panelSeriesRef.current = []
     markersPluginRef.current = null
 
-    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       visibleRangeRef.current = range
     })
+
+    // Cinta EMA/SMA — relleno verde/rojo entre las dos medias rápidas, según cuál esté arriba
+    const isWeeklyOrMonthly = interval === '1week' || interval === '1month'
+    const fastKey = isWeeklyOrMonthly ? 'sma10' : 'ema8'
+    const slowKey = isWeeklyOrMonthly ? 'sma20' : 'ema21'
+    const fastArr = chartData.mas[fastKey] || []
+    const slowArr = chartData.mas[slowKey] || []
+    if (fastArr.length && slowArr.length) {
+      const ribbonData = chartData.candles.map((c: any, i: number) => {
+        const fast = fastArr[i]?.value
+        const slow = slowArr[i]?.value
+        if (fast == null || slow == null) return { time: c.time }
+        return { time: c.time, fast, slow }
+      })
+      const ribbonSeries = (chart as any).addCustomSeries(new RibbonSeries(), {
+        upColor: 'rgba(34, 197, 94, 0.18)',
+        downColor: 'rgba(244, 63, 94, 0.18)',
+      })
+      ribbonSeries.setData(ribbonData as any)
+    }
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: C.success, downColor: C.danger, borderVisible: false,
