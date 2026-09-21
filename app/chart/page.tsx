@@ -12,6 +12,7 @@ import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
 import DividendsChart from '../components/DividendsChart'
+import DividendYieldChart from '../components/DividendYieldChart'
 import { RibbonSeries } from '@/lib/ribbonSeriesPlugin'
 
 type Interval = '45min' | '1day' | '1week' | '1month'
@@ -1228,10 +1229,11 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   </div>
 )}
 
-        {/* ── Historial de dividendos ── */}
+                {/* ── Historial de dividendos ── */}
         {ticker && (
-          <div style={{ marginTop: 24 }}>
+          <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12 }}>
             <DividendsChart ticker={ticker} years={10} />
+            <DividendYieldChart ticker={ticker} years={10} />
           </div>
         )}
         
