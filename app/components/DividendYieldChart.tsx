@@ -16,13 +16,9 @@ interface DailyClose {
 interface DividendYieldChartProps {
   ticker: string
   years?: number
-  dailyCloses: DailyClose[] // ya cargado por el padre (chart/page.tsx) — no se vuelve a pedir a TwelveData
+  dailyCloses: DailyClose[]
 }
 
-// ── Serie diaria continua de % dividendo/precio — función escalón ────────
-// El dividendo se mantiene fijo desde su fecha de pago hasta el siguiente pago
-// (escalón), pero el precio se mueve todos los días — así el % cambia a diario,
-// no solo en las fechas exactas de pago.
 function computeDailyYieldSeries(
   dividends: { date: string; amount: number }[],
   dailyCloses: DailyClose[],
@@ -46,7 +42,7 @@ function computeDailyYieldSeries(
     .filter(c => !isNaN(c.close) && c.ms >= cutoff)
     .sort((a, b) => a.time - b.time)
 
-  let idx = -1 // puntero al dividendo vigente en cada fecha
+  let idx = -1
 
   for (const day of closes) {
     while (
@@ -54,7 +50,7 @@ function computeDailyYieldSeries(
       new Date(sortedDividends[idx + 1].date).getTime() <= day.ms
     ) idx++
 
-    if (idx < 0) continue // todavía no se había pagado ningún dividendo en esa fecha
+    if (idx < 0) continue
     if (day.close <= 0) continue
 
     const amount = sortedDividends[idx].amount
@@ -98,18 +94,55 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
       timeScale: { borderColor: '#222' },
     })
 
-    const line = chart.addSeries(LineSeries, {
-      color: C.warning, lineWidth: 2,
-      lastValueVisible: true, priceLineVisible: false,
+    // Calcular el promedio histórico para dividir la serie en Verde (>= avg) y Roja (< avg)
+    const avg = points.reduce((sum, p) => sum + p.value, 0) / points.length
+
+    // Preparamos los datos con valores nulos o interpolados para evitar cortes bruscos, 
+    // o creamos dos series independientes que comparten el umbral del promedio.
+    const aboveData = points.map(p => ({
+      time: p.time,
+      value: p.value >= avg ? p.value : NaN, // si está por debajo, se deja como NaN para que se corte visualmente
+    }))
+
+    const belowData = points.map(p => ({
+      time: p.time,
+      value: p.value < avg ? p.value : NaN, // si está por encima, se deja como NaN
+    }))
+
+    // Serie superior (Verde: por encima del promedio)
+    const lineAbove = chart.addSeries(LineSeries, {
+      color: C.success, 
+      lineWidth: 2,
+      lastValueVisible: false, 
+      priceLineVisible: false,
       priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
     })
-    line.setData(points as any)
+    lineAbove.setData(aboveData as any)
 
-    // Línea punteada en el promedio histórico — referencia rápida de "alto vs bajo"
-    const avg = points.reduce((sum, p) => sum + p.value, 0) / points.length
-    line.createPriceLine({
-      price: avg, color: C.accent, lineWidth: 1, lineStyle: 2,
-      axisLabelVisible: true, title: 'Promedio',
+    // Serie inferior (Roja: por debajo del promedio)
+    const lineBelow = chart.addSeries(LineSeries, {
+      color: C.danger, 
+      lineWidth: 2,
+      lastValueVisible: true, 
+      priceLineVisible: false,
+      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
+    })
+    lineBelow.setData(belowData as any)
+
+    // Encontrar el punto más alto y más bajo de la gráfica para poner las líneas blancas
+    const maxPoint = points.reduce((max, p) => p.value > max.value ? p : max, points[0])
+    const minPoint = points.reduce((min, p) => p.value < min.value ? p : min, points[0])
+
+    // Línea blanca en el punto más alto
+    lineAbove.createPriceLine({
+      price: maxPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
+      axisLabelVisible: true, title: 'Máx',
+    })
+
+    // Línea blanca en el punto más bajo
+    lineAbove.createPriceLine({
+      price: minPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
+      axisLabelVisible: true, title: 'Mín',
     })
 
     chart.timeScale().fitContent()
@@ -155,7 +188,7 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
         <>
           <div ref={ref} style={{ width: '100%', height: 260 }} />
           <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
-            El dividendo se mantiene fijo entre pagos (último trimestre conocido); el precio se mueve a diario — por eso la línea cambia todos los días, no solo en las fechas de pago. No es el yield anualizado que reportan otros sitios. Línea punteada azul = promedio del periodo.
+            El dividendo se mantiene fijo entre pagos (último trimestre conocido); el precio se mueve a diario — por eso la línea cambia todos los días, no solo en las fechas de pago. Líneas blancas = Máximo y Mínimo del periodo.
           </div>
         </>
       )}
