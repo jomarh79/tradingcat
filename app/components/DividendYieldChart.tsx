@@ -8,64 +8,83 @@ const C = {
   card: '#080808', border: '#1a1a1a',
 }
 
-interface YieldPoint {
+interface DailyClose {
   date: string
-  amount: number
-  price: number
-  yieldPct: number
+  close: number
 }
 
-// Cierre más cercano a una fecha dada (± hasta 10 días)
-function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
-  if (!dailyCloses?.length) return null
-  const target = new Date(targetDate.split(' ')[0]).getTime()
-  let best: { close: number; diff: number } | null = null
-  for (const d of dailyCloses) {
-    const diff = Math.abs(new Date(d.date).getTime() - target)
-    if (!best || diff < best.diff) best = { close: d.close, diff }
+interface DividendYieldChartProps {
+  ticker: string
+  years?: number
+  dailyCloses: DailyClose[] // ya cargado por el padre (chart/page.tsx) — no se vuelve a pedir a TwelveData
+}
+
+// ── Serie diaria continua de % dividendo/precio — función escalón ────────
+// El dividendo se mantiene fijo desde su fecha de pago hasta el siguiente pago
+// (escalón), pero el precio se mueve todos los días — así el % cambia a diario,
+// no solo en las fechas exactas de pago.
+function computeDailyYieldSeries(
+  dividends: { date: string; amount: number }[],
+  dailyCloses: DailyClose[],
+  years: number
+) {
+  type Point = { time: number; value: number }
+  const out: Point[] = []
+  if (!dividends.length || !dailyCloses.length) return out
+
+  const sortedDividends = [...dividends].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  )
+
+  const cutoff = Date.now() - years * 365 * 86400000
+
+  const closes = dailyCloses
+    .map(c => {
+      const ms = new Date(c.date.split(' ')[0] + 'T00:00:00').getTime()
+      return { time: Math.floor(ms / 1000), close: c.close, ms }
+    })
+    .filter(c => !isNaN(c.close) && c.ms >= cutoff)
+    .sort((a, b) => a.time - b.time)
+
+  let idx = -1 // puntero al dividendo vigente en cada fecha
+
+  for (const day of closes) {
+    while (
+      idx + 1 < sortedDividends.length &&
+      new Date(sortedDividends[idx + 1].date).getTime() <= day.ms
+    ) idx++
+
+    if (idx < 0) continue // todavía no se había pagado ningún dividendo en esa fecha
+    if (day.close <= 0) continue
+
+    const amount = sortedDividends[idx].amount
+    out.push({ time: day.time, value: (amount / day.close) * 100 })
   }
-  return best && best.diff <= 10 * 86400000 ? best.close : null
+
+  return out
 }
 
-export default function DividendYieldChart({ ticker, years = 10 }: { ticker: string; years?: number }) {
+export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: DividendYieldChartProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const [points, setPoints] = useState<YieldPoint[]>([])
+  const [points, setPoints] = useState<{ time: number; value: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!ticker) return
+    if (!ticker || !dailyCloses || dailyCloses.length === 0) { setLoading(false); return }
     setLoading(true)
     setError(null)
 
-    Promise.all([
-      fetch(`/api/dividends?symbol=${encodeURIComponent(ticker)}&years=${years}`).then(r => r.json()),
-      fetch('/api/chart-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: ticker }),
-      }).then(r => r.json()),
-    ])
-      .then(([divData, priceData]) => {
+    fetch(`/api/dividends?symbol=${encodeURIComponent(ticker)}&years=${years}`)
+      .then(r => r.json())
+      .then(divData => {
         if (divData.error) { setError(divData.error); return }
-        if (priceData.error) { setError(priceData.error); return }
-
-        const dailyCloses = priceData.dailyCloses || []
-        const dividends = divData.dividends || []
-
-        const computed: YieldPoint[] = dividends
-          .map((d: { date: string; amount: number }) => {
-            const price = findNearestClose(dailyCloses, d.date)
-            if (!price || price <= 0) return null
-            return { date: d.date, amount: d.amount, price, yieldPct: (d.amount / price) * 100 }
-          })
-          .filter((p: YieldPoint | null): p is YieldPoint => p !== null)
-
-        setPoints(computed)
+        const series = computeDailyYieldSeries(divData.dividends || [], dailyCloses, years)
+        setPoints(series)
       })
       .catch(e => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false))
-  }, [ticker, years])
+  }, [ticker, years, dailyCloses])
 
   useEffect(() => {
     if (!ref.current || points.length === 0) return
@@ -81,14 +100,13 @@ export default function DividendYieldChart({ ticker, years = 10 }: { ticker: str
 
     const line = chart.addSeries(LineSeries, {
       color: C.warning, lineWidth: 2,
-      pointMarkersVisible: true, pointMarkersRadius: 3,
       lastValueVisible: true, priceLineVisible: false,
       priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
     })
-    line.setData(points.map(p => ({ time: p.date, value: p.yieldPct })) as any)
+    line.setData(points as any)
 
     // Línea punteada en el promedio histórico — referencia rápida de "alto vs bajo"
-    const avg = points.reduce((sum, p) => sum + p.yieldPct, 0) / points.length
+    const avg = points.reduce((sum, p) => sum + p.value, 0) / points.length
     line.createPriceLine({
       price: avg, color: C.accent, lineWidth: 1, lineStyle: 2,
       axisLabelVisible: true, title: 'Promedio',
@@ -106,18 +124,18 @@ export default function DividendYieldChart({ ticker, years = 10 }: { ticker: str
   }, [points])
 
   const latest = points[points.length - 1]
-  const avg = points.length ? points.reduce((sum, p) => sum + p.yieldPct, 0) / points.length : null
+  const avg = points.length ? points.reduce((sum, p) => sum + p.value, 0) / points.length : null
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Dividendo vs precio — últimos {years} años (por pago, sin anualizar)
+          Dividendo vs precio — últimos {years} años (diario, sin anualizar)
         </div>
         {latest && (
           <div style={{ fontSize: 11, color: '#666' }}>
-            Último: <span style={{ color: latest.yieldPct >= (avg || 0) ? C.success : C.danger, fontWeight: 700 }}>
-              {latest.yieldPct.toFixed(2)}%
+            Hoy: <span style={{ color: latest.value >= (avg || 0) ? C.success : C.danger, fontWeight: 700 }}>
+              {latest.value.toFixed(2)}%
             </span>
             {avg != null && <span> · promedio {avg.toFixed(2)}%</span>}
           </div>
@@ -137,7 +155,7 @@ export default function DividendYieldChart({ ticker, years = 10 }: { ticker: str
         <>
           <div ref={ref} style={{ width: '100%', height: 260 }} />
           <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
-            Cada punto = dividendo pagado ÷ precio de la acción en ese momento (no es el yield anualizado que reportan otros sitios). Línea punteada azul = promedio del periodo — por encima sugiere dividendo relativamente alto vs el precio de ese momento; por debajo, relativamente bajo.
+            El dividendo se mantiene fijo entre pagos (último trimestre conocido); el precio se mueve a diario — por eso la línea cambia todos los días, no solo en las fechas de pago. No es el yield anualizado que reportan otros sitios. Línea punteada azul = promedio del periodo.
           </div>
         </>
       )}
