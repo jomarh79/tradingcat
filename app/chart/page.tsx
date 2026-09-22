@@ -1205,6 +1205,18 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
           ))}
         </div>
 
+                {/* ── Historial de dividendos ── */}
+        {ticker && (
+          <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12 }}>
+            <DividendsChart ticker={ticker} years={10} />
+            <DividendYieldChart 
+              ticker={ticker} 
+              years={10} 
+              dailyCloses={dailyStats?.dailyCloses || []} 
+            />
+          </div>
+        )}
+
         {/* ── Ratios de valuación — 4 gráficas independientes ── */}
 {ticker && hasRatioCharts && (
   <div style={{ marginTop: 24 }}>
@@ -1229,17 +1241,7 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   </div>
 )}
 
-                {/* ── Historial de dividendos ── */}
-        {ticker && (
-          <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12 }}>
-            <DividendsChart ticker={ticker} years={10} />
-            <DividendYieldChart 
-              ticker={ticker} 
-              years={10} 
-              dailyCloses={dailyStats?.dailyCloses || []} 
-            />
-          </div>
-        )}
+
         
       </div>
     </AppShell>

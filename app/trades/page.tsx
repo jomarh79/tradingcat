@@ -20,7 +20,7 @@ const SECTORES_DATA: Record<string, string[]> = {
   "Consumo Cíclico":           ["Automotriz", "E-commerce", "Lujo", "Turismo", "Ropa y Calzado", "Bebidas No Alcohólicas", "Comercio minorista", "Restaurantes", "Resorts y casinos", "Construcción", "Textiles", "Juguetes"],
   "Consumo Defensivo":         ["Bebidas", "Alimentos", "Supermercados", "Comercio minorista", "Tabaco", "Cuidado personal", "Ocio", "Dulces"],
   "Financiero":                ["Bancos", "Seguros", "Fintech", "Pagos", "Publicidad", "Fideicomiso", "Brokers"],
-  "Energía":                   ["Petróleo", "Gas", "Solar", "Eólica", "Nuclear", "Geotermica"],
+  "Energía":                   ["Petróleo", "Gas", "Solar", "Eólica", "Nuclear", "Geotermica", "Electricidad"],
   "Industrial":                ["Aeroespacial", "Logística", "Maquinaria", "Productos agrícolas", "Productos eléctricos", "Materiales de construcción", "Químicos", "Contenedores", "Aerolíneas", "Construcción", "Ferrocarriles", "Medioambiente", "Metales", "Fabricación de productos"],
   "Materiales básicos":        ["Minería", "Litio", "Química", "Agricultura"],
   "Servicios Públicos":        ["Electricidad", "Agua"],
