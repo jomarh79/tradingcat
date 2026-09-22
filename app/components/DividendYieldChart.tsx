@@ -129,13 +129,13 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
     // Línea blanca en el punto más alto
     lineSeries.createPriceLine({
       price: maxPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
-      axisLabelVisible: true, title: 'Máx',
+      axisLabelVisible: false, title: 'Máx',
     })
 
     // Línea blanca en el punto más bajo
     lineSeries.createPriceLine({
       price: minPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
-      axisLabelVisible: true, title: 'Mín',
+      axisLabelVisible: false, title: 'Mín',
     })
 
     chart.timeScale().fitContent()
