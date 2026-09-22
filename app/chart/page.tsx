@@ -1233,7 +1233,11 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
         {ticker && (
           <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12 }}>
             <DividendsChart ticker={ticker} years={10} />
-            <DividendYieldChart ticker={ticker} years={10} />
+            <DividendYieldChart 
+              ticker={ticker} 
+              years={10} 
+              dailyCloses={dailyStats?.dailyCloses || []} 
+            />
           </div>
         )}
         
