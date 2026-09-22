@@ -94,53 +94,36 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
       timeScale: { borderColor: '#222' },
     })
 
-    // Calcular el promedio histórico para dividir la serie en Verde (>= avg) y Roja (< avg)
+    // Calcular el promedio histórico
     const avg = points.reduce((sum, p) => sum + p.value, 0) / points.length
 
-    // Preparamos los datos con valores nulos o interpolados para evitar cortes bruscos, 
-    // o creamos dos series independientes que comparten el umbral del promedio.
-    const aboveData = points.map(p => ({
+    // Crear una sola serie donde cada punto lleva su propio color según el promedio
+    const coloredData = points.map(p => ({
       time: p.time,
-      value: p.value >= avg ? p.value : NaN, // si está por debajo, se deja como NaN para que se corte visualmente
+      value: p.value,
+      color: p.value >= avg ? C.success : C.danger, // Verde si está arriba, rojo si está abajo
     }))
 
-    const belowData = points.map(p => ({
-      time: p.time,
-      value: p.value < avg ? p.value : NaN, // si está por encima, se deja como NaN
-    }))
-
-    // Serie superior (Verde: por encima del promedio)
-    const lineAbove = chart.addSeries(LineSeries, {
-      color: C.success, 
+    const lineSeries = chart.addSeries(LineSeries, {
       lineWidth: 2,
-      lastValueVisible: false, 
+      lastValueVisible: true,
       priceLineVisible: false,
       priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
     })
-    lineAbove.setData(aboveData as any)
+    lineSeries.setData(coloredData as any)
 
-    // Serie inferior (Roja: por debajo del promedio)
-    const lineBelow = chart.addSeries(LineSeries, {
-      color: C.danger, 
-      lineWidth: 2,
-      lastValueVisible: true, 
-      priceLineVisible: false,
-      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
-    })
-    lineBelow.setData(belowData as any)
-
-    // Encontrar el punto más alto y más bajo de la gráfica para poner las líneas blancas
+    // Encontrar el punto más alto y más bajo para las líneas blancas
     const maxPoint = points.reduce((max, p) => p.value > max.value ? p : max, points[0])
     const minPoint = points.reduce((min, p) => p.value < min.value ? p : min, points[0])
 
     // Línea blanca en el punto más alto
-    lineAbove.createPriceLine({
+    lineSeries.createPriceLine({
       price: maxPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
       axisLabelVisible: true, title: 'Máx',
     })
 
     // Línea blanca en el punto más bajo
-    lineAbove.createPriceLine({
+    lineSeries.createPriceLine({
       price: minPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
       axisLabelVisible: true, title: 'Mín',
     })
