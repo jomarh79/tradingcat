@@ -112,6 +112,16 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
     })
     lineSeries.setData(coloredData as any)
 
+    // ── Línea de Promedio (sin etiqueta en el eje) ──
+    lineSeries.createPriceLine({
+      price: avg,
+      color: C.accent, // color azul
+      lineWidth: 1,
+      lineStyle: 2,    // punteada
+      axisLabelVisible: false, // <-- Esto quita la etiqueta flotante del eje derecho
+      title: 'Promedio',
+    })
+
     // Encontrar el punto más alto y más bajo para las líneas blancas
     const maxPoint = points.reduce((max, p) => p.value > max.value ? p : max, points[0])
     const minPoint = points.reduce((min, p) => p.value < min.value ? p : min, points[0])
