@@ -265,7 +265,10 @@ function ChartPageInner() {
 
   const [openTrades, setOpenTrades] = useState<any[]>([])
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
-  const [executions, setExecutions] = useState<any[]>([])
+  
+  const [allTickerTrades, setAllTickerTrades] = useState<any[]>([])
+  const [allExecutions, setAllExecutions] = useState<any[]>([])
+
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
   const [liveQuote, setLiveQuote] = useState<{ price: number | null; change: number | null } | null>(null)
   const [dailyStats, setDailyStats] = useState<{
@@ -315,32 +318,6 @@ const markersPluginRef = useRef<any>(null)
   }, [ticker])
 
   const selectedTrade = openTrades.find(t => t.id === selectedTradeId) || null
-
-    // ── Ejecuciones (compras/ventas) del trade seleccionado ──
-  // "Apertura" no vive en trade_executions — se reconstruye desde
-  // trade.initial_quantity / initial_entry_price / open_date.
-  useEffect(() => {
-    if (!selectedTradeId) { setExecutions([]); return }
-    const trade = openTrades.find(t => t.id === selectedTradeId)
-    if (!trade) { setExecutions([]); return }
-    supabase
-      .from('trade_executions')
-      .select('*')
-      .eq('trade_id', selectedTradeId)
-      .then(({ data }) => {
-        const opening = {
-          id: 'apertura',
-          executed_at: trade.open_date,
-          execution_type: 'apertura',
-          quantity: trade.initial_quantity ?? trade.quantity,
-          price: trade.initial_entry_price ?? trade.entry_price,
-        }
-        const merged = [opening, ...(data || [])].sort(
-          (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
-        )
-        setExecutions(merged)
-      })
-  }, [selectedTradeId, openTrades])
 
   // ── Velas + medias móviles (con caché por sesión, ticker+intervalo) ──
   const fetchChartData = useCallback(async (sym: string, iv: Interval) => {
@@ -705,34 +682,80 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   // createSeriesMarkers REEMPLAZA todos los marcadores en cada llamada,
   // así que no hace falta trackear/quitar nada manualmente.
   // ══════════════════════════════════════════════════════════════════════
+
+    // ── TODAS las operaciones del ticker (abiertas y cerradas) — para marcar
+  // el historial completo en el gráfico, no solo el trade actualmente abierto.
+  useEffect(() => {
+    if (!ticker) { setAllTickerTrades([]); setAllExecutions([]); return }
+    supabase
+      .from('trades')
+      .select('*')
+      .eq('ticker', ticker)
+      .then(async ({ data: trades }) => {
+        if (!trades || trades.length === 0) { setAllTickerTrades([]); setAllExecutions([]); return }
+        setAllTickerTrades(trades)
+
+        const tradeIds = trades.map(t => t.id)
+        const { data: execs } = await supabase
+          .from('trade_executions')
+          .select('*')
+          .in('trade_id', tradeIds)
+
+        // Cada trade reconstruye su propia "Apertura" — no vive en trade_executions
+        const openings = trades.map(t => ({
+          id: `apertura-${t.id}`,
+          trade_id: t.id,
+          executed_at: t.open_date,
+          execution_type: 'apertura',
+          quantity: t.initial_quantity ?? t.quantity,
+          price: t.initial_entry_price ?? t.entry_price,
+        }))
+
+        const merged = [...openings, ...(execs || [])].sort(
+          (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
+        )
+        setAllExecutions(merged)
+      })
+  }, [ticker])
+
+
   useEffect(() => {
     const candleSeries = candleSeriesRef.current
     if (!candleSeries || !chartData) return
 
     const allMarkers: any[] = []
 
-    if (executions.length > 0) {
-      const sorted = [...executions].sort(
-        (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
-      )
-      let runningQty = 0
-      sorted.forEach((e) => {
-        const isOpening = e.execution_type === 'apertura'
-        const isBuy = isOpening || e.execution_type === 'buy'
-        let color = '#888'
-        if (isBuy) {
-          runningQty += Number(e.quantity)
-          color = isOpening ? C.success : C.accent
-        } else {
-          runningQty -= Number(e.quantity)
-          const isFullClose = runningQty <= 0.0001
-          color = isFullClose ? '#e5e5e5' : C.danger
-        }
-        allMarkers.push({
-          time: e.executed_at.slice(0, 10),
-          position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
-          color,
-          shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
+        if (allExecutions.length > 0) {
+      const byTrade = new Map<string, any[]>()
+      allExecutions.forEach(e => {
+        const arr = byTrade.get(e.trade_id) || []
+        arr.push(e)
+        byTrade.set(e.trade_id, arr)
+      })
+
+      byTrade.forEach(execs => {
+        const sorted = [...execs].sort(
+          (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
+        )
+        let runningQty = 0
+        sorted.forEach((e) => {
+          const isOpening = e.execution_type === 'apertura'
+          const isBuy = isOpening || e.execution_type === 'buy'
+          let color = '#888'
+          if (isBuy) {
+            runningQty += Number(e.quantity)
+            color = isOpening ? C.success : C.accent
+          } else {
+            runningQty -= Number(e.quantity)
+            const isFullClose = runningQty <= 0.0001
+            color = isFullClose ? '#e5e5e5' : C.danger
+          }
+          allMarkers.push({
+            time: e.executed_at.slice(0, 10),
+            position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
+            color,
+            shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
+          })
         })
       })
     }
@@ -756,8 +779,9 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
     } else {
       markersPluginRef.current.setMarkers(allMarkers as any)
     }
-  }, [chartData, interval, executions, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
+    }, [chartData, interval, allExecutions, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
 
+  
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 5 — Bandas de Mogalef (overlay en el panel principal).
   // ══════════════════════════════════════════════════════════════════════
