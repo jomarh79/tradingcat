@@ -269,6 +269,9 @@ function ChartPageInner() {
   const [allTickerTrades, setAllTickerTrades] = useState<any[]>([])
   const [allExecutions, setAllExecutions] = useState<any[]>([])
 
+  const [watchlistTarget, setWatchlistTarget] = useState<number | null>(null)
+  const targetPriceLineRef = useRef<any>(null)
+
   const [chartData, setChartData] = useState<{ candles: any[]; mas: Record<string, any[]> } | null>(null)
   const [liveQuote, setLiveQuote] = useState<{ price: number | null; change: number | null } | null>(null)
   const [dailyStats, setDailyStats] = useState<{
@@ -376,6 +379,19 @@ useEffect(() => {
     })
     .catch(() => {})
 }, [ticker])
+
+ // ── Precio objetivo de watchlist (tu punto de entrada esperado) ──
+  useEffect(() => {
+    if (!ticker) { setWatchlistTarget(null); return }
+    supabase
+      .from('watchlist')
+      .select('buy_target')
+      .eq('ticker', ticker)
+      .maybeSingle()
+      .then(({ data }) => {
+        setWatchlistTarget(data?.buy_target ?? null)
+      })
+  }, [ticker])
 
   // ── MAX/MIN histórico (10 años, 5 años, 52 semanas — siempre diario) — una sola vez por ticker ──
   useEffect(() => {
@@ -616,6 +632,26 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
     }
   }, [chartData, interval])
 
+    // ══════════════════════════════════════════════════════════════════════
+  // EFECTO — Línea de precio objetivo (watchlist.buy_target).
+  // ══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current
+    if (!candleSeries) return
+
+    if (targetPriceLineRef.current) {
+      candleSeries.removePriceLine(targetPriceLineRef.current)
+      targetPriceLineRef.current = null
+    }
+
+    if (watchlistTarget != null) {
+      targetPriceLineRef.current = candleSeries.createPriceLine({
+        price: watchlistTarget, color: C.accent, lineWidth: 2, lineStyle: 2,
+        axisLabelVisible: true, title: 'Objetivo',
+      })
+    }
+  }, [chartData, interval, watchlistTarget])
+
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 2 — Líneas de precio del trade (costo promedio / stop / TP1-3).
   // Solo quita/pone sus propias líneas — no toca velas ni nada más.
@@ -804,6 +840,8 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
       mogalefSeriesRef.current = [supLine, infLine]
     }
   }, [chartData, interval, showMogalef])
+
+  
 
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 6 — Paneles de indicadores (RSI, MACD, Koncorde, ADX).
