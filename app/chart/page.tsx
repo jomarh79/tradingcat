@@ -671,20 +671,20 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
       if (avgCost > 0) {
         tradePriceLinesRef.current.push(candleSeries.createPriceLine({
           price: avgCost, color: C.warning, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true,
+          axisLabelVisible: true, title: 'Posicion',
         }))
       }
       if (selectedTrade.stop_loss) {
         tradePriceLinesRef.current.push(candleSeries.createPriceLine({
           price: Number(selectedTrade.stop_loss), color: C.danger, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true,
+          axisLabelVisible: true, title: 'SL',
         }))
       }
       ;[selectedTrade.take_profit_1, selectedTrade.take_profit_2, selectedTrade.take_profit_3].forEach(tp => {
         if (tp) {
           tradePriceLinesRef.current.push(candleSeries.createPriceLine({
             price: Number(tp), color: '#f97316', lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: true,
+            axisLabelVisible: true, title: 'TP',
           }))
         }
       })
