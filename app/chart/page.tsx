@@ -41,6 +41,15 @@ function getPortfolioBadge(name: string | undefined, grupo: string | undefined) 
   return { symbol: '■', label: 'PLP · Largo plazo' }
 }
 
+// Forma del marcador según portafolio — el color/posición ya indican compra/venta,
+// así que la forma queda libre para identificar de qué portafolio es cada operación.
+function getPortfolioMarkerShape(name: string | undefined, grupo: string | undefined): 'circle' | 'square' | 'arrowUp' | 'arrowDown' {
+  if ((name || '').toUpperCase() === 'EFT') return 'arrowDown'
+  if (grupo === 'corto')   return 'circle'
+  if (grupo === 'mediano') return 'square'
+  return 'arrowUp' // largo plazo — el más común, mantiene el aspecto de flecha original
+}
+
 // Soportes/resistencias por pivotes — solo se usa en vista semanal/mensual, igual que el Pine original
 function computePivots(
   candles: { high: number; low: number }[],
@@ -647,7 +656,7 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
     if (watchlistTarget != null) {
       targetPriceLineRef.current = candleSeries.createPriceLine({
         price: watchlistTarget, color: C.accent, lineWidth: 2, lineStyle: 2,
-        axisLabelVisible: true, title: 'Objetivo',
+        axisLabelVisible: true, title: 'Comprar',
       })
     }
   }, [chartData, interval, watchlistTarget])
@@ -723,9 +732,9 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
   // el historial completo en el gráfico, no solo el trade actualmente abierto.
   useEffect(() => {
     if (!ticker) { setAllTickerTrades([]); setAllExecutions([]); return }
-    supabase
+        supabase
       .from('trades')
-      .select('*')
+      .select('*, portfolios(name, grupo)')
       .eq('ticker', ticker)
       .then(async ({ data: trades }) => {
         if (!trades || trades.length === 0) { setAllTickerTrades([]); setAllExecutions([]); return }
@@ -769,7 +778,10 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
         byTrade.set(e.trade_id, arr)
       })
 
-      byTrade.forEach(execs => {
+            byTrade.forEach((execs, tradeId) => {
+        const trade = allTickerTrades.find(t => t.id === tradeId)
+        const shape = getPortfolioMarkerShape(trade?.portfolios?.name, trade?.portfolios?.grupo)
+
         const sorted = [...execs].sort(
           (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
         )
@@ -790,7 +802,7 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
             time: e.executed_at.slice(0, 10),
             position: isBuy ? ('belowBar' as const) : ('aboveBar' as const),
             color,
-            shape: isBuy ? ('arrowUp' as const) : ('arrowDown' as const),
+            shape,
           })
         })
       })
@@ -815,7 +827,7 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
     } else {
       markersPluginRef.current.setMarkers(allMarkers as any)
     }
-    }, [chartData, interval, allExecutions, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
+        }, [chartData, interval, allExecutions, allTickerTrades, showPatterns, selectedTrade, fundamentals, ownFiveYearAvg])
 
   
   // ══════════════════════════════════════════════════════════════════════
@@ -1250,10 +1262,9 @@ Object.entries(chartData.mas).forEach(([key, points]) => {
         )}
 
         <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 10, color: '#888', flexWrap: 'wrap' }}>
-          <span><span style={{ color: C.success }}>▲</span> Apertura</span>
-          <span><span style={{ color: C.accent }}>▲</span> Recompra</span>
-          <span><span style={{ color: C.danger }}>▼</span> Venta parcial</span>
-          <span><span style={{ color: '#e5e5e5' }}>▼</span> Cierre total</span>
+          <span>Color: <span style={{ color: C.success }}>●</span> Apertura <span style={{ color: C.accent }}>●</span> Recompra <span style={{ color: C.danger }}>●</span> Venta parcial <span style={{ color: '#e5e5e5' }}>●</span> Cierre total</span>
+          <span style={{ color: '#444' }}>|</span>
+          <span>Forma: ● Corto ▪ Mediano ▲ Largo ▼ ETF</span>
           <span style={{ color: '#444' }}>|</span>
           <span><span style={{ color: C.warning }}>┄</span> Costo promedio</span>
           <span><span style={{ color: '#f97316' }}>┄</span> TP1 / TP2 / TP3</span>
