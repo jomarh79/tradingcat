@@ -280,31 +280,15 @@ const isMarketOpen = () => {
     setLastRefresh(new Date())
   }, [fetchList])
 
-  useEffect(() => {
-
-  init()
-
-  const interval = setInterval(async () => {
-
-    if (isMarketOpen()) {
-
-      await triggerIA()
-
-      await new Promise(r => setTimeout(r, 6000))
-
-    }
-
-    const updated = await fetchList()
-
-    setList(updated)
-
-    setLastRefresh(new Date())
-
-  }, 120000)
-
-  return () => clearInterval(interval)
-
-}, [init, fetchList])
+    useEffect(() => {
+    init()
+    const interval = setInterval(async () => {
+      const updated = await fetchList()
+      setList(updated)
+      setLastRefresh(new Date())
+    }, 120000)
+    return () => clearInterval(interval)
+  }, [init, fetchList])
 
   // ── Espera a que un ticker específico tenga datos frescos, refrescando la lista mientras tanto ──
   const pollTicker = useCallback((ticker: string, onDone?: () => void) => {
@@ -380,8 +364,16 @@ const isMarketOpen = () => {
 
     setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
 
-    const { data: newItem } = await supabase.from('watchlist').select('*')
-      .eq('ticker', ticker).order('created_at', { ascending: false }).limit(1).single()
+        const { data: newItem, error } = await supabase.from('watchlist').insert({
+      ticker,
+      buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
+      analyst_target: analystTarget,
+      notes:          newNotes.trim(),
+    }).select().single()
+    if (error) { alert('Error: ' + error.message); return }
+
+    setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
+
     if (newItem) {
       setList(prev => [newItem, ...prev].sort((a, b) => (b.ai_probability || 0) - (a.ai_probability || 0)))
     }
