@@ -354,17 +354,7 @@ const isMarketOpen = () => {
       if (auto) analystTarget = auto
     }
 
-    const { error } = await supabase.from('watchlist').insert({
-      ticker,
-      buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
-      analyst_target: analystTarget,
-      notes:          newNotes.trim(),
-    })
-    if (error) { alert('Error: ' + error.message); return }
-
-    setNewTicker(''); setNewTarget(''); setNewAnalyst(''); setNewNotes('')
-
-        const { data: newItem, error } = await supabase.from('watchlist').insert({
+       const { data: newItem, error } = await supabase.from('watchlist').insert({
       ticker,
       buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
       analyst_target: analystTarget,
