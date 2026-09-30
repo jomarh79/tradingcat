@@ -46,6 +46,9 @@ export default function TradesAbiertosPage() {
   const [selectedPortfolio, setSelectedPortfolio] = useState("all")
   const [tickerSearch, setTickerSearch] = useState("")
   const [isRefreshing,      setIsRefreshing]      = useState(false)
+
+  const [isUpdatingAll, setIsUpdatingAll] = useState(false)
+
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -118,23 +121,27 @@ export default function TradesAbiertosPage() {
     }
   }
   
-  const toggleTarget = async (
+    const toggleTarget = async (
     tradeId: string,
     field: 'tp1_hit' | 'tp2_hit' | 'tp3_hit' | 'stop_hit'
   ) => {
-
     const trade = trades.find(t => t.id === tradeId)
-
     if (!trade) return
 
     const newValue = !trade[field]
 
-    await supabase
+    // Optimista — actualiza la fila local sin esperar ni volver a pedir toda la tabla
+    setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, [field]: newValue } : t))
+
+    const { error } = await supabase
       .from("trades")
       .update({ [field]: newValue })
       .eq("id", tradeId)
 
-    fetchTrades()
+    if (error) {
+      // Si falla en el servidor, revierte el cambio local
+      setTrades(prev => prev.map(t => t.id === tradeId ? { ...t, [field]: !newValue } : t))
+    }
   }
 
   const handleDelete = async (trade: any) => {
@@ -146,9 +153,14 @@ export default function TradesAbiertosPage() {
     fetchTrades()
   }
 
-  const handleTogglePriority = async (trade: any) => {
-    await supabase.from("trades").update({ priority: !trade.priority }).eq("id", trade.id)
-    fetchTrades()
+    const handleTogglePriority = async (trade: any) => {
+    const newValue = !trade.priority
+    setTrades(prev => prev.map(t => t.id === trade.id ? { ...t, priority: newValue } : t))
+
+    const { error } = await supabase.from("trades").update({ priority: newValue }).eq("id", trade.id)
+    if (error) {
+      setTrades(prev => prev.map(t => t.id === trade.id ? { ...t, priority: !newValue } : t))
+    }
   }
 
   const enrichedTrades = useMemo(() => {
@@ -320,20 +332,25 @@ if (tickerSearch.trim() !== "") {
               </div>
               <button
                 onClick={async () => {
-                  await fetch("https://kdxqnaglhhjwnzvptqvt.supabase.co/functions/v1/update-trades", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer tradingcat-manual-2026"
+                  if (isUpdatingAll) return
+                  setIsUpdatingAll(true)
+                  try {
+                    await fetch("https://kdxqnaglhhjwnzvptqvt.supabase.co/functions/v1/update-trades", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer tradingcat-manual-2026"
+                      }
+                    })
+                    await fetchTrades()
+                  } finally {
+                    setIsUpdatingAll(false)
                   }
-                })
-
-                fetchTrades()
-              }}
-                disabled={isRefreshing}
-                style={refreshBtn(isRefreshing)}>
-                <FaSync style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-                {isRefreshing ? 'Actualizando...' : 'Actualizar'}
+                }}
+                disabled={isRefreshing || isUpdatingAll}
+                style={refreshBtn(isRefreshing || isUpdatingAll)}>
+                <FaSync style={{ animation: (isRefreshing || isUpdatingAll) ? 'spin 1s linear infinite' : 'none' }} />
+                {isUpdatingAll ? 'Actualizando...' : 'Actualizar'}
               </button>
             </div>
           </div>
@@ -553,7 +570,7 @@ if (tickerSearch.trim() !== "") {
                               ? `Actualizado hace ${minutesSince.toFixed(1)} min`
                               : cooldownActive
                                 ? 'Espera un momento antes de volver a refrescar'
-                                : 'Desactualizado — clic para refrescar'
+                                : 'Actualizar este ticker'
                           return (
                             <button
                               onClick={() => refreshSingleTrade(trade)}
