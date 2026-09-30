@@ -419,21 +419,29 @@ export default function CerradosPage() {
     })
   }, [trades, selectedPortfolio, selectedYear, filterMonth, filterTicker, filterReason, filterSector, sortConfig, calculateTradeData])
 
-  const summary = useMemo(() => {
-    const total    = filteredAndSorted.length
-    const winners  = filteredAndSorted.filter(t => calculateTradeData(t).pnlCash > 0).length
+    const summary = useMemo(() => {
+    const perTrade = filteredAndSorted.map(t => {
+      const d = calculateTradeData(t)
+      const divTotal = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
+        .reduce((a: number, dv: any) => a + Number(dv.amount), 0)
+      return { ...d, divTotal, totalWithDiv: d.pnlCash + divTotal }
+    })
+
+    const total    = perTrade.length
+    const winners  = perTrade.filter(d => d.pnlCash > 0).length
     const winRate  = total > 0 ? (winners / total * 100) : 0
-    const totalPnl = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).pnlCash, 0)
-    const totalInv = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalInvested, 0)
-    const totalSell = filteredAndSorted.reduce((acc, t) => acc + calculateTradeData(t).totalSells, 0)
-    const avgPnl   = total > 0 ? totalPnl / total : 0
+    const totalPnl = perTrade.reduce((acc, d) => acc + d.pnlCash, 0)
+    const totalInv = perTrade.reduce((acc, d) => acc + d.totalInvested, 0)
+    const totalSell = perTrade.reduce((acc, d) => acc + d.totalSells, 0)
+    const totalDividends = perTrade.reduce((acc, d) => acc + d.divTotal, 0)
+    const totalPnlWithDividends = totalPnl + totalDividends
     // PnL anual ponderado: suma de (pnlCash / totalInvested * annualPct) ponderado por inversión
     const weightedAnnual = totalInv > 0
       ? parseFloat(((totalPnl / totalInv) * 100).toFixed(2))
       : 0
 
-    return { total, winners, winRate, totalPnl, totalInv, totalSell, avgPnl, weightedAnnual }
-  }, [filteredAndSorted, calculateTradeData])
+    return { total, winners, winRate, totalPnl, totalInv, totalSell, totalDividends, totalPnlWithDividends, weightedAnnual }
+  }, [filteredAndSorted, calculateTradeData, getDividendsForTrade])
 
   return (
     <AppShell>
@@ -465,8 +473,8 @@ export default function CerradosPage() {
               { label: 'Win rate',    value: `${summary.winRate.toFixed(1)}%`, color: summary.winRate >= 50 ? '#22c55e' : '#f43f5e' },
               { label: 'Invertido',  value: money(summary.totalInv),         color: '#aaa' },
               { label: 'Recuperado', value: money(summary.totalSell),        color: '#aaa' },
-              { label: 'PnL total',  value: money(summary.totalPnl),         color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
-              { label: 'PnL/trade',  value: money(summary.avgPnl),           color: summary.avgPnl >= 0 ? '#22c55e' : '#f43f5e' },
+                            { label: 'PnL total',  value: money(summary.totalPnl),         color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
+              { label: 'P/T + dividendos', value: money(summary.totalPnlWithDividends), color: summary.totalPnlWithDividends >= 0 ? '#22c55e' : '#f43f5e' },
               { label: 'Rend. anual', value: `${summary.weightedAnnual >= 0 ? '+' : ''}${summary.weightedAnnual.toFixed(2)}%`, color: summary.weightedAnnual >= 0 ? '#22c55e' : '#f43f5e' },
             ].map(c => (
               <div key={c.label} style={summaryCard}>
@@ -554,6 +562,12 @@ export default function CerradosPage() {
               )}
               {filteredAndSorted.map(t => {
                 const d = calculateTradeData(t)
+
+                const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
+                const divTotal = divs.reduce((a: number, dv: any) => a + Number(dv.amount), 0)
+                const totalWithDiv = d.pnlCash + divTotal
+                const pctWithDiv = d.totalInvested > 0 ? (totalWithDiv / d.totalInvested * 100) : 0
+
                 return (
                   <tr key={t.id} style={trStyle}>
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>
@@ -576,28 +590,14 @@ export default function CerradosPage() {
                     <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalInvested)}</td>
                     <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalSells)}</td>
                     <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
-                      {(() => {
-                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
-                        const total = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
-                        return total > 0 ? money(total) : <span style={{ color: '#333' }}>—</span>
-                      })()}
-                    </td>
+                       {divTotal > 0 ? money(divTotal) : <span style={{ color: '#333' }}>—</span>}
+                     </td>
                     <td style={{ ...tdStyle, fontWeight: 'bold' }}>
-                      {(() => {
-                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
-                        const divTotal = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
-                        const total = d.pnlCash + divTotal
-                        return <span style={{ color: total >= 0 ? '#22c55e' : '#f43f5e' }}>{money(total)}</span>
-                      })()}
-                    </td>
+                       <span style={{ color: totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{money(totalWithDiv)}</span>
+                     </td>
                     <td style={{ ...tdStyle }}>
-                      {(() => {
-                        const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
-                        const divTotal = divs.reduce((a: number, d: any) => a + Number(d.amount), 0)
-                        const pct = d.totalInvested > 0 ? ((d.pnlCash + divTotal) / d.totalInvested * 100) : 0
-                        return <span style={{ color: pct >= 0 ? '#22c55e' : '#f43f5e' }}>{`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`}</span>
-                      })()}
-                    </td>
+                       <span style={{ color: pctWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{`${pctWithDiv >= 0 ? '+' : ''}${pctWithDiv.toFixed(2)}%`}</span>
+                     </td>
                     <td style={{ ...tdStyle, color: d.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
                       {d.annualPct > 500 ? '>500' : `${d.annualPct >= 0 ? '+' : ''}${d.annualPct.toFixed(1)}`}%
                     </td>
@@ -801,17 +801,20 @@ export default function CerradosPage() {
               {/* Error de edición */}
 
               {/* Resumen del trade */}
-              {(() => {
-                const d = calculateTradeData(viewingTrade)
-                return (
-                  <div style={{ display: 'flex', gap: 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', borderTop: '1px solid #111' }}>
-                    {[
-                      { label: 'Invertido',  value: money(d.totalInvested), color: '#aaa' },
-                      { label: 'Recuperado', value: money(d.totalSells),    color: '#aaa' },
-                      { label: 'PnL', value: (() => { const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date).reduce((a: number, d: any) => a + Number(d.amount), 0); const total = d.pnlCash + divTotal; return money(total) })(), color: (() => { const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date).reduce((a: number, d: any) => a + Number(d.amount), 0); return (d.pnlCash + divTotal) >= 0 ? '#22c55e' : '#f43f5e' })() },
-                      { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
-                      { label: 'Duración',   value: `${d.diffDays} días`,   color: '#aaa' },
-                    ].map(item => (
+                {(() => {
+                 const d = calculateTradeData(viewingTrade)
+                 const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
+                   .reduce((a: number, dv: any) => a + Number(dv.amount), 0)
+                 const totalWithDiv = d.pnlCash + divTotal
+                 return (
+                   <div style={{ display: 'flex', gap: 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', borderTop: '1px solid #111' }}>
+                     {[
+                       { label: 'Invertido',  value: money(d.totalInvested), color: '#aaa' },
+                       { label: 'Recuperado', value: money(d.totalSells),    color: '#aaa' },
+                       { label: 'PnL (+ dividendos)', value: money(totalWithDiv), color: totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' },
+                       { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
+                       { label: 'Duración',   value: `${d.diffDays} días`,   color: '#aaa' },
+                     ].map(item => (
                       <div key={item.label} style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
