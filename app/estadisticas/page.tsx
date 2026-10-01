@@ -606,7 +606,7 @@ function HeatmapCell(props: any) {
   const fill = heatColor(pnlPct ?? 0)
   return (
     <g>
-      <rect x={x} y={y} width={width} height}{height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
+      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
       <title>{`${name}: $${Number(size || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} · ${pnlPct >= 0 ? '+' : ''}${(pnlPct ?? 0).toFixed(1)}%`}</title>
       
       {width > 36 && height > 22 && (
