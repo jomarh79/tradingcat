@@ -195,7 +195,12 @@ export default function EstadisticasPage() {
     // Mapa de calor — posiciones agrupadas por sector, tamaño = valor actual en $, color = % no realizado
     const heatmapBySector: Record<string, { name: string; size: number; pnlPct: number }[]> = {}
     withPnl.forEach(t => {
-      const sector = t.sector || 'Otros'
+      // Si tu portafolio es de ETFs y no trae sector, puedes detectar si es ETF o poner "ETFs" por defecto
+      // O si prefieres que si no hay sector diga "ETFs", cámbialo aquí:
+      const rawSector = t.sector && t.sector.trim() !== '' ? t.sector : 'ETFs'
+      // Opcional: si quieres capitalizar o limpiar el nombre del sector:
+      const sector = rawSector.charAt(0).toUpperCase() + rawSector.slice(1).toLowerCase()
+
       const curValue = Number(t.quantity || 0) * t.curPrice
       if (!heatmapBySector[sector]) heatmapBySector[sector] = []
       heatmapBySector[sector].push({
@@ -204,6 +209,7 @@ export default function EstadisticasPage() {
         pnlPct: t.pnlPct,
       })
     })
+
     const heatmapData = Object.entries(heatmapBySector).map(([sector, children]) => ({
       name: sector,
       children,
