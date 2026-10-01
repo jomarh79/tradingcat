@@ -575,28 +575,46 @@ export default function EstadisticasPage() {
 function HeatmapCell(props: any) {
   const { x, y, width, height, name, pnlPct, size, depth } = props
 
-  // Nivel 1 = encabezado de sector (contenedor, sin relleno)
+  // Nivel 1 = Grupo o Sector (aquí dibujamos el contenedor y el nombre del sector)
   if (depth === 1) {
     return (
       <g>
-        <rect x={x} y={y} width={width} height={height} style={{ fill: 'transparent', stroke: '#1a1a1a', strokeWidth: 1 }} />
-        {width > 60 && height > 16 && (
-          <text x={x + 4} y={y + 12} fontSize={9} fill="#888" fontWeight={700}>{name}</text>
+        <rect 
+          x={x} 
+          y={y} 
+          width={width} 
+          height={height} 
+          style={{ fill: '#0a0a0a', stroke: '#222', strokeWidth: 1.5, rx: 4 }} 
+        />
+        {width > 50 && height > 18 && (
+          <text 
+            x={x + 6} 
+            y={y + 14} 
+            fontSize={10} 
+            fill="#00bfff" 
+            fontWeight={800} 
+            style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}
+          >
+            {name}
+          </text>
         )}
       </g>
     )
   }
 
-  // Nivel 2 = posición individual
+  // Nivel 2 = Posición individual dentro del sector
   const fill = heatColor(pnlPct ?? 0)
   return (
     <g>
-      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#050505', strokeWidth: 1.5 }} />
+      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
       <title>{`${name}: $${Number(size || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} · ${pnlPct >= 0 ? '+' : ''}${(pnlPct ?? 0).toFixed(1)}%`}</title>
-      {width > 34 && height > 20 && (
+      {width > 36 && height > 24 && (
         <>
-          <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle" fontSize={11} fontWeight={800} fill="#fff">{name}</text>
-          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle" fontSize= {9} fontWeight={700} fill="#fff">
+          {/* Sombra o texto con alta visibilidad (blanco puro con negrita pesada) */}
+          <text x={x + width / 2} y={y + height / 2 - 5} textAnchor="middle" fontSize={11} fontWeight={900} fill="#ffffff">
+            {name}
+          </text>
+          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle" fontSize={10} fontWeight={800} fill="#ffffff">
             {pnlPct >= 0 ? '+' : ''}{(pnlPct ?? 0).toFixed(1)}%
           </text>
         </>
