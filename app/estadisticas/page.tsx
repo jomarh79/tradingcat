@@ -575,7 +575,7 @@ export default function EstadisticasPage() {
 function HeatmapCell(props: any) {
   const { x, y, width, height, name, pnlPct, size, depth } = props
 
-  // Nivel 1 = Grupo o Sector (Agrupación principal)
+  // Nivel 1 = Grupo o Sector (Muestra el nombre del sector arriba)
   if (depth === 1) {
     return (
       <g>
@@ -584,16 +584,16 @@ function HeatmapCell(props: any) {
           y={y} 
           width={width} 
           height={height} 
-          style={{ fill: '#0c0c0c', stroke: '#262626', strokeWidth: 2, rx: 6 }} 
+          style={{ fill: '#090909', stroke: '#222222', strokeWidth: 1.5, rx: 4 }} 
         />
-        {width > 60 && height > 20 && (
+        {width > 60 && height > 18 && (
           <text 
-            x={x + 8} 
-            y={y + 15} 
+            x={x + 6} 
+            y={y + 14} 
             fontSize={10} 
             fill="#00bfff" 
-            fontWeight={900}
-            style={{ textTransform: 'uppercase', letterSpacing: '0.8px' }}
+            fontWeight={800}
+            style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}
           >
             {name}
           </text>
@@ -602,28 +602,37 @@ function HeatmapCell(props: any) {
     )
   }
 
-  // Nivel 2 = Posición individual (Ticker)
+  // Nivel 2 = Posición individual (Ticker y % en blanco limpio)
   const fill = heatColor(pnlPct ?? 0)
   return (
     <g>
-      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#050505', strokeWidth: 1.5 }} />
+      <rect x={x} y={y} width={width} height}{height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
       <title>{`${name}: $${Number(size || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} · ${pnlPct >= 0 ? '+' : ''}${(pnlPct ?? 0).toFixed(1)}%`}</title>
       
-      {width > 38 && height > 26 && (
+      {width > 36 && height > 22 && (
         <>
-          {/* Fondo negro semitransparente detrás del texto para que contraste sin importar el color del mapa de calor */}
-          <rect 
-            x={x + width / 2 - 28} 
-            y={y + height / 2 - 14} 
-            width={56} 
-            height={28} 
-            rx={4} 
-            fill="rgba(0, 0, 0, 0.65)" 
-          />
-          <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle" fontSize={11} fontWeight={900} fill="#ffffff">
+          <text 
+            x={x + width / 2} 
+            y={y + height / 2 - 4} 
+            textAnchor="middle" 
+            fontSize={11} 
+            fontWeight={900} 
+            fill="#ffffff"
+            stroke="#000000"
+            strokeWidth={0.5}
+          >
             {name}
           </text>
-          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle" fontSize={9} fontWeight={800} fill={pnlPct >= 0 ? '#4ade80' : '#f87171'}>
+          <text 
+            x={x + width / 2} 
+            y={y + height / 2 + 10} 
+            textAnchor="middle" 
+            fontSize={9} 
+            fontWeight={800} 
+            fill="#ffffff"
+            stroke="#000000"
+            strokeWidth={0.4}
+          >
             {pnlPct >= 0 ? '+' : ''}{(pnlPct ?? 0).toFixed(1)}%
           </text>
         </>
