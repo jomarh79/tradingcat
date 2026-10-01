@@ -8,7 +8,7 @@ import { BarChart2 } from 'lucide-react'
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  ComposedChart, Line, ReferenceLine, Legend,
+  ComposedChart, Line, ReferenceLine, Legend, Treemap,
 } from 'recharts'
 
 // ── Constantes ───────────────────────────────────────────────────────────
@@ -24,6 +24,16 @@ const C = {
 }
 
 const PIE_COLORS = ['#00bfff','#6366f1','#22c55e','#eab308','#f43f5e','#a855f7','#ec4899','#14b8a6','#f97316','#84cc16']
+
+// Color del mapa de calor — gris neutro en 0%, se satura a verde (+) o rojo (−) según magnitud (tope en ±30%)
+function heatColor(pct: number): string {
+  const clamp = Math.max(-30, Math.min(30, pct))
+  const t = Math.abs(clamp) / 30
+  const base   = { r: 26, g: 26, b: 26 }
+  const target = clamp >= 0 ? { r: 34, g: 197, b: 94 } : { r: 244, g: 63, b: 94 }
+  const mix = (a: number, b: number) => Math.round(a + (b - a) * t)
+  return `rgb(${mix(base.r, target.r)}, ${mix(base.g, target.g)}, ${mix(base.b, target.b)})`
+}
 
 const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
 
@@ -182,6 +192,23 @@ export default function EstadisticasPage() {
       }))
       .sort((a, b) => b.pnl - a.pnl)
 
+    // Mapa de calor — posiciones agrupadas por sector, tamaño = valor actual en $, color = % no realizado
+    const heatmapBySector: Record<string, { name: string; size: number; pnlPct: number }[]> = {}
+    withPnl.forEach(t => {
+      const sector = t.sector || 'Otros'
+      const curValue = Number(t.quantity || 0) * t.curPrice
+      if (!heatmapBySector[sector]) heatmapBySector[sector] = []
+      heatmapBySector[sector].push({
+        name: t.ticker,
+        size: curValue > 0 ? parseFloat(curValue.toFixed(2)) : 0.01,
+        pnlPct: t.pnlPct,
+      })
+    })
+    const heatmapData = Object.entries(heatmapBySector).map(([sector, children]) => ({
+      name: sector,
+      children,
+    }))
+
     // Tiempo en posición
     const now = new Date()
     const daysInPosition = withPnl.map(t => {
@@ -245,7 +272,7 @@ export default function EstadisticasPage() {
     return {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
       winningTrades, losingTrades, totalCount: filteredTrades.length,
-      horizonData, sectorData, countryData, sectorPnlData,
+      horizonData, sectorData, countryData, sectorPnlData, heatmapData,
       topGains, topLosses, daysInPosition, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
@@ -325,20 +352,18 @@ export default function EstadisticasPage() {
               }
             >
               {stats.vsData.length > 1 ? (
-                <>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={stats.vsData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
-                      <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`} />} />
-                      <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                      <Line type="monotone" dataKey="portfolio" name="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
-                      <Line type="monotone" dataKey="sp500"     name="S&P 500"   stroke={C.sp500} strokeWidth={2}   dot={false} strokeDasharray="6 3" />
-                      <Legend formatter={(value) => <span style={{ color: '#aaa', fontSize: 10 }}>{value}</span>} wrapperStyle={{ paddingTop: 8 }} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </>
+                <ResponsiveContainer width="100%" height={260}>
+                  <ComposedChart data={stats.vsData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                    <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`} />} />
+                    <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="portfolio" name="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
+                    <Line type="monotone" dataKey="sp500"     name="S&P 500"   stroke={C.sp500} strokeWidth={2}   dot={false} strokeDasharray="6 3" />
+                    <Legend formatter={(value) => <span style={{ color: '#aaa', fontSize: 10 }}>{value}</span>} wrapperStyle={{ paddingTop: 8 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
               ) : (
                 <EmptyChart message="Cargando datos del S&P 500... o no hay suficientes trades con fechas en este rango" height={260} />
               )}
@@ -407,22 +432,24 @@ export default function EstadisticasPage() {
                   <EmptyText text="Sin posiciones abiertas" />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
-                    {stats.sectorPnlData.map(s => {
+                    {(() => {
                       const maxAbs = Math.max(...stats.sectorPnlData.map(d => Math.abs(d.pnl)))
-                      const width  = maxAbs > 0 ? Math.abs(s.pnl) / maxAbs * 100 : 0
-                      const color  = s.pnl >= 0 ? '#22c55e' : '#f43f5e'
-                      return (
-                        <div key={s.sector}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 10 }}>
-                            <span style={{ color: '#aaa' }}>{s.sector} <span style={{ color: '#444' }}>({s.count})</span></span>
-                            <span style={{ fontWeight: 700, color }}>{s.pnl >= 0 ? '+' : ''}{money(s.pnl)}</span>
+                      return stats.sectorPnlData.map(s => {
+                        const width = maxAbs > 0 ? Math.abs(s.pnl) / maxAbs * 100 : 0
+                        const color  = s.pnl >= 0 ? '#22c55e' : '#f43f5e'
+                        return (
+                          <div key={s.sector}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 10 }}>
+                              <span style={{ color: '#aaa' }}>{s.sector} <span style={{ color: '#444' }}>({s.count})</span></span>
+                              <span style={{ fontWeight: 700, color }}>{s.pnl >= 0 ? '+' : ''}{money(s.pnl)}</span>
+                            </div>
+                            <div style={{ height: 5, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3 }} />
+                            </div>
                           </div>
-                          <div style={{ height: 5, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3 }} />
-                          </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })
+                    })()}
                   </div>
                 )}
               </div>
@@ -519,6 +546,24 @@ export default function EstadisticasPage() {
               </ChartCard>
             </div>
 
+            {/* ══ FILA 5 — MAPA DE CALOR POR SECTOR ══ */}
+            <ChartCard
+              title="Mapa de calor — posiciones por sector"
+              sub="Tamaño = valor actual en $ · color = % de ganancia/pérdida no realizada (verde = gana, rojo = pierde)"
+            >
+              {stats.heatmapData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={420}>
+                  <Treemap
+                    data={stats.heatmapData}
+                    dataKey="size"
+                    aspectRatio={4 / 3}
+                    stroke="#050505"
+                    content={<HeatmapCell />}
+                  />
+                </ResponsiveContainer>
+              ) : <EmptyChart message="Sin posiciones abiertas" height={300} />}
+            </ChartCard>
+
           </div>
         )}
       </div>
@@ -527,6 +572,39 @@ export default function EstadisticasPage() {
 }
 
 // ── Subcomponentes ──────────────────────────────────────────────────────
+function HeatmapCell(props: any) {
+  const { x, y, width, height, name, pnlPct, size, depth } = props
+
+  // Nivel 1 = encabezado de sector (contenedor, sin relleno)
+  if (depth === 1) {
+    return (
+      <g>
+        <rect x={x} y={y} width={width} height={height} style={{ fill: 'transparent', stroke: '#1a1a1a', strokeWidth: 1 }} />
+        {width > 60 && height > 16 && (
+          <text x={x + 4} y={y + 12} fontSize={9} fill="#888" fontWeight={700}>{name}</text>
+        )}
+      </g>
+    )
+  }
+
+  // Nivel 2 = posición individual
+  const fill = heatColor(pnlPct ?? 0)
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#050505', strokeWidth: 1.5 }} />
+      <title>{`${name}: $${Number(size || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} · ${pnlPct >= 0 ? '+' : ''}${(pnlPct ?? 0).toFixed(1)}%`}</title>
+      {width > 34 && height > 20 && (
+        <>
+          <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle" fontSize={11} fontWeight={800} fill="#fff">{name}</text>
+          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle" fontSize= {9} fontWeight={700} fill="#fff">
+            {pnlPct >= 0 ? '+' : ''}{(pnlPct ?? 0).toFixed(1)}%
+          </text>
+        </>
+      )}
+    </g>
+  )
+}
+
 function StatCard({ label, value, desc, color = 'white' }: any) {
   return (
     <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
