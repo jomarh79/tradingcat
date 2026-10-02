@@ -1,14 +1,34 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "@/lib/supabase"
 import { usePrivacy } from "@/lib/PrivacyContext"
 import { Trash2, Pencil, X, ChevronRight } from "lucide-react"
 import AiInsightPanel from "./AiInsightPanel"
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const r2 = (n: number) => Math.round(n * 100) / 100 + 0
+const r4 = (n: number) => Math.round(n * 10000) / 10000 + 0
+const r6 = (n: number) => Math.round(n * 1000000) / 1000000 + 0
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const dayKey    = (d: any) => String(d || '').split('T')[0]
+const parseDate = (d: any) => new Date(dayKey(d) + 'T00:00:00')
+const todayLocal = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Mexico_City' })
 
+// Supabase devuelve { error } en vez de lanzar: lo convertimos en excepción
+function must<T>(res: { data: T; error: any }): T {
+  if (res.error) throw res.error
+  return res.data
+}
+const errMsg = (e: any) => e?.message || String(e)
+
+// Valor de un input de stop/TP → número o null
+const toTarget = (v: string) => {
+  const n = parseFloat(v)
+  return n > 0 ? r4(n) : null
+}
+
+// Cache de tipo de cambio por fecha (USD → MXN)
 const fxCache: Record<string, string> = {}
 
 const CLOSE_REASONS = [
@@ -23,8 +43,80 @@ const CLOSE_REASONS = [
   'Rebote',
   'Otro',
 ]
+
+// ── Lógica de posición (una sola fuente de verdad) ───────────────────────────
+type ExType = 'buy' | 'sell' | 'close'
+interface Calc { qty: number; cap: number; pnl: number }
+
+// Aplica una ejecución sobre el estado de la posición.
+// Se usa tanto para la vista previa (pendientes) como para recalcular desde la BD.
+function applyExecution(s: Calc, type: ExType, q: number, price: number, comm: number): Calc {
+  const gross = r2(q * price)
+  if (type === 'buy') {
+    return { qty: r6(s.qty + q), cap: r2(s.cap + gross + comm), pnl: s.pnl }
+  }
+  const avgM  = s.qty > 0 ? s.cap / s.qty : 0
+  const cost  = r2(q * avgM)
+  const netIn = r2(gross - comm)
+  const qty   = r6(s.qty - q)
+  if (qty <= 0) return { qty: 0, cap: 0, pnl: r2(s.pnl + netIn - cost) }
+  return { qty, cap: r2(s.cap - cost), pnl: r2(s.pnl + netIn - cost) }
+}
+
+// Verifica que ninguna venta deje la posición en negativo
+function isValidSequence(base: Calc, moves: PendingMove[]): boolean {
+  let s = base
+  for (const m of moves) {
+    if (m.exType !== 'buy' && m.q > s.qty + 1e-9) return false
+    s = applyExecution(s, m.exType, m.q, m.pr, m.commission)
+  }
+  return true
+}
+
+function computeFromExecutions(t: any, ex: any[]): Calc {
+  const q0 = r6(Number(t.initial_quantity ?? t.quantity) || 0)
+  const p0 = Number(t.initial_entry_price ?? t.entry_price) || 0
+  let s: Calc = { qty: q0, cap: r2(q0 * p0), pnl: 0 }
+  for (const e of ex) {
+    const type: ExType = e.execution_type === 'buy' ? 'buy' : e.execution_type === 'sell' ? 'sell' : 'close'
+    s = applyExecution(s, type, r6(Number(e.quantity)), r4(Number(e.price)), r2(Number(e.commission || 0)))
+  }
+  return s
+}
+
+interface PendingMove {
+  type: string            // "Recompra (USD)" — se guarda en notes de wallet_movements
+  amount: number          // efecto en la billetera (USD)
+  gross: number
+  commission: number
+  date: string
+  q: number
+  pr: number              // precio en USD
+  exType: ExType
+  tc: number
+  closeReason?: string
+}
+
+interface HistoryItem {
+  id: string
+  date: string
+  actions: number
+  price: number
+  commission: number
+  total: number           // neto: compra = bruto + comisión, venta = bruto − comisión
+  type: string
+  exType: 'open' | ExType
+  seq: number             // desempate dentro del mismo día
+}
+
+interface TradeManagerModalProps {
+  trade: any
+  onClose: () => void
+  onRefresh: () => void | Promise<void>
+}
+
 // Huella de gato SVG pequeña
-const Paw = ({ color = '#555', size = 14 }: any) => (
+const Paw = ({ color = '#555', size = 14 }: { color?: string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
     <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
@@ -34,681 +126,668 @@ const Paw = ({ color = '#555', size = 14 }: any) => (
   </svg>
 )
 
-export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
-  const today = new Date().toLocaleDateString('sv-SE')
+export default function TradeManagerModal({ trade, onClose, onRefresh }: TradeManagerModalProps) {
   const { money, shares } = usePrivacy()
 
-  const [qty,     setQty]     = useState(parseFloat(Number(trade.quantity      || 0).toFixed(6)))
-  const [avg,     setAvg]     = useState(parseFloat(Number(trade.entry_price   || 0).toFixed(2)))
-  const [capital, setCapital] = useState(parseFloat(Number(trade.total_invested || 0).toFixed(2)))
-  const [pnl,     setPnl]     = useState(parseFloat(Number(trade.realized_pnl  || 0).toFixed(2)))
+  // Posición confirmada en la BD (los pendientes se aplican encima)
+  const [base, setBase] = useState<Calc & { avg: number }>({
+    qty: r6(Number(trade.quantity) || 0),
+    cap: r2(Number(trade.total_invested) || 0),
+    pnl: r2(Number(trade.realized_pnl) || 0),
+    avg: r4(Number(trade.entry_price) || 0),
+  })
 
   const [actions,     setActions]     = useState("")
   const [price,       setPrice]       = useState("")
-  const [date,        setDate]        = useState(today)
+  const [date,        setDate]        = useState(todayLocal())
   const [commission,  setCommission]  = useState("0")
   const [closeReason, setCloseReason] = useState("")
   const [isSaving,    setIsSaving]    = useState(false)
-  const [editingId,   setEditingId]   = useState<string | null>(null)
+  const [editing,     setEditing]     = useState<HistoryItem | null>(null)
   const [closingMode, setClosingMode] = useState(false)
-  const [showAI, setShowAI] = useState(false)
+  const [showAI,      setShowAI]      = useState(false)
 
-  const [stop, setStop] = useState(trade.stop_loss     || 0)
-  const [tp1,  setTp1]  = useState(trade.take_profit_1 || 0)
-  const [tp2,  setTp2]  = useState(trade.take_profit_2 || 0)
-  const [tp3,  setTp3]  = useState(trade.take_profit_3 || 0)
+  const [stop, setStop] = useState(trade.stop_loss     ? String(trade.stop_loss)     : '')
+  const [tp1,  setTp1]  = useState(trade.take_profit_1 ? String(trade.take_profit_1) : '')
+  const [tp2,  setTp2]  = useState(trade.take_profit_2 ? String(trade.take_profit_2) : '')
+  const [tp3,  setTp3]  = useState(trade.take_profit_3 ? String(trade.take_profit_3) : '')
 
-  const [currency,     setCurrency]     = useState('USD')
+  const [currency,     setCurrency]     = useState<'USD' | 'MXN'>('USD')
   const [exchangeRate, setExchangeRate] = useState('1')
-  const [history,      setHistory]      = useState<any[]>([])
-  const [moves,        setMoves]        = useState<any[]>([])
+  const [fxError,      setFxError]      = useState(false)
+  const [history,      setHistory]      = useState<HistoryItem[]>([])
+  const [moves,        setMoves]        = useState<PendingMove[]>([])
 
-  // Ref para acceder al qty actual dentro de cerrarTrade sin depender del cierre
-  const qtyRef     = { current: qty }
-  const capitalRef = { current: capital }
-  const avgRef     = { current: avg }
-  const pnlRef     = { current: pnl }
-
-  const fetchExchangeRate = useCallback(async (selectedDate: string, targetCurrency: string) => {
-    if (targetCurrency === 'USD') { setExchangeRate('1'); return }
-    const key = `${selectedDate}-MXN`
-    if (fxCache[key]) { setExchangeRate(fxCache[key]); return }
-    try {
-      const res  = await fetch(`https://api.frankfurter.app/${selectedDate}?from=USD&to=MXN`)
-      const data = await res.json()
-      let rate   = data?.rates?.MXN
-      if (!rate) {
-        const latest = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN')
-        rate = (await latest.json()).rates.MXN
-      }
-      const fixed = rate.toFixed(4)
-      fxCache[key] = fixed
-      setExchangeRate(fixed)
-    } catch (err) { console.error(err) }
-  }, [])
-
+  // ── Tipo de cambio ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (currency === 'MXN') fetchExchangeRate(date, currency)
-    else setExchangeRate('1')
-  }, [date, currency, fetchExchangeRate])
+    if (currency !== 'MXN') { setExchangeRate('1'); setFxError(false); return }
+    if (!date) return
+    if (fxCache[date]) { setExchangeRate(fxCache[date]); setFxError(false); return }
 
-  const tCambio    = parseFloat(exchangeRate) || 1
-  const priceUSD   = currency === 'MXN' ? parseFloat((Number(price) / tCambio).toFixed(2)) : parseFloat(Number(price).toFixed(2))
-  const commUSD    = parseFloat((parseFloat(commission || '0') / tCambio).toFixed(2))
-  const actionsNum = parseFloat(actions || '0')
-  const totalOp    = parseFloat((actionsNum * Number(price || 0)).toFixed(2))
-  const totalOpUSD = parseFloat((actionsNum * priceUSD).toFixed(2))
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`https://api.frankfurter.app/${date}?from=USD&to=MXN`)
+        let rate = res.ok ? (await res.json())?.rates?.MXN : null
+        if (!rate) {
+          const latest = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN')
+          rate = (await latest.json())?.rates?.MXN
+        }
+        const n = Number(rate)
+        if (!(n > 0)) throw new Error('sin tipo de cambio')
+        const fixed = n.toFixed(4)
+        fxCache[date] = fixed
+        if (!cancelled) { setExchangeRate(fixed); setFxError(false) }
+      } catch {
+        if (!cancelled) { setExchangeRate(''); setFxError(true) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [date, currency])
 
-  const loadHistory = useCallback(async () => {
-  const { data: freshTrade } = await supabase
-    .from("trades").select("*").eq("id", trade.id).single()
-  const { data: executions } = await supabase
-    .from("trade_executions").select("*")
-    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
+  // ── Valores derivados de la operación en curso ─────────────────────────────
+  const fx         = currency === 'MXN' ? (parseFloat(exchangeRate) || 0) : 1
+  const rateOk     = fx > 0
+  const priceNum   = Number(price) || 0
+  const priceUSD   = rateOk ? r4(priceNum / fx) : 0
+  const commUSD    = rateOk ? r2((parseFloat(commission) || 0) / fx) : 0
+  const actionsNum = parseFloat(actions) || 0
 
-  // 🔥 CAMBIO: Usar los valores iniciales fijos
-  const initialPrice = parseFloat(
-  Number(
-    freshTrade?.initial_entry_price ??
-    trade.entry_price
-  ).toFixed(2)
-)
+  // Posición proyectada = BD + operaciones pendientes
+  const proj = useMemo(
+    () => moves.reduce<Calc>((s, m) => applyExecution(s, m.exType, m.q, m.pr, m.commission), base),
+    [base, moves]
+  )
+  const avg = proj.qty > 0 ? r4(proj.cap / proj.qty) : base.avg
 
-const initialQty = parseFloat(
-  Number(
-    freshTrade?.initial_quantity ??
-    trade.quantity
-  ).toFixed(6)
-)
+  const opQty      = closingMode ? proj.qty : actionsNum
+  const totalOp    = r2(opQty * priceNum)
+  const totalOpUSD = r2(opQty * priceUSD)
 
-  const opening = {
-    id: 'apertura', 
-    date: freshTrade?.open_date || trade.open_date,
-    actions: initialQty, 
-    price: initialPrice,
-    total: parseFloat((initialQty * initialPrice).toFixed(2)),
-    commission: 0, 
-    type: 'Apertura',
+  // ── Carga / recálculo desde la BD ──────────────────────────────────────────
+  async function fetchTradeData() {
+    const t  = must(await supabase.from("trades").select("*").eq("id", trade.id).single()) as any
+    const ex = must(await supabase.from("trade_executions").select("*")
+      .eq("trade_id", trade.id).order('executed_at', { ascending: true })) as any[]
+    return { t, ex: ex || [] }
   }
 
-  const execHistory = (executions || []).map(e => ({
-    id: e.id, 
-    date: e.executed_at,
-    actions: parseFloat(Number(e.quantity).toFixed(6)),
-    price: parseFloat(Number(e.price).toFixed(2)),
-    total: parseFloat(Number(e.total).toFixed(2)),
-    commission: parseFloat(Number(e.commission || 0).toFixed(2)),
-    type: e.execution_type === 'buy' ? 'Recompra' : e.execution_type === 'sell' ? 'Venta parcial' : 'Cierre',
-  }))
+  function buildHistory(t: any, ex: any[]): HistoryItem[] {
+    const initialQty   = r6(Number(t.initial_quantity ?? trade.quantity) || 0)
+    const initialPrice = r4(Number(t.initial_entry_price ?? trade.entry_price) || 0)
 
-  setHistory([opening, ...execHistory].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  ))
-}, [trade])
+    const opening: HistoryItem = {
+      id: 'apertura', date: t.open_date || trade.open_date,
+      actions: initialQty, price: initialPrice, commission: 0,
+      total: r2(initialQty * initialPrice), type: 'Apertura', exType: 'open', seq: 0,
+    }
 
-
-  useEffect(() => { loadHistory() }, [loadHistory])
-
-  const recalculateTrade = useCallback(async () => {
-  const { data: t }  = await supabase.from("trades").select("*").eq("id", trade.id).single()
-  const { data: ex } = await supabase.from("trade_executions").select("*")
-    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
-
-  // 🔥 Empezar siempre con la base inmutable
-  let cQty = parseFloat(
-  Number(t.initial_quantity ?? t.quantity).toFixed(6)
-)
-
-let cCap = parseFloat(
-  (
-    cQty *
-    Number(t.initial_entry_price ?? t.entry_price)
-  ).toFixed(4)
-)
-  let cPnl = 0
-
-  if (ex) {
-    ex.forEach(e => {
-      const q = parseFloat(Number(e.quantity).toFixed(6))
-      const p = parseFloat(Number(e.price).toFixed(2))
-      const comm = parseFloat(Number(e.commission || 0).toFixed(2))
-      const gross = parseFloat((q * p).toFixed(2))
-
-      if (e.execution_type === 'buy') {
-        cQty = parseFloat((cQty + q).toFixed(6))
-        cCap = parseFloat((cCap + gross + comm).toFixed(2))
-      } else {
-        const avgM = cQty > 0 ? cCap / cQty : 0
-        const cost = parseFloat((q * avgM).toFixed(2))
-        const netIn = parseFloat((gross - comm).toFixed(2))
-        cQty = parseFloat((cQty - q).toFixed(6))
-        cCap = parseFloat((cCap - cost).toFixed(2))
-        cPnl = parseFloat((cPnl + (netIn - cost)).toFixed(2))
+    const execs: HistoryItem[] = ex.map((e, i) => {
+      const q     = r6(Number(e.quantity))
+      const p     = r4(Number(e.price))
+      const comm  = r2(Number(e.commission || 0))
+      const gross = r2(Number(e.total ?? q * p))
+      const isBuy = e.execution_type === 'buy'
+      return {
+        id: e.id, date: e.executed_at, actions: q, price: p, commission: comm,
+        total: isBuy ? r2(gross + comm) : r2(gross - comm),
+        type: isBuy ? 'Recompra' : e.execution_type === 'sell' ? 'Venta parcial' : 'Cierre',
+        exType: isBuy ? 'buy' : e.execution_type === 'sell' ? 'sell' : 'close',
+        seq: i + 1,
       }
+    })
+
+    return [opening, ...execs].sort((a, b) => {
+      const da = dayKey(a.date), db = dayKey(b.date)
+      return da === db ? b.seq - a.seq : da < db ? 1 : -1
     })
   }
 
-  const avgPrice = cQty > 0 ? parseFloat((cCap / cQty).toFixed(2)) : t.initial_entry_price
+  // Lee la BD, recalcula y (si persist) guarda los totales del trade en una sola escritura.
+  // extra recibe si el trade quedó cerrado y devuelve campos adicionales a guardar.
+  async function refreshFromDb(persist: boolean, extra?: (closed: boolean) => Record<string, any>) {
+    const { t, ex } = await fetchTradeData()
 
-  setQty(cQty); setCapital(cCap); setAvg(avgPrice); setPnl(cPnl)
+    if (persist) {
+      const calc   = computeFromExecutions(t, ex)
+      const closed = calc.qty <= 0
+      const avgPrice = calc.qty > 0
+        ? r4(calc.cap / calc.qty)
+        : r4(Number(t.initial_entry_price ?? t.entry_price) || 0)
 
-  await supabase.from("trades").update({
-    quantity: cQty,
-    total_invested: parseFloat(cCap.toFixed(2)),
-    entry_price: avgPrice, // El promedio para la tabla principal
-    realized_pnl: parseFloat(cPnl.toFixed(2)),
-    status: cQty <= 0 ? 'closed' : 'open',
-  }).eq("id", trade.id)
-}, [trade])
+      const payload: Record<string, any> = {
+        quantity:       calc.qty,
+        total_invested: calc.cap,
+        entry_price:    avgPrice,
+        realized_pnl:   calc.pnl,
+        status:         closed ? 'closed' : 'open',
+      }
+      if (!closed) {
+        payload.close_date   = null   // si se eliminó el cierre, el trade se reabre limpio
+        payload.close_reason = null
+      } else if (!t.close_date) {
+        payload.close_date = ex.length ? dayKey(ex[ex.length - 1].executed_at) : todayLocal()
+      }
+      Object.assign(payload, extra?.(closed) ?? {})
 
+      const { error } = await supabase.from("trades").update(payload).eq("id", trade.id)
+      if (error) throw error
+      setBase({ ...calc, avg: avgPrice })
+    }
 
+    setHistory(buildHistory(t, ex))
+  }
+
+  useEffect(() => {
+    refreshFromDb(false).catch(e => console.error("Error cargando historial:", e))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trade.id])
+
+  // ── Validación de la operación del formulario ──────────────────────────────
+  const validateOp = (qty: number): string | null => {
+    if (!rateOk)        return 'Ingresa el tipo de cambio'
+    if (!(qty > 0))     return 'Ingresa una cantidad mayor a 0'
+    if (!(priceUSD > 0)) return 'Ingresa un precio válido'
+    if (!date)          return 'Selecciona la fecha'
+    if ((parseFloat(commission) || 0) < 0) return 'La comisión no puede ser negativa'
+    return null
+  }
+
+  const resetForm = () => {
+    setActions(""); setPrice(""); setCommission("0"); setClosingMode(false)
+  }
+
+  // ── Operaciones pendientes ─────────────────────────────────────────────────
   const recomprar = () => {
-    if (!actionsNum || !priceUSD) return
-    const gross   = parseFloat((actionsNum * priceUSD).toFixed(2))
-    const wallOut = parseFloat((gross + commUSD).toFixed(2))
+    const err = validateOp(actionsNum)
+    if (err) return alert(err)
+    const gross = r2(actionsNum * priceUSD)
     setMoves(prev => [...prev, {
-      type: `Recompra (${currency})`, amount: -wallOut,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(actionsNum.toFixed(6)), pr: priceUSD,
-      exType: "buy", mType: "trade", noteExt: `T/C: ${tCambio}`,
+      type: `Recompra (${currency})`, amount: -r2(gross + commUSD),
+      gross, commission: commUSD, date, q: r6(actionsNum), pr: priceUSD,
+      exType: 'buy', tc: fx,
     }])
-    const nQty = parseFloat((qty + actionsNum).toFixed(6))
-    const nCap = parseFloat((capital + gross + commUSD).toFixed(2))
-    setQty(nQty); setCapital(nCap); setAvg(parseFloat((nCap / nQty).toFixed(2)))
-    setActions(""); setPrice(""); setCommission("0")
-    setClosingMode(false)
+    resetForm()
   }
 
   const ventaParcial = () => {
-    if (!actionsNum || !priceUSD || actionsNum > qty) return
-    const gross  = parseFloat((actionsNum * priceUSD).toFixed(2))
-    const wallIn = parseFloat((gross - commUSD).toFixed(2))
-    const cost   = parseFloat((actionsNum * avg).toFixed(2))
+    const err = validateOp(actionsNum)
+    if (err) return alert(err)
+    if (actionsNum > proj.qty) return alert('No puedes vender más acciones de las que tienes')
+    const gross = r2(actionsNum * priceUSD)
     setMoves(prev => [...prev, {
-      type: `Venta parcial (${currency})`, amount: wallIn,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(actionsNum.toFixed(6)), pr: priceUSD,
-      exType: "sell", mType: "trade", noteExt: `T/C: ${tCambio}`,
+      type: `Venta parcial (${currency})`, amount: r2(gross - commUSD),
+      gross, commission: commUSD, date, q: r6(actionsNum), pr: priceUSD,
+      exType: 'sell', tc: fx,
     }])
-    setQty(parseFloat((qty - actionsNum).toFixed(6)))
-    setCapital(parseFloat((capital - cost).toFixed(2)))
-    setPnl(parseFloat((pnl + (wallIn - cost)).toFixed(2)))
-    setActions(""); setPrice(""); setCommission("0")
-    setClosingMode(false)
+    resetForm()
   }
 
-  // Retorna el move de cierre sin modificar estado — lo usa guardar() directamente
-  const buildCloseMove = () => {
-    if (!priceUSD) return null
-    const gross  = parseFloat((qty * priceUSD).toFixed(2))
-    const wallIn = parseFloat((gross - commUSD).toFixed(2))
+  const buildCloseMove = (): PendingMove | null => {
+    const err = validateOp(proj.qty)
+    if (err) { alert(err); return null }
+    if (!closeReason) { alert('Selecciona la razón de cierre'); return null }
+    const gross = r2(proj.qty * priceUSD)
     return {
-      type: `Cierre total (${currency})`, amount: wallIn,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(qty.toFixed(6)), pr: priceUSD,
-      exType: "close", mType: "trade", noteExt: `T/C: ${tCambio}`,
-      closeReason,
+      type: `Cierre total (${currency})`, amount: r2(gross - commUSD),
+      gross, commission: commUSD, date, q: r6(proj.qty), pr: priceUSD,
+      exType: 'close', tc: fx, closeReason,
     }
   }
 
-  const startEdit = (h: any) => {
-    setEditingId(h.id)
+  const removeMove = (index: number) => {
+    const next = moves.filter((_, i) => i !== index)
+    if (!isValidSequence(base, next)) {
+      return alert('No puedes quitar esta compra: una venta pendiente depende de ella')
+    }
+    setMoves(next)
+  }
+
+  // ── Edición / eliminación de ejecuciones guardadas ─────────────────────────
+  const startEdit = (h: HistoryItem) => {
+    setEditing(h)
     setActions(h.actions.toString())
     setPrice(h.price.toString())
-    setDate(typeof h.date === 'string' ? h.date.split('T')[0] : h.date)
+    setDate(dayKey(h.date))
     setCurrency('USD')
     setCommission(h.commission?.toString() || '0')
     setClosingMode(false)
   }
 
-  const deleteExecution = async (h: any) => {
-    if (h.id === 'apertura' || !confirm('¿Eliminar esta ejecución?')) return
-    await supabase.from("trade_executions").delete().eq("id", h.id)
-    await supabase.from("wallet_movements").delete().eq("execution_id", h.id)
-    await recalculateTrade(); loadHistory(); onRefresh()
+  const cancelEdit = () => {
+    setEditing(null)
+    setDate(todayLocal())
+    resetForm()
+  }
+
+  const deleteExecution = async (h: HistoryItem) => {
+    if (h.id === 'apertura' || isSaving) return
+    if (!confirm('¿Eliminar esta ejecución? También se ajustará el movimiento de la billetera.')) return
+    setIsSaving(true)
+    try {
+      // Primero el movimiento: así no queda huérfano aunque la FK haga SET NULL
+      const m = await supabase.from("wallet_movements").delete().eq("execution_id", h.id)
+      if (m.error) throw m.error
+      const x = await supabase.from("trade_executions").delete().eq("id", h.id)
+      if (x.error) throw x.error
+      await refreshFromDb(true)
+      await onRefresh()
+    } catch (e) {
+      alert('No se pudo eliminar: ' + errMsg(e))
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const updateExecution = async () => {
-    if (!editingId || isSaving) return
+    if (!editing || isSaving) return
+    const err = validateOp(actionsNum)
+    if (err) return alert(err)
+
     setIsSaving(true)
     try {
-      // Dentro de updateExecution, en el bloque de 'apertura':
-      if (editingId === 'apertura') {
-        await supabase.from("trades").update({
-          initial_quantity: parseFloat(actionsNum.toFixed(6)),
-          initial_entry_price: parseFloat(priceUSD.toFixed(2)),
-          open_date: date,
+      if (editing.id === 'apertura') {
+        const { error } = await supabase.from("trades").update({
+          initial_quantity:    r6(actionsNum),
+          initial_entry_price: priceUSD,
+          open_date:           date,
         }).eq("id", trade.id)
+        if (error) throw error
+      } else {
+        const gross  = r2(actionsNum * priceUSD)
+        const isBuy  = editing.exType === 'buy'
+        const walletAmount = isBuy ? -r2(gross + commUSD) : r2(gross - commUSD)
 
-    } else {
-      // Obtener el tipo de ejecución para calcular el monto correcto
-      const { data: execData } = await supabase
-        .from("trade_executions")
-        .select("execution_type")
-        .eq("id", editingId)
-        .single()
+        const ex = await supabase.from("trade_executions").update({
+          quantity: r6(actionsNum), price: priceUSD, total: gross,
+          commission: commUSD, executed_at: date,
+        }).eq("id", editing.id)
+        if (ex.error) throw ex.error
 
-      const isBuy = execData?.execution_type === 'buy'
-      const gross = parseFloat((actionsNum * priceUSD).toFixed(2))
-
-      // Buy: salida de dinero (negativo) = -(gross + comisión)
-      // Sell/Close: entrada de dinero (positivo) = gross - comisión
-      const walletAmount = isBuy
-        ? parseFloat((-(gross + commUSD)).toFixed(2))
-        : parseFloat((gross - commUSD).toFixed(2))
-
-      await supabase.from("trade_executions").update({
-        quantity:    parseFloat(actionsNum.toFixed(6)),
-        price:       parseFloat(priceUSD.toFixed(2)),
-        total:       gross,
-        commission:  commUSD,
-        executed_at: date,
-      }).eq("id", editingId)
-
-    await supabase.from("wallet_movements")
-      .update({
-        date,
-        amount: walletAmount,
-      })
-      .eq("execution_id", editingId)
+        const mv = await supabase.from("wallet_movements")
+          .update({ date, amount: walletAmount })
+          .eq("execution_id", editing.id)
+        if (mv.error) {
+          // Revertimos la ejecución para que BD y billetera no queden desalineadas
+          await supabase.from("trade_executions").update({
+            quantity: editing.actions, price: editing.price,
+            total: r2(editing.actions * editing.price),
+            commission: editing.commission, executed_at: dayKey(editing.date),
+          }).eq("id", editing.id)
+          throw mv.error
+        }
       }
-    } catch (err) {
-        console.error("Error actualizando ejecución:", err)
+      await refreshFromDb(true)
+      await onRefresh()
+      cancelEdit()
+    } catch (e) {
+      alert('No se pudo actualizar: ' + errMsg(e))
     } finally {
       setIsSaving(false)
+    }
   }
-}
-  
+
+  // ── Guardar ────────────────────────────────────────────────────────────────
   async function guardar() {
-    if (isSaving) {
-      console.warn("Ya se está guardando, ignorado")
-      return
+    if (isSaving) return
+
+    let allMoves = moves
+    if (closingMode) {
+      const closeMove = buildCloseMove()
+      if (!closeMove) return
+      allMoves = [...moves, closeMove]
     }
 
-    // Si está en modo cierre, validar precio antes de proceder
-    if (closingMode && !priceUSD) return alert('Ingresa el precio de cierre')
-    if (closingMode && !closeReason) return alert('Selecciona la razón de cierre')
-
     setIsSaving(true)
+    const createdExecIds: string[] = []
     try {
-      // Construir lista final de movimientos
-      // Si closingMode está activo, agregar el cierre al final sin pasar por estado
-      const allMoves = closingMode
-        ? [...moves, buildCloseMove()].filter(Boolean)
-        : moves
-
-      const lastClose    = [...allMoves].reverse().find((m: any) => m.exType === 'close')
-      const reasonToSave = lastClose?.closeReason || null
-
-      // Calcular qty final para saber si queda cerrado
-      let finalQty = qty
-      if (closingMode) finalQty = 0  // cierre total siempre deja en 0
-
-      await supabase.from("trades").update({
-        stop_loss:     parseFloat(Number(stop).toFixed(2)) || null,
-        take_profit_1: parseFloat(Number(tp1).toFixed(2))  || null,
-        take_profit_2: parseFloat(Number(tp2).toFixed(2))  || null,
-        take_profit_3: parseFloat(Number(tp3).toFixed(2))  || null,
-        status:        finalQty <= 0 ? "closed" : "open",
-        close_date:    finalQty <= 0 ? date : null,
-        close_reason:  reasonToSave,
-      }).eq("id", trade.id)
-
       for (const m of allMoves) {
-        const { data: exec } = await supabase.from("trade_executions").insert({
+        const exec = must(await supabase.from("trade_executions").insert({
           trade_id:       trade.id,
           execution_type: m.exType,
-          quantity:       parseFloat(m.q.toFixed(6)),
-          price:          parseFloat(m.pr.toFixed(2)),
-          total:          parseFloat(m.pureTradeAmount.toFixed(2)),
-          commission:     parseFloat(m.commission.toFixed(2)),
+          quantity:       m.q,
+          price:          m.pr,
+          total:          m.gross,
+          commission:     m.commission,
           executed_at:    m.date,
-        }).select().single()
+        }).select('id').single()) as any
+        createdExecIds.push(exec.id)
 
-        await supabase.from("wallet_movements").insert({
+        const { error } = await supabase.from("wallet_movements").insert({
           wallet_id:     trade.portfolio_id,
           user_id:       trade.user_id,
           ticker:        trade.ticker,
-          amount:        parseFloat(m.amount.toFixed(2)),
-          movement_type: m.mType,
-          notes:         `${m.type} ${m.noteExt || ''}`,
+          amount:        m.amount,
+          movement_type: 'trade',
+          notes:         `${m.type} T/C: ${m.tc}`,
           date:          m.date,
-          execution_id:  exec?.id ?? null,
+          execution_id:  exec.id,
         })
+        if (error) throw error
       }
 
-      await recalculateTrade(); onRefresh(); onClose()
-    } finally { setIsSaving(false) }
+      const lastMove = allMoves[allMoves.length - 1]
+      await refreshFromDb(true, closed => ({
+        stop_loss:     toTarget(stop),
+        take_profit_1: toTarget(tp1),
+        take_profit_2: toTarget(tp2),
+        take_profit_3: toTarget(tp3),
+        ...(closed && lastMove
+          ? { close_date: lastMove.date, close_reason: closingMode ? closeReason : null }
+          : {}),
+      }))
+
+      await onRefresh()
+      onClose()
+    } catch (e) {
+      // Deshacer lo insertado para no dejar ejecuciones sin su movimiento (o viceversa)
+      for (const id of [...createdExecIds].reverse()) {
+        await supabase.from("wallet_movements").delete().eq("execution_id", id)
+        await supabase.from("trade_executions").delete().eq("id", id)
+      }
+      alert('No se pudo guardar (no se aplicó ningún cambio): ' + errMsg(e))
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const renderPct = (val: number, isStop = false) => {
-    if (!avg || !val) return <span style={{ color: '#333', fontSize: 12 }}>—</span>
-    const pct   = ((val - avg) / avg) * 100
+  const renderPct = (val: string, isStop = false) => {
+    const n = Number(val)
+    if (!avg || !n) return <span style={{ color: '#333', fontSize: 12 }}>—</span>
+    const pct   = ((n - avg) / avg) * 100
     const color = isStop
-      ? (val < avg ? '#ef4444' : '#22c55e')
-      : (val > avg ? '#22c55e' : '#ef4444')
+      ? (n < avg ? '#ef4444' : '#22c55e')
+      : (n > avg ? '#22c55e' : '#ef4444')
     return <span style={{ color, fontSize: 12, fontWeight: 900 }}>{pct > 0 ? '+' : ''}{pct.toFixed(2)}%</span>
   }
 
-  const canSave = !isSaving && (!closingMode || (priceUSD > 0 && closeReason !== ''))
+  const canSave = !isSaving && (!closingMode || (priceUSD > 0 && closeReason !== '' && rateOk))
+
+  const targets = [
+    { val: stop, set: setStop, isStop: true },
+    { val: tp1,  set: setTp1,  isStop: false },
+    { val: tp2,  set: setTp2,  isStop: false },
+    { val: tp3,  set: setTp3,  isStop: false },
+  ]
+
+  const opBtn = (base: React.CSSProperties): React.CSSProperties => ({
+    ...base,
+    opacity: closingMode || isSaving ? 0.4 : 1,
+    cursor:  closingMode || isSaving ? 'not-allowed' : 'pointer',
+  })
 
   return (
-  <div style={overlay}>
-    <div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '92vh' }}>
-  <div style={{
-    ...modal,
-    height: '100%', // <--- Asegúrate de que tenga esto
-    borderRadius: showAI ? '12px 0 0 12px' : '12px',
-    borderRight:  showAI ? 'none' : '1px solid #333',
-  }}>
+    <div style={overlay}>
+      <div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '92vh' }}>
+        <div style={{
+          ...modal,
+          height: '100%',
+          borderRadius: showAI ? '12px 0 0 12px' : '12px',
+          borderRight:  showAI ? 'none' : '1px solid #333',
+        }}>
 
-{/* HEADER */}
-<div style={{
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  borderBottom: '1px solid #1a1a1a',
-  paddingBottom: 12,
-  marginBottom: 16
-}}>
-
-  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-    <Paw color="#00bfff" size={16} />
-
-    <h2 style={{ margin: 0, fontSize: 18 }}>
-      Gestión: <span style={{ color: '#00bfff' }}>{trade.ticker}</span>
-    </h2>
-  </div>
-
-  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-
-    {editingId && (
-      <span style={{
-        color: '#eab308',
-        fontWeight: 'bold',
-        fontSize: 11
-      }}>
-        Modo edición
-      </span>
-    )}
-
-    <button
-      onClick={() => setShowAI(v => !v)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        background: showAI ? 'rgba(0,191,255,0.1)' : '#111',
-        border: `1px solid ${showAI ? 'rgba(0,191,255,0.3)' : '#222'}`,
-        color: showAI ? '#00bfff' : '#666',
-        borderRadius: 6,
-        padding: '4px 10px',
-        cursor: 'pointer',
-        fontSize: 10,
-        fontWeight: 700,
-        transition: 'all 0.2s',
-      }}
-    >
-
-      Resumen
-
-      <ChevronRight
-        size={10}
-        style={{
-          transform: showAI ? 'rotate(180deg)' : 'none',
-          transition: 'transform 0.2s',
-        }}
-      />
-    </button>
-
-    <button
-      onClick={onClose}
-      style={{
-        background: 'none',
-        border: 'none',
-        color: '#555',
-        cursor: 'pointer'
-      }}
-    >
-      <X size={18} />
-    </button>
-
-  </div>
-
-</div>
-
-{/* RESUMEN */}
-        <div style={rowLabels4Col}>
-          <div>Acciones</div><div>Precio avg (USD)</div><div>Capital (USD)</div><div>PnL realizado</div>
-        </div>
-        <div style={rowValues4Col}>
-          <div style={valBoxLarge}>{shares(qty)}</div>
-          <div style={valBoxLarge}>{money(avg)}</div>
-          <div style={valBoxLarge}>{money(capital)}</div>
-          <div style={{ ...valBoxLarge, color: pnl >= 0 ? '#22c55e' : '#ef4444' }}>{money(pnl)}</div>
-        </div>
-
-        {/* TARGETS */}
-        <div style={{ ...rowLabels4Col, marginTop: 18 }}>
-          <div>Stop loss</div><div>TP 1</div><div>TP 2</div><div>TP 3</div>
-        </div>
-        <div style={rowTargetsExtended}>
-          {[
-            { val: stop, set: setStop, isStop: true },
-            { val: tp1,  set: setTp1,  isStop: false },
-            { val: tp2,  set: setTp2,  isStop: false },
-            { val: tp3,  set: setTp3,  isStop: false },
-          ].map(({ val, set, isStop }, i) => (
-            <div key={i} style={targetGroup}>
-              <input type="number" step="any" style={input} value={val} onChange={e => set(e.target.value)} />
-              {renderPct(Number(val), isStop)}
+          {/* HEADER */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 12, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Paw color="#00bfff" size={16} />
+              <h2 style={{ margin: 0, fontSize: 18 }}>
+                Gestión: <span style={{ color: '#00bfff' }}>{trade.ticker}</span>
+              </h2>
             </div>
-          ))}
-        </div>
 
-        {/* FORMULARIO OPERACIÓN */}
-        <div style={{ ...rowLabelsCustom, marginTop: 18 }}>
-          <div>Cant.</div><div>Precio ({currency})</div><div>Total ({currency})</div><div>Fecha</div><div>Comisión</div>
-        </div>
-        <div style={rowValuesCustom}>
-          <input style={input} value={actions} onChange={e => setActions(e.target.value)} placeholder="0" type="number" step="0.000001" />
-          <input style={input} value={price}   onChange={e => setPrice(e.target.value)}   placeholder="0.00" type="number" step="0.01" />
-          <div style={valBox}>{money(totalOp)}</div>
-          <input style={input} type="date" value={date} onChange={e => setDate(e.target.value)} />
-          <input style={input} value={commission} onChange={e => setCommission(e.target.value)} placeholder="0.00" type="number" step="0.01" />
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              {editing && <span style={{ color: '#eab308', fontWeight: 'bold', fontSize: 11 }}>Modo edición</span>}
 
-        {/* BOTONES ACCIÓN */}
-        <div style={buttons}>
-          {editingId ? (
-            <>
-              <button style={{ ...saveBtn, background: '#eab308', color: '#000' }} onClick={updateExecution} disabled={isSaving}>
-                Actualizar registro
-              </button>
-              <button style={exitBtn} onClick={() => { setEditingId(null); setActions(''); setPrice(''); setCommission('0'); setClosingMode(false) }}>
-                Cancelar
-              </button>
-            </>
-          ) : (
-            <>
-              <button style={buyBtn}  onClick={recomprar}>Recompra</button>
-              <button style={sellBtn} onClick={ventaParcial}>Venta parcial</button>
               <button
-                style={{ ...closeBtn, border: closingMode ? '1px solid #f43f5e' : '1px solid #333', color: closingMode ? '#f43f5e' : '#888' }}
-                onClick={() => {
-                  setClosingMode(v => !v)
-                  if (!closingMode) setActions(qty.toString())
-                }}>
-                {closingMode ? 'Cancelar cierre' : 'Cerrar trade'}
+                onClick={() => setShowAI(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: showAI ? 'rgba(0,191,255,0.1)' : '#111',
+                  border: `1px solid ${showAI ? 'rgba(0,191,255,0.3)' : '#222'}`,
+                  color: showAI ? '#00bfff' : '#666',
+                  borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                  fontSize: 10, fontWeight: 700, transition: 'all 0.2s',
+                }}
+              >
+                Resumen
+                <ChevronRight size={10} style={{ transform: showAI ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
               </button>
-            </>
-          )}
-        </div>
 
-        {/* MONEDA + T/C + RAZÓN DE CIERRE en una fila */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 14 }}>
-          <div style={{ width: 90 }}>
-            <label style={labelStyle}>Moneda</label>
-            <select style={input} value={currency} onChange={e => setCurrency(e.target.value)}>
-              <option value="USD">USD</option>
-              <option value="MXN">MXN</option>
-            </select>
+              <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
-          {currency === 'MXN' && (
-            <div style={{ width: 130 }}>
-              <label style={{ ...labelStyle, color: '#eab308' }}>Valor dólar (T/C)</label>
-              <input type="number" step="0.01" style={{ ...input, borderColor: '#eab308' }}
-                value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} />
-            </div>
-          )}
-
-          {/* Razón de cierre — solo aparece en modo cierre */}
-          {closingMode && (
-            <div style={{ flex: 1 }}>
-              <label style={{ ...labelStyle, color: '#f43f5e' }}>Razón de cierre</label>
-              <select
-                style={{ ...input, borderColor: closeReason ? '#333' : '#333', color: closeReason ? '#ffffff' : '#555', textAlign: 'left' }}
-                value={closeReason}
-                onChange={e => setCloseReason(e.target.value)}>
-                <option value="">Seleccionar motivo...</option>
-                {CLOSE_REASONS.map(r => <option key={r} value={r} style={{ color: 'white' }}>{r}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div style={{ marginLeft: 'auto', background: '#000', border: '1px solid #1a1a1a', borderRadius: 6, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 160 }}>
-            <label style={{ ...labelStyle, color: '#00bfff', marginBottom: 0 }}>Equivalente USD</label>
-            <div style={{ color: '#00bfff', fontSize: 15, fontWeight: 'bold', marginLeft: 12 }}>{money(totalOpUSD)}</div>
+          {/* RESUMEN */}
+          <div style={rowLabels4Col}>
+            <div>Acciones</div><div>Precio avg (USD)</div><div>Capital (USD)</div><div>PnL realizado</div>
           </div>
-        </div>
+          <div style={rowValues4Col}>
+            <div style={valBoxLarge}>{shares(proj.qty)}</div>
+            <div style={valBoxLarge}>{money(avg)}</div>
+            <div style={valBoxLarge}>{money(proj.cap)}</div>
+            <div style={{ ...valBoxLarge, color: proj.pnl >= 0 ? '#22c55e' : '#ef4444' }}>{money(proj.pnl)}</div>
+          </div>
 
-        {/* PENDIENTES SIN GUARDAR */}
-        {moves.length > 0 && (
-          <div style={{ marginTop: 14, background: '#0a0a0a', borderRadius: 8, padding: '10px 14px', border: '1px solid #1a1a1a' }}>
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 6, fontWeight: 700, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Paw color="#555" size={11} /> Pendientes de guardar ({moves.length})
-            </div>
-            {moves.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', padding: '3px 0', borderBottom: '1px solid #111' }}>
-                <span>{m.type} · {m.q} acc @ {money(m.pr)}{m.closeReason ? ` · ${m.closeReason}` : ''}</span>
-                <span style={{ color: m.amount >= 0 ? '#22c55e' : '#f43f5e' }}>{money(m.amount)}</span>
+          {/* TARGETS */}
+          <div style={{ ...rowLabels4Col, marginTop: 18 }}>
+            <div>Stop loss</div><div>TP 1</div><div>TP 2</div><div>TP 3</div>
+          </div>
+          <div style={rowTargetsExtended}>
+            {targets.map(({ val, set, isStop }, i) => (
+              <div key={i} style={targetGroup}>
+                <input type="number" step="any" min="0" style={input} value={val} placeholder="—" onChange={e => set(e.target.value)} />
+                {renderPct(val, isStop)}
               </div>
             ))}
           </div>
-        )}
 
-        {/* HISTORIAL */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, marginBottom: 8 }}>
-          <Paw color="#333" size={13} />
-          <h3 style={{ margin: 0, fontSize: 11, color: '#444', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' as const }}>
-            Historial de ejecuciones
-          </h3>
-        </div>
-        <div style={historyBox}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#000' }}>
-                <th style={th}>Fecha</th>
-                <th style={th}>Cant.</th>
-                <th style={th}>Precio</th>
-                <th style={th}>Comisión</th>
-                <th style={th}>Total neto</th>
-                <th style={th}>Tipo</th>
-                <th style={{ ...th, textAlign: 'center' }}>Acc.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map(h => (
-                <tr key={h.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                  <td style={td}>
-                    {parseDate(typeof h.date === 'string' ? h.date.split('T')[0] : h.date)
-                      .toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td style={td}>{shares(h.actions)}</td>
-                  <td style={td}>{money(h.price)}</td>
-                  <td style={{ ...td, color: '#555' }}>{h.commission > 0 ? money(h.commission) : '—'}</td>
-                  <td style={{ ...td, color: h.type === 'Recompra' || h.type === 'Apertura' ? '#22c55e' : '#ef4444' }}>
-                    {money(Math.abs(h.total))}
-                  </td>
-                  <td style={{ ...td, fontSize: 11, color: '#888' }}>{h.type}</td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                      <button onClick={() => startEdit(h)}
-                        style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer' }}>
-                        <Pencil size={13} />
-                      </button>
-                      {h.id !== 'apertura' && (
-                        <button onClick={() => deleteExecution(h)}
-                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+          {/* FORMULARIO OPERACIÓN */}
+          <div style={{ ...rowLabelsCustom, marginTop: 18 }}>
+            <div>Cant.</div><div>Precio ({currency})</div><div>Total ({currency})</div><div>Fecha</div><div>Comisión</div>
+          </div>
+          <div style={rowValuesCustom}>
+            <input style={input} value={actions} onChange={e => setActions(e.target.value)} placeholder="0" type="number" step="0.000001" min="0" readOnly={closingMode} />
+            <input style={input} value={price}   onChange={e => setPrice(e.target.value)}   placeholder="0.00" type="number" step="0.01" min="0" />
+            <div style={valBox}>{money(totalOp)}</div>
+            <input style={input} type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <input style={input} value={commission} onChange={e => setCommission(e.target.value)} placeholder="0.00" type="number" step="0.01" min="0" />
+          </div>
+
+          {/* BOTONES ACCIÓN */}
+          <div style={buttons}>
+            {editing ? (
+              <>
+                <button style={{ ...saveBtn, background: '#eab308', color: '#000', opacity: isSaving ? 0.5 : 1 }} onClick={updateExecution} disabled={isSaving}>
+                  {isSaving ? 'Actualizando...' : 'Actualizar registro'}
+                </button>
+                <button style={exitBtn} onClick={cancelEdit} disabled={isSaving}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button style={opBtn(buyBtn)}  onClick={recomprar}    disabled={closingMode || isSaving}>Recompra</button>
+                <button style={opBtn(sellBtn)} onClick={ventaParcial} disabled={closingMode || isSaving}>Venta parcial</button>
+                <button
+                  style={{ ...closeBtn, border: closingMode ? '1px solid #f43f5e' : '1px solid #333', color: closingMode ? '#f43f5e' : '#888' }}
+                  onClick={() => {
+                    if (closingMode) { setClosingMode(false); setActions(""); return }
+                    if (!(proj.qty > 0)) return alert('No hay acciones por cerrar')
+                    setClosingMode(true)
+                    setActions(proj.qty.toString())
+                  }}>
+                  {closingMode ? 'Cancelar cierre' : 'Cerrar trade'}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* MONEDA + T/C + RAZÓN DE CIERRE */}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 14 }}>
+            <div style={{ width: 90 }}>
+              <label style={labelStyle}>Moneda</label>
+              <select style={input} value={currency} onChange={e => setCurrency(e.target.value as 'USD' | 'MXN')}>
+                <option value="USD">USD</option>
+                <option value="MXN">MXN</option>
+              </select>
+            </div>
+
+            {currency === 'MXN' && (
+              <div style={{ width: 130 }}>
+                <label style={{ ...labelStyle, color: rateOk ? '#eab308' : '#f43f5e' }}>
+                  {fxError ? 'T/C (ingrésalo)' : 'Valor dólar (T/C)'}
+                </label>
+                <input type="number" step="0.01" min="0"
+                  style={{ ...input, borderColor: rateOk ? '#eab308' : '#f43f5e' }}
+                  value={exchangeRate}
+                  onChange={e => { setExchangeRate(e.target.value); setFxError(false) }} />
+              </div>
+            )}
+
+            {closingMode && (
+              <div style={{ flex: 1 }}>
+                <label style={{ ...labelStyle, color: '#f43f5e' }}>Razón de cierre</label>
+                <select
+                  style={{ ...input, color: closeReason ? '#ffffff' : '#555', textAlign: 'left' }}
+                  value={closeReason}
+                  onChange={e => setCloseReason(e.target.value)}>
+                  <option value="">Seleccionar motivo...</option>
+                  {CLOSE_REASONS.map(r => <option key={r} value={r} style={{ color: 'white' }}>{r}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginLeft: 'auto', background: '#000', border: '1px solid #1a1a1a', borderRadius: 6, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 160 }}>
+              <label style={{ ...labelStyle, color: '#00bfff', marginBottom: 0 }}>Equivalente USD</label>
+              <div style={{ color: '#00bfff', fontSize: 15, fontWeight: 'bold', marginLeft: 12 }}>{money(totalOpUSD)}</div>
+            </div>
+          </div>
+
+          {/* PENDIENTES SIN GUARDAR */}
+          {moves.length > 0 && (
+            <div style={{ marginTop: 14, background: '#0a0a0a', borderRadius: 8, padding: '10px 14px', border: '1px solid #1a1a1a' }}>
+              <div style={{ fontSize: 10, color: '#555', marginBottom: 6, fontWeight: 700, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Paw color="#555" size={11} /> Pendientes de guardar ({moves.length})
+              </div>
+              {moves.map((m, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#666', padding: '3px 0', borderBottom: '1px solid #111' }}>
+                  <span>{m.type} · {shares(m.q)} acc @ {money(m.pr)}{m.closeReason ? ` · ${m.closeReason}` : ''}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ color: m.amount >= 0 ? '#22c55e' : '#f43f5e' }}>{money(m.amount)}</span>
+                    <button onClick={() => removeMove(i)} disabled={isSaving} title="Quitar"
+                      style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', display: 'flex' }}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
+
+          {/* HISTORIAL */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, marginBottom: 8 }}>
+            <Paw color="#333" size={13} />
+            <h3 style={{ margin: 0, fontSize: 11, color: '#444', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
+              Historial de ejecuciones
+            </h3>
+          </div>
+          <div style={historyBox}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#000' }}>
+                  <th style={th}>Fecha</th>
+                  <th style={th}>Cant.</th>
+                  <th style={th}>Precio</th>
+                  <th style={th}>Comisión</th>
+                  <th style={th}>Total neto</th>
+                  <th style={th}>Tipo</th>
+                  <th style={{ ...th, textAlign: 'center' }}>Acc.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                    <td style={td}>
+                      {parseDate(h.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td style={td}>{shares(h.actions)}</td>
+                    <td style={td}>{money(h.price)}</td>
+                    <td style={{ ...td, color: '#555' }}>{h.commission > 0 ? money(h.commission) : '—'}</td>
+                    <td style={{ ...td, color: h.type === 'Recompra' || h.type === 'Apertura' ? '#22c55e' : '#ef4444' }}>
+                      {money(Math.abs(h.total))}
+                    </td>
+                    <td style={{ ...td, fontSize: 11, color: '#888' }}>{h.type}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <button onClick={() => startEdit(h)} disabled={isSaving}
+                          style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer' }}>
+                          <Pencil size={13} />
+                        </button>
+                        {h.id !== 'apertura' && (
+                          <button onClick={() => deleteExecution(h)} disabled={isSaving}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* GUARDAR */}
+          <div style={{ ...buttons, marginTop: 18 }}>
+            <button
+              disabled={!canSave}
+              style={{ ...saveBtn, opacity: canSave ? 1 : 0.5, cursor: canSave ? 'pointer' : 'not-allowed' }}
+              onClick={guardar}>
+              {isSaving ? 'Guardando...' : closingMode ? 'Confirmar cierre y guardar' : 'Guardar cambios'}
+            </button>
+            <button style={exitBtn} onClick={onClose}>Salir</button>
+          </div>
+
         </div>
 
-        {/* GUARDAR */}
-        <div style={{ ...buttons, marginTop: 18 }}>
-          <button
-            disabled={!canSave}
-            style={{ ...saveBtn, opacity: canSave ? 1 : 0.5, cursor: canSave ? 'pointer' : 'not-allowed' }}
-            onClick={guardar}>
-            {isSaving ? 'Guardando...' : closingMode ? 'Confirmar cierre y guardar' : 'Guardar cambios'}
-          </button>
-          <button style={exitBtn} onClick={onClose}>Salir</button>
-        </div>
-
+        {/* Panel IA lateral */}
+        {showAI && (
+          <AiInsightPanel
+            ticker={trade.ticker}
+            country={trade.country}
+            sector={trade.sector}
+            subsector={trade.subsector}
+            rsi={trade.rsi}
+            entry_price={trade.entry_price}
+            quantity={trade.quantity}
+            onClose={() => setShowAI(false)}
+          />
+        )}
       </div>
-            {/* Panel IA lateral */}
-      {showAI && (
-        <AiInsightPanel
-          ticker={trade.ticker}
-          country={trade.country}
-          sector={trade.sector}
-          subsector={trade.subsector}
-          rsi={trade.rsi}
-          entry_price={trade.entry_price}
-          quantity={trade.quantity}
-          onClose={() => setShowAI(false)}
-        />
-      )}
     </div>
-  </div>
-  );
+  )
 }
 
+// ── Estilos ──────────────────────────────────────────────────────────────────
 const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modal: React.CSSProperties = { 
-  width: 940, 
-  maxHeight: '92vh',
-  overflowY: 'auto', 
-  background: '#111', 
-  padding: 25, 
-  border: '1px solid #333', 
-  color: 'white' 
-}
+const modal: React.CSSProperties = { width: 940, maxHeight: '92vh', overflowY: 'auto', background: '#111', padding: 25, border: '1px solid #333', color: 'white' }
 
-const rowLabels4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
-const rowValues4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }
-const valBoxLarge: React.CSSProperties       = { background: '#000', padding: 14, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', fontSize: 15, fontWeight: 'bold' }
+const rowLabels4Col: React.CSSProperties      = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
+const rowValues4Col: React.CSSProperties      = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }
+const valBoxLarge: React.CSSProperties        = { background: '#000', padding: 14, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', fontSize: 15, fontWeight: 'bold' }
 const rowTargetsExtended: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }
-const targetGroup: React.CSSProperties       = { display: 'flex', alignItems: 'center', gap: 8 }
-const rowLabelsCustom: React.CSSProperties   = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
-const rowValuesCustom: React.CSSProperties   = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', gap: 10 }
-const valBox: React.CSSProperties   = { background: '#000', padding: 10, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }
-const input: React.CSSProperties    = { background: '#000', border: '1px solid #333', color: 'white', padding: 10, borderRadius: 6, textAlign: 'center', width: '100%', boxSizing: 'border-box', fontSize: 13, outline: 'none' }
+const targetGroup: React.CSSProperties        = { display: 'flex', alignItems: 'center', gap: 8 }
+const rowLabelsCustom: React.CSSProperties    = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
+const rowValuesCustom: React.CSSProperties    = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', gap: 10 }
+const valBox: React.CSSProperties    = { background: '#000', padding: 10, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }
+const input: React.CSSProperties     = { background: '#000', border: '1px solid #333', color: 'white', padding: 10, borderRadius: 6, textAlign: 'center', width: '100%', boxSizing: 'border-box', fontSize: 13, outline: 'none' }
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 9, color: '#555', marginBottom: 4, fontWeight: 'bold', letterSpacing: 0.5 }
-const buttons: React.CSSProperties  = { display: 'flex', gap: 10, marginTop: 20 }
-const buyBtn: React.CSSProperties   = { flex: 1, background: '#1b4332', color: '#22c55e', border: '1px solid #22c55e', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const sellBtn: React.CSSProperties  = { flex: 1, background: '#3a1a1a', color: '#ef4444', border: '1px solid #ef4444', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const closeBtn: React.CSSProperties = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #333', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const saveBtn: React.CSSProperties  = { flex: 2, background: '#00bfff', color: '#000', border: 'none', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const exitBtn: React.CSSProperties  = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #222', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
+const buttons: React.CSSProperties   = { display: 'flex', gap: 10, marginTop: 20 }
+const buyBtn: React.CSSProperties    = { flex: 1, background: '#1b4332', color: '#22c55e', border: '1px solid #22c55e', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
+const sellBtn: React.CSSProperties   = { flex: 1, background: '#3a1a1a', color: '#ef4444', border: '1px solid #ef4444', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
+const closeBtn: React.CSSProperties  = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #333', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
+const saveBtn: React.CSSProperties   = { flex: 2, background: '#00bfff', color: '#000', border: 'none', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
+const exitBtn: React.CSSProperties   = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #222', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
 const historyBox: React.CSSProperties = { maxHeight: 200, overflowY: 'auto', background: '#080808', borderRadius: 8, border: '1px solid #1a1a1a', marginTop: 8 }
-const th: React.CSSProperties = { padding: '10px 12px', textAlign: 'left', fontSize: 9, color: '#444', borderBottom: '1px solid #1a1a1a', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' as const }
+const th: React.CSSProperties = { padding: '10px 12px', textAlign: 'left', fontSize: 9, color: '#444', borderBottom: '1px solid #1a1a1a', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
 const td: React.CSSProperties = { padding: '10px 12px', fontSize: 12, color: '#ccc' }
