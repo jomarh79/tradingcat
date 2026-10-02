@@ -1,12 +1,10 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
-
 import SpinoffModal from '../components/SpinoffModal'
-
 import Link from 'next/link'
 import {
   Wallet,
@@ -17,7 +15,6 @@ import {
   ChevronDown,
   Briefcase
 } from 'lucide-react'
-
 
 const GRUPOS: Record<string, { label: string, color: string, desc: string }> = {
   largo:   { label: 'Largo plazo + ETFs',        color: '#22c55e', desc: 'El gato paciente acumula la mayor riqueza' },
@@ -35,17 +32,117 @@ const Paw = ({ size = 14, color = '#666', opacity = 1 }: any) => (
   </svg>
 )
 
-// Helper: solo permite valores positivos en inputs de monto
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Solo permite valores positivos en inputs de monto
 const posAmount = (val: string) => val.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
+// Fecha local (YYYY-MM-DD). toISOString() devuelve UTC y después de las 6 pm da el día siguiente
+const todayLocal = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Mexico_City' })
+
+// Supabase no lanza excepciones: devuelve { error }. Esto lo convierte en excepción
+const must = <T extends { error: any }>(res: T): T => {
+  if (res.error) throw res.error
+  return res
+}
+const errMsg = (e: any) => e?.message || String(e)
+
+// Redondeo a centavos; el "+ 0" evita mostrar "-0.00" por residuos de coma flotante
+const r2 = (n: number) => Math.round(n * 100) / 100 + 0
+const roundMap = (o: Record<string, number>) =>
+  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, r2(v)])) as Record<string, number>
+
+const pnlColor = (v: number) => Math.abs(v) < 0.5 ? '#00bfff' : v > 0 ? '#22c55e' : '#f43f5e'
+const uniqSorted = (rows: any[]) => Array.from(new Set(rows.map(t => t.ticker))).sort() as string[]
+
+// Trae todas las filas paginando (con .order() en la consulta para que el orden sea determinístico)
+async function fetchAllRows(build: (from: number, to: number) => any): Promise<any[]> {
+  const all: any[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await build(from, from + 999)
+    if (error) throw error
+    if (!data?.length) break
+    all.push(...data)
+    if (data.length < 1000) break
+    from += 1000
+  }
+  return all
+}
+
+const SCALE_FIELDS =
+  'id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,stop_loss,take_profit_1,take_profit_2,take_profit_3,total_invested'
+
+// Cálculo común de Split y Fusión: cantidad × qR, precios × pR
+const scaleTrades = (trades: any[], qR: number, pR: number) => {
+  const px = (v: any) => (v ? parseFloat((Number(v) * pR).toFixed(4)) : null)
+  return trades.map(tr => ({
+    id: tr.id,
+    ticker: tr.ticker,
+    qtyBefore:      parseFloat(Number(tr.quantity).toFixed(6)),
+    priceBefore:    parseFloat(Number(tr.entry_price).toFixed(4)),
+    qtyAfter:       parseFloat((Number(tr.quantity) * qR).toFixed(6)),
+    priceAfter:     parseFloat((Number(tr.entry_price) * pR).toFixed(4)),
+    initQtyAfter:   parseFloat((Number(tr.initial_quantity ?? tr.quantity) * qR).toFixed(6)),
+    initPriceAfter: parseFloat((Number(tr.initial_entry_price ?? tr.entry_price) * pR).toFixed(4)),
+    stopAfter: px(tr.stop_loss),
+    tp1After:  px(tr.take_profit_1),
+    tp2After:  px(tr.take_profit_2),
+    tp3After:  px(tr.take_profit_3),
+    totalInvested: tr.total_invested,
+  }))
+}
+
+// Reescala las ejecuciones de un trade
+const scaleExecutions = async (tradeId: string, qR: number, pR: number) => {
+  const { data: execs, error } = await supabase
+    .from('trade_executions').select('id,price,quantity').eq('trade_id', tradeId)
+  if (error) throw error
+  for (const e of execs || []) {
+    must(await supabase.from('trade_executions').update({
+      quantity: parseFloat((Number(e.quantity) * qR).toFixed(6)),
+      price:    parseFloat((Number(e.price)    * pR).toFixed(4)),
+    }).eq('id', e.id))
+  }
+}
+
+// Aplica un preview (split o fusión) a trades y ejecuciones
+const applyScaledPreview = async (preview: any[], qR: number, pR: number, newTicker?: string) => {
+  for (const tr of preview) {
+    must(await supabase.from('trades').update({
+      ...(newTicker ? { ticker: newTicker } : {}),
+      quantity: tr.qtyAfter,           initial_quantity: tr.initQtyAfter,
+      entry_price: tr.priceAfter,      initial_entry_price: tr.initPriceAfter,
+      stop_loss: tr.stopAfter,         take_profit_1: tr.tp1After,
+      take_profit_2: tr.tp2After,      take_profit_3: tr.tp3After,
+    }).eq('id', tr.id))
+    await scaleExecutions(tr.id, qR, pR)
+  }
+}
+
+// Celda de PnL (se usaba duplicada en las dos tablas)
+function PnLCell({ pnl, money }: { pnl: number, money: (v: number) => string }) {
+  const color = pnlColor(pnl)
+  const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
+  return (
+    <div>
+      <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
+      {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
+    </div>
+  )
+}
+
 export default function PortafoliosPage() {
-  const { money } = usePrivacy()
+  const { money, shares, visible } = usePrivacy()
+
+  // Precio con 4 decimales que respeta el modo privado
+  const px = (v: number) => (visible ? `$${v}` : '$***')
 
   const [user,        setUser]        = useState<any>(null)
   const [portfolios,  setPortfolios]  = useState<any[]>([])
   const [showModal,   setShowModal]   = useState(false)
   const [newName,     setNewName]     = useState('')
-  const [newDate,     setNewDate]     = useState(new Date().toISOString().split('T')[0])
+  const [newDate,     setNewDate]     = useState(todayLocal)
   const [newGrupo,    setNewGrupo]    = useState('mediano')
 
   const [deleteId,        setDeleteId]        = useState<string | null>(null)
@@ -55,24 +152,25 @@ export default function PortafoliosPage() {
   const [isOtherTicker,   setIsOtherTicker]   = useState(false)
   const [selectedTicker,  setSelectedTicker]  = useState('')
   const [movementAmount,  setMovementAmount]  = useState('')
-  const [movementDate,    setMovementDate]    = useState(new Date().toISOString().split('T')[0])
+  const [movementDate,    setMovementDate]    = useState(todayLocal)
   const [movementNotes,   setMovementNotes]   = useState('')
   const [walletTickers,   setWalletTickers]   = useState<string[]>([])
 
   const [walletSaldos,    setWalletSaldos]    = useState<Record<string, number>>({})
   const [walletDepositos, setWalletDepositos] = useState<Record<string, number>>({})
   const [walletLastMove,  setWalletLastMove]  = useState<Record<string, string>>({})
-  const [walletMoveCount, setWalletMoveCount] = useState<Record<string, number>>({})
-  const [walletPnL, setWalletPnL] = useState<Record<string, number>>({})
+  const [walletPnL,       setWalletPnL]       = useState<Record<string, number>>({})
 
+  // Menú de acciones
+  const [showActions, setShowActions] = useState(false)
+  const actionsRef = useRef<HTMLDivElement>(null)
 
   // Transferencia entre cuentas
   const [showTransfer,    setShowTransfer]    = useState(false)
-  const [showActions, setShowActions] = useState(false)
   const [transferFrom,    setTransferFrom]    = useState('')
   const [transferTo,      setTransferTo]      = useState('')
   const [transferAmount,  setTransferAmount]  = useState('')
-  const [transferDate,    setTransferDate]    = useState(new Date().toISOString().split('T')[0])
+  const [transferDate,    setTransferDate]    = useState(todayLocal)
   const [transferNotes,   setTransferNotes]   = useState('')
   const [transferSaving,  setTransferSaving]  = useState(false)
 
@@ -87,7 +185,7 @@ export default function PortafoliosPage() {
   const [splitSaving,    setSplitSaving]    = useState(false)
   const [allOpenTickers, setAllOpenTickers] = useState<string[]>([])
 
-    // Spin-off
+  // Spin-off
   const [showSpinoff, setShowSpinoff] = useState(false)
 
   // Cambio de ticker
@@ -105,66 +203,54 @@ export default function PortafoliosPage() {
   const [mergerLoading,     setMergerLoading]     = useState(false)
   const [mergerSaving,      setMergerSaving]      = useState(false)
 
-
+  // ── Carga de datos ────────────────────────────────────────────────────────
   const fetchPortfolios = useCallback(async (userId: string) => {
-    const { data: pData } = await supabase
-      .from('portfolios').select('*').eq('user_id', userId).order('created_at', { ascending: false })
-    if (pData) setPortfolios(pData)
+    try {
+      const [pRes, movements, oRes, closed] = await Promise.all([
+        supabase.from('portfolios').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        fetchAllRows((a, b) =>
+          supabase.from('wallet_movements')
+            .select('wallet_id, amount, movement_type, date')
+            .eq('user_id', userId).order('id').range(a, b)),
+        supabase.from('trades').select('ticker').eq('user_id', userId).eq('status', 'open'),
+        // PnL real = suma de realized_pnl de trades CERRADOS por portafolio
+        fetchAllRows((a, b) =>
+          supabase.from('trades')
+            .select('portfolio_id, realized_pnl')
+            .eq('user_id', userId).eq('status', 'closed').order('id').range(a, b)),
+      ])
+      if (pRes.error) throw pRes.error
+      if (oRes.error) throw oRes.error
 
-    let all: any[] = []
-    let from = 0
-    while (true) {
-      const { data } = await supabase
-        .from('wallet_movements')
-        .select('wallet_id, amount, movement_type, date')
-        .eq('user_id', userId)
-        .range(from, from + 999)
-      if (!data?.length) break
-      all = [...all, ...data]
-      if (data.length < 1000) break
-      from += 1000
+      setPortfolios(pRes.data || [])
+      setAllOpenTickers(uniqSorted(oRes.data || []))
+
+      const saldos:    Record<string, number> = {}
+      const depositos: Record<string, number> = {}
+      const lastMove:  Record<string, string> = {}
+      const pnlMap:    Record<string, number> = {}
+
+      movements.forEach(m => {
+        const id  = m.wallet_id
+        const amt = Number(m.amount)
+        saldos[id] = (saldos[id] || 0) + amt
+        if (m.movement_type === 'deposito' || m.movement_type === 'retiro') {
+          depositos[id] = (depositos[id] || 0) + amt
+        }
+        if (!lastMove[id] || m.date > lastMove[id]) lastMove[id] = m.date
+      })
+
+      closed.forEach(t => {
+        pnlMap[t.portfolio_id] = (pnlMap[t.portfolio_id] || 0) + Number(t.realized_pnl || 0)
+      })
+
+      setWalletSaldos(roundMap(saldos))
+      setWalletDepositos(roundMap(depositos))
+      setWalletLastMove(lastMove)
+      setWalletPnL(roundMap(pnlMap))
+    } catch (err) {
+      console.error('Error cargando billeteras:', err)
     }
-
-    const saldos:    Record<string, number> = {}
-    const depositos: Record<string, number> = {}
-    const lastMove:  Record<string, string> = {}
-    const counts:    Record<string, number> = {}
-    const pnlMap:    Record<string, number> = {}
-
-    all.forEach(m => {
-      const id  = m.wallet_id
-      const amt = Number(m.amount)
-      saldos[id]  = (saldos[id]  || 0) + amt
-      counts[id]  = (counts[id]  || 0) + 1
-      if (m.movement_type === 'deposito' || m.movement_type === 'retiro') {
-        depositos[id] = (depositos[id] || 0) + amt
-      }
-      if (!lastMove[id] || m.date > lastMove[id]) lastMove[id] = m.date
-    })
-
-    setWalletSaldos(saldos)
-    setWalletDepositos(depositos)
-    setWalletLastMove(lastMove)
-    setWalletMoveCount(counts)
-
-    const { data: tData } = await supabase.from('trades').select('ticker').eq('status', 'open')
-    if (tData) setAllOpenTickers(Array.from(new Set(tData.map((t: any) => t.ticker))).sort() as string[])
-
-    // PnL real = suma de realized_pnl de trades CERRADOS por portafolio
-    const { data: closedTrades } = await supabase
-      .from('trades')
-      .select('portfolio_id, realized_pnl')
-      .eq('user_id', userId)
-      .eq('status', 'closed')
-
-    if (closedTrades) {
-  closedTrades.forEach(t => {
-    const id = t.portfolio_id
-    pnlMap[id] = parseFloat(((pnlMap[id] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
-  })
-}
-
-setWalletPnL(pnlMap)
   }, [])
 
   useEffect(() => {
@@ -177,19 +263,32 @@ setWalletPnL(pnlMap)
 
   useEffect(() => {
     if (!movementWallet) return
-    setMovementDate(new Date().toISOString().split('T')[0])
+    setMovementDate(todayLocal())
     supabase.from('trades').select('ticker').eq('portfolio_id', movementWallet.id).eq('status', 'open').then(({ data }) => {
-      if (data) setWalletTickers(Array.from(new Set(data.map((t: any) => t.ticker))).sort() as string[])
+      if (data) setWalletTickers(uniqSorted(data))
     })
   }, [movementWallet])
 
-  // Auto-seleccionar primer portafolio en transferencia
+  // Mantiene origen/destino válidos y distintos mientras el modal de transferencia está abierto
   useEffect(() => {
-    if (showTransfer && portfolios.length >= 2) {
-      setTransferFrom(portfolios[0].id)
-      setTransferTo(portfolios[1].id)
+    if (!showTransfer || portfolios.length < 2) return
+    const from = portfolios.some(p => p.id === transferFrom) ? transferFrom : portfolios[0].id
+    const to   = portfolios.some(p => p.id === transferTo) && transferTo !== from
+      ? transferTo
+      : (portfolios.find(p => p.id !== from)?.id ?? '')
+    if (from !== transferFrom) setTransferFrom(from)
+    if (to   !== transferTo)   setTransferTo(to)
+  }, [showTransfer, portfolios, transferFrom, transferTo])
+
+  // Cierra el menú de acciones al hacer clic afuera
+  useEffect(() => {
+    if (!showActions) return
+    const onDown = (e: MouseEvent) => {
+      if (!actionsRef.current?.contains(e.target as Node)) setShowActions(false)
     }
-  }, [showTransfer, portfolios])
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [showActions])
 
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = { largo: [], mediano: [], corto: [], sin_grupo: [] }
@@ -201,31 +300,36 @@ setWalletPnL(pnlMap)
     const result: Record<string, { saldo: number, deposito: number }> = {}
     Object.entries(grouped).forEach(([g, ps]) => {
       result[g] = {
-        saldo:    ps.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0),
-        deposito: ps.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0),
+        saldo:    r2(ps.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0)),
+        deposito: r2(ps.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0)),
       }
     })
     return result
   }, [grouped, walletSaldos, walletDepositos])
 
-  const totalSaldo    = useMemo(() => portfolios.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0), [portfolios, walletSaldos])
-  const totalDeposito = useMemo(() => portfolios.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0), [portfolios, walletDepositos])
-  const totalPnL      = useMemo(() => portfolios.reduce((a, p) => a + (walletPnL[p.id]      || 0), 0), [portfolios, walletPnL])
+  const totalSaldo    = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0)), [portfolios, walletSaldos])
+  const totalDeposito = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0)), [portfolios, walletDepositos])
+  const totalPnL      = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletPnL[p.id]      || 0), 0)), [portfolios, walletPnL])
   const totalPnLPct   = useMemo(() => totalDeposito !== 0 ? (totalPnL / Math.abs(totalDeposito)) * 100 : 0, [totalPnL, totalDeposito])
 
+  // ── Acciones ──────────────────────────────────────────────────────────────
   const handleCreate = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
     if (!newName || !newDate) return alert('Completa todos los campos')
-    await supabase.from('portfolios').insert([{ name: newName, created_at: newDate, user_id: user.id, grupo: newGrupo }])
+    const { error } = await supabase.from('portfolios')
+      .insert([{ name: newName, created_at: newDate, user_id: user.id, grupo: newGrupo }])
+    if (error) return alert('Error al crear la billetera: ' + error.message)
     setShowModal(false); setNewName(''); fetchPortfolios(user.id)
   }
 
   const resetMovementModal = () => {
     setMovementWallet(null); setMovementAmount(''); setMovementNotes('')
     setIsDividend(false); setIsOtherTicker(false); setSelectedTicker('')
-    setMovementDate(new Date().toISOString().split('T')[0])
+    setMovementDate(todayLocal())
   }
 
   const handleMovement = async (type: 'deposito' | 'retiro') => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
     if (!movementWallet || !movementAmount || !movementDate) return alert('Monto y fecha son obligatorios')
     if (isDividend && !selectedTicker) return alert('El ticker es obligatorio para dividendos')
     const raw   = Math.abs(parseFloat(Number(movementAmount).toFixed(2)))
@@ -242,7 +346,9 @@ setWalletPnL(pnlMap)
   }
 
   // Transferencia entre billeteras: retiro de origen + depósito en destino
+  // Un solo insert con arreglo = una sola sentencia, así no puede quedar a medias
   const handleTransfer = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
     if (!transferFrom || !transferTo || !transferAmount || !transferDate)
       return alert('Completa todos los campos')
     if (transferFrom === transferTo)
@@ -256,82 +362,90 @@ setWalletPnL(pnlMap)
       const toPort   = portfolios.find(p => p.id === transferTo)
       const note     = transferNotes || `Transferencia: ${fromPort?.name} → ${toPort?.name}`
 
-      // Retiro de origen
-      const { error: e1 } = await supabase.from('wallet_movements').insert({
-        wallet_id: transferFrom, user_id: user.id,
-        amount: -raw, movement_type: 'retiro', is_dividend: false,
-        notes: note, date: transferDate,
-      })
-      if (e1) throw e1
-
-      // Depósito en destino
-      const { error: e2 } = await supabase.from('wallet_movements').insert({
-        wallet_id: transferTo, user_id: user.id,
-        amount: raw, movement_type: 'deposito', is_dividend: false,
-        notes: note, date: transferDate,
-      })
-      if (e2) throw e2
+      const { error } = await supabase.from('wallet_movements').insert([
+        { wallet_id: transferFrom, user_id: user.id, amount: -raw, movement_type: 'retiro',   is_dividend: false, notes: note, date: transferDate },
+        { wallet_id: transferTo,   user_id: user.id, amount:  raw, movement_type: 'deposito', is_dividend: false, notes: note, date: transferDate },
+      ])
+      if (error) throw error
 
       setShowTransfer(false)
       setTransferAmount(''); setTransferNotes('')
       fetchPortfolios(user.id)
     } catch (err: any) {
-      alert('Error al transferir: ' + (err?.message || err))
+      alert('Error al transferir: ' + errMsg(err))
     } finally {
       setTransferSaving(false)
     }
   }
 
   const handleDelete = async () => {
+    if (!deleteId) return
     const { error: le } = await supabase.auth.signInWithPassword({ email: user.email, password: confirmPassword })
     if (le) return alert('Contraseña incorrecta')
-    await supabase.from('portfolios').delete().eq('id', deleteId)
+    const { error } = await supabase.from('portfolios').delete().eq('id', deleteId)
+    if (error) return alert('No se pudo eliminar la billetera: ' + error.message)
     setDeleteId(null); setConfirmPassword(''); fetchPortfolios(user.id)
+  }
+
+  // ── Split ─────────────────────────────────────────────────────────────────
+  const splitRatios = () => {
+    const f = parseFloat(splitFrom), t = parseFloat(splitTo)
+    return {
+      qR: splitType === 'split' ? t / f : f / t,
+      pR: splitType === 'split' ? f / t : t / f,
+    }
   }
 
   const previewSplit = useCallback(async () => {
     const ticker = splitTicker.trim().toUpperCase()
     const f = parseFloat(splitFrom), t = parseFloat(splitTo)
-    if (!ticker || isNaN(f) || isNaN(t) || f <= 0 || t <= 0) return
+    if (!user || !ticker || isNaN(f) || isNaN(t) || f <= 0 || t <= 0) return
     setSplitLoading(true)
-    const { data: trades } = await supabase
-      .from('trades').select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,stop_loss,take_profit_1,take_profit_2,take_profit_3,total_invested')
-      .eq('ticker', ticker).eq('status', 'open')
-    if (!trades?.length) { setSplitPreview([]); setSplitLoading(false); return }
-    const qR = splitType === 'split' ? t / f : f / t
-    const pR = splitType === 'split' ? f / t : t / f
-    setSplitPreview(trades.map(tr => ({
-      id: tr.id, ticker: tr.ticker,
-      qtyBefore:      parseFloat(Number(tr.quantity).toFixed(6)),
-      priceBefore:    parseFloat(Number(tr.entry_price).toFixed(4)),
-      qtyAfter:       parseFloat((Number(tr.quantity)            * qR).toFixed(6)),
-      priceAfter:     parseFloat((Number(tr.entry_price)         * pR).toFixed(4)),
-      initPriceAfter: parseFloat((Number(tr.initial_entry_price) * pR).toFixed(4)),
-      initQtyAfter:   parseFloat((Number(tr.initial_quantity)    * qR).toFixed(6)),
-      stopAfter:  tr.stop_loss     ? parseFloat((Number(tr.stop_loss)     * pR).toFixed(4)) : null,
-      tp1After:   tr.take_profit_1 ? parseFloat((Number(tr.take_profit_1) * pR).toFixed(4)) : null,
-      tp2After:   tr.take_profit_2 ? parseFloat((Number(tr.take_profit_2) * pR).toFixed(4)) : null,
-      tp3After:   tr.take_profit_3 ? parseFloat((Number(tr.take_profit_3) * pR).toFixed(4)) : null,
-      totalInvested: tr.total_invested,
-    })))
-    setSplitLoading(false)
-  }, [splitTicker, splitFrom, splitTo, splitType])
+    try {
+      const { data: trades, error } = await supabase
+        .from('trades').select(SCALE_FIELDS)
+        .eq('user_id', user.id).eq('ticker', ticker).eq('status', 'open')
+      if (error) throw error
+      if (!trades?.length) { setSplitPreview([]); return }
+      const qR = splitType === 'split' ? t / f : f / t
+      const pR = splitType === 'split' ? f / t : t / f
+      setSplitPreview(scaleTrades(trades, qR, pR))
+    } catch (err) {
+      alert('Error: ' + errMsg(err))
+    } finally {
+      setSplitLoading(false)
+    }
+  }, [user, splitTicker, splitFrom, splitTo, splitType])
 
+  const applySplit = async () => {
+    if (!splitPreview.length) return
+    setSplitSaving(true)
+    try {
+      const { qR, pR } = splitRatios()
+      await applyScaledPreview(splitPreview, qR, pR)
+      alert(`Split aplicado a ${splitPreview.length} trade(s) de ${splitTicker.toUpperCase()}.`)
+      setShowSplit(false); setSplitPreview([]); setSplitTicker(''); setSplitFrom(''); setSplitTo('')
+      if (user) fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
+    finally { setSplitSaving(false) }
+  }
 
-  // ── Cambio de ticker ─────────────────────────────────────────────────────
+  // ── Cambio de ticker ──────────────────────────────────────────────────────
   const applyTickerChange = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
     const from = tickerChangeFrom.trim().toUpperCase()
     const to   = tickerChangeTo.trim().toUpperCase()
     if (!from || !to) return alert('Completa ambos tickers')
     if (!confirm(`¿Cambiar ticker ${from} → ${to} en todos los trades abiertos?`)) return
     setTickerChangeSaving(true)
     try {
-      await supabase.from('trades').update({ ticker: to }).eq('ticker', from).eq('status', 'open')
-      await supabase.from('watchlist').update({ ticker: to }).eq('ticker', from)
+      must(await supabase.from('trades').update({ ticker: to }).eq('user_id', user.id).eq('ticker', from).eq('status', 'open'))
+      must(await supabase.from('watchlist').update({ ticker: to }).eq('ticker', from))
       alert(`Ticker cambiado de ${from} a ${to}.`)
       setShowTickerChange(false)
       setTickerChangeFrom(''); setTickerChangeTo('')
-    } catch (err) { alert('Error: ' + err) }
+      fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
     finally { setTickerChangeSaving(false) }
   }
 
@@ -339,84 +453,36 @@ setWalletPnL(pnlMap)
   const previewMerger = useCallback(async () => {
     const ticker = mergerTicker.trim().toUpperCase()
     const ratio  = parseFloat(mergerRatio)
-    if (!ticker || isNaN(ratio) || ratio <= 0) return
+    if (!user || !ticker || isNaN(ratio) || ratio <= 0) return
     setMergerLoading(true)
-    const { data: trades } = await supabase
-      .from('trades')
-      .select('id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,total_invested')
-      .eq('ticker', ticker)
-      .eq('status', 'open')
-    if (!trades?.length) { setMergerPreview([]); setMergerLoading(false); return }
-    setMergerPreview(trades.map(tr => ({
-      id:         tr.id,
-      ticker:     tr.ticker,
-      qtyBefore:  parseFloat(Number(tr.quantity).toFixed(6)),
-      qtyAfter:   parseFloat((Number(tr.quantity) * ratio).toFixed(6)),
-      priceAfter: parseFloat((Number(tr.entry_price) / ratio).toFixed(4)),
-      totalInvested: tr.total_invested,
-    })))
-    setMergerLoading(false)
-  }, [mergerTicker, mergerRatio])
+    try {
+      const { data: trades, error } = await supabase
+        .from('trades').select(SCALE_FIELDS)
+        .eq('user_id', user.id).eq('ticker', ticker).eq('status', 'open')
+      if (error) throw error
+      if (!trades?.length) { setMergerPreview([]); return }
+      setMergerPreview(scaleTrades(trades, ratio, 1 / ratio))
+    } catch (err) {
+      alert('Error: ' + errMsg(err))
+    } finally {
+      setMergerLoading(false)
+    }
+  }, [user, mergerTicker, mergerRatio])
 
   const applyMerger = async () => {
     if (!mergerPreview.length) return
     setMergerSaving(true)
     try {
-      const newTick = mergerNewTicker.trim().toUpperCase() || mergerTicker.trim().toUpperCase()
-      for (const tr of mergerPreview) {
-        await supabase.from('trades').update({
-          ticker:               newTick,
-          quantity:             tr.qtyAfter,
-          initial_quantity:     tr.qtyAfter,
-          entry_price:          tr.priceAfter,
-          initial_entry_price:  tr.priceAfter,
-        }).eq('id', tr.id)
-        // Actualizar ejecuciones
-        const { data: execs } = await supabase.from('trade_executions').select('id,price,quantity').eq('trade_id', tr.id)
-        if (execs?.length) {
-          for (const e of execs) {
-            await supabase.from('trade_executions').update({
-              quantity: parseFloat((Number(e.quantity) * parseFloat(mergerRatio)).toFixed(6)),
-              price:    parseFloat((Number(e.price) / parseFloat(mergerRatio)).toFixed(4)),
-            }).eq('id', e.id)
-          }
-        }
-      }
-      alert(`Fusión aplicada. ${mergerPreview.length} trade(s) actualizados${newTick !== mergerTicker.toUpperCase() ? ` con nuevo ticker ${newTick}` : ''}.`)
+      const ratio   = parseFloat(mergerRatio)
+      const oldTick = mergerTicker.trim().toUpperCase()
+      const newTick = mergerNewTicker.trim().toUpperCase() || oldTick
+      await applyScaledPreview(mergerPreview, ratio, 1 / ratio, newTick)
+      alert(`Fusión aplicada. ${mergerPreview.length} trade(s) actualizados${newTick !== oldTick ? ` con nuevo ticker ${newTick}` : ''}.`)
       setShowMerger(false)
       setMergerPreview([]); setMergerTicker(''); setMergerRatio(''); setMergerNewTicker('')
-    } catch (err) { alert('Error: ' + err) }
+      if (user) fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
     finally { setMergerSaving(false) }
-  }
-
-  const applySplit = async () => {
-    if (!splitPreview.length) return
-    setSplitSaving(true)
-    try {
-      const f = parseFloat(splitFrom), t = parseFloat(splitTo)
-      const qR = splitType === 'split' ? t / f : f / t
-      const pR = splitType === 'split' ? f / t : t / f
-      for (const tr of splitPreview) {
-        await supabase.from('trades').update({
-          quantity: tr.qtyAfter, initial_quantity: tr.initQtyAfter,
-          entry_price: tr.priceAfter, initial_entry_price: tr.initPriceAfter,
-          stop_loss: tr.stopAfter, take_profit_1: tr.tp1After,
-          take_profit_2: tr.tp2After, take_profit_3: tr.tp3After,
-        }).eq('id', tr.id)
-        const { data: execs } = await supabase.from('trade_executions').select('id,price,quantity').eq('trade_id', tr.id)
-        if (execs?.length) {
-          for (const e of execs) {
-            await supabase.from('trade_executions').update({
-              price:    parseFloat((Number(e.price)    * pR).toFixed(4)),
-              quantity: parseFloat((Number(e.quantity) * qR).toFixed(6)),
-            }).eq('id', e.id)
-          }
-        }
-      }
-      alert(`Split aplicado a ${splitPreview.length} trade(s) de ${splitTicker.toUpperCase()}.`)
-      setShowSplit(false); setSplitPreview([]); setSplitTicker(''); setSplitFrom(''); setSplitTo('')
-    } catch (err) { alert('Error: ' + err) }
-    finally { setSplitSaving(false) }
   }
 
   const fmtDate = (d: string) => d
@@ -427,6 +493,106 @@ setWalletPnL(pnlMap)
   const transferFromSaldo = transferFrom ? (walletSaldos[transferFrom] || 0) : 0
   const transferToName    = portfolios.find(p => p.id === transferTo)?.name   || ''
   const transferFromName  = portfolios.find(p => p.id === transferFrom)?.name || ''
+
+  // Filas de la tabla "Antes / Después" (Split y Fusión comparten formato)
+  const previewRows = (list: any[], newTicker?: string) => list.flatMap(t => [
+    ...(newTicker ? [{ key: `${t.id}-tk`, label: 'Ticker', before: t.ticker, after: newTicker }] : []),
+    { key: `${t.id}-q`, label: 'Cantidad',             before: shares(t.qtyBefore),        after: shares(t.qtyAfter) },
+    { key: `${t.id}-p`, label: 'Precio entrada',       before: px(t.priceBefore),          after: px(t.priceAfter) },
+    { key: `${t.id}-c`, label: 'Capital (sin cambio)', before: money(t.totalInvested),     after: money(t.totalInvested) },
+  ])
+
+  const renderPreviewTable = (rows: any[], accent: string) => (
+    <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#0a0a0a' }}>
+            {['Campo', 'Antes', 'Después'].map(h => (
+              <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.key} style={{ borderBottom: '1px solid #0a0a0a' }}>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>{row.label}</td>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{row.before}</td>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: accent, fontWeight: 600 }}>{row.after}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  // Tabla de billeteras (la usan los 3 grupos y "sin grupo")
+  const renderWalletTable = (ps: any[], color: string) => (
+    <div style={tableWrap}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#0d0d0d' }}>
+            <th style={th}>Billetera</th>
+            <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
+            <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
+            <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
+            <th style={{ ...th, textAlign: 'right' }}>Rendimiento</th>
+            <th style={{ ...th, textAlign: 'right' }}>Último movimiento</th>
+            <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ps.map(p => {
+            const saldo    = walletSaldos[p.id]    || 0
+            const deposito = walletDepositos[p.id] || 0
+            const pnl      = walletPnL[p.id]       ?? 0
+            const pct      = deposito !== 0 ? (pnl / Math.abs(deposito)) * 100 : null
+            return (
+              <tr key={p.id} style={trStyle}>
+                <td style={td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Paw size={11} color={color} opacity={0.5} />
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+                  </div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: saldo >= 0 ? '#22c55e' : '#f43f5e', fontSize: 14 }}>{money(saldo)}</div>
+                  <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>para operar</div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: '#00bfff', fontSize: 13 }}>{money(deposito)}</div>
+                  <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>de tu bolsillo</div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <PnLCell pnl={pnl} money={money} />
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  {pct === null
+                    ? <span style={{ color: '#333' }}>—</span>
+                    : <span style={{ fontWeight: 700, color: pnlColor(pct), fontSize: 13 }}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </span>}
+                </td>
+                <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>
+                  {walletLastMove[p.id] ? fmtDate(walletLastMove[p.id]) : '—'}
+                </td>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                    <button onClick={() => setMovementWallet(p)} style={actionBtn('#1b4d20', '#22c55e')}>Movimientos</button>
+                    <Link href={`/billeteras/${p.id}/historial`}>
+                      <button style={actionBtn('#0d1a2e', '#00bfff')}>
+                        <History size={10} style={{ marginRight: 3 }} />Historial
+                      </button>
+                    </Link>
+                    <button onClick={() => setDeleteId(p.id)} style={actionBtn('#2d1010', '#f43f5e')}>Eliminar</button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 
   return (
     <AppShell>
@@ -453,81 +619,63 @@ setWalletPnL(pnlMap)
               <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>GANANCIA / PÉRDIDA TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: Math.abs(totalPnL) < 0.5 ? '#00bfff' : totalPnL > 0 ? '#22c55e' : '#f43f5e' }}>
+                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnL) }}>
                   {money(totalPnL)}
                 </div>
               </div>
               <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>RENDIMIENTO TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: Math.abs(totalPnLPct) < 0.5 ? '#00bfff' : totalPnLPct > 0 ? '#22c55e' : '#f43f5e' }}>
+                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnLPct) }}>
                   {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
                 </div>
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
 
-  <button
-    onClick={() => setShowActions(!showActions)}
-    style={actionsBtn}
-  >
-    <Briefcase size={13} />
-    Acciones
-    <ChevronDown size={12} />
-  </button>
+          <div ref={actionsRef} style={{ display: 'flex', gap: 8, position: 'relative' }}>
+            <button onClick={() => setShowActions(!showActions)} style={actionsBtn}>
+              <Briefcase size={13} />
+              Acciones
+              <ChevronDown size={12} />
+            </button>
 
-  {showActions && (
-    <div style={actionsMenu}>
+            {showActions && (
+              <div style={actionsMenu}>
+                <button onClick={() => { setShowActions(false); setShowSplit(true) }} style={menuBtn}>
+                  <GitBranch size={13} />
+                  Split
+                </button>
 
-      <button
-        onClick={() => {
-          setShowActions(false)
-          setShowSplit(true)
-        }}
-        style={menuBtn}
-      >
-        <GitBranch size={13} />
-        Split
-      </button>
+                <button onClick={() => { setShowActions(false); setShowTransfer(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Transferir
+                </button>
 
-      <button
-        onClick={() => {
-          setShowActions(false)
-          setShowTransfer(true)
-        }}
-        style={menuBtn}
-      >
-        <ArrowLeftRight size={13} />
-        Transferir
-      </button>
+                <hr style={{ borderColor: '#222', margin: '6px 0' }} />
 
-      <hr style={{ borderColor: '#222', margin: '6px 0' }} />
+                <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={menuBtn}>
+                  <GitBranch size={13} />
+                  Spin-off
+                </button>
 
-      <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={menuBtn}>
-        <GitBranch size={13} />
-        Spin-off
-      </button>
+                <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Cambio de ticker
+                </button>
 
-      <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={menuBtn}>
-        <ArrowLeftRight size={13} />
-        Cambio de ticker
-      </button>
+                <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Fusión / Adquisición
+                </button>
+              </div>
+            )}
 
-      <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={menuBtn}>
-        <ArrowLeftRight size={13} />
-        Fusión / Adquisición
-      </button>
-
-    </div>
-  )}
-
-  <button onClick={() => setShowModal(true)} style={createBtn}>
-    <Plus size={14} />
-    Nueva billetera
-  </button>
-
-</div>
+            <button onClick={() => setShowModal(true)} style={createBtn}>
+              <Plus size={14} />
+              Nueva billetera
+            </button>
+          </div>
         </div>
 
         {/* ── TABLAS POR GRUPO ── */}
@@ -557,87 +705,7 @@ setWalletPnL(pnlMap)
                 </div>
               </div>
 
-              <div style={tableWrap}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: '#0d0d0d' }}>
-                      <th style={th}>Billetera</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Rendimiento</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Último movimiento</th>
-                      <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ps.map(p => {
-                      const saldo    = walletSaldos[p.id]    || 0
-                      const deposito = walletDepositos[p.id] || 0
-                      const count    = walletMoveCount[p.id] || 0
-                      return (
-                        <tr key={p.id} style={trStyle}>
-                          <td style={td}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                              <Paw size={11} color={grupoInfo.color} opacity={0.5} />
-                              <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-                            </div>
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700, color: saldo >= 0 ? '#22c55e' : '#f43f5e', fontSize: 14 }}>{money(saldo)}</div>
-                            <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>para operar</div>
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700, color: '#00bfff', fontSize: 13 }}>{money(deposito)}</div>
-                            <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>de tu bolsillo</div>
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            {(() => {
-                              const pnl = walletPnL[p.id] ?? 0
-                              const color = Math.abs(pnl) < 0.5 ? '#00bfff' : pnl > 0 ? '#22c55e' : '#f43f5e'
-                              const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
-                              return (
-                                <div>
-                                  <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
-                                  {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
-                                </div>
-                              )
-                            })()}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            {(() => {
-                              const pnl = walletPnL[p.id] ?? 0
-                              const dep = walletDepositos[p.id] || 0
-                              if (dep === 0) return <span style={{ color: '#333' }}>—</span>
-                              const pct = (pnl / Math.abs(dep)) * 100
-                              const color = Math.abs(pct) < 0.5 ? '#00bfff' : pct > 0 ? '#22c55e' : '#f43f5e'
-                              return (
-                                <span style={{ fontWeight: 700, color, fontSize: 13 }}>
-                                  {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                                </span>
-                              )
-                            })()}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>
-                            {walletLastMove[p.id] ? fmtDate(walletLastMove[p.id]) : '—'}
-                          </td>
-                          <td style={{ ...td, textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                              <button onClick={() => setMovementWallet(p)} style={actionBtn('#1b4d20', '#22c55e')}>Movimientos</button>
-                              <Link href={`/billeteras/${p.id}/historial`}>
-                                <button style={actionBtn('#0d1a2e', '#00bfff')}>
-                                  <History size={10} style={{ marginRight: 3 }} />Historial
-                                </button>
-                              </Link>
-                              <button onClick={() => setDeleteId(p.id)} style={actionBtn('#2d1010', '#f43f5e')}>Eliminar</button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {renderWalletTable(ps, grupoInfo.color)}
             </div>
           )
         })}
@@ -647,48 +715,7 @@ setWalletPnL(pnlMap)
             <div style={{ fontSize: 10, color: '#888', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Paw size={10} color="#555" opacity={0.6} /> Sin grupo asignado
             </div>
-            <div style={tableWrap}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#0d0d0d' }}>
-                    <th style={th}>Billetera</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
-                    <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(grouped['sin_grupo'] || []).map(p => (
-                    <tr key={p.id} style={trStyle}>
-                      <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
-                      <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>{money(walletSaldos[p.id] || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right', color: '#00bfff', fontWeight: 700 }}>{money(walletDepositos[p.id] || 0)}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>
-                        {(() => {
-                          const pnl = walletPnL[p.id] ?? 0
-                          const color = Math.abs(pnl) < 0.5 ? '#00bfff' : pnl > 0 ? '#22c55e' : '#f43f5e'
-                          const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
-                          return (
-                            <div>
-                              <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
-                              {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
-                            </div>
-                          )
-                        })()}
-                      </td>
-                      <td style={{ ...td, textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                          <button onClick={() => setMovementWallet(p)} style={actionBtn('#1b4d20', '#22c55e')}>Movimientos</button>
-                          <Link href={`/billeteras/${p.id}/historial`}><button style={actionBtn('#0d1a2e', '#00bfff')}>Historial</button></Link>
-                          <button onClick={() => setDeleteId(p.id)} style={actionBtn('#2d1010', '#f43f5e')}>Eliminar</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {renderWalletTable(grouped['sin_grupo'], '#555')}
           </div>
         )}
 
@@ -813,7 +840,7 @@ setWalletPnL(pnlMap)
                   style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
               </div>
               <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#eab308' }}>
-                En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones se actualizan con la nueva cantidad y precio proporcional.
+                En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones (cantidad, precio, stop loss y take profits) se actualizan con la nueva cantidad y precio proporcional.
               </div>
               <label style={lbl}>Ticker original (empresa absorbida)</label>
               <select value={mergerTicker} onChange={e => { setMergerTicker(e.target.value); setMergerPreview([]) }} style={inp}>
@@ -825,7 +852,7 @@ setWalletPnL(pnlMap)
                 onChange={e => { setMergerNewTicker(e.target.value.toUpperCase()); setMergerPreview([]) }} style={inp} />
               <label style={lbl}>Ratio de canje: acciones nuevas por cada acción original</label>
               <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.4 (recibes 0.4 acciones nuevas por cada 1)" value={mergerRatio}
-                onChange={e => { setMergerRatio(e.target.value); setMergerPreview([]) }} style={inp} />
+                onChange={e => { setMergerRatio(posAmount(e.target.value)); setMergerPreview([]) }} style={inp} />
               <button onClick={previewMerger} disabled={mergerLoading || !mergerTicker || !mergerRatio}
                 style={{ width: '100%', padding: 10, background: '#1a1200', color: '#eab308', border: '1px solid #eab308', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!mergerTicker || !mergerRatio) ? 0.4 : 1 }}>
                 {mergerLoading ? 'Calculando...' : 'Previsualizar fusión'}
@@ -835,31 +862,7 @@ setWalletPnL(pnlMap)
                   <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
                     {mergerPreview.length} posición(es) afectada(s)
                   </div>
-                  <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: '#0a0a0a' }}>
-                          {['Campo', 'Antes', 'Después'].map(h => (
-                            <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mergerPreview.flatMap((tr, i) => [
-                          { label: 'Ticker',    before: tr.ticker,            after: mergerNewTicker || tr.ticker },
-                          { label: 'Cantidad',  before: tr.qtyBefore,         after: tr.qtyAfter },
-                          { label: 'Precio',    before: `$${Number(tr.qtyBefore > 0 ? tr.totalInvested / tr.qtyBefore : 0).toFixed(2)}`, after: `$${tr.priceAfter}` },
-                          { label: 'Capital',   before: `$${Number(tr.totalInvested).toFixed(2)}`, after: `$${Number(tr.totalInvested).toFixed(2)}` },
-                        ].map((row, ri) => (
-                          <tr key={`${i}-${ri}`} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>{row.label}</td>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{row.before}</td>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#eab308', fontWeight: 600 }}>{row.after}</td>
-                          </tr>
-                        )))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {renderPreviewTable(previewRows(mergerPreview, mergerNewTicker.trim().toUpperCase() || undefined), '#eab308')}
                   <button onClick={applyMerger} disabled={mergerSaving} style={{
                     width: '100%', padding: 12, background: '#eab308', color: '#000',
                     border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
@@ -924,30 +927,7 @@ setWalletPnL(pnlMap)
                   <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
                     {splitPreview.length} trade(s) afectado(s)
                   </div>
-                  <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: '#0a0a0a' }}>
-                          {['Campo','Antes','Después'].map(h => (
-                            <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {splitPreview.flatMap(t => [
-                          { label: 'Cantidad',             before: t.qtyBefore,            after: t.qtyAfter },
-                          { label: 'Precio entrada',       before: `$${t.priceBefore}`,    after: `$${t.priceAfter}` },
-                          { label: 'Capital (sin cambio)', before: `$${Number(t.totalInvested).toFixed(2)}`, after: `$${Number(t.totalInvested).toFixed(2)}` },
-                        ].map((row, ri) => (
-                          <tr key={`${t.id}-${ri}`} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>{row.label}</td>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{row.before}</td>
-                            <td style={{ padding: '6px 12px', fontSize: 11, color: '#22c55e', fontWeight: 600 }}>{row.after}</td>
-                          </tr>
-                        )))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {renderPreviewTable(previewRows(splitPreview), '#22c55e')}
                   <button onClick={applySplit} disabled={splitSaving} style={{
                     width: '100%', padding: 12, background: '#22c55e', color: '#000',
                     border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
@@ -1111,10 +1091,7 @@ const actionBtn = (bg: string, color: string): React.CSSProperties => ({
   cursor: 'pointer', borderRadius: 4, fontSize: 10, fontWeight: 'bold',
   display: 'inline-flex', alignItems: 'center',
 })
-const createBtn: React.CSSProperties  = { background: '#22c55e', border: 'none', color: '#000', padding: '9px 16px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
-const splitBtn: React.CSSProperties   = { background: 'transparent', border: '1px solid #eab308', color: '#eab308', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
-const transferBtn: React.CSSProperties = { background: 'transparent', border: '1px solid #a78bfa', color: '#a78bfa', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
-const actionsBtn: React.CSSProperties = { background: '#111', border: '1px solid #333', color: '#ccc', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const createBtn: React.CSSProperties   = { background: '#22c55e', border: 'none', color: '#000', padding: '9px 16px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const actionsBtn: React.CSSProperties  = { background: '#111', border: '1px solid #333', color: '#ccc', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
 const actionsMenu: React.CSSProperties = { position: 'absolute', top: '110%', right: 0, background: '#111', border: '1px solid #222', borderRadius: 10, padding: '8px 0', minWidth: 200, zIndex: 100, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }
-const menuBtn: React.CSSProperties = { width: '100%', background: 'none', border: 'none', color: '#ccc', padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left' }
-const menuBtnDisabled: React.CSSProperties = { width: '100%', background: 'none', border: 'none', color: '#444', padding: '8px 14px', cursor: 'not-allowed', fontSize: 11, display: 'flex', alignItems: 'center', gap: 8 }
+const menuBtn: React.CSSProperties     = { width: '100%', background: 'none', border: 'none', color: '#ccc', padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left' }
