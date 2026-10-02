@@ -9,8 +9,36 @@ import { Star } from 'lucide-react'
 
 const exchangeCache: Record<string, string> = {}
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 // Solo positivos
 const pos = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
+
+// Redondeos: totales a centavos, precios por acción a 4 decimales (evita perder precisión en MXN o acciones baratas)
+const r2 = (n: number) => Math.round(n * 100) / 100 + 0
+const r4 = (n: number) => Math.round(n * 10000) / 10000 + 0
+
+const errMsg = (e: any) => e?.message || String(e)
+
+// Saldo de una billetera: suma de todos sus movimientos (paginado con orden determinístico)
+async function getWalletBalance(walletId: string): Promise<number> {
+  let total = 0
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('wallet_movements')
+      .select('amount')
+      .eq('wallet_id', walletId)
+      .order('id')
+      .range(from, from + 999)
+    if (error) throw error
+    if (!data?.length) break
+    total += data.reduce((acc, m) => acc + Number(m.amount), 0)
+    if (data.length < 1000) break
+    from += 1000
+  }
+  return r2(total)
+}
 
 const SECTORES_DATA: Record<string, string[]> = {
   "ETF (Indexados)":           ["ETF"],
@@ -94,8 +122,8 @@ export default function RegistroInicialTrade() {
   const [currency,     setCurrency]     = useState('USD')
   const [exchangeRate, setExchangeRate] = useState('1')
 
-  const fetchExchangeRate = useCallback(async (selectedDate: string, targetCurrency: string) => {
-    if (targetCurrency === 'USD') { setExchangeRate('1'); return }
+  // T/C del día desde Frankfurter. Si falla, el campo queda vacío para que lo captures (no se asume 1:1)
+  const fetchExchangeRate = useCallback(async (selectedDate: string, isCancelled: () => boolean) => {
     const cacheKey = `${selectedDate}-MXN`
     if (exchangeCache[cacheKey]) { setExchangeRate(exchangeCache[cacheKey]); return }
     try {
@@ -104,17 +132,22 @@ export default function RegistroInicialTrade() {
       let rate   = data?.rates?.MXN
       if (!rate) {
         const latest = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN')
-        rate = (await latest.json()).rates.MXN
+        rate = (await latest.json())?.rates?.MXN
       }
-      const fixed = rate.toFixed(4)
+      if (!rate) throw new Error('Sin tipo de cambio disponible')
+      const fixed = Number(rate).toFixed(4)
       exchangeCache[cacheKey] = fixed
-      setExchangeRate(fixed)
+      if (!isCancelled()) setExchangeRate(fixed)
     } catch (err) { console.error('Error T/C:', err) }
   }, [])
 
   useEffect(() => {
-    const t = setTimeout(() => fetchExchangeRate(date, currency), 400)
-    return () => clearTimeout(t)
+    if (currency === 'USD') { setExchangeRate('1'); return }
+    // En MXN nunca se queda el "1" de USD mientras llega el T/C real
+    if (!exchangeCache[`${date}-MXN`]) setExchangeRate('')
+    let cancelled = false
+    const t = setTimeout(() => fetchExchangeRate(date, () => cancelled), 400)
+    return () => { cancelled = true; clearTimeout(t) }
   }, [date, currency, fetchExchangeRate])
 
   useEffect(() => {
@@ -122,102 +155,102 @@ export default function RegistroInicialTrade() {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
       if (user) {
-        const { data } = await supabase.from('portfolios').select('*').eq('user_id', user.id)
+        const { data, error } = await supabase.from('portfolios').select('*').eq('user_id', user.id)
+        if (error) console.error('Error cargando billeteras:', error)
         setWallets(data || [])
       }
     }
     fetchData()
   }, [])
 
-  // ── Saldo con paginación completa — misma lógica que portafolios e historial ──
+  // ── Saldo de la billetera seleccionada (ignora respuestas viejas si cambias de billetera) ──
   useEffect(() => {
     if (!selectedWallet) { setAvailable(0); return }
-    const fetchBalance = async () => {
-      let all: any[] = []
-      let from = 0
-      while (true) {
-        const { data } = await supabase
-          .from('wallet_movements')
-          .select('amount')
-          .eq('wallet_id', selectedWallet)
-          .range(from, from + 999)
-        if (!data?.length) break
-        all = [...all, ...data]
-        if (data.length < 1000) break
-        from += 1000
-      }
-      const saldo = all.reduce((acc, m) => acc + Number(m.amount), 0)
-      setAvailable(parseFloat(saldo.toFixed(2)))
-    }
-    fetchBalance()
+    let cancelled = false
+    getWalletBalance(selectedWallet)
+      .then(b => { if (!cancelled) setAvailable(b) })
+      .catch(err => console.error('Error cargando saldo:', err))
+    return () => { cancelled = true }
   }, [selectedWallet])
 
   // ── Cálculos ──────────────────────────────────────────────────────────────
   const qty     = parseFloat(quantity)   || 0
   const entry   = parseFloat(price)      || 0
   const comm    = parseFloat(commission) || 0
-  const tCambio = parseFloat(exchangeRate) || 1
   const stopVal = parseFloat(stop) || 0
   const tp1Val  = parseFloat(tp1)  || 0
   const tp2Val  = parseFloat(tp2)  || 0
   const tp3Val  = parseFloat(tp3)  || 0
 
-  const totalOriginal = parseFloat((qty * entry + comm).toFixed(2))
-  const totalUSD      = currency === 'MXN' ? parseFloat((totalOriginal / tCambio).toFixed(2)) : totalOriginal
-  const entryUSD      = currency === 'MXN' ? parseFloat((entry  / tCambio).toFixed(2)) : entry
+  // fx = pesos por dólar. En USD es 1; en MXN, si falta el T/C vale 0 y se bloquea el guardado
+  const fx     = currency === 'MXN' ? (parseFloat(exchangeRate) || 0) : 1
+  const rateOk = fx > 0
 
-  const toUSD = (v: number) => currency === 'MXN' ? parseFloat((v / tCambio).toFixed(2)) : parseFloat(v.toFixed(2))
+  const totalOriginal = r2(qty * entry + comm)
+  const totalUSD      = rateOk ? r2(totalOriginal / fx) : 0
+  const toUSD         = (v: number) => (rateOk ? r4(v / fx) : 0)
+  const entryUSD      = toUSD(entry)
 
   const stopUSD = stopVal > 0 ? toUSD(stopVal) : 0
   const tp1USD  = tp1Val  > 0 ? toUSD(tp1Val)  : 0
   const tp2USD  = tp2Val  > 0 ? toUSD(tp2Val)  : 0
   const tp3USD  = tp3Val  > 0 ? toUSD(tp3Val)  : 0
 
-  const riskPerShare = stopUSD > 0 && entryUSD > 0 ? Math.abs(entryUSD - stopUSD) : 0
-  const riskTotal    = parseFloat((riskPerShare * qty).toFixed(2))
-  const riskPercent  = available > 0 ? parseFloat(((riskTotal / available) * 100).toFixed(2)) : 0
-  const portfolioPct = available > 0 ? parseFloat(((totalUSD / available) * 100).toFixed(2)) : 0
+  // Trade siempre es long: el stop debe quedar por debajo de la entrada
+  const stopInvalid  = stopUSD > 0 && entryUSD > 0 && stopUSD >= entryUSD
+  const riskPerShare = stopUSD > 0 && entryUSD > 0 && !stopInvalid ? entryUSD - stopUSD : 0
+  const riskTotal    = r2(riskPerShare * qty)
+  const riskPercent  = available > 0 ? r2((riskTotal / available) * 100) : 0
+  const portfolioPct = available > 0 ? r2((totalUSD / available) * 100) : 0
   const overBudget   = totalUSD > available && available > 0
+  const blocked      = overBudget || !rateOk
 
   const rr = (tpUSD: number) => {
     if (!riskPerShare || !entryUSD || !tpUSD) return null
-    return parseFloat(((tpUSD - entryUSD) / riskPerShare).toFixed(2))
+    return r2((tpUSD - entryUSD) / riskPerShare)
   }
 
   const guardarTrade = async () => {
-    if (!ticker.trim() || !qty || !entry || !selectedWallet || !sector)
+    if (loading) return
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
+    const tk = ticker.trim().toUpperCase()
+    if (!tk || !qty || !entry || !selectedWallet || !sector)
       return alert('Faltan datos obligatorios: billetera, ticker, sector, cantidad y precio')
+    if (!rateOk)
+      return alert('Ingresa un tipo de cambio válido')
     if (overBudget)
       return alert(`Saldo insuficiente. El trade cuesta ${money(totalUSD)} y solo tienes ${money(available)} disponibles`)
 
     setLoading(true)
+    let navigated = false
     try {
       // Verificar duplicado
-      const { data: existing } = await supabase
+      const { data: existing, error: dErr } = await supabase
         .from('trades').select('id')
         .eq('portfolio_id', selectedWallet)
-        .eq('ticker', ticker.trim().toUpperCase())
+        .eq('ticker', tk)
         .eq('status', 'open')
         .maybeSingle()
+      if (dErr) throw dErr
 
       if (existing) {
-        alert(`Ya existe un trade abierto con ${ticker.toUpperCase()} en esta billetera.`)
-        setLoading(false)
+        alert(`Ya existe un trade abierto con ${tk} en esta billetera.`)
         return
       }
 
-      const entryFinal = parseFloat(entryUSD.toFixed(2))
+      const entryFinal = entryUSD
+      const qtyFinal   = parseFloat(qty.toFixed(6))
 
-      const { error: tErr } = await supabase.from('trades').insert({
+      const { data: created, error: tErr } = await supabase.from('trades').insert({
         user_id:             user.id,
         portfolio_id:        selectedWallet,
-        ticker:              ticker.trim().toUpperCase(),
+        ticker:              tk,
         type:                'long',
-        quantity:            parseFloat(qty.toFixed(6)),
-        initial_quantity:    parseFloat(qty.toFixed(6)),
+        quantity:            qtyFinal,
+        initial_quantity:    qtyFinal,
         entry_price:         entryFinal,
         initial_entry_price: entryFinal,
-        total_invested:      parseFloat(totalUSD.toFixed(2)),
+        total_invested:      totalUSD,
         open_date:           date,
         stop_loss:           stopUSD  || null,
         take_profit_1:       tp1USD   || null,
@@ -229,24 +262,42 @@ export default function RegistroInicialTrade() {
         sector,
         subsector,
         priority,
-      })
-      if (tErr) throw tErr
+      }).select('id').single()
 
-      await supabase.from('wallet_movements').insert({
+      if (tErr) {
+        // 23505 = violación de índice único (si agregas uno para trades abiertos por billetera+ticker)
+        if ((tErr as any).code === '23505') {
+          alert(`Ya existe un trade abierto con ${tk} en esta billetera.`)
+          return
+        }
+        throw tErr
+      }
+
+      const { error: mErr } = await supabase.from('wallet_movements').insert({
         wallet_id:     selectedWallet,
         user_id:       user.id,
-        amount:        -parseFloat(totalUSD.toFixed(2)),
+        amount:        -totalUSD,
         movement_type: 'trade',
-        ticker:        ticker.trim().toUpperCase(),
-        notes:         `Apertura ${ticker.trim().toUpperCase()} · ${qty} acc @ ${entryFinal} USD · T/C: ${tCambio}`,
+        ticker:        tk,
+        notes:         `Apertura ${tk} · ${qtyFinal} acc @ ${entryFinal} USD · T/C: ${fx}`,
         date,
         is_dividend:   false,
       })
 
+      if (mErr) {
+        // No dejar un trade abierto sin su movimiento de billetera: se revierte
+        const { error: rbErr } = await supabase.from('trades').delete().eq('id', created.id)
+        throw new Error(
+          errMsg(mErr) + (rbErr ? ' — además no se pudo revertir el trade, revísalo en Abiertos.' : '')
+        )
+      }
+
+      navigated = true
       router.push('/abiertos')
     } catch (error: any) {
-      alert('Error: ' + error.message)
-      setLoading(false)
+      alert('Error: ' + errMsg(error))
+    } finally {
+      if (!navigated) setLoading(false)
     }
   }
 
@@ -387,7 +438,12 @@ export default function RegistroInicialTrade() {
               <input type="number" min="0" step="0.01"
                 style={{ ...inp, borderColor: stopVal ? '#f43f5e55' : '#222' }}
                 value={stop} onChange={e => setStop(pos(e.target.value))} placeholder="0.00" />
-              {stopUSD > 0 && entryUSD > 0 && (
+              {stopInvalid && (
+                <div style={{ fontSize: 10, color: '#eab308', marginTop: 5, textAlign: 'center' }}>
+                  El stop debe ir por debajo de la entrada
+                </div>
+              )}
+              {riskPerShare > 0 && (
                 <div style={{ fontSize: 10, color: '#f43f5e', marginTop: 5, textAlign: 'center' }}>
                   Riesgo: {money(riskTotal)} ({riskPercent}% saldo)
                 </div>
@@ -399,14 +455,20 @@ export default function RegistroInicialTrade() {
               { label: 'TP 3', val: tp3, set: setTp3, usd: tp3USD },
             ].map(({ label, val, set, usd }) => {
               const rrVal = rr(usd)
+              const tpBelow = usd > 0 && entryUSD > 0 && usd <= entryUSD
               return (
                 <div key={label} style={inputBox}>
                   <label style={{ ...lbl, color: parseFloat(val) ? '#22c55e' : '#888' }}>{label}</label>
                   <input type="number" min="0" step="0.01"
                     style={{ ...inp, borderColor: parseFloat(val) ? '#22c55e55' : '#222' }}
                     value={val} onChange={e => set(pos(e.target.value))} placeholder="0.00" />
+                  {tpBelow && (
+                    <div style={{ fontSize: 10, color: '#eab308', marginTop: 5, textAlign: 'center' }}>
+                      Por debajo de la entrada
+                    </div>
+                  )}
                   {rrVal !== null && (
-                    <div style={{ fontSize: 10, color: '#22c55e', marginTop: 5, textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: rrVal >= 0 ? '#22c55e' : '#f43f5e', marginTop: 5, textAlign: 'center' }}>
                       R/R: {rrVal}R
                     </div>
                   )}
@@ -439,10 +501,11 @@ export default function RegistroInicialTrade() {
             </div>
             {currency === 'MXN' && (
               <div style={{ width: 150 }}>
-                <label style={{ ...lbl, color: '#eab308' }}>Valor dólar (T/C)</label>
+                <label style={{ ...lbl, color: rateOk ? '#eab308' : '#f43f5e' }}>Valor dólar (T/C)</label>
                 <input type="number" min="0" step="0.01"
-                  style={{ ...inp, borderColor: '#eab308' }}
+                  style={{ ...inp, borderColor: rateOk ? '#eab308' : '#f43f5e' }}
                   value={exchangeRate}
+                  placeholder="Ingresa el T/C"
                   onChange={e => setExchangeRate(pos(e.target.value))}
                 />
               </div>
@@ -474,16 +537,16 @@ export default function RegistroInicialTrade() {
           </div>
           <button
             onClick={guardarTrade}
-            disabled={loading || overBudget}
+            disabled={loading || blocked}
             style={{
               ...saveBtn,
-              background: overBudget ? '#3a1a1a' : loading ? '#1a3a1a' : '#2e7d32',
-              cursor:     overBudget || loading ? 'not-allowed' : 'pointer',
-              opacity:    overBudget ? 0.7 : 1,
+              background: overBudget ? '#3a1a1a' : !rateOk ? '#3a2a0a' : loading ? '#1a3a1a' : '#2e7d32',
+              cursor:     blocked || loading ? 'not-allowed' : 'pointer',
+              opacity:    blocked ? 0.7 : 1,
             }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               <Paw size={15} color={overBudget ? '#f43f5e' : '#22c55e'} opacity={0.8} />
-              {loading ? 'Procesando...' : overBudget ? 'Saldo insuficiente' : 'Abrir posición'}
+              {loading ? 'Procesando...' : overBudget ? 'Saldo insuficiente' : !rateOk ? 'Ingresa el tipo de cambio' : 'Abrir posición'}
               <Paw size={15} color={overBudget ? '#f43f5e' : '#22c55e'} opacity={0.8} />
             </div>
           </button>
