@@ -1,31 +1,29 @@
-"use client"
+'use client'
 
-import { useState, useEffect, useCallback } from "react"
-import { supabase } from "@/lib/supabase"
-import { usePrivacy } from "@/lib/PrivacyContext"
-import { Trash2, Pencil, X, ChevronRight } from "lucide-react"
-import AiInsightPanel from "./AiInsightPanel"
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
+import AppShell from '../AppShell'
+import SpinoffModal from '../components/SpinoffModal'
+import Link from 'next/link'
+import {
+  Wallet,
+  Plus,
+  GitBranch,
+  History,
+  ArrowLeftRight,
+  ChevronDown,
+  Briefcase
+} from 'lucide-react'
 
+const GRUPOS: Record<string, { label: string, color: string, desc: string }> = {
+  largo:   { label: 'Largo plazo + ETFs',        color: '#22c55e', desc: 'El gato paciente acumula la mayor riqueza' },
+  mediano: { label: 'Mediano plazo',              color: '#00bfff', desc: 'El gato estratega mueve con precisión' },
+  corto:   { label: 'Corto plazo + Especulativo', color: '#f43f5e', desc: 'El gato ágil caza oportunidades rápidas' },
+}
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-
-const fxCache: Record<string, string> = {}
-
-const CLOSE_REASONS = [
-  'Take Profit',
-  'Stop loss',
-  'Decisión manual',
-  'Sentimiento del mercado',
-  'Rompió estructura',
-  'Cambio de tesis',
-  'Necesidad de liquidez',
-  'Error de análisis',
-  'Rebote',
-  'Otro',
-]
-// Huella de gato SVG pequeña
-const Paw = ({ color = '#555', size = 14 }: any) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+const Paw = ({ size = 14, color = '#666', opacity = 1 }: any) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{ opacity, flexShrink: 0 }}>
     <ellipse cx="6"  cy="5"  rx="2.5" ry="3"/>
     <ellipse cx="11" cy="3"  rx="2.5" ry="3"/>
     <ellipse cx="16" cy="4"  rx="2.5" ry="3"/>
@@ -34,681 +32,1066 @@ const Paw = ({ color = '#555', size = 14 }: any) => (
   </svg>
 )
 
-export default function TradeManagerModal({ trade, onClose, onRefresh }: any) {
-  const today = new Date().toLocaleDateString('sv-SE')
-  const { money, shares } = usePrivacy()
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  const [qty,     setQty]     = useState(parseFloat(Number(trade.quantity      || 0).toFixed(6)))
-  const [avg,     setAvg]     = useState(parseFloat(Number(trade.entry_price   || 0).toFixed(2)))
-  const [capital, setCapital] = useState(parseFloat(Number(trade.total_invested || 0).toFixed(2)))
-  const [pnl,     setPnl]     = useState(parseFloat(Number(trade.realized_pnl  || 0).toFixed(2)))
+// Solo permite valores positivos en inputs de monto
+const posAmount = (val: string) => val.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
-  const [actions,     setActions]     = useState("")
-  const [price,       setPrice]       = useState("")
-  const [date,        setDate]        = useState(today)
-  const [commission,  setCommission]  = useState("0")
-  const [closeReason, setCloseReason] = useState("")
-  const [isSaving,    setIsSaving]    = useState(false)
-  const [editingId,   setEditingId]   = useState<string | null>(null)
-  const [closingMode, setClosingMode] = useState(false)
-  const [showAI, setShowAI] = useState(false)
+// Fecha local (YYYY-MM-DD). toISOString() devuelve UTC y después de las 6 pm da el día siguiente
+const todayLocal = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Mexico_City' })
 
-  const [stop, setStop] = useState(trade.stop_loss     || 0)
-  const [tp1,  setTp1]  = useState(trade.take_profit_1 || 0)
-  const [tp2,  setTp2]  = useState(trade.take_profit_2 || 0)
-  const [tp3,  setTp3]  = useState(trade.take_profit_3 || 0)
+// Supabase no lanza excepciones: devuelve { error }. Esto lo convierte en excepción
+const must = <T extends { error: any }>(res: T): T => {
+  if (res.error) throw res.error
+  return res
+}
+const errMsg = (e: any) => e?.message || String(e)
 
-  const [currency,     setCurrency]     = useState('USD')
-  const [exchangeRate, setExchangeRate] = useState('1')
-  const [history,      setHistory]      = useState<any[]>([])
-  const [moves,        setMoves]        = useState<any[]>([])
+// Redondeo a centavos; el "+ 0" evita mostrar "-0.00" por residuos de coma flotante
+const r2 = (n: number) => Math.round(n * 100) / 100 + 0
+const roundMap = (o: Record<string, number>) =>
+  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, r2(v)])) as Record<string, number>
 
-  // Ref para acceder al qty actual dentro de cerrarTrade sin depender del cierre
-  const qtyRef     = { current: qty }
-  const capitalRef = { current: capital }
-  const avgRef     = { current: avg }
-  const pnlRef     = { current: pnl }
+const pnlColor = (v: number) => Math.abs(v) < 0.5 ? '#00bfff' : v > 0 ? '#22c55e' : '#f43f5e'
+const uniqSorted = (rows: any[]) => Array.from(new Set(rows.map(t => t.ticker))).sort() as string[]
 
-  const fetchExchangeRate = useCallback(async (selectedDate: string, targetCurrency: string) => {
-    if (targetCurrency === 'USD') { setExchangeRate('1'); return }
-    const key = `${selectedDate}-MXN`
-    if (fxCache[key]) { setExchangeRate(fxCache[key]); return }
+// Trae todas las filas paginando (con .order() en la consulta para que el orden sea determinístico)
+async function fetchAllRows(build: (from: number, to: number) => any): Promise<any[]> {
+  const all: any[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await build(from, from + 999)
+    if (error) throw error
+    if (!data?.length) break
+    all.push(...data)
+    if (data.length < 1000) break
+    from += 1000
+  }
+  return all
+}
+
+const SCALE_FIELDS =
+  'id,ticker,quantity,entry_price,initial_entry_price,initial_quantity,stop_loss,take_profit_1,take_profit_2,take_profit_3,total_invested'
+
+// Cálculo común de Split y Fusión: cantidad × qR, precios × pR
+const scaleTrades = (trades: any[], qR: number, pR: number) => {
+  const px = (v: any) => (v ? parseFloat((Number(v) * pR).toFixed(4)) : null)
+  return trades.map(tr => ({
+    id: tr.id,
+    ticker: tr.ticker,
+    qtyBefore:      parseFloat(Number(tr.quantity).toFixed(6)),
+    priceBefore:    parseFloat(Number(tr.entry_price).toFixed(4)),
+    qtyAfter:       parseFloat((Number(tr.quantity) * qR).toFixed(6)),
+    priceAfter:     parseFloat((Number(tr.entry_price) * pR).toFixed(4)),
+    initQtyAfter:   parseFloat((Number(tr.initial_quantity ?? tr.quantity) * qR).toFixed(6)),
+    initPriceAfter: parseFloat((Number(tr.initial_entry_price ?? tr.entry_price) * pR).toFixed(4)),
+    stopAfter: px(tr.stop_loss),
+    tp1After:  px(tr.take_profit_1),
+    tp2After:  px(tr.take_profit_2),
+    tp3After:  px(tr.take_profit_3),
+    totalInvested: tr.total_invested,
+  }))
+}
+
+// Reescala las ejecuciones de un trade
+const scaleExecutions = async (tradeId: string, qR: number, pR: number) => {
+  const { data: execs, error } = await supabase
+    .from('trade_executions').select('id,price,quantity').eq('trade_id', tradeId)
+  if (error) throw error
+  for (const e of execs || []) {
+    must(await supabase.from('trade_executions').update({
+      quantity: parseFloat((Number(e.quantity) * qR).toFixed(6)),
+      price:    parseFloat((Number(e.price)    * pR).toFixed(4)),
+    }).eq('id', e.id))
+  }
+}
+
+// Aplica un preview (split o fusión) a trades y ejecuciones
+const applyScaledPreview = async (preview: any[], qR: number, pR: number, newTicker?: string) => {
+  for (const tr of preview) {
+    must(await supabase.from('trades').update({
+      ...(newTicker ? { ticker: newTicker } : {}),
+      quantity: tr.qtyAfter,           initial_quantity: tr.initQtyAfter,
+      entry_price: tr.priceAfter,      initial_entry_price: tr.initPriceAfter,
+      stop_loss: tr.stopAfter,         take_profit_1: tr.tp1After,
+      take_profit_2: tr.tp2After,      take_profit_3: tr.tp3After,
+    }).eq('id', tr.id))
+    await scaleExecutions(tr.id, qR, pR)
+  }
+}
+
+// Celda de PnL (se usaba duplicada en las dos tablas)
+function PnLCell({ pnl, money }: { pnl: number, money: (v: number) => string }) {
+  const color = pnlColor(pnl)
+  const label = Math.abs(pnl) < 0.5 ? '' : pnl > 0 ? 'vas ganando' : 'vas perdiendo'
+  return (
+    <div>
+      <div style={{ fontWeight: 700, color, fontSize: 13 }}>{money(pnl)}</div>
+      {label && <div style={{ fontSize: 9, color, opacity: 0.7, marginTop: 1 }}>{label}</div>}
+    </div>
+  )
+}
+
+export default function PortafoliosPage() {
+  const { money, shares, visible } = usePrivacy()
+
+  // Precio con 4 decimales que respeta el modo privado
+  const px = (v: number) => (visible ? `$${v}` : '$***')
+
+  const [user,        setUser]        = useState<any>(null)
+  const [portfolios,  setPortfolios]  = useState<any[]>([])
+  const [showModal,   setShowModal]   = useState(false)
+  const [newName,     setNewName]     = useState('')
+  const [newDate,     setNewDate]     = useState(todayLocal)
+  const [newGrupo,    setNewGrupo]    = useState('mediano')
+
+  const [deleteId,        setDeleteId]        = useState<string | null>(null)
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [movementWallet,  setMovementWallet]  = useState<any>(null)
+  const [isDividend,      setIsDividend]      = useState(false)
+  const [isOtherTicker,   setIsOtherTicker]   = useState(false)
+  const [selectedTicker,  setSelectedTicker]  = useState('')
+  const [movementAmount,  setMovementAmount]  = useState('')
+  const [movementDate,    setMovementDate]    = useState(todayLocal)
+  const [movementNotes,   setMovementNotes]   = useState('')
+  const [walletTickers,   setWalletTickers]   = useState<string[]>([])
+
+  const [walletSaldos,    setWalletSaldos]    = useState<Record<string, number>>({})
+  const [walletDepositos, setWalletDepositos] = useState<Record<string, number>>({})
+  const [walletLastMove,  setWalletLastMove]  = useState<Record<string, string>>({})
+  const [walletPnL,       setWalletPnL]       = useState<Record<string, number>>({})
+
+  // Menú de acciones
+  const [showActions, setShowActions] = useState(false)
+  const actionsRef = useRef<HTMLDivElement>(null)
+
+  // Transferencia entre cuentas
+  const [showTransfer,    setShowTransfer]    = useState(false)
+  const [transferFrom,    setTransferFrom]    = useState('')
+  const [transferTo,      setTransferTo]      = useState('')
+  const [transferAmount,  setTransferAmount]  = useState('')
+  const [transferDate,    setTransferDate]    = useState(todayLocal)
+  const [transferNotes,   setTransferNotes]   = useState('')
+  const [transferSaving,  setTransferSaving]  = useState(false)
+
+  // Split
+  const [showSplit,      setShowSplit]      = useState(false)
+  const [splitTicker,    setSplitTicker]    = useState('')
+  const [splitType,      setSplitType]      = useState<'split' | 'reverse'>('split')
+  const [splitFrom,      setSplitFrom]      = useState('')
+  const [splitTo,        setSplitTo]        = useState('')
+  const [splitPreview,   setSplitPreview]   = useState<any[]>([])
+  const [splitLoading,   setSplitLoading]   = useState(false)
+  const [splitSaving,    setSplitSaving]    = useState(false)
+  const [allOpenTickers, setAllOpenTickers] = useState<string[]>([])
+
+  // Spin-off
+  const [showSpinoff, setShowSpinoff] = useState(false)
+
+  // Cambio de ticker
+  const [showTickerChange,  setShowTickerChange]  = useState(false)
+  const [tickerChangeFrom,  setTickerChangeFrom]  = useState('')
+  const [tickerChangeTo,    setTickerChangeTo]    = useState('')
+  const [tickerChangeSaving,setTickerChangeSaving]= useState(false)
+
+  // Fusión
+  const [showMerger,        setShowMerger]        = useState(false)
+  const [mergerTicker,      setMergerTicker]      = useState('')
+  const [mergerRatio,       setMergerRatio]       = useState('') // X acciones nuevas por cada 1 antigua
+  const [mergerNewTicker,   setMergerNewTicker]   = useState('')
+  const [mergerPreview,     setMergerPreview]     = useState<any[]>([])
+  const [mergerLoading,     setMergerLoading]     = useState(false)
+  const [mergerSaving,      setMergerSaving]      = useState(false)
+
+  // ── Carga de datos ────────────────────────────────────────────────────────
+  const fetchPortfolios = useCallback(async (userId: string) => {
     try {
-      const res  = await fetch(`https://api.frankfurter.app/${selectedDate}?from=USD&to=MXN`)
-      const data = await res.json()
-      let rate   = data?.rates?.MXN
-      if (!rate) {
-        const latest = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN')
-        rate = (await latest.json()).rates.MXN
-      }
-      const fixed = rate.toFixed(4)
-      fxCache[key] = fixed
-      setExchangeRate(fixed)
-    } catch (err) { console.error(err) }
+      const [pRes, movements, oRes, closed] = await Promise.all([
+        supabase.from('portfolios').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        fetchAllRows((a, b) =>
+          supabase.from('wallet_movements')
+            .select('wallet_id, amount, movement_type, date')
+            .eq('user_id', userId).order('id').range(a, b)),
+        supabase.from('trades').select('ticker').eq('user_id', userId).eq('status', 'open'),
+        // PnL real = suma de realized_pnl de trades CERRADOS por portafolio
+        fetchAllRows((a, b) =>
+          supabase.from('trades')
+            .select('portfolio_id, realized_pnl')
+            .eq('user_id', userId).eq('status', 'closed').order('id').range(a, b)),
+      ])
+      if (pRes.error) throw pRes.error
+      if (oRes.error) throw oRes.error
+
+      setPortfolios(pRes.data || [])
+      setAllOpenTickers(uniqSorted(oRes.data || []))
+
+      const saldos:    Record<string, number> = {}
+      const depositos: Record<string, number> = {}
+      const lastMove:  Record<string, string> = {}
+      const pnlMap:    Record<string, number> = {}
+
+      movements.forEach(m => {
+        const id  = m.wallet_id
+        const amt = Number(m.amount)
+        saldos[id] = (saldos[id] || 0) + amt
+        if (m.movement_type === 'deposito' || m.movement_type === 'retiro') {
+          depositos[id] = (depositos[id] || 0) + amt
+        }
+        if (!lastMove[id] || m.date > lastMove[id]) lastMove[id] = m.date
+      })
+
+      closed.forEach(t => {
+        pnlMap[t.portfolio_id] = (pnlMap[t.portfolio_id] || 0) + Number(t.realized_pnl || 0)
+      })
+
+      setWalletSaldos(roundMap(saldos))
+      setWalletDepositos(roundMap(depositos))
+      setWalletLastMove(lastMove)
+      setWalletPnL(roundMap(pnlMap))
+    } catch (err) {
+      console.error('Error cargando billeteras:', err)
+    }
   }, [])
 
   useEffect(() => {
-    if (currency === 'MXN') fetchExchangeRate(date, currency)
-    else setExchangeRate('1')
-  }, [date, currency, fetchExchangeRate])
+    const init = async () => {
+      const { data } = await supabase.auth.getUser()
+      if (data.user) { setUser(data.user); fetchPortfolios(data.user.id) }
+    }
+    init()
+  }, [fetchPortfolios])
 
-  const tCambio    = parseFloat(exchangeRate) || 1
-  const priceUSD   = currency === 'MXN' ? parseFloat((Number(price) / tCambio).toFixed(2)) : parseFloat(Number(price).toFixed(2))
-  const commUSD    = parseFloat((parseFloat(commission || '0') / tCambio).toFixed(2))
-  const actionsNum = parseFloat(actions || '0')
-  const totalOp    = parseFloat((actionsNum * Number(price || 0)).toFixed(2))
-  const totalOpUSD = parseFloat((actionsNum * priceUSD).toFixed(2))
+  useEffect(() => {
+    if (!movementWallet) return
+    setMovementDate(todayLocal())
+    supabase.from('trades').select('ticker').eq('portfolio_id', movementWallet.id).eq('status', 'open').then(({ data }) => {
+      if (data) setWalletTickers(uniqSorted(data))
+    })
+  }, [movementWallet])
 
-  const loadHistory = useCallback(async () => {
-  const { data: freshTrade } = await supabase
-    .from("trades").select("*").eq("id", trade.id).single()
-  const { data: executions } = await supabase
-    .from("trade_executions").select("*")
-    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
+  // Mantiene origen/destino válidos y distintos mientras el modal de transferencia está abierto
+  useEffect(() => {
+    if (!showTransfer || portfolios.length < 2) return
+    const from = portfolios.some(p => p.id === transferFrom) ? transferFrom : portfolios[0].id
+    const to   = portfolios.some(p => p.id === transferTo) && transferTo !== from
+      ? transferTo
+      : (portfolios.find(p => p.id !== from)?.id ?? '')
+    if (from !== transferFrom) setTransferFrom(from)
+    if (to   !== transferTo)   setTransferTo(to)
+  }, [showTransfer, portfolios, transferFrom, transferTo])
 
-  // 🔥 CAMBIO: Usar los valores iniciales fijos
-  const initialPrice = parseFloat(
-  Number(
-    freshTrade?.initial_entry_price ??
-    trade.entry_price
-  ).toFixed(2)
-)
+  // Cierra el menú de acciones al hacer clic afuera
+  useEffect(() => {
+    if (!showActions) return
+    const onDown = (e: MouseEvent) => {
+      if (!actionsRef.current?.contains(e.target as Node)) setShowActions(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [showActions])
 
-const initialQty = parseFloat(
-  Number(
-    freshTrade?.initial_quantity ??
-    trade.quantity
-  ).toFixed(6)
-)
+  const grouped = useMemo(() => {
+    const map: Record<string, any[]> = { largo: [], mediano: [], corto: [], sin_grupo: [] }
+    portfolios.forEach(p => { const g = p.grupo || 'sin_grupo'; if (!map[g]) map[g] = []; map[g].push(p) })
+    return map
+  }, [portfolios])
 
-  const opening = {
-    id: 'apertura', 
-    date: freshTrade?.open_date || trade.open_date,
-    actions: initialQty, 
-    price: initialPrice,
-    total: parseFloat((initialQty * initialPrice).toFixed(2)),
-    commission: 0, 
-    type: 'Apertura',
-  }
-
-  const execHistory = (executions || []).map(e => ({
-    id: e.id, 
-    date: e.executed_at,
-    actions: parseFloat(Number(e.quantity).toFixed(6)),
-    price: parseFloat(Number(e.price).toFixed(2)),
-    total: parseFloat(Number(e.total).toFixed(2)),
-    commission: parseFloat(Number(e.commission || 0).toFixed(2)),
-    type: e.execution_type === 'buy' ? 'Recompra' : e.execution_type === 'sell' ? 'Venta parcial' : 'Cierre',
-  }))
-
-  setHistory([opening, ...execHistory].sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  ))
-}, [trade])
-
-
-  useEffect(() => { loadHistory() }, [loadHistory])
-
-  const recalculateTrade = useCallback(async () => {
-  const { data: t }  = await supabase.from("trades").select("*").eq("id", trade.id).single()
-  const { data: ex } = await supabase.from("trade_executions").select("*")
-    .eq("trade_id", trade.id).order('executed_at', { ascending: true })
-
-  // 🔥 Empezar siempre con la base inmutable
-  let cQty = parseFloat(
-  Number(t.initial_quantity ?? t.quantity).toFixed(6)
-)
-
-let cCap = parseFloat(
-  (
-    cQty *
-    Number(t.initial_entry_price ?? t.entry_price)
-  ).toFixed(4)
-)
-  let cPnl = 0
-
-  if (ex) {
-    ex.forEach(e => {
-      const q = parseFloat(Number(e.quantity).toFixed(6))
-      const p = parseFloat(Number(e.price).toFixed(2))
-      const comm = parseFloat(Number(e.commission || 0).toFixed(2))
-      const gross = parseFloat((q * p).toFixed(2))
-
-      if (e.execution_type === 'buy') {
-        cQty = parseFloat((cQty + q).toFixed(6))
-        cCap = parseFloat((cCap + gross + comm).toFixed(2))
-      } else {
-        const avgM = cQty > 0 ? cCap / cQty : 0
-        const cost = parseFloat((q * avgM).toFixed(2))
-        const netIn = parseFloat((gross - comm).toFixed(2))
-        cQty = parseFloat((cQty - q).toFixed(6))
-        cCap = parseFloat((cCap - cost).toFixed(2))
-        cPnl = parseFloat((cPnl + (netIn - cost)).toFixed(2))
+  const groupTotals = useMemo(() => {
+    const result: Record<string, { saldo: number, deposito: number }> = {}
+    Object.entries(grouped).forEach(([g, ps]) => {
+      result[g] = {
+        saldo:    r2(ps.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0)),
+        deposito: r2(ps.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0)),
       }
     })
+    return result
+  }, [grouped, walletSaldos, walletDepositos])
+
+  const totalSaldo    = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletSaldos[p.id]    || 0), 0)), [portfolios, walletSaldos])
+  const totalDeposito = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletDepositos[p.id] || 0), 0)), [portfolios, walletDepositos])
+  const totalPnL      = useMemo(() => r2(portfolios.reduce((a, p) => a + (walletPnL[p.id]      || 0), 0)), [portfolios, walletPnL])
+  const totalPnLPct   = useMemo(() => totalDeposito !== 0 ? (totalPnL / Math.abs(totalDeposito)) * 100 : 0, [totalPnL, totalDeposito])
+
+  // ── Acciones ──────────────────────────────────────────────────────────────
+  const handleCreate = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
+    if (!newName || !newDate) return alert('Completa todos los campos')
+    const { error } = await supabase.from('portfolios')
+      .insert([{ name: newName, created_at: newDate, user_id: user.id, grupo: newGrupo }])
+    if (error) return alert('Error al crear la billetera: ' + error.message)
+    setShowModal(false); setNewName(''); fetchPortfolios(user.id)
   }
 
-  const avgPrice = cQty > 0 ? parseFloat((cCap / cQty).toFixed(2)) : t.initial_entry_price
+  const resetMovementModal = () => {
+    setMovementWallet(null); setMovementAmount(''); setMovementNotes('')
+    setIsDividend(false); setIsOtherTicker(false); setSelectedTicker('')
+    setMovementDate(todayLocal())
+  }
 
-  setQty(cQty); setCapital(cCap); setAvg(avgPrice); setPnl(cPnl)
-
-  await supabase.from("trades").update({
-    quantity: cQty,
-    total_invested: parseFloat(cCap.toFixed(2)),
-    entry_price: avgPrice, // El promedio para la tabla principal
-    realized_pnl: parseFloat(cPnl.toFixed(2)),
-    status: cQty <= 0 ? 'closed' : 'open',
-  }).eq("id", trade.id)
-}, [trade])
-
-
-  const recomprar = () => {
-    if (!actionsNum || !priceUSD) return
-    const gross   = parseFloat((actionsNum * priceUSD).toFixed(2))
-    const wallOut = parseFloat((gross + commUSD).toFixed(2))
-    setMoves(prev => [...prev, {
-      type: `Recompra (${currency})`, amount: -wallOut,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(actionsNum.toFixed(6)), pr: priceUSD,
-      exType: "buy", mType: "trade", noteExt: `T/C: ${tCambio}`,
+  const handleMovement = async (type: 'deposito' | 'retiro') => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
+    if (!movementWallet || !movementAmount || !movementDate) return alert('Monto y fecha son obligatorios')
+    if (isDividend && !selectedTicker) return alert('El ticker es obligatorio para dividendos')
+    const raw   = Math.abs(parseFloat(Number(movementAmount).toFixed(2)))
+    if (!raw || raw <= 0) return alert('El monto debe ser mayor a 0')
+    const final = type === 'retiro' ? -raw : raw
+    const { error } = await supabase.from('wallet_movements').insert([{
+      wallet_id: movementWallet.id, user_id: user.id, amount: final,
+      movement_type: isDividend ? 'dividend' : type, is_dividend: isDividend,
+      ticker: isDividend ? selectedTicker.toUpperCase() : null,
+      notes: movementNotes || null, date: movementDate,
     }])
-    const nQty = parseFloat((qty + actionsNum).toFixed(6))
-    const nCap = parseFloat((capital + gross + commUSD).toFixed(2))
-    setQty(nQty); setCapital(nCap); setAvg(parseFloat((nCap / nQty).toFixed(2)))
-    setActions(""); setPrice(""); setCommission("0")
-    setClosingMode(false)
+    if (error) alert(error.message)
+    else { resetMovementModal(); fetchPortfolios(user.id) }
   }
 
-  const ventaParcial = () => {
-    if (!actionsNum || !priceUSD || actionsNum > qty) return
-    const gross  = parseFloat((actionsNum * priceUSD).toFixed(2))
-    const wallIn = parseFloat((gross - commUSD).toFixed(2))
-    const cost   = parseFloat((actionsNum * avg).toFixed(2))
-    setMoves(prev => [...prev, {
-      type: `Venta parcial (${currency})`, amount: wallIn,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(actionsNum.toFixed(6)), pr: priceUSD,
-      exType: "sell", mType: "trade", noteExt: `T/C: ${tCambio}`,
-    }])
-    setQty(parseFloat((qty - actionsNum).toFixed(6)))
-    setCapital(parseFloat((capital - cost).toFixed(2)))
-    setPnl(parseFloat((pnl + (wallIn - cost)).toFixed(2)))
-    setActions(""); setPrice(""); setCommission("0")
-    setClosingMode(false)
-  }
+  // Transferencia entre billeteras: retiro de origen + depósito en destino
+  // Un solo insert con arreglo = una sola sentencia, así no puede quedar a medias
+  const handleTransfer = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
+    if (!transferFrom || !transferTo || !transferAmount || !transferDate)
+      return alert('Completa todos los campos')
+    if (transferFrom === transferTo)
+      return alert('Las billeteras de origen y destino deben ser diferentes')
+    const raw = Math.abs(parseFloat(Number(transferAmount).toFixed(2)))
+    if (!raw || raw <= 0) return alert('El monto debe ser mayor a 0')
 
-  // Retorna el move de cierre sin modificar estado — lo usa guardar() directamente
-  const buildCloseMove = () => {
-    if (!priceUSD) return null
-    const gross  = parseFloat((qty * priceUSD).toFixed(2))
-    const wallIn = parseFloat((gross - commUSD).toFixed(2))
-    return {
-      type: `Cierre total (${currency})`, amount: wallIn,
-      pureTradeAmount: gross, commission: commUSD,
-      date, q: parseFloat(qty.toFixed(6)), pr: priceUSD,
-      exType: "close", mType: "trade", noteExt: `T/C: ${tCambio}`,
-      closeReason,
-    }
-  }
-
-  const startEdit = (h: any) => {
-    setEditingId(h.id)
-    setActions(h.actions.toString())
-    setPrice(h.price.toString())
-    setDate(typeof h.date === 'string' ? h.date.split('T')[0] : h.date)
-    setCurrency('USD')
-    setCommission(h.commission?.toString() || '0')
-    setClosingMode(false)
-  }
-
-  const deleteExecution = async (h: any) => {
-    if (h.id === 'apertura' || !confirm('¿Eliminar esta ejecución?')) return
-    await supabase.from("trade_executions").delete().eq("id", h.id)
-    await supabase.from("wallet_movements").delete().eq("execution_id", h.id)
-    await recalculateTrade(); loadHistory(); onRefresh()
-  }
-
-  const updateExecution = async () => {
-    if (!editingId || isSaving) return
-    setIsSaving(true)
+    setTransferSaving(true)
     try {
-      // Dentro de updateExecution, en el bloque de 'apertura':
-      if (editingId === 'apertura') {
-        await supabase.from("trades").update({
-          initial_quantity: parseFloat(actionsNum.toFixed(6)),
-          initial_entry_price: parseFloat(priceUSD.toFixed(2)),
-          open_date: date,
-        }).eq("id", trade.id)
+      const fromPort = portfolios.find(p => p.id === transferFrom)
+      const toPort   = portfolios.find(p => p.id === transferTo)
+      const note     = transferNotes || `Transferencia: ${fromPort?.name} → ${toPort?.name}`
 
-    } else {
-      // Obtener el tipo de ejecución para calcular el monto correcto
-      const { data: execData } = await supabase
-        .from("trade_executions")
-        .select("execution_type")
-        .eq("id", editingId)
-        .single()
+      const { error } = await supabase.from('wallet_movements').insert([
+        { wallet_id: transferFrom, user_id: user.id, amount: -raw, movement_type: 'retiro',   is_dividend: false, notes: note, date: transferDate },
+        { wallet_id: transferTo,   user_id: user.id, amount:  raw, movement_type: 'deposito', is_dividend: false, notes: note, date: transferDate },
+      ])
+      if (error) throw error
 
-      const isBuy = execData?.execution_type === 'buy'
-      const gross = parseFloat((actionsNum * priceUSD).toFixed(2))
-
-      // Buy: salida de dinero (negativo) = -(gross + comisión)
-      // Sell/Close: entrada de dinero (positivo) = gross - comisión
-      const walletAmount = isBuy
-        ? parseFloat((-(gross + commUSD)).toFixed(2))
-        : parseFloat((gross - commUSD).toFixed(2))
-
-      await supabase.from("trade_executions").update({
-        quantity:    parseFloat(actionsNum.toFixed(6)),
-        price:       parseFloat(priceUSD.toFixed(2)),
-        total:       gross,
-        commission:  commUSD,
-        executed_at: date,
-      }).eq("id", editingId)
-
-    await supabase.from("wallet_movements")
-      .update({
-        date,
-        amount: walletAmount,
-      })
-      .eq("execution_id", editingId)
-      }
-    } catch (err) {
-        console.error("Error actualizando ejecución:", err)
+      setShowTransfer(false)
+      setTransferAmount(''); setTransferNotes('')
+      fetchPortfolios(user.id)
+    } catch (err: any) {
+      alert('Error al transferir: ' + errMsg(err))
     } finally {
-      setIsSaving(false)
-  }
-}
-  
-  async function guardar() {
-    if (isSaving) {
-      console.warn("Ya se está guardando, ignorado")
-      return
+      setTransferSaving(false)
     }
+  }
 
-    // Si está en modo cierre, validar precio antes de proceder
-    if (closingMode && !priceUSD) return alert('Ingresa el precio de cierre')
-    if (closingMode && !closeReason) return alert('Selecciona la razón de cierre')
+  const handleDelete = async () => {
+    if (!deleteId) return
+    const { error: le } = await supabase.auth.signInWithPassword({ email: user.email, password: confirmPassword })
+    if (le) return alert('Contraseña incorrecta')
+    const { error } = await supabase.from('portfolios').delete().eq('id', deleteId)
+    if (error) return alert('No se pudo eliminar la billetera: ' + error.message)
+    setDeleteId(null); setConfirmPassword(''); fetchPortfolios(user.id)
+  }
 
-    setIsSaving(true)
+  // ── Split ─────────────────────────────────────────────────────────────────
+  const splitRatios = () => {
+    const f = parseFloat(splitFrom), t = parseFloat(splitTo)
+    return {
+      qR: splitType === 'split' ? t / f : f / t,
+      pR: splitType === 'split' ? f / t : t / f,
+    }
+  }
+
+  const previewSplit = useCallback(async () => {
+    const ticker = splitTicker.trim().toUpperCase()
+    const f = parseFloat(splitFrom), t = parseFloat(splitTo)
+    if (!user || !ticker || isNaN(f) || isNaN(t) || f <= 0 || t <= 0) return
+    setSplitLoading(true)
     try {
-      // Construir lista final de movimientos
-      // Si closingMode está activo, agregar el cierre al final sin pasar por estado
-      const allMoves = closingMode
-        ? [...moves, buildCloseMove()].filter(Boolean)
-        : moves
+      const { data: trades, error } = await supabase
+        .from('trades').select(SCALE_FIELDS)
+        .eq('user_id', user.id).eq('ticker', ticker).eq('status', 'open')
+      if (error) throw error
+      if (!trades?.length) { setSplitPreview([]); return }
+      const qR = splitType === 'split' ? t / f : f / t
+      const pR = splitType === 'split' ? f / t : t / f
+      setSplitPreview(scaleTrades(trades, qR, pR))
+    } catch (err) {
+      alert('Error: ' + errMsg(err))
+    } finally {
+      setSplitLoading(false)
+    }
+  }, [user, splitTicker, splitFrom, splitTo, splitType])
 
-      const lastClose    = [...allMoves].reverse().find((m: any) => m.exType === 'close')
-      const reasonToSave = lastClose?.closeReason || null
-
-      // Calcular qty final para saber si queda cerrado
-      let finalQty = qty
-      if (closingMode) finalQty = 0  // cierre total siempre deja en 0
-
-      await supabase.from("trades").update({
-        stop_loss:     parseFloat(Number(stop).toFixed(2)) || null,
-        take_profit_1: parseFloat(Number(tp1).toFixed(2))  || null,
-        take_profit_2: parseFloat(Number(tp2).toFixed(2))  || null,
-        take_profit_3: parseFloat(Number(tp3).toFixed(2))  || null,
-        status:        finalQty <= 0 ? "closed" : "open",
-        close_date:    finalQty <= 0 ? date : null,
-        close_reason:  reasonToSave,
-      }).eq("id", trade.id)
-
-      for (const m of allMoves) {
-        const { data: exec } = await supabase.from("trade_executions").insert({
-          trade_id:       trade.id,
-          execution_type: m.exType,
-          quantity:       parseFloat(m.q.toFixed(6)),
-          price:          parseFloat(m.pr.toFixed(2)),
-          total:          parseFloat(m.pureTradeAmount.toFixed(2)),
-          commission:     parseFloat(m.commission.toFixed(2)),
-          executed_at:    m.date,
-        }).select().single()
-
-        await supabase.from("wallet_movements").insert({
-          wallet_id:     trade.portfolio_id,
-          user_id:       trade.user_id,
-          ticker:        trade.ticker,
-          amount:        parseFloat(m.amount.toFixed(2)),
-          movement_type: m.mType,
-          notes:         `${m.type} ${m.noteExt || ''}`,
-          date:          m.date,
-          execution_id:  exec?.id ?? null,
-        })
-      }
-
-      await recalculateTrade(); onRefresh(); onClose()
-    } finally { setIsSaving(false) }
+  const applySplit = async () => {
+    if (!splitPreview.length) return
+    setSplitSaving(true)
+    try {
+      const { qR, pR } = splitRatios()
+      await applyScaledPreview(splitPreview, qR, pR)
+      alert(`Split aplicado a ${splitPreview.length} trade(s) de ${splitTicker.toUpperCase()}.`)
+      setShowSplit(false); setSplitPreview([]); setSplitTicker(''); setSplitFrom(''); setSplitTo('')
+      if (user) fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
+    finally { setSplitSaving(false) }
   }
 
-  const renderPct = (val: number, isStop = false) => {
-    if (!avg || !val) return <span style={{ color: '#333', fontSize: 12 }}>—</span>
-    const pct   = ((val - avg) / avg) * 100
-    const color = isStop
-      ? (val < avg ? '#ef4444' : '#22c55e')
-      : (val > avg ? '#22c55e' : '#ef4444')
-    return <span style={{ color, fontSize: 12, fontWeight: 900 }}>{pct > 0 ? '+' : ''}{pct.toFixed(2)}%</span>
+  // ── Cambio de ticker ──────────────────────────────────────────────────────
+  const applyTickerChange = async () => {
+    if (!user) return alert('Sesión expirada, vuelve a iniciar sesión')
+    const from = tickerChangeFrom.trim().toUpperCase()
+    const to   = tickerChangeTo.trim().toUpperCase()
+    if (!from || !to) return alert('Completa ambos tickers')
+    if (!confirm(`¿Cambiar ticker ${from} → ${to} en todos los trades abiertos?`)) return
+    setTickerChangeSaving(true)
+    try {
+      must(await supabase.from('trades').update({ ticker: to }).eq('user_id', user.id).eq('ticker', from).eq('status', 'open'))
+      must(await supabase.from('watchlist').update({ ticker: to }).eq('ticker', from))
+      alert(`Ticker cambiado de ${from} a ${to}.`)
+      setShowTickerChange(false)
+      setTickerChangeFrom(''); setTickerChangeTo('')
+      fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
+    finally { setTickerChangeSaving(false) }
   }
 
-  const canSave = !isSaving && (!closingMode || (priceUSD > 0 && closeReason !== ''))
+  // ── Fusión ────────────────────────────────────────────────────────────────
+  const previewMerger = useCallback(async () => {
+    const ticker = mergerTicker.trim().toUpperCase()
+    const ratio  = parseFloat(mergerRatio)
+    if (!user || !ticker || isNaN(ratio) || ratio <= 0) return
+    setMergerLoading(true)
+    try {
+      const { data: trades, error } = await supabase
+        .from('trades').select(SCALE_FIELDS)
+        .eq('user_id', user.id).eq('ticker', ticker).eq('status', 'open')
+      if (error) throw error
+      if (!trades?.length) { setMergerPreview([]); return }
+      setMergerPreview(scaleTrades(trades, ratio, 1 / ratio))
+    } catch (err) {
+      alert('Error: ' + errMsg(err))
+    } finally {
+      setMergerLoading(false)
+    }
+  }, [user, mergerTicker, mergerRatio])
+
+  const applyMerger = async () => {
+    if (!mergerPreview.length) return
+    setMergerSaving(true)
+    try {
+      const ratio   = parseFloat(mergerRatio)
+      const oldTick = mergerTicker.trim().toUpperCase()
+      const newTick = mergerNewTicker.trim().toUpperCase() || oldTick
+      await applyScaledPreview(mergerPreview, ratio, 1 / ratio, newTick)
+      alert(`Fusión aplicada. ${mergerPreview.length} trade(s) actualizados${newTick !== oldTick ? ` con nuevo ticker ${newTick}` : ''}.`)
+      setShowMerger(false)
+      setMergerPreview([]); setMergerTicker(''); setMergerRatio(''); setMergerNewTicker('')
+      if (user) fetchPortfolios(user.id)
+    } catch (err) { alert('Error: ' + errMsg(err)) }
+    finally { setMergerSaving(false) }
+  }
+
+  const fmtDate = (d: string) => d
+    ? new Date(d + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—'
+
+  // Saldo disponible de la billetera origen para mostrar en transferencia
+  const transferFromSaldo = transferFrom ? (walletSaldos[transferFrom] || 0) : 0
+  const transferToName    = portfolios.find(p => p.id === transferTo)?.name   || ''
+  const transferFromName  = portfolios.find(p => p.id === transferFrom)?.name || ''
+
+  // Filas de la tabla "Antes / Después" (Split y Fusión comparten formato)
+  const previewRows = (list: any[], newTicker?: string) => list.flatMap(t => [
+    ...(newTicker ? [{ key: `${t.id}-tk`, label: 'Ticker', before: t.ticker, after: newTicker }] : []),
+    { key: `${t.id}-q`, label: 'Cantidad',             before: shares(t.qtyBefore),        after: shares(t.qtyAfter) },
+    { key: `${t.id}-p`, label: 'Precio entrada',       before: px(t.priceBefore),          after: px(t.priceAfter) },
+    { key: `${t.id}-c`, label: 'Capital (sin cambio)', before: money(t.totalInvested),     after: money(t.totalInvested) },
+  ])
+
+  const renderPreviewTable = (rows: any[], accent: string) => (
+    <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#0a0a0a' }}>
+            {['Campo', 'Antes', 'Después'].map(h => (
+              <th key={h} style={{ padding: '7px 12px', fontSize: 9, color: '#888', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid #111' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.key} style={{ borderBottom: '1px solid #0a0a0a' }}>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: '#aaa' }}>{row.label}</td>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: '#888' }}>{row.before}</td>
+              <td style={{ padding: '6px 12px', fontSize: 11, color: accent, fontWeight: 600 }}>{row.after}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  // Tabla de billeteras (la usan los 3 grupos y "sin grupo")
+  const renderWalletTable = (ps: any[], color: string) => (
+    <div style={tableWrap}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#0d0d0d' }}>
+            <th style={th}>Billetera</th>
+            <th style={{ ...th, textAlign: 'right' }}>Saldo disponible</th>
+            <th style={{ ...th, textAlign: 'right' }}>Capital depositado</th>
+            <th style={{ ...th, textAlign: 'right' }}>Ganancia / Pérdida</th>
+            <th style={{ ...th, textAlign: 'right' }}>Rendimiento</th>
+            <th style={{ ...th, textAlign: 'right' }}>Último movimiento</th>
+            <th style={{ ...th, textAlign: 'center' }}>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ps.map(p => {
+            const saldo    = walletSaldos[p.id]    || 0
+            const deposito = walletDepositos[p.id] || 0
+            const pnl      = walletPnL[p.id]       ?? 0
+            const pct      = deposito !== 0 ? (pnl / Math.abs(deposito)) * 100 : null
+            return (
+              <tr key={p.id} style={trStyle}>
+                <td style={td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Paw size={11} color={color} opacity={0.5} />
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+                  </div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: saldo >= 0 ? '#22c55e' : '#f43f5e', fontSize: 14 }}>{money(saldo)}</div>
+                  <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>para operar</div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: '#00bfff', fontSize: 13 }}>{money(deposito)}</div>
+                  <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>de tu bolsillo</div>
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <PnLCell pnl={pnl} money={money} />
+                </td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  {pct === null
+                    ? <span style={{ color: '#333' }}>—</span>
+                    : <span style={{ fontWeight: 700, color: pnlColor(pct), fontSize: 13 }}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </span>}
+                </td>
+                <td style={{ ...td, textAlign: 'right', color: '#aaa', fontSize: 12 }}>
+                  {walletLastMove[p.id] ? fmtDate(walletLastMove[p.id]) : '—'}
+                </td>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                    <button onClick={() => setMovementWallet(p)} style={actionBtn('#1b4d20', '#22c55e')}>Movimientos</button>
+                    <Link href={`/billeteras/${p.id}/historial`}>
+                      <button style={actionBtn('#0d1a2e', '#00bfff')}>
+                        <History size={10} style={{ marginRight: 3 }} />Historial
+                      </button>
+                    </Link>
+                    <button onClick={() => setDeleteId(p.id)} style={actionBtn('#2d1010', '#f43f5e')}>Eliminar</button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 
   return (
-  <div style={overlay}>
-    <div style={{ display: 'flex', alignItems: 'stretch', maxHeight: '92vh' }}>
-  <div style={{
-    ...modal,
-    height: '100%', // <--- Asegúrate de que tenga esto
-    borderRadius: showAI ? '12px 0 0 12px' : '12px',
-    borderRight:  showAI ? 'none' : '1px solid #333',
-  }}>
+    <AppShell>
+      <div style={{ color: 'white', padding: '28px 36px', maxWidth: 1280, margin: '0 auto' }}>
 
-{/* HEADER */}
-<div style={{
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  borderBottom: '1px solid #1a1a1a',
-  paddingBottom: 12,
-  marginBottom: 16
-}}>
-
-  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-    <Paw color="#00bfff" size={16} />
-
-    <h2 style={{ margin: 0, fontSize: 18 }}>
-      Gestión: <span style={{ color: '#00bfff' }}>{trade.ticker}</span>
-    </h2>
-  </div>
-
-  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-
-    {editingId && (
-      <span style={{
-        color: '#eab308',
-        fontWeight: 'bold',
-        fontSize: 11
-      }}>
-        Modo edición
-      </span>
-    )}
-
-    <button
-      onClick={() => setShowAI(v => !v)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        background: showAI ? 'rgba(0,191,255,0.1)' : '#111',
-        border: `1px solid ${showAI ? 'rgba(0,191,255,0.3)' : '#222'}`,
-        color: showAI ? '#00bfff' : '#666',
-        borderRadius: 6,
-        padding: '4px 10px',
-        cursor: 'pointer',
-        fontSize: 10,
-        fontWeight: 700,
-        transition: 'all 0.2s',
-      }}
-    >
-
-      Resumen
-
-      <ChevronRight
-        size={10}
-        style={{
-          transform: showAI ? 'rotate(180deg)' : 'none',
-          transition: 'transform 0.2s',
-        }}
-      />
-    </button>
-
-    <button
-      onClick={onClose}
-      style={{
-        background: 'none',
-        border: 'none',
-        color: '#555',
-        cursor: 'pointer'
-      }}
-    >
-      <X size={18} />
-    </button>
-
-  </div>
-
-</div>
-
-{/* RESUMEN */}
-        <div style={rowLabels4Col}>
-          <div>Acciones</div><div>Precio avg (USD)</div><div>Capital (USD)</div><div>PnL realizado</div>
-        </div>
-        <div style={rowValues4Col}>
-          <div style={valBoxLarge}>{shares(qty)}</div>
-          <div style={valBoxLarge}>{money(avg)}</div>
-          <div style={valBoxLarge}>{money(capital)}</div>
-          <div style={{ ...valBoxLarge, color: pnl >= 0 ? '#22c55e' : '#ef4444' }}>{money(pnl)}</div>
-        </div>
-
-        {/* TARGETS */}
-        <div style={{ ...rowLabels4Col, marginTop: 18 }}>
-          <div>Stop loss</div><div>TP 1</div><div>TP 2</div><div>TP 3</div>
-        </div>
-        <div style={rowTargetsExtended}>
-          {[
-            { val: stop, set: setStop, isStop: true },
-            { val: tp1,  set: setTp1,  isStop: false },
-            { val: tp2,  set: setTp2,  isStop: false },
-            { val: tp3,  set: setTp3,  isStop: false },
-          ].map(({ val, set, isStop }, i) => (
-            <div key={i} style={targetGroup}>
-              <input type="number" step="any" style={input} value={val} onChange={e => set(e.target.value)} />
-              {renderPct(Number(val), isStop)}
+        {/* ── HEADER ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <Wallet size={20} color="#00bfff" />
+              <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Gestión de billeteras</h1>
+              <Paw size={14} color="#00bfff" opacity={0.4} />
             </div>
-          ))}
-        </div>
-
-        {/* FORMULARIO OPERACIÓN */}
-        <div style={{ ...rowLabelsCustom, marginTop: 18 }}>
-          <div>Cant.</div><div>Precio ({currency})</div><div>Total ({currency})</div><div>Fecha</div><div>Comisión</div>
-        </div>
-        <div style={rowValuesCustom}>
-          <input style={input} value={actions} onChange={e => setActions(e.target.value)} placeholder="0" type="number" step="0.000001" />
-          <input style={input} value={price}   onChange={e => setPrice(e.target.value)}   placeholder="0.00" type="number" step="0.01" />
-          <div style={valBox}>{money(totalOp)}</div>
-          <input style={input} type="date" value={date} onChange={e => setDate(e.target.value)} />
-          <input style={input} value={commission} onChange={e => setCommission(e.target.value)} placeholder="0.00" type="number" step="0.01" />
-        </div>
-
-        {/* BOTONES ACCIÓN */}
-        <div style={buttons}>
-          {editingId ? (
-            <>
-              <button style={{ ...saveBtn, background: '#eab308', color: '#000' }} onClick={updateExecution} disabled={isSaving}>
-                Actualizar registro
-              </button>
-              <button style={exitBtn} onClick={() => { setEditingId(null); setActions(''); setPrice(''); setCommission('0'); setClosingMode(false) }}>
-                Cancelar
-              </button>
-            </>
-          ) : (
-            <>
-              <button style={buyBtn}  onClick={recomprar}>Recompra</button>
-              <button style={sellBtn} onClick={ventaParcial}>Venta parcial</button>
-              <button
-                style={{ ...closeBtn, border: closingMode ? '1px solid #f43f5e' : '1px solid #333', color: closingMode ? '#f43f5e' : '#888' }}
-                onClick={() => {
-                  setClosingMode(v => !v)
-                  if (!closingMode) setActions(qty.toString())
-                }}>
-                {closingMode ? 'Cancelar cierre' : 'Cerrar trade'}
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* MONEDA + T/C + RAZÓN DE CIERRE en una fila */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 14 }}>
-          <div style={{ width: 90 }}>
-            <label style={labelStyle}>Moneda</label>
-            <select style={input} value={currency} onChange={e => setCurrency(e.target.value)}>
-              <option value="USD">USD</option>
-              <option value="MXN">MXN</option>
-            </select>
-          </div>
-
-          {currency === 'MXN' && (
-            <div style={{ width: 130 }}>
-              <label style={{ ...labelStyle, color: '#eab308' }}>Valor dólar (T/C)</label>
-              <input type="number" step="0.01" style={{ ...input, borderColor: '#eab308' }}
-                value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} />
-            </div>
-          )}
-
-          {/* Razón de cierre — solo aparece en modo cierre */}
-          {closingMode && (
-            <div style={{ flex: 1 }}>
-              <label style={{ ...labelStyle, color: '#f43f5e' }}>Razón de cierre</label>
-              <select
-                style={{ ...input, borderColor: closeReason ? '#333' : '#333', color: closeReason ? '#ffffff' : '#555', textAlign: 'left' }}
-                value={closeReason}
-                onChange={e => setCloseReason(e.target.value)}>
-                <option value="">Seleccionar motivo...</option>
-                {CLOSE_REASONS.map(r => <option key={r} value={r} style={{ color: 'white' }}>{r}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div style={{ marginLeft: 'auto', background: '#000', border: '1px solid #1a1a1a', borderRadius: 6, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 160 }}>
-            <label style={{ ...labelStyle, color: '#00bfff', marginBottom: 0 }}>Equivalente USD</label>
-            <div style={{ color: '#00bfff', fontSize: 15, fontWeight: 'bold', marginLeft: 12 }}>{money(totalOpUSD)}</div>
-          </div>
-        </div>
-
-        {/* PENDIENTES SIN GUARDAR */}
-        {moves.length > 0 && (
-          <div style={{ marginTop: 14, background: '#0a0a0a', borderRadius: 8, padding: '10px 14px', border: '1px solid #1a1a1a' }}>
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 6, fontWeight: 700, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Paw color="#555" size={11} /> Pendientes de guardar ({moves.length})
-            </div>
-            {moves.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', padding: '3px 0', borderBottom: '1px solid #111' }}>
-                <span>{m.type} · {m.q} acc @ {money(m.pr)}{m.closeReason ? ` · ${m.closeReason}` : ''}</span>
-                <span style={{ color: m.amount >= 0 ? '#22c55e' : '#f43f5e' }}>{money(m.amount)}</span>
+            <div style={{ display: 'flex', gap: 24, marginTop: 4 }}>
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>SALDO DISPONIBLE TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: totalSaldo >= 0 ? '#22c55e' : '#f43f5e' }}>{money(totalSaldo)}</div>
               </div>
-            ))}
+              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>CAPITAL DEPOSITADO TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: '#00bfff' }}>{money(totalDeposito)}</div>
+              </div>
+              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>GANANCIA / PÉRDIDA TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnL) }}>
+                  {money(totalPnL)}
+                </div>
+              </div>
+              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              <div>
+                <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>RENDIMIENTO TOTAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnLPct) }}>
+                  {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div ref={actionsRef} style={{ display: 'flex', gap: 8, position: 'relative' }}>
+            <button onClick={() => setShowActions(!showActions)} style={actionsBtn}>
+              <Briefcase size={13} />
+              Acciones
+              <ChevronDown size={12} />
+            </button>
+
+            {showActions && (
+              <div style={actionsMenu}>
+                <button onClick={() => { setShowActions(false); setShowSplit(true) }} style={menuBtn}>
+                  <GitBranch size={13} />
+                  Split
+                </button>
+
+                <button onClick={() => { setShowActions(false); setShowTransfer(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Transferir
+                </button>
+
+                <hr style={{ borderColor: '#222', margin: '6px 0' }} />
+
+                <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={menuBtn}>
+                  <GitBranch size={13} />
+                  Spin-off
+                </button>
+
+                <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Cambio de ticker
+                </button>
+
+                <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={menuBtn}>
+                  <ArrowLeftRight size={13} />
+                  Fusión / Adquisición
+                </button>
+              </div>
+            )}
+
+            <button onClick={() => setShowModal(true)} style={createBtn}>
+              <Plus size={14} />
+              Nueva billetera
+            </button>
+          </div>
+        </div>
+
+        {/* ── TABLAS POR GRUPO ── */}
+        {Object.entries(GRUPOS).map(([grupoKey, grupoInfo]) => {
+          const ps = grouped[grupoKey] || []
+          if (!ps.length) return null
+          const gt = groupTotals[grupoKey] || { saldo: 0, deposito: 0 }
+          return (
+            <div key={grupoKey} style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${grupoInfo.color}22` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Paw size={13} color={grupoInfo.color} opacity={0.7} />
+                  <span style={{ fontSize: 11, fontWeight: 800, color: grupoInfo.color, letterSpacing: 0.8, textTransform: 'uppercase' as const }}>
+                    {grupoInfo.label}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#888' }}>· {ps.length} billetera{ps.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 20 }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 8, color: '#888', letterSpacing: 0.5 }}>SALDO GRUPO</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: gt.saldo >= 0 ? '#22c55e' : '#f43f5e' }}>{money(gt.saldo)}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 8, color: '#888', letterSpacing: 0.5 }}>DEPOSITADO GRUPO</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#00bfff' }}>{money(gt.deposito)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {renderWalletTable(ps, grupoInfo.color)}
+            </div>
+          )
+        })}
+
+        {(grouped['sin_grupo'] || []).length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 10, color: '#888', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Paw size={10} color="#555" opacity={0.6} /> Sin grupo asignado
+            </div>
+            {renderWalletTable(grouped['sin_grupo'], '#555')}
           </div>
         )}
 
-        {/* HISTORIAL */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, marginBottom: 8 }}>
-          <Paw color="#333" size={13} />
-          <h3 style={{ margin: 0, fontSize: 11, color: '#444', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' as const }}>
-            Historial de ejecuciones
-          </h3>
-        </div>
-        <div style={historyBox}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#000' }}>
-                <th style={th}>Fecha</th>
-                <th style={th}>Cant.</th>
-                <th style={th}>Precio</th>
-                <th style={th}>Comisión</th>
-                <th style={th}>Total neto</th>
-                <th style={th}>Tipo</th>
-                <th style={{ ...th, textAlign: 'center' }}>Acc.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map(h => (
-                <tr key={h.id} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                  <td style={td}>
-                    {parseDate(typeof h.date === 'string' ? h.date.split('T')[0] : h.date)
-                      .toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td style={td}>{shares(h.actions)}</td>
-                  <td style={td}>{money(h.price)}</td>
-                  <td style={{ ...td, color: '#555' }}>{h.commission > 0 ? money(h.commission) : '—'}</td>
-                  <td style={{ ...td, color: h.type === 'Recompra' || h.type === 'Apertura' ? '#22c55e' : '#ef4444' }}>
-                    {money(Math.abs(h.total))}
-                  </td>
-                  <td style={{ ...td, fontSize: 11, color: '#888' }}>{h.type}</td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                      <button onClick={() => startEdit(h)}
-                        style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer' }}>
-                        <Pencil size={13} />
-                      </button>
-                      {h.id !== 'apertura' && (
-                        <button onClick={() => deleteExecution(h)}
-                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {/* ════ MODAL TRANSFERENCIA ENTRE CUENTAS ════ */}
+        {showTransfer && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <ArrowLeftRight size={16} color="#a78bfa" />
+                <h2 style={{ margin: 0, fontSize: 15 }}>Transferir entre billeteras</h2>
+              </div>
 
-        {/* GUARDAR */}
-        <div style={{ ...buttons, marginTop: 18 }}>
-          <button
-            disabled={!canSave}
-            style={{ ...saveBtn, opacity: canSave ? 1 : 0.5, cursor: canSave ? 'pointer' : 'not-allowed' }}
-            onClick={guardar}>
-            {isSaving ? 'Guardando...' : closingMode ? 'Confirmar cierre y guardar' : 'Guardar cambios'}
-          </button>
-          <button style={exitBtn} onClick={onClose}>Salir</button>
-        </div>
+              <label style={lbl}>De (origen)</label>
+              <select value={transferFrom} onChange={e => setTransferFrom(e.target.value)} style={inp}>
+                {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+
+              {/* Saldo disponible en origen */}
+              {transferFrom && (
+                <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 11 }}>
+                  <span style={{ color: '#888' }}>Saldo disponible en {transferFromName}: </span>
+                  <span style={{ fontWeight: 700, color: transferFromSaldo >= 0 ? '#22c55e' : '#f43f5e' }}>
+                    {money(transferFromSaldo)}
+                  </span>
+                </div>
+              )}
+
+              <label style={lbl}>A (destino)</label>
+              <select value={transferTo} onChange={e => setTransferTo(e.target.value)} style={inp}>
+                {portfolios.filter(p => p.id !== transferFrom).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+
+              <label style={lbl}>Monto a transferir (USD)</label>
+              <input
+                type="number" min="0" step="0.01"
+                placeholder="0.00" value={transferAmount}
+                onChange={e => setTransferAmount(posAmount(e.target.value))}
+                style={inp}
+              />
+
+              <label style={lbl}>Fecha</label>
+              <input type="date" value={transferDate} onChange={e => setTransferDate(e.target.value)} style={inp} />
+
+              <label style={lbl}>Notas (opcional)</label>
+              <input
+                placeholder={`Transferencia: ${transferFromName} → ${transferToName}`}
+                value={transferNotes}
+                onChange={e => setTransferNotes(e.target.value)}
+                style={inp}
+              />
+
+              {/* Resumen de la operación */}
+              {transferAmount && parseFloat(transferAmount) > 0 && (
+                <div style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 11 }}>
+                  <div style={{ color: '#f43f5e', marginBottom: 4 }}>
+                    − {money(parseFloat(transferAmount))} de <strong>{transferFromName}</strong>
+                  </div>
+                  <div style={{ color: '#22c55e' }}>
+                    + {money(parseFloat(transferAmount))} a <strong>{transferToName}</strong>
+                  </div>
+                </div>
+              )}
+
+              <button onClick={handleTransfer} disabled={transferSaving}
+                style={{ ...saveBtn, background: '#2d1f5e', color: '#a78bfa', border: '1px solid #a78bfa44' }}>
+                {transferSaving ? 'Transfiriendo...' : 'Confirmar transferencia'}
+              </button>
+              <button onClick={() => { setShowTransfer(false); setTransferAmount(''); setTransferNotes('') }} style={cancelBtn}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showSpinoff && (
+          <SpinoffModal
+            onClose={() => setShowSpinoff(false)}
+            allOpenTickers={allOpenTickers}
+            portfolios={portfolios}
+            onApplied={() => fetchPortfolios(user.id)}
+          />
+        )}
+
+        {/* ════ MODAL CAMBIO DE TICKER ════ */}
+        {showTickerChange && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <ArrowLeftRight size={16} color="#00bfff" />
+                <h2 style={{ margin: 0, fontSize: 15 }}>Cambio de ticker</h2>
+              </div>
+              <div style={{ background: 'rgba(0,191,255,0.06)', border: '1px solid rgba(0,191,255,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#00bfff' }}>
+                Actualiza el símbolo del ticker en todos los trades abiertos y watchlist. Úsalo cuando una empresa cambia su símbolo en bolsa.
+              </div>
+              <label style={lbl}>Ticker actual</label>
+              <select value={tickerChangeFrom} onChange={e => setTickerChangeFrom(e.target.value)} style={inp}>
+                <option value="">Selecciona ticker actual...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <label style={lbl}>Nuevo ticker</label>
+              <input placeholder="Ej: META (antes FB)" value={tickerChangeTo}
+                onChange={e => setTickerChangeTo(e.target.value.toUpperCase())} style={inp} />
+              <button onClick={applyTickerChange} disabled={tickerChangeSaving || !tickerChangeFrom || !tickerChangeTo}
+                style={{ ...saveBtn, background: '#0a2a3a', color: '#00bfff', border: '1px solid #00bfff44', opacity: (!tickerChangeFrom || !tickerChangeTo) ? 0.4 : 1 }}>
+                {tickerChangeSaving ? 'Aplicando...' : `Cambiar ${tickerChangeFrom || '...'} → ${tickerChangeTo || '...'}`}
+              </button>
+              <button onClick={() => { setShowTickerChange(false); setTickerChangeFrom(''); setTickerChangeTo('') }} style={cancelBtn}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL FUSIÓN / ADQUISICIÓN ════ */}
+        {showMerger && (
+          <div style={overlay}>
+            <div style={{ ...modalBox, width: 520, maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ArrowLeftRight size={16} color="#eab308" />
+                  <h2 style={{ margin: 0, fontSize: 15 }}>Fusión / Adquisición</h2>
+                </div>
+                <button onClick={() => { setShowMerger(false); setMergerPreview([]) }}
+                  style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+              <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#eab308' }}>
+                En una fusión recibes X acciones de la nueva empresa por cada acción que tenías. Las posiciones (cantidad, precio, stop loss y take profits) se actualizan con la nueva cantidad y precio proporcional.
+              </div>
+              <label style={lbl}>Ticker original (empresa absorbida)</label>
+              <select value={mergerTicker} onChange={e => { setMergerTicker(e.target.value); setMergerPreview([]) }} style={inp}>
+                <option value="">Selecciona ticker...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <label style={lbl}>Nuevo ticker (empresa resultante, opcional si cambia)</label>
+              <input placeholder={`Dejar vacío si conserva ${mergerTicker || 'mismo ticker'}`} value={mergerNewTicker}
+                onChange={e => { setMergerNewTicker(e.target.value.toUpperCase()); setMergerPreview([]) }} style={inp} />
+              <label style={lbl}>Ratio de canje: acciones nuevas por cada acción original</label>
+              <input type="number" min="0.0001" step="0.0001" placeholder="Ej: 0.4 (recibes 0.4 acciones nuevas por cada 1)" value={mergerRatio}
+                onChange={e => { setMergerRatio(posAmount(e.target.value)); setMergerPreview([]) }} style={inp} />
+              <button onClick={previewMerger} disabled={mergerLoading || !mergerTicker || !mergerRatio}
+                style={{ width: '100%', padding: 10, background: '#1a1200', color: '#eab308', border: '1px solid #eab308', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!mergerTicker || !mergerRatio) ? 0.4 : 1 }}>
+                {mergerLoading ? 'Calculando...' : 'Previsualizar fusión'}
+              </button>
+              {mergerPreview.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
+                    {mergerPreview.length} posición(es) afectada(s)
+                  </div>
+                  {renderPreviewTable(previewRows(mergerPreview, mergerNewTicker.trim().toUpperCase() || undefined), '#eab308')}
+                  <button onClick={applyMerger} disabled={mergerSaving} style={{
+                    width: '100%', padding: 12, background: '#eab308', color: '#000',
+                    border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
+                    opacity: mergerSaving ? 0.6 : 1,
+                  }}>
+                    {mergerSaving ? 'Aplicando...' : 'Confirmar fusión'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL SPLIT ════ */}
+        {showSplit && (
+          <div style={overlay}>
+            <div style={{ ...modalBox, width: 520, maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <GitBranch size={16} color="#eab308" />
+                  <h2 style={{ margin: 0, fontSize: 15 }}>Registrar Split</h2>
+                </div>
+                <button onClick={() => { setShowSplit(false); setSplitPreview([]) }}
+                  style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+                {(['split', 'reverse'] as const).map(t => (
+                  <button key={t} onClick={() => { setSplitType(t); setSplitPreview([]) }} style={{
+                    background: splitType === t ? (t === 'split' ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)') : '#0a0a0a',
+                    border: `1px solid ${splitType === t ? (t === 'split' ? '#22c55e' : '#f43f5e') : '#222'}`,
+                    color:  splitType === t ? (t === 'split' ? '#22c55e' : '#f43f5e') : '#888',
+                    padding: '10px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 11,
+                  }}>
+                    {t === 'split' ? 'Split normal' : 'Reverse split'}
+                    <div style={{ fontSize: 9, fontWeight: 400, marginTop: 3, opacity: 0.7 }}>
+                      {t === 'split' ? 'Más acciones, menor precio' : 'Menos acciones, mayor precio'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <label style={lbl}>Ticker</label>
+              <select value={splitTicker} onChange={e => { setSplitTicker(e.target.value); setSplitPreview([]) }} style={inp}>
+                <option value="">Selecciona un ticker...</option>
+                {allOpenTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <label style={lbl}>Ratio ({splitType === 'split' ? 'Tenías : Tendrás' : 'Tendrás : Tenías'})</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <input type="number" min="0.001" placeholder="1" value={splitFrom}
+                  onChange={e => { setSplitFrom(posAmount(e.target.value)); setSplitPreview([]) }}
+                  style={{ ...inp, marginBottom: 0 }} />
+                <span style={{ color: '#888', fontSize: 16 }}>:</span>
+                <input type="number" min="0.001" placeholder="2" value={splitTo}
+                  onChange={e => { setSplitTo(posAmount(e.target.value)); setSplitPreview([]) }}
+                  style={{ ...inp, marginBottom: 0 }} />
+              </div>
+              <button onClick={previewSplit} disabled={splitLoading || !splitTicker || !splitFrom || !splitTo}
+                style={{ width: '100%', padding: 10, background: '#1a2a1a', color: '#eab308', border: '1px solid #eab308', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginBottom: 14, opacity: (!splitTicker || !splitFrom || !splitTo) ? 0.4 : 1 }}>
+                {splitLoading ? 'Calculando...' : 'Previsualizar cambios'}
+              </button>
+              {splitPreview.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: '#aaa', fontWeight: 700, marginBottom: 8 }}>
+                    {splitPreview.length} trade(s) afectado(s)
+                  </div>
+                  {renderPreviewTable(previewRows(splitPreview), '#22c55e')}
+                  <button onClick={applySplit} disabled={splitSaving} style={{
+                    width: '100%', padding: 12, background: '#22c55e', color: '#000',
+                    border: 'none', borderRadius: 8, fontWeight: 900, cursor: 'pointer', fontSize: 13,
+                    opacity: splitSaving ? 0.6 : 1,
+                  }}>
+                    {splitSaving ? 'Aplicando...' : 'Confirmar y aplicar split'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL CREAR BILLETERA ════ */}
+        {showModal && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <Paw size={16} color="#00bfff" opacity={0.7} />
+                <h2 style={{ margin: 0, fontSize: 15 }}>Nueva billetera</h2>
+              </div>
+              <label style={lbl}>Nombre</label>
+              <input placeholder="Ej: Largo Plazo ETFs" value={newName} onChange={e => setNewName(e.target.value)} style={inp} />
+              <label style={lbl}>Fecha de creación</label>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={inp} />
+              <label style={lbl}>Tipo de Inversion</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+                {Object.entries(GRUPOS).map(([key, g]) => (
+                  <button key={key} onClick={() => setNewGrupo(key)} style={{
+                    background: newGrupo === key ? `${g.color}18` : '#000',
+                    border: `1px solid ${newGrupo === key ? g.color : '#222'}`,
+                    color: newGrupo === key ? g.color : '#888',
+                    padding: '8px 6px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                  }}>
+                    {key === 'largo' ? 'Largo' : key === 'mediano' ? 'Mediano' : 'Corto'}
+                  </button>
+                ))}
+              </div>
+              <button onClick={handleCreate} style={saveBtn}>Guardar billetera</button>
+              <button onClick={() => setShowModal(false)} style={cancelBtn}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL MOVIMIENTOS ════ */}
+        {movementWallet && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <Paw size={16} color="#22c55e" opacity={0.7} />
+                <h2 style={{ margin: 0, fontSize: 15 }}>Movimiento — {movementWallet.name}</h2>
+              </div>
+              <div style={{ background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 3 }}>SALDO DISPONIBLE</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: (walletSaldos[movementWallet.id] || 0) >= 0 ? '#22c55e' : '#f43f5e' }}>
+                    {money(walletSaldos[movementWallet.id] || 0)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 3 }}>DEPOSITADO</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: '#00bfff' }}>
+                    {money(walletDepositos[movementWallet.id] || 0)}
+                  </div>
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, cursor: 'pointer', fontSize: 13, color: '#ccc' }}>
+                <input type="checkbox" checked={isDividend}
+                  onChange={e => { setIsDividend(e.target.checked); if (!e.target.checked) { setIsOtherTicker(false); setSelectedTicker('') } }} />
+                Es un dividendo cobrado
+              </label>
+              {isDividend && (
+                <div style={{ marginBottom: 14 }}>
+                  {!isOtherTicker ? (
+                    <select value={selectedTicker}
+                      onChange={e => { if (e.target.value === 'OTRO') { setIsOtherTicker(true); setSelectedTicker('') } else setSelectedTicker(e.target.value) }}
+                      style={inp}>
+                      <option value="">Selecciona ticker...</option>
+                      {walletTickers.map(t => <option key={t} value={t}>{t}</option>)}
+                      <option value="OTRO">+ Otro (manual)</option>
+                    </select>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input placeholder="Ticker (ej: META)" value={selectedTicker}
+                        onChange={e => setSelectedTicker(e.target.value.toUpperCase())}
+                        style={{ ...inp, borderColor: '#00bfff', marginBottom: 0 }} autoFocus />
+                      <button onClick={() => { setIsOtherTicker(false); setSelectedTicker('') }}
+                        style={{ background: '#222', border: 'none', color: 'white', padding: '0 12px', borderRadius: 6, cursor: 'pointer' }}>✕</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <label style={lbl}>Monto (USD)</label>
+              <input
+                type="number" min="0" step="0.01"
+                placeholder="0.00" value={movementAmount}
+                onChange={e => setMovementAmount(posAmount(e.target.value))}
+                style={inp}
+              />
+              <label style={lbl}>Fecha</label>
+              <input type="date" value={movementDate} onChange={e => setMovementDate(e.target.value)} style={inp} />
+              <label style={lbl}>Notas (opcional)</label>
+              <textarea placeholder="Observaciones..." value={movementNotes} onChange={e => setMovementNotes(e.target.value)}
+                style={{ ...inp, height: 64, resize: 'none' }} />
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => handleMovement('deposito')}
+                  style={{ ...saveBtn, background: '#1b4332', color: '#4caf50', flex: 1 }}>
+                  {isDividend ? 'Registrar dividendo' : 'Depósito'}
+                </button>
+                {!isDividend && (
+                  <button onClick={() => handleMovement('retiro')}
+                    style={{ ...saveBtn, background: '#431b1b', color: '#f44336', flex: 1 }}>
+                    Retiro
+                  </button>
+                )}
+              </div>
+              <button onClick={resetMovementModal} style={cancelBtn}>Cerrar</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ MODAL ELIMINAR ════ */}
+        {deleteId && (
+          <div style={overlay}>
+            <div style={modalBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <Paw size={16} color="#f43f5e" opacity={0.7} />
+                <h2 style={{ color: '#ef4444', margin: 0, fontSize: 15 }}>Eliminar billetera</h2>
+              </div>
+              <p style={{ color: '#aaa', fontSize: 13, marginBottom: 16 }}>
+                Esta acción es irreversible. Confirma tu contraseña para continuar:
+              </p>
+              <input type="password" placeholder="Tu contraseña" value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleDelete()} style={inp} />
+              <button onClick={handleDelete} style={{ ...saveBtn, background: '#7f1d1d', color: '#f87171' }}>
+                Confirmar eliminación
+              </button>
+              <button onClick={() => { setDeleteId(null); setConfirmPassword('') }} style={cancelBtn}>Cancelar</button>
+            </div>
+          </div>
+        )}
 
       </div>
-            {/* Panel IA lateral */}
-      {showAI && (
-        <AiInsightPanel
-          ticker={trade.ticker}
-          country={trade.country}
-          sector={trade.sector}
-          subsector={trade.subsector}
-          rsi={trade.rsi}
-          entry_price={trade.entry_price}
-          quantity={trade.quantity}
-          onClose={() => setShowAI(false)}
-        />
-      )}
-    </div>
-  </div>
-  );
+    </AppShell>
+  )
 }
 
-const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modal: React.CSSProperties = { 
-  width: 940, 
-  maxHeight: '92vh',
-  overflowY: 'auto', 
-  background: '#111', 
-  padding: 25, 
-  border: '1px solid #333', 
-  color: 'white' 
-}
-
-const rowLabels4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
-const rowValues4Col: React.CSSProperties     = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }
-const valBoxLarge: React.CSSProperties       = { background: '#000', padding: 14, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', fontSize: 15, fontWeight: 'bold' }
-const rowTargetsExtended: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }
-const targetGroup: React.CSSProperties       = { display: 'flex', alignItems: 'center', gap: 8 }
-const rowLabelsCustom: React.CSSProperties   = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', fontSize: 9, color: '#555', textTransform: 'uppercase', marginBottom: 6, textAlign: 'center', letterSpacing: 0.5 }
-const rowValuesCustom: React.CSSProperties   = { display: 'grid', gridTemplateColumns: '0.8fr 1fr 1.2fr 1.4fr 0.7fr', gap: 10 }
-const valBox: React.CSSProperties   = { background: '#000', padding: 10, borderRadius: 6, border: '1px solid #1a1a1a', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }
-const input: React.CSSProperties    = { background: '#000', border: '1px solid #333', color: 'white', padding: 10, borderRadius: 6, textAlign: 'center', width: '100%', boxSizing: 'border-box', fontSize: 13, outline: 'none' }
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 9, color: '#555', marginBottom: 4, fontWeight: 'bold', letterSpacing: 0.5 }
-const buttons: React.CSSProperties  = { display: 'flex', gap: 10, marginTop: 20 }
-const buyBtn: React.CSSProperties   = { flex: 1, background: '#1b4332', color: '#22c55e', border: '1px solid #22c55e', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const sellBtn: React.CSSProperties  = { flex: 1, background: '#3a1a1a', color: '#ef4444', border: '1px solid #ef4444', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const closeBtn: React.CSSProperties = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #333', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const saveBtn: React.CSSProperties  = { flex: 2, background: '#00bfff', color: '#000', border: 'none', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const exitBtn: React.CSSProperties  = { flex: 1, background: '#1a1a1a', color: '#888', border: '1px solid #222', padding: 12, borderRadius: 6, fontWeight: 'bold', cursor: 'pointer' }
-const historyBox: React.CSSProperties = { maxHeight: 200, overflowY: 'auto', background: '#080808', borderRadius: 8, border: '1px solid #1a1a1a', marginTop: 8 }
-const th: React.CSSProperties = { padding: '10px 12px', textAlign: 'left', fontSize: 9, color: '#444', borderBottom: '1px solid #1a1a1a', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' as const }
-const td: React.CSSProperties = { padding: '10px 12px', fontSize: 12, color: '#ccc' }
+const tableWrap: React.CSSProperties = { background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }
+const th: React.CSSProperties        = { padding: '10px 14px', textAlign: 'left', color: '#888', fontSize: '0.68rem', textTransform: 'uppercase', borderBottom: '1px solid #1a1a1a', letterSpacing: 0.5, whiteSpace: 'nowrap' }
+const td: React.CSSProperties        = { padding: '13px 14px', borderBottom: '1px solid #0f0f0f', fontSize: 13, color: '#ccc', verticalAlign: 'middle' }
+const trStyle: React.CSSProperties   = { transition: '0.15s' }
+const lbl: React.CSSProperties       = { display: 'block', fontSize: 10, color: '#888', marginBottom: 5, fontWeight: 700, letterSpacing: 0.5 }
+const inp: React.CSSProperties       = { width: '100%', padding: '10px', marginBottom: 14, background: '#000', color: 'white', border: '1px solid #333', borderRadius: 6, outline: 'none', boxSizing: 'border-box', fontSize: 13 }
+const overlay: React.CSSProperties   = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
+const modalBox: React.CSSProperties  = { background: '#111', padding: 26, borderRadius: 14, width: 420, border: '1px solid #222' }
+const saveBtn: React.CSSProperties   = { width: '100%', padding: '11px', background: '#2e7d32', color: 'white', border: 'none', cursor: 'pointer', borderRadius: 6, fontWeight: 'bold', fontSize: 12 }
+const cancelBtn: React.CSSProperties = { width: '100%', marginTop: 10, background: 'transparent', color: '#888', border: 'none', cursor: 'pointer', fontSize: 13 }
+const actionBtn = (bg: string, color: string): React.CSSProperties => ({
+  background: bg, border: 'none', color, padding: '5px 10px',
+  cursor: 'pointer', borderRadius: 4, fontSize: 10, fontWeight: 'bold',
+  display: 'inline-flex', alignItems: 'center',
+})
+const createBtn: React.CSSProperties   = { background: '#22c55e', border: 'none', color: '#000', padding: '9px 16px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const actionsBtn: React.CSSProperties  = { background: '#111', border: '1px solid #333', color: '#ccc', padding: '9px 14px', borderRadius: 8, fontWeight: 'bold', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }
+const actionsMenu: React.CSSProperties = { position: 'absolute', top: '110%', right: 0, background: '#111', border: '1px solid #222', borderRadius: 10, padding: '8px 0', minWidth: 200, zIndex: 100, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }
+const menuBtn: React.CSSProperties     = { width: '100%', background: 'none', border: 'none', color: '#ccc', padding: '8px 14px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left' }
