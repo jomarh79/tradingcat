@@ -12,8 +12,33 @@ import {
   ResponsiveContainer, CartesianGrid
 } from 'recharts'
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const posAmount  = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// 'YYYY-MM-DD' (las fechas pueden venir con hora). Comparar strings es mucho más barato que crear Date
+const dayKey = (d: string) => (d || '').split('T')[0]
+const parseDate = (d: string) => new Date(dayKey(d) + 'T00:00:00')
+const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
+
+// Redondeo a centavos; el "+ 0" evita mostrar "-0.00" por residuos de coma flotante
+const r2 = (n: number) => Math.round(n * 100) / 100 + 0
+const errMsg = (e: any) => e?.message || String(e)
+
+// Trae todas las filas paginando (la consulta debe traer un .order() determinístico)
+async function fetchAllRows(build: (from: number, to: number) => any): Promise<any[]> {
+  const all: any[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await build(from, from + 999)
+    if (error) throw error
+    if (!data?.length) break
+    all.push(...data)
+    if (data.length < 1000) break
+    from += 1000
+  }
+  return all
+}
+
+const PAGE_SIZE = 100
 
 // ── Tema de gatos ────────────────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#444', opacity = 1, style = {} }: any) => (
@@ -59,106 +84,135 @@ const movementLabel = (type: string, notes?: string) => {
 }
 
 export default function HistorialPage() {
-  const { id }    = useParams()
-  const { money } = usePrivacy()
+  const { id }                = useParams()
+  const walletId              = (Array.isArray(id) ? id[0] : id) as string | undefined
+  const { money, visible }    = usePrivacy()
 
   const [portfolioName, setPortfolioName] = useState('')
   const [movements,     setMovements]     = useState<any[]>([])
   const [pnlCerrados,   setPnlCerrados]   = useState<number>(0)
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState('')
 
   const [filterTicker, setFilterTicker] = useState('')
   const [filterType,   setFilterType]   = useState('')
   const [filterYear,   setFilterYear]   = useState(new Date().getFullYear().toString())
   const [sortConfig,   setSortConfig]   = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' })
+  const [shown,        setShown]        = useState(PAGE_SIZE)
 
   const [editingMovement, setEditingMovement] = useState<any>(null)
   const [editAmount,      setEditAmount]      = useState('')
   const [editNotes,       setEditNotes]       = useState('')
   const [editDate,        setEditDate]        = useState('')
+  const [saving,          setSaving]          = useState(false)
 
-  const fetchMovements = useCallback(async () => {
-    if (!id) return
-    let all: any[] = []
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from('wallet_movements')
-        .select('*')
-        .eq('wallet_id', id)
-        .order('date', { ascending: true })
-        .range(from, from + 999)
-      if (error || !data?.length) break
-      all = [...all, ...data]
-      if (data.length < 1000) break
-      from += 1000
+  // ── Carga de datos ────────────────────────────────────────────────────────
+  const loadMovements = useCallback(async (isCancelled: () => boolean = () => false) => {
+    if (!walletId) return
+    try {
+      const rows = await fetchAllRows((a, b) =>
+        supabase.from('wallet_movements')
+          .select('*')
+          .eq('wallet_id', walletId)
+          .order('date', { ascending: true })
+          .order('id',   { ascending: true })   // desempate: sin esto la paginación puede repetir u omitir filas
+          .range(a, b))
+      if (!isCancelled()) { setMovements(rows); setError('') }
+    } catch (err) {
+      if (!isCancelled()) setError('No se pudieron cargar los movimientos: ' + errMsg(err))
     }
-    setMovements(all)
-  }, [id])
+  }, [walletId])
 
-  const fetchPortfolioName = useCallback(async () => {
-    const { data } = await supabase.from('portfolios').select('name').eq('id', id).single()
-    if (data) setPortfolioName(data.name)
-  }, [id])
-
-  // PnL de trades cerrados de esta billetera
-  const fetchPnl = useCallback(async () => {
-    if (!id) return
-    const { data } = await supabase
-      .from('trades')
-      .select('realized_pnl')
-      .eq('portfolio_id', id)
-      .eq('status', 'closed')
-    if (data) {
-      const total = data.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)
-      setPnlCerrados(parseFloat(total.toFixed(2)))
+  // Nombre de la billetera + PnL realizado de trades cerrados
+  const loadMeta = useCallback(async (isCancelled: () => boolean = () => false) => {
+    if (!walletId) return
+    try {
+      const [nameRes, closed] = await Promise.all([
+        supabase.from('portfolios').select('name').eq('id', walletId).single(),
+        fetchAllRows((a, b) =>
+          supabase.from('trades')
+            .select('realized_pnl')
+            .eq('portfolio_id', walletId).eq('status', 'closed')
+            .order('id').range(a, b)),
+      ])
+      if (isCancelled()) return
+      if (nameRes.data) setPortfolioName(nameRes.data.name)
+      setPnlCerrados(r2(closed.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0)))
+    } catch (err) {
+      console.error('Error cargando datos de la billetera:', err)
     }
-  }, [id])
+  }, [walletId])
 
   useEffect(() => {
-    if (id) { fetchMovements(); fetchPortfolioName(); fetchPnl() }
-  }, [id, fetchMovements, fetchPortfolioName, fetchPnl])
+    if (!walletId) return
+    let cancelled = false
+    const isCancelled = () => cancelled
+    setLoading(true)
+    Promise.all([loadMovements(isCancelled), loadMeta(isCancelled)])
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [walletId, loadMovements, loadMeta])
 
+  // ── Derivados ─────────────────────────────────────────────────────────────
   const availableYears = useMemo(() => {
-    const years = new Set(movements.map(m => parseDate(m.date).getFullYear()))
+    const years = new Set(movements.map(m => Number(dayKey(m.date).slice(0, 4))))
     years.add(new Date().getFullYear())
     return Array.from(years).sort((a, b) => b - a)
   }, [movements])
 
   const saldoDisponible = useMemo(() =>
-    movements.reduce((acc, m) => acc + Number(m.amount), 0)
+    r2(movements.reduce((acc, m) => acc + Number(m.amount), 0))
   , [movements])
 
   const capitalDepositado = useMemo(() =>
-    movements
+    r2(movements
       .filter(m => m.movement_type === 'deposito' || m.movement_type === 'retiro')
-      .reduce((acc, m) => acc + Number(m.amount), 0)
+      .reduce((acc, m) => acc + Number(m.amount), 0))
   , [movements])
 
   const sortedAndFiltered = useMemo(() => {
-    let result = [...movements]
-    if (filterYear !== 'all') result = result.filter(m => parseDate(m.date).getFullYear().toString() === filterYear)
-    if (filterTicker)         result = result.filter(m => m.ticker?.toLowerCase().includes(filterTicker.toLowerCase()))
-    if (filterType)           result = result.filter(m => m.movement_type === filterType)
-    result.sort((a, b) => {
-      let vA = a[sortConfig.key], vB = b[sortConfig.key]
-      if (sortConfig.key === 'date')   { vA = parseDate(a.date).getTime(); vB = parseDate(b.date).getTime() }
-      if (sortConfig.key === 'amount') { vA = Number(a.amount); vB = Number(b.amount) }
-      if (vA < vB) return sortConfig.direction === 'asc' ? -1 : 1
-      if (vA > vB) return sortConfig.direction === 'asc' ? 1 : -1
-      return 0
+    const tk  = filterTicker.toLowerCase()
+    const dir = sortConfig.direction === 'asc' ? 1 : -1
+    let result = movements.filter(m =>
+      (filterYear === 'all' || dayKey(m.date).slice(0, 4) === filterYear) &&
+      (!tk         || m.ticker?.toLowerCase().includes(tk)) &&
+      (!filterType || m.movement_type === filterType)
+    )
+    const valueOf = (m: any) => {
+      switch (sortConfig.key) {
+        case 'date':   return dayKey(m.date)
+        case 'amount': return Number(m.amount)
+        default:       return String(m[sortConfig.key] ?? '').toLowerCase()
+      }
+    }
+    result = [...result].sort((a, b) => {
+      const vA = valueOf(a), vB = valueOf(b)
+      return vA < vB ? -dir : vA > vB ? dir : 0
     })
     return result
   }, [filterYear, filterTicker, filterType, movements, sortConfig])
 
+  // Saldo acumulado sobre TODOS los movimientos y filtrado por año después,
+  // así el año seleccionado arranca con el saldo que traías de años anteriores (antes arrancaba en 0)
   const chartData = useMemo(() => {
-    let base = [...movements].sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
-    if (filterYear !== 'all') base = base.filter(m => parseDate(m.date).getFullYear().toString() === filterYear)
-    let accumulated = 0
-    return base.map(m => {
-      accumulated += Number(m.amount)
-      return { date: m.date, saldo: parseFloat(accumulated.toFixed(2)) }
+    const ordered = [...movements].sort((a, b) => {
+      const dA = dayKey(a.date), dB = dayKey(b.date)
+      return dA < dB ? -1 : dA > dB ? 1 : 0
     })
+    let acc = 0
+    const byDay = new Map<string, number>()
+    for (const m of ordered) {
+      acc += Number(m.amount)
+      byDay.set(dayKey(m.date), r2(acc))   // un punto por día: el saldo al cierre de ese día
+    }
+    const rows = Array.from(byDay, ([date, saldo]) => ({ date, saldo }))
+    return filterYear === 'all' ? rows : rows.filter(r => r.date.slice(0, 4) === filterYear)
   }, [movements, filterYear])
+
+  // Al cambiar filtros u orden se vuelve a la primera página
+  useEffect(() => { setShown(PAGE_SIZE) }, [filterYear, filterType, filterTicker, sortConfig])
+
+  const visibleRows = useMemo(() => sortedAndFiltered.slice(0, shown), [sortedAndFiltered, shown])
 
   const requestSort = (key: string) => {
     setSortConfig(prev =>
@@ -175,30 +229,45 @@ export default function HistorialPage() {
       : <FaSortDown style={{ marginLeft: 5, color: '#00bfff' }} />
   }
 
-  const handleDelete = async (movementId: string) => {
-    if (!window.confirm('¿Eliminar este registro?')) return
-    const { error } = await supabase.from('wallet_movements').delete().eq('id', movementId)
-    if (!error) fetchMovements()
+  // ── Acciones ──────────────────────────────────────────────────────────────
+  const handleDelete = async (m: any) => {
+    const warn = m.movement_type === 'trade'
+      ? 'Este movimiento pertenece a un trade: borrarlo NO modifica el trade ni sus ejecuciones y el saldo quedará desalineado.\n\n'
+      : ''
+    if (!window.confirm(`${warn}¿Eliminar este registro?`)) return
+    const { error: dErr } = await supabase.from('wallet_movements').delete().eq('id', m.id)
+    if (dErr) return alert('No se pudo eliminar el registro: ' + dErr.message)
+    loadMovements()
   }
 
   const handleEditOpen = (m: any) => {
     setEditingMovement(m)
     setEditAmount(Math.abs(Number(m.amount)).toString())
     setEditNotes(m.notes || '')
-    setEditDate(m.date)
+    setEditDate(dayKey(m.date))
   }
 
   const handleUpdate = async () => {
+    if (!editingMovement || saving) return
     if (!editAmount || !editDate) return alert('Monto y fecha son obligatorios')
     const raw = Math.abs(parseFloat(Number(editAmount).toFixed(2)))
     if (!raw || raw <= 0) return alert('El monto debe ser mayor a 0')
     const originalSign = Number(editingMovement.amount) < 0 ? -1 : 1
     const finalAmount  = parseFloat((originalSign * raw).toFixed(2))
-    const { error } = await supabase.from('wallet_movements')
-      .update({ amount: finalAmount, notes: editNotes, date: editDate })
-      .eq('id', editingMovement.id)
-    if (!error) { setEditingMovement(null); fetchMovements() }
-    else alert(error.message)
+
+    setSaving(true)
+    try {
+      const { error: uErr } = await supabase.from('wallet_movements')
+        .update({ amount: finalAmount, notes: editNotes || null, date: editDate })
+        .eq('id', editingMovement.id)
+      if (uErr) throw uErr
+      setEditingMovement(null)
+      loadMovements()
+    } catch (err) {
+      alert('No se pudo guardar: ' + errMsg(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const pnlColor = pnlCerrados >= 0 ? '#22c55e' : '#f43f5e'
@@ -260,6 +329,12 @@ export default function HistorialPage() {
           </div>
         </div>
 
+        {error && (
+          <div style={{ margin: '0 10px 16px', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.08)', color: '#f43f5e', fontSize: 12 }}>
+            {error}
+          </div>
+        )}
+
         {/* ── GRÁFICA ── */}
         <div style={{ ...chartBox, margin: '0 10px 20px', position: 'relative', overflow: 'hidden' }}>
           {/* Huella grande decorativa de fondo */}
@@ -285,7 +360,9 @@ export default function HistorialPage() {
               <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="date" stroke="#333" fontSize={10}
                 tickFormatter={v => parseDate(v).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} />
-              <YAxis stroke="#333" fontSize={10} tickFormatter={v => `$${v.toLocaleString()}`} />
+              {/* En modo privado el eje no muestra montos */}
+              <YAxis stroke="#333" fontSize={10}
+                tickFormatter={v => visible ? `$${Number(v).toLocaleString()}` : ''} />
               <Tooltip
                 contentStyle={{ background: '#000', border: '1px solid #222', fontSize: 12, borderRadius: 8 }}
                 formatter={(v: any) => [money(Number(v)), 'Saldo']}
@@ -339,7 +416,12 @@ export default function HistorialPage() {
               </tr>
             </thead>
             <tbody>
-              {sortedAndFiltered.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 40, textAlign: 'center', color: '#555' }}>Cargando movimientos...</td>
+                </tr>
+              )}
+              {!loading && sortedAndFiltered.length === 0 && (
                 <tr>
                   <td colSpan={6} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
@@ -349,7 +431,7 @@ export default function HistorialPage() {
                   </td>
                 </tr>
               )}
-              {sortedAndFiltered.map(m => {
+              {visibleRows.map(m => {
                 const label = movementLabel(m.movement_type, m.notes)
                 return (
                   <tr key={m.id} style={trStyle}>
@@ -377,7 +459,7 @@ export default function HistorialPage() {
                           onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
                           <FaPencilAlt size={12} />
                         </button>
-                        <button onClick={() => handleDelete(m.id)} style={actionBtnStyle}
+                        <button onClick={() => handleDelete(m)} style={actionBtnStyle}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
                           <FaTrash size={12} />
@@ -389,6 +471,13 @@ export default function HistorialPage() {
               })}
             </tbody>
           </table>
+          {sortedAndFiltered.length > shown && (
+            <div style={{ padding: 12, textAlign: 'center', borderTop: '1px solid #1a1a1a' }}>
+              <button onClick={() => setShown(s => s + PAGE_SIZE)} style={moreBtn}>
+                Mostrar más ({Math.min(PAGE_SIZE, sortedAndFiltered.length - shown)} de {sortedAndFiltered.length - shown} restantes)
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── MODAL EDITAR ── */}
@@ -403,6 +492,11 @@ export default function HistorialPage() {
                 <Paw size={16} color="#00bfff" opacity={0.6} />
                 <h3 style={{ margin: 0, fontSize: 15, color: 'white' }}>Editar movimiento</h3>
               </div>
+              {editingMovement.movement_type === 'trade' && (
+                <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(234,179,8,0.3)', background: 'rgba(234,179,8,0.06)', color: '#eab308', fontSize: 11 }}>
+                  Este movimiento pertenece a un trade: editarlo no actualiza el trade ni sus ejecuciones. Para corregir una operación usa la gestión del trade.
+                </div>
+              )}
               <label style={modalLabel}>Monto (USD) — valor absoluto</label>
               <input type="number" min="0" step="0.01" style={modalInput} value={editAmount}
                 onChange={e => setEditAmount(posAmount(e.target.value))} placeholder="0.00" />
@@ -412,7 +506,9 @@ export default function HistorialPage() {
               <textarea style={{ ...modalInput, height: 80, resize: 'none' }} value={editNotes}
                 onChange={e => setEditNotes(e.target.value)} />
               <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                <button onClick={handleUpdate} style={confirmBtn}>Guardar cambios</button>
+                <button onClick={handleUpdate} disabled={saving} style={{ ...confirmBtn, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
                 <button onClick={() => setEditingMovement(null)} style={cancelBtn}>Cancelar</button>
               </div>
             </div>
@@ -435,6 +531,7 @@ const trStyle: React.CSSProperties       = { borderBottom: '1px solid #0f0f0f', 
 const selectStyle: React.CSSProperties   = { background: '#000', border: '1px solid #333', color: '#ccc', padding: '7px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
 const inputMinimal: React.CSSProperties  = { background: '#000', border: '1px solid #333', padding: '7px 12px', borderRadius: 6, color: '#fff', fontSize: 11, outline: 'none' }
 const actionBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: '#444', cursor: 'pointer', transition: 'color 0.2s', padding: 5, display: 'flex', alignItems: 'center' }
+const moreBtn: React.CSSProperties       = { background: 'transparent', border: '1px solid #333', color: '#00bfff', padding: '8px 16px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const modalOverlay: React.CSSProperties  = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modalBox: React.CSSProperties      = { background: '#0a0a0a', padding: 28, borderRadius: 14, border: '1px solid #1a1a1a', width: 420 }
 const modalLabel: React.CSSProperties    = { display: 'block', fontSize: 10, color: '#888', marginBottom: 5, fontWeight: 700, letterSpacing: 0.5 }
