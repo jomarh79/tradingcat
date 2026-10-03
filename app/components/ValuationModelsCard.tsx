@@ -1,262 +1,388 @@
-'use client'
+import { NextRequest, NextResponse } from "next/server";
+import { getWebullAccessToken } from "@/lib/webull-auth";
+import { generateNonce, generateTimestamp, signWebullRequest } from "@/lib/webull-signature";
 
-import { useEffect, useMemo, useState } from 'react'
-import { Calculator, RotateCcw } from 'lucide-react'
+export const dynamic = "force-dynamic";
 
-const C = {
-  accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
-  card: '#080808', border: '#1a1a1a',
+const WEBULL_APP_KEY = process.env.WEBULL_APP_KEY;
+const WEBULL_APP_SECRET = process.env.WEBULL_KEY_APP_SECRET;
+const WEBULL_MARKET_URL = process.env.WEBULL_MARKET_DATA_URL || "https://api.webull.com";
+const WEBULL_HOST = new URL(WEBULL_MARKET_URL).host;
+
+// Acepta AAPL, BRK.B, BF-B, etc.
+const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/;
+
+// 5 años ≈ 1258 sesiones; con 1200 velas el periodo "5 años" nunca encontraba su fecha de referencia.
+// Si Webull rechaza el valor grande se baja a 1200 (el que funcionaba) y se recuerda para las siguientes peticiones.
+const BAR_COUNTS = [1300, 1200];
+let barCountIdx = 0;
+const FETCH_TIMEOUT_MS = 10_000;
+const TRANSLATE_TIMEOUT_MS = 6_000;
+
+const TTL_RESPONSE_MS = 10 * 60 * 1000; // respuesta completa por símbolo
+const TTL_BARS_MS = 30 * 60 * 1000;     // velas diarias (SPY se comparte entre todos los símbolos)
+const MAX_ENTRIES = 40;
+
+const num = (v: any): number | null => {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+// ── Caché en memoria con TTL + deduplicación de peticiones en vuelo ──
+type Entry<T> = { expires: number; data: T };
+
+async function memo<T>(
+  store: Map<string, Entry<T>>,
+  inflight: Map<string, Promise<T>>,
+  key: string,
+  ttl: number,
+  loader: () => Promise<T>,
+  shouldCache: (data: T) => boolean
+): Promise<T> {
+  const hit = store.get(key);
+  if (hit && hit.expires > Date.now()) return hit.data;
+
+  const pending = inflight.get(key);
+  if (pending) return pending;
+
+  const p = loader()
+    .then((data) => {
+      if (shouldCache(data)) {
+        store.set(key, { expires: Date.now() + ttl, data });
+        while (store.size > MAX_ENTRIES) store.delete(store.keys().next().value as string);
+      }
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+
+  inflight.set(key, p);
+  return p;
 }
 
-const FALLBACK_GROWTH_MIN = 0.04
-const FALLBACK_GROWTH_MAX = 0.12
-const DEFAULT_YEARS = 1
-const MIN_YEARS = 1
-const MAX_YEARS = 10
+// ── Diccionario local para industrias frecuentes (evita llamadas extra) ──
+const INDUSTRY_DICTIONARY: Record<string, string> = {
+  "Technology": "Tecnología",
+  "Software - Infrastructure": "Software - Infraestructura",
+  "Software - Application": "Software - Aplicaciones",
+  "Semiconductors": "Semiconductores",
+  "Consumer Electronics": "Electrónica de Consumo",
+  "Healthcare": "Salud",
+  "Biotechnology": "Biotecnología",
+  "Drug Manufacturers - General": "Fabricantes de Medicamentos",
+  "Financial Services": "Servicios Financieros",
+  "Credit Services": "Servicios de Crédito",
+  "Banks - Diversified": "Bancos Diversificados",
+  "Consumer Cyclical": "Consumo Cíclico",
+  "Internet Retail": "Comercio Electrónico",
+  "Auto Manufacturers": "Fabricantes de Automóviles",
+  "Industrials": "Industrial",
+  "Communication Services": "Servicios de Comunicación",
+  "Energy": "Energía",
+  "Utilities": "Servicios Públicos",
+  "Real Estate": "Bienes Raíces",
+  "Basic Materials": "Materiales Básicos",
+};
 
-interface OwnHistoryEntry {
-  year: number
-  endDate: string
-  eps: number | null
-}
-
-interface FundamentalsApiResponse {
-  pe?: number | null
-  ownHistory?: OwnHistoryEntry[]
-  error?: string
-}
-
-interface IncomeApiResponse {
-  success: boolean
-  ttm?: { dilutedEps: number | null } | null
-  forwardEps?: { eps: number } | null
-}
-
-interface ChartDataPostResponse {
-  dailyCloses?: { date: string; close: number }[]
-  error?: string
-}
-
-function cagr(startValue: number, endValue: number, periods: number): number | null {
-  if (startValue <= 0 || endValue <= 0 || periods <= 0) return null
-  return Math.pow(endValue / startValue, 1 / periods) - 1
-}
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
-function fmtMoney(v: number | null): string {
-  if (v == null || isNaN(v)) return '—'
-  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-function fmtPercent(v: number | null): string {
-  if (v == null || isNaN(v)) return '—'
-  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
-}
-
-function findNearestClose(dailyCloses: { date: string; close: number }[], targetDate: string): number | null {
-  if (!dailyCloses?.length) return null
-  const target = new Date(targetDate.split(' ')[0]).getTime()
-  let best: { close: number; diff: number } | null = null
-  for (const d of dailyCloses) {
-    const diff = Math.abs(new Date(d.date).getTime() - target)
-    if (!best || diff < best.diff) best = { close: d.close, diff }
+// ── Traducción (endpoint gratuito de Google, no oficial: si falla se devuelve el inglés) ──
+async function translateChunk(text: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(text)}`,
+      { cache: "no-store", signal: AbortSignal.timeout(TRANSLATE_TIMEOUT_MS) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+      return data[0].map((item: any) => item?.[0] ?? "").join("");
+    }
+    return null;
+  } catch {
+    return null;
   }
-  return best && best.diff <= 10 * 86400000 ? best.close : null
 }
 
-interface ValuationModelsCardProps {
-  ticker: string
-  currentPrice?: number | null // opcional — si no se pasa, usa el último cierre diario como aproximación
+// La petición va por URL: un texto largo se corta en bloques por oraciones para no pasar el límite
+function chunkText(text: string, max = 1500): string[] {
+  const chunks: string[] = [];
+  let cur = "";
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    for (let i = 0; i < sentence.length; i += max) {
+      const piece = sentence.slice(i, i + max);
+      if (cur && cur.length + 1 + piece.length > max) {
+        chunks.push(cur);
+        cur = piece;
+      } else {
+        cur = cur ? `${cur} ${piece}` : piece;
+      }
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
 }
 
-export default function ValuationModelsCard({ ticker, currentPrice }: ValuationModelsCardProps) {
-  const [loading, setLoading] = useState(true)
-  const [fundamentals, setFundamentals] = useState<FundamentalsApiResponse | null>(null)
-  const [income, setIncome] = useState<IncomeApiResponse | null>(null)
-  const [dailyCloses, setDailyCloses] = useState<{ date: string; close: number }[]>([])
-  const [customEps, setCustomEps] = useState<string>('')
-  const [years, setYears] = useState<number>(DEFAULT_YEARS)
+async function translateText(text: string): Promise<string> {
+  if (!text || !text.trim()) return text;
+  const parts = await Promise.all(chunkText(text).map(translateChunk));
+  // Si algún bloque falló, se deja todo en inglés antes que mezclar idiomas
+  return parts.every((p) => p != null) ? (parts as string[]).join(" ") : text;
+}
 
-  useEffect(() => {
-    if (!ticker) return
-    setLoading(true)
-    setCustomEps('')
+const translateIndustries = (industries: string[]) =>
+  Promise.all(industries.map((ind) => INDUSTRY_DICTIONARY[ind] ?? translateText(ind)));
 
-    Promise.all([
-      fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
-      fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
-      fetch('/api/chart-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: ticker }),
-      }).then((r) => r.json()).catch(() => null),
-    ]).then(([fund, inc, chart]: [FundamentalsApiResponse | null, IncomeApiResponse | null, ChartDataPostResponse | null]) => {
-      setFundamentals(fund)
-      setIncome(inc)
-      setDailyCloses(chart?.dailyCloses || [])
-    }).finally(() => setLoading(false))
-  }, [ticker])
+// ── Webull ──
+async function webullGet(path: string, params: Record<string, string>, accessToken: string) {
+  try {
+    const timestamp = generateTimestamp();
+    const nonce = generateNonce();
 
-  const base = useMemo(() => {
-    const ttmEps = income?.ttm?.dilutedEps ?? null
-    const rawForwardEps = income?.forwardEps?.eps ?? null
-    const currentPE = fundamentals?.pe ?? null
+    const signature = signWebullRequest({
+      path,
+      host: WEBULL_HOST,
+      appKey: WEBULL_APP_KEY!,
+      appSecret: WEBULL_APP_SECRET!,
+      timestamp,
+      nonce,
+      extraParams: params,
+    });
 
-    const history = (fundamentals?.ownHistory || []).slice().sort((a, b) => a.year - b.year)
+    const qs = new URLSearchParams(params).toString();
 
-    const historicalPEs = history
-      .map((h) => {
-        const price = findNearestClose(dailyCloses, h.endDate)
-        if (!price || !h.eps || h.eps <= 0) return null
-        return price / h.eps
-      })
-      .filter((v): v is number => v != null)
-    const historicalPE = historicalPEs.length > 0 ? historicalPEs.reduce((a, b) => a + b, 0) / historicalPEs.length : null
+    const res = await fetch(`${WEBULL_MARKET_URL}${path}?${qs}`, {
+      headers: {
+        Accept: "application/json",
+        "x-app-key": WEBULL_APP_KEY!,
+        "x-access-token": accessToken,
+        "x-timestamp": timestamp,
+        "x-signature-version": "1.0",
+        "x-signature-algorithm": "HMAC-SHA256",
+        "x-signature-nonce": nonce,
+        "x-version": "v2",
+        "x-signature": signature,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
 
-    const oldestWithEPS = history.find((h) => h.eps != null && h.eps > 0)
-    const newestWithEPS = [...history].reverse().find((h) => h.eps != null && h.eps > 0)
-    let epsGrowthRate = FALLBACK_GROWTH_MIN
-    if (oldestWithEPS && newestWithEPS && oldestWithEPS !== newestWithEPS) {
-      const yearsBetween = newestWithEPS.year - oldestWithEPS.year
-      const rawGrowth = cagr(oldestWithEPS.eps!, newestWithEPS.eps!, yearsBetween)
-      epsGrowthRate = rawGrowth != null ? clamp(rawGrowth, FALLBACK_GROWTH_MIN, FALLBACK_GROWTH_MAX) : FALLBACK_GROWTH_MIN
+    if (!res.ok) {
+      console.warn(`[position-detail] ${path} -> HTTP ${res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (err: any) {
+    console.warn(`[position-detail] ${path} falló:`, err?.message ?? err);
+    return null;
+  }
+}
+
+interface WebullBar {
+  time: string;
+  close: string;
+}
+type Bar = { ms: number; close: number };
+
+const barsCache = new Map<string, Entry<Bar[]>>();
+const barsInflight = new Map<string, Promise<Bar[]>>();
+
+function fetchDailyBars(symbol: string, accessToken: string): Promise<Bar[]> {
+  return memo(
+    barsCache,
+    barsInflight,
+    symbol,
+    TTL_BARS_MS,
+    async () => {
+      let data: any = null;
+      for (let i = barCountIdx; i < BAR_COUNTS.length; i++) {
+        data = await webullGet(
+          "/openapi/market-data/stock/bars",
+          { symbol, category: "US_STOCK", timespan: "D", count: String(BAR_COUNTS[i]), real_time_required: "false" },
+          accessToken
+        );
+        if (Array.isArray(data) && data.length > 0) {
+          if (i > barCountIdx) barCountIdx = i; // este tamaño sí funciona: se usa de aquí en adelante
+          break;
+        }
+      }
+      if (!Array.isArray(data)) return [];
+      return (data as WebullBar[])
+        .map((b) => ({ ms: new Date(b.time).getTime(), close: parseFloat(b.close) }))
+        .filter((b) => !isNaN(b.ms) && !isNaN(b.close) && b.close > 0)
+        .sort((a, b) => a.ms - b.ms);
+    },
+    (bars) => bars.length > 0 // una respuesta vacía no se queda pegada en caché
+  );
+}
+
+// Búsqueda binaria de la vela más cercana a la fecha objetivo (las velas vienen ordenadas)
+function findClosestClose(bars: Bar[], targetMs: number, toleranceDays = 10): number | null {
+  if (!bars.length) return null;
+  let lo = 0;
+  let hi = bars.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].ms < targetMs) lo = mid + 1;
+    else hi = mid;
+  }
+  let best = bars[lo];
+  if (lo > 0 && Math.abs(bars[lo - 1].ms - targetMs) <= Math.abs(best.ms - targetMs)) best = bars[lo - 1];
+  return Math.abs(best.ms - targetMs) > toleranceDays * 86400000 ? null : best.close;
+}
+
+function computeReturn(bars: Bar[], daysBack: number): number | null {
+  if (!bars.length) return null;
+  const latest = bars[bars.length - 1].close;
+  const past = findClosestClose(bars, Date.now() - daysBack * 86400000);
+  if (past == null || past === 0) return null;
+  return ((latest - past) / past) * 100;
+}
+
+const PERIODS = [
+  { label: "1 mes", days: 30 },
+  { label: "3 meses", days: 91 },
+  { label: "6 meses", days: 182 },
+  { label: "1 año", days: 365 },
+  { label: "5 años", days: 365 * 5 },
+];
+
+// ── Armado de cada sección ──
+async function buildProfile(raw: any) {
+  if (!raw) return null;
+  const industries = Array.isArray(raw.industries) ? raw.industries : [];
+  const [description, translatedIndustries] = await Promise.all([
+    raw.profile ? translateText(raw.profile) : Promise.resolve(null),
+    translateIndustries(industries),
+  ]);
+  const employees = raw.employees ? parseInt(raw.employees, 10) : NaN;
+
+  return {
+    companyName: raw.company_name ?? null,
+    establishDate: raw.establish_date ?? null,
+    exchange: raw.exhibition_code ?? null,
+    description,
+    employees: Number.isFinite(employees) ? employees : null,
+    address: raw.address ?? null,
+    ceo: raw.ceo ?? null,
+    industries: translatedIndustries,
+  };
+}
+
+// Próximo evento con fecha >= ayer; si no hay futuro, el más reciente (ya ordenado por fecha)
+function pickUpcoming<T extends Record<string, any>>(rows: any, dateKey: string): { pick: T; upcoming: boolean } | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const dated = rows
+    .map((r: any) => ({ r, t: new Date(r?.[dateKey]).getTime() }))
+    .filter((x) => !isNaN(x.t))
+    .sort((a, b) => a.t - b.t);
+  if (!dated.length) return null;
+
+  const cutoff = Date.now() - 86400000;
+  const next = dated.find((x) => x.t >= cutoff);
+  return next ? { pick: next.r, upcoming: true } : { pick: dated[dated.length - 1].r, upcoming: false };
+}
+
+type Result = { status: number; body: any };
+const responseCache = new Map<string, Entry<Result>>();
+const responseInflight = new Map<string, Promise<Result>>();
+
+async function load(symbol: string): Promise<Result> {
+  const auth = await getWebullAccessToken();
+  if (auth.status !== "NORMAL") {
+    return {
+      status: 401,
+      body: { success: false, error: `Token Webull no está listo (status: ${auth.status})`, requires2FA: auth.requires2FA },
+    };
+  }
+
+  const [profile, earningsRaw, dividendRaw, targetRaw, stockBars, spyBars] = await Promise.all([
+    // la traducción arranca en cuanto llega el perfil, sin esperar al resto
+    webullGet("/market-data/fundamentals/company-profiles/get", { symbol, category: "US_STOCK" }, auth.token).then(buildProfile),
+    webullGet("/market-data/fundamentals/earnings-calendars/list", { symbol, category: "US_STOCK" }, auth.token),
+    webullGet("/market-data/fundamentals/dividend-calendars/list", { symbol, category: "US_STOCK" }, auth.token),
+    webullGet("/market-data/fundamentals/analysis/target-prices/get", { symbol, category: "US_STOCK" }, auth.token),
+    fetchDailyBars(symbol, auth.token),
+    fetchDailyBars("SPY", auth.token),
+  ]);
+
+  // ── Próximo earnings ──
+  let nextEarnings: any = null;
+  const e = pickUpcoming<any>(earningsRaw, "expected_publish_date");
+  if (e) {
+    nextEarnings = {
+      fiscalYear: e.pick.fiscal_year,
+      fiscalPeriod: e.pick.fiscal_period,
+      expectedDate: e.pick.expected_publish_date,
+      epsEst: num(e.pick.eps_est),
+      revEst: num(e.pick.rev_est),
+      upcoming: e.upcoming, // false = es el último reporte conocido, no uno futuro
+    };
+  }
+
+  // ── Próximo dividendo ──
+  let nextDividend: any = null;
+  const d = pickUpcoming<any>(dividendRaw, "ex_div_date");
+  if (d) {
+    nextDividend = {
+      amount: num(d.pick.amount),
+      exDivDate: d.pick.ex_div_date,
+      payDate: d.pick.pay_date,
+      upcoming: d.upcoming,
+    };
+  }
+
+  // ── Target de analistas ──
+  const analystTarget = targetRaw
+    ? { mean: num(targetRaw.mean), low: num(targetRaw.low), high: num(targetRaw.high), median: num(targetRaw.median) }
+    : null;
+
+  // ── Rendimiento vs S&P 500 ──
+  const periods = PERIODS.map((p) => {
+    const stockReturn = computeReturn(stockBars, p.days);
+    const spyReturn = computeReturn(spyBars, p.days);
+    const alpha = stockReturn != null && spyReturn != null ? stockReturn - spyReturn : null;
+    return { label: p.label, stockReturn, spyReturn, alpha };
+  });
+
+  const dataCoverageYears = stockBars.length ? (Date.now() - stockBars[0].ms) / (365 * 86400000) : 0;
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      symbol,
+      profile,
+      nextEarnings,
+      nextDividend,
+      analystTarget,
+      performance: { periods, dataCoverageYears },
+    },
+  };
+}
+
+// Solo se cachea si llegó algo útil: si Webull falló en todo, el siguiente intento vuelve a pedir
+// (incluye el rendimiento: si faltaron las velas no se guarda una respuesta incompleta)
+const hasUsefulData = (r: Result) =>
+  r.status === 200 &&
+  r.body.performance.dataCoverageYears > 0 &&
+  !!(r.body.profile || r.body.nextEarnings || r.body.nextDividend || r.body.analystTarget);
+
+export async function GET(request: NextRequest) {
+  try {
+    const symbol = (request.nextUrl.searchParams.get("symbol") || "").toUpperCase().trim();
+
+    if (!symbol) {
+      return NextResponse.json({ success: false, error: "Falta el parámetro symbol" }, { status: 400 });
+    }
+    if (!SYMBOL_RE.test(symbol)) {
+      return NextResponse.json({ success: false, error: "Símbolo inválido" }, { status: 400 });
+    }
+    if (!WEBULL_APP_KEY || !WEBULL_APP_SECRET) {
+      return NextResponse.json({ success: false, error: "Faltan WEBULL_APP_KEY / WEBULL_KEY_APP_SECRET" }, { status: 500 });
     }
 
-    const targetPE = historicalPE || currentPE
-    const effectivePrice = currentPrice ?? (dailyCloses.length ? dailyCloses[dailyCloses.length - 1].close : null)
-
-    return { ttmEps, historicalPE, currentPE, rawForwardEps, epsGrowthRate, targetPE, effectivePrice }
-  }, [fundamentals, income, dailyCloses, currentPrice])
-
-  const multiplesValue = base.ttmEps && base.historicalPE ? base.ttmEps * base.historicalPE : null
-
-  // EPS proyectado a "years" — si years=1 y Webull dio un forward real, se usa tal cual (más preciso);
-  // para cualquier otro horizonte, se compone el crecimiento histórico de EPS sobre el TTM.
-  const isForwardEpsReal = years === 1 && base.rawForwardEps != null
-  const defaultProjectedEps = isForwardEpsReal
-    ? base.rawForwardEps
-    : (base.ttmEps != null ? base.ttmEps * Math.pow(1 + base.epsGrowthRate, years) : null)
-
-  const activeEps = customEps.trim() !== '' && !isNaN(parseFloat(customEps)) ? parseFloat(customEps) : defaultProjectedEps
-  const isCustom = customEps.trim() !== '' && !isNaN(parseFloat(customEps))
-
-  const targetPrice = activeEps != null && base.targetPE ? activeEps * base.targetPE : null
-
-  const totalGainPct = targetPrice != null && base.effectivePrice
-    ? ((targetPrice - base.effectivePrice) / base.effectivePrice) * 100
-    : null
-  const annualizedGainPct = targetPrice != null && base.effectivePrice && years > 0
-    ? (Math.pow(targetPrice / base.effectivePrice, 1 / years) - 1) * 100
-    : null
-
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <Calculator size={12} color={C.warning} />
-        <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          Modelos de valuación
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={{ color: '#555', fontSize: 11 }}>Cargando...</div>
-      ) : (
-        <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-            <tbody>
-              <tr style={{ borderTop: '1px solid #151515' }}>
-                <td style={{ padding: '4px 6px', color: '#aaa' }}>Múltiplos históricos (P/E Prom.)</td>
-                <td style={{ padding: '4px 6px', textAlign: 'right', color: '#fff', fontWeight: 700 }}>
-                  {fmtMoney(multiplesValue)}
-                </td>
-              </tr>
-
-              <tr style={{ borderTop: '2px solid #222' }}>
-                <td colSpan={2} style={{ padding: '8px 6px 2px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 8, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Objetivo a {years} {years === 1 ? 'año' : 'años'} (proyección, no es "valor hoy")
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <button
-                        onClick={() => setYears((y) => clamp(y - 1, MIN_YEARS, MAX_YEARS))}
-                        style={yearBtn}
-                      >−</button>
-                      <span style={{ fontSize: 10, color: C.accent, fontWeight: 700, minWidth: 14, textAlign: 'center' }}>{years}</span>
-                      <button
-                        onClick={() => setYears((y) => clamp(y + 1, MIN_YEARS, MAX_YEARS))}
-                        style={yearBtn}
-                      >+</button>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-
-              <tr>
-                <td style={{ padding: '4px 6px', color: '#aaa', verticalAlign: 'middle' }}>
-                  EPS a {years} {years === 1 ? 'año' : 'años'}
-                  <div style={{ fontSize: 8, color: isForwardEpsReal ? C.success : C.warning, marginTop: 2 }}>
-                    {isForwardEpsReal ? 'estimado real (analistas)' : `proyectado (crecimiento histórico ${(base.epsGrowthRate * 100).toFixed(1)}%/año)`}
-                  </div>
-                </td>
-                <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={defaultProjectedEps != null ? defaultProjectedEps.toFixed(2) : '—'}
-                      value={customEps}
-                      onChange={(e) => setCustomEps(e.target.value)}
-                      style={{
-                        width: 70, background: '#000', color: isCustom ? C.accent : '#fff',
-                        border: `1px solid ${isCustom ? C.accent : '#333'}`, borderRadius: 4,
-                        padding: '3px 6px', fontSize: 11, textAlign: 'right', outline: 'none',
-                      }}
-                    />
-                    {isCustom && (
-                      <button
-                        onClick={() => setCustomEps('')}
-                        title="Volver al estimado del sistema"
-                        style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2, display: 'flex' }}
-                      >
-                        <RotateCcw size={11} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-
-              <tr style={{ borderTop: '1px solid #151515' }}>
-                <td style={{ padding: '4px 6px', color: '#aaa' }}>
-                  Precio objetivo {isCustom ? '(con tu EPS)' : ''}
-                </td>
-                <td style={{ padding: '4px 6px', textAlign: 'right', color: isCustom ? C.accent : C.warning, fontWeight: 700 }}>
-                  {fmtMoney(targetPrice)}
-                </td>
-              </tr>
-
-              <tr>
-                <td style={{ padding: '4px 6px', color: '#aaa' }}>Ganancia total ({years}a)</td>
-                <td style={{ padding: '4px 6px', textAlign: 'right', color: totalGainPct != null && totalGainPct >= 0 ? C.success : C.danger, fontWeight: 700 }}>
-                  {fmtPercent(totalGainPct)}
-                </td>
-              </tr>
-
-              <tr style={{ borderTop: '1px solid #151515' }}>
-                <td style={{ padding: '4px 6px', color: '#aaa', fontWeight: 700 }}>Ganancia anualizada</td>
-                <td style={{ padding: '4px 6px', textAlign: 'right', color: annualizedGainPct != null && annualizedGainPct >= 0 ? C.success : C.danger, fontWeight: 900 }}>
-                  {fmtPercent(annualizedGainPct)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </>
-      )}
-    </div>
-  )
-}
-
-const yearBtn: React.CSSProperties = {
-  background: '#111', border: '1px solid #333', color: '#aaa', borderRadius: 4,
-  width: 18, height: 18, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+    const { status, body } = await memo(responseCache, responseInflight, symbol, TTL_RESPONSE_MS, () => load(symbol), hasUsefulData);
+    return NextResponse.json(body, { status });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message ?? String(err) }, { status: 500 });
+  }
 }
