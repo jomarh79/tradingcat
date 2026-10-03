@@ -13,7 +13,9 @@ const WEBULL_HOST = new URL(WEBULL_MARKET_URL).host;
 const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/;
 
 // 5 años ≈ 1258 sesiones; con 1200 velas el periodo "5 años" nunca encontraba su fecha de referencia.
-const BAR_COUNT = 1300;
+// Si Webull rechaza el valor grande se baja a 1200 (el que funcionaba) y se recuerda para las siguientes peticiones.
+const BAR_COUNTS = [1300, 1200];
+let barCountIdx = 0;
 const FETCH_TIMEOUT_MS = 10_000;
 const TRANSLATE_TIMEOUT_MS = 6_000;
 
@@ -190,11 +192,18 @@ function fetchDailyBars(symbol: string, accessToken: string): Promise<Bar[]> {
     symbol,
     TTL_BARS_MS,
     async () => {
-      const data = await webullGet(
-        "/openapi/market-data/stock/bars",
-        { symbol, category: "US_STOCK", timespan: "D", count: String(BAR_COUNT), real_time_required: "false" },
-        accessToken
-      );
+      let data: any = null;
+      for (let i = barCountIdx; i < BAR_COUNTS.length; i++) {
+        data = await webullGet(
+          "/openapi/market-data/stock/bars",
+          { symbol, category: "US_STOCK", timespan: "D", count: String(BAR_COUNTS[i]), real_time_required: "false" },
+          accessToken
+        );
+        if (Array.isArray(data) && data.length > 0) {
+          if (i > barCountIdx) barCountIdx = i; // este tamaño sí funciona: se usa de aquí en adelante
+          break;
+        }
+      }
       if (!Array.isArray(data)) return [];
       return (data as WebullBar[])
         .map((b) => ({ ms: new Date(b.time).getTime(), close: parseFloat(b.close) }))
@@ -351,9 +360,11 @@ async function load(symbol: string): Promise<Result> {
 }
 
 // Solo se cachea si llegó algo útil: si Webull falló en todo, el siguiente intento vuelve a pedir
+// (incluye el rendimiento: si faltaron las velas no se guarda una respuesta incompleta)
 const hasUsefulData = (r: Result) =>
   r.status === 200 &&
-  !!(r.body.profile || r.body.nextEarnings || r.body.nextDividend || r.body.analystTarget || r.body.performance.dataCoverageYears > 0);
+  r.body.performance.dataCoverageYears > 0 &&
+  !!(r.body.profile || r.body.nextEarnings || r.body.nextDividend || r.body.analystTarget);
 
 export async function GET(request: NextRequest) {
   try {
