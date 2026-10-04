@@ -15,6 +15,9 @@ interface Props {
   onClose:      () => void
 }
 
+// La IA puede tardar; pasado este tiempo se corta y se muestra un mensaje claro en vez de quedarse cargando
+const AI_TIMEOUT_MS = 60_000
+
 const SECTION_STYLES: Record<string, { color: string; bg: string }> = {
   '🏢': { color: '#00bfff', bg: 'rgba(0,191,255,0.06)' },
   '⚙️': { color: '#a78bfa', bg: 'rgba(167,139,250,0.06)' },
@@ -24,6 +27,25 @@ const SECTION_STYLES: Record<string, { color: string; bg: string }> = {
   '💡': { color: '#22c55e', bg: 'rgba(34,197,94,0.06)' },
 }
 
+// El selector de variación (U+FE0F) a veces falta: "⚙" y "⚙️" son el mismo emoji para el lector
+const stripVS = (s: string) => s.replace(/️/g, '')
+const SECTION_KEYS = Object.keys(SECTION_STYLES)
+
+// Viñeta solo si hay espacio después del guion/asterisco: antes una línea como "-3% en el año"
+// perdía el signo menos porque se tomaba por viñeta.
+const BULLET_RE = /^(?:[-*]\s+|•\s*)/
+
+// Negritas **así** como texto (sin HTML), para que no aparezcan los asteriscos
+function Inline({ text }: { text: string }) {
+  const parts = text.split('**')
+  if (parts.length < 3) return <>{text}</>
+  return (
+    <>
+      {parts.map((p, i) => (i % 2 === 1 ? <strong key={i} style={{ color: '#f3f4f6' }}>{p}</strong> : <span key={i}>{p}</span>))}
+    </>
+  )
+}
+
 function RenderContent({ text }: { text: string }) {
   const lines = text.split('\n')
   let currentEmoji = ''
@@ -31,7 +53,7 @@ function RenderContent({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {lines.map((line, i) => {
-        const emoji = Object.keys(SECTION_STYLES).find(e => line.startsWith(e))
+        const emoji = SECTION_KEYS.find(e => stripVS(line).startsWith(stripVS(e)))
 
         if (emoji) {
           currentEmoji = emoji
@@ -52,8 +74,9 @@ function RenderContent({ text }: { text: string }) {
 
         if (line.trim() === '') return <div key={i} style={{ height: 2 }} />
 
-        const isBullet  = line.trim().startsWith('-') || line.trim().startsWith('•')
-        const cleanLine = isBullet ? line.trim().replace(/^[-•]\s*/, '') : line
+        const trimmed   = line.trim()
+        const isBullet  = BULLET_RE.test(trimmed)
+        const cleanLine = isBullet ? trimmed.replace(BULLET_RE, '') : line
         const accent    = currentEmoji ? SECTION_STYLES[currentEmoji]?.color : '#aaa'
 
         return (
@@ -63,12 +86,22 @@ function RenderContent({ text }: { text: string }) {
             display: 'flex', gap: isBullet ? 6 : 0, alignItems: 'flex-start',
           }}>
             {isBullet && <span style={{ color: accent, flexShrink: 0, marginTop: 1, fontSize: 10 }}>›</span>}
-            <span>{cleanLine}</span>
+            <span><Inline text={cleanLine} /></span>
           </div>
         )
       })}
     </div>
   )
+}
+
+// La API a veces devuelve el texto envuelto como JSON a medias; se limpia en el mismo orden de siempre
+function cleanAiText(raw: string): string {
+  return raw
+    .replace(/^"?content"?\s*:\s*"/i, '') // "content":" al inicio
+    .replace(/"$/, '')                    // comilla final
+    .replace(/\\n/g, '\n')                // \n literales → saltos reales
+    .replace(/\\"/g, '"')                 // comillas escapadas
+    .trim()
 }
 
 export default function AiInsightPanel({
@@ -80,76 +113,79 @@ export default function AiInsightPanel({
   const [retries, setRetries] = useState(0)
   const [similarTickers, setSimilarTickers] = useState<string[]>([])
   const [openTickers, setOpenTickers] = useState<string[]>([])
-  const generateInsight = async () => {
-  setLoading(true)
-  setError('')
-  setContent('')
 
-  try {
-    const res = await fetch('/api/ai-terminal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ticker,
-        country,
-        sector,
-        subsector,
-        rsi,
-        entry_price,
-        quantity
-      }),
-    })
-
-    const data = await res.json()
-
-    if (!data.ok) {
-      throw new Error(data.error || 'Error generando análisis')
-    }
-
-    let cleanContent = data.content || ''
-
-      // Quitar "content":" al inicio
-      cleanContent = cleanContent.replace(/^"?content"?\s*:\s*"/i, '')
-
-      // Quitar última comilla final
-      cleanContent = cleanContent.replace(/"$/, '')
-
-      // Convertir \\n a saltos reales
-      cleanContent = cleanContent.replace(/\\n/g, '\n')
-
-      // Limpiar escapes
-      cleanContent = cleanContent.replace(/\\"/g, '"')
-
-      setContent(cleanContent.trim())
-
-    if (data.similarTickers) {
-      setSimilarTickers(data.similarTickers)
-    }
-
-  } catch (err: any) {
-    setError(err.message || 'Error conectando con la IA')
-  } finally {
-    setLoading(false)
-  }
-}
-
-const loadOpenTickers = async () => {
-  const { data } = await supabase
-    .from('trades')
-    .select('ticker')
-    .eq('status', 'open')
-
-  if (data) {
-    setOpenTickers(
-      data.map(t => String(t.ticker).toUpperCase())
-    )
-  }
-}
-
+  // Genera el análisis al abrir, al cambiar de ticker y al pulsar "regenerar".
+  // Cada ejecución cancela la anterior: antes, si cambiabas de ticker (o regenerabas) con una petición en
+  // curso, la respuesta vieja podía llegar después y sobrescribir el análisis del ticker actual.
   useEffect(() => {
-  generateInsight()
-  loadOpenTickers()
-}, [ticker, retries])
+    const controller = new AbortController()
+    let cancelled = false
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, AI_TIMEOUT_MS)
+
+    setLoading(true)
+    setError('')
+    setContent('')
+    setSimilarTickers([])
+
+    ;(async () => {
+      try {
+        const res = await fetch('/api/ai-terminal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker, country, sector, subsector, rsi, entry_price, quantity }),
+          signal: controller.signal,
+        })
+
+        // Una página de error (por ejemplo un 504 de Render) no es JSON: antes salía "Unexpected token <"
+        const data = await res.json().catch(() => null)
+
+        if (!res.ok || !data?.ok) {
+          const fallback = res.status === 502 || res.status === 504
+            ? 'La IA tardó demasiado en responder, intenta de nuevo'
+            : 'Error generando análisis'
+          throw new Error(data?.error || fallback)
+        }
+
+        if (cancelled) return
+        setContent(cleanAiText(String(data.content || '')))
+        if (Array.isArray(data.similarTickers)) setSimilarTickers(data.similarTickers.map(String))
+
+      } catch (err: any) {
+        if (cancelled) return // lo canceló un cambio de ticker, una regeneración o el cierre del panel
+        setError(
+          timedOut
+            ? 'La IA tardó demasiado en responder, intenta de nuevo'
+            : err?.message || 'Error conectando con la IA'
+        )
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      controller.abort()
+    }
+    // Solo ticker y regenerar: el resto de las props se leen tal como están al momento de generar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker, retries])
+
+  // Tickers abiertos (para marcar los relacionados que ya tienes): una vez al abrir, no en cada regeneración
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('trades')
+      .select('ticker')
+      .eq('status', 'open')
+      .then(({ data, error: dbError }: any) => {
+        if (cancelled) return
+        if (dbError) { console.error('No se pudieron cargar los trades abiertos:', dbError); return }
+        setOpenTickers((data || []).map((t: any) => String(t.ticker).toUpperCase()))
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const rsiColor = rsi == null ? '#666'
     : rsi < 30 ? '#22c55e'
@@ -157,23 +193,21 @@ const loadOpenTickers = async () => {
     : '#aaa'
 
   return (
-  <div style={{
-    width: 320,
-    background: '#111',
-    border: '1px solid #333',
-    borderLeft: 'none',
-    borderRadius: '0 12px 12px 0',
-    display: 'flex',
-    flexDirection: 'column',
-    position: 'relative',
-    overflow: 'hidden',
-    flexShrink: 0,
-    maxHeight: '92vh',
-    alignSelf: 'stretch',
-  }}>
+    <div style={{
+      width: 320,
+      background: '#111',
+      border: '1px solid #333',
+      borderLeft: 'none',
+      borderRadius: '0 12px 12px 0',
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'relative',
+      overflow: 'hidden',
+      flexShrink: 0,
+      maxHeight: '92vh',
+      alignSelf: 'stretch',
+    }}>
 
-
-      
       {/* Orejas decorativas */}
       <div style={{ position: 'absolute', top: -2, right: 18, pointerEvents: 'none', opacity: 0.12 }}>
         <svg width={56} height={36} viewBox="0 0 60 40" fill="#00bfff">
@@ -201,6 +235,7 @@ const loadOpenTickers = async () => {
               <button
                 onClick={() => setRetries(r => r + 1)}
                 title="Regenerar análisis"
+                aria-label="Regenerar análisis"
                 style={{
                   background: 'none', border: '1px solid #1a1a1a', color: '#555',
                   cursor: 'pointer', borderRadius: 5, padding: '3px 6px',
@@ -213,6 +248,7 @@ const loadOpenTickers = async () => {
             )}
             <button
               onClick={onClose}
+              aria-label="Cerrar"
               style={{
                 background: 'none', border: 'none', color: '#555',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'color 0.2s',
@@ -246,13 +282,11 @@ const loadOpenTickers = async () => {
 
       {/* Contenido */}
       <div style={{
-          flex: 1,            // 🔥 Toma todo el espacio disponible entre header y footer
-          overflowY: 'auto',  // 🔥 Activa el scroll lateral
-          padding: '14px 16px',
-          minHeight: 0,       // Importante para que flexbox respete el scroll
+        flex: 1,            // toma todo el espacio disponible entre header y footer
+        overflowY: 'auto',  // scroll vertical del contenido
+        padding: '14px 16px',
+        minHeight: 0,       // necesario para que flexbox respete el scroll
       }}>
-
-
         {loading && (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -300,7 +334,7 @@ const loadOpenTickers = async () => {
 
             {similarTickers.length > 0 && (
               <div style={{ marginTop: 18 }}>
-                
+
                 <div style={{
                   fontSize: 10,
                   color: '#555',
@@ -317,9 +351,7 @@ const loadOpenTickers = async () => {
                   gap: 8,
                 }}>
                   {similarTickers.map((tk) => {
-                    const alreadyOpen = openTickers.includes(
-                      tk.toUpperCase()
-                    )
+                    const alreadyOpen = openTickers.includes(tk.toUpperCase())
 
                     return (
                       <div
@@ -329,17 +361,9 @@ const loadOpenTickers = async () => {
                           borderRadius: 6,
                           fontSize: 11,
                           fontWeight: 700,
-                          border: `1px solid ${
-                            alreadyOpen
-                              ? '#22c55e55'
-                              : '#333'
-                          }`,
-                          background: alreadyOpen
-                            ? 'rgba(34,197,94,0.08)'
-                            : '#111',
-                          color: alreadyOpen
-                            ? '#22c55e'
-                            : '#ddd',
+                          border: `1px solid ${alreadyOpen ? '#22c55e55' : '#333'}`,
+                          background: alreadyOpen ? 'rgba(34,197,94,0.08)' : '#111',
+                          color: alreadyOpen ? '#22c55e' : '#ddd',
                         }}
                       >
                         {tk}
@@ -353,7 +377,7 @@ const loadOpenTickers = async () => {
         )}
       </div>
 
-       <style>{`
+      <style>{`
         @keyframes tc-pulse {
           0%, 100% { opacity: 0.15; transform: scale(0.75); }
           50%       { opacity: 1;    transform: scale(1.15); }

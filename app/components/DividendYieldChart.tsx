@@ -1,7 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { createChart, LineSeries, ColorType } from 'lightweight-charts'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createChart,
+  LineSeries,
+  ColorType,
+  LineStyle,
+  type LineData,
+  type UTCTimestamp,
+} from 'lightweight-charts'
 
 const C = {
   accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
@@ -19,42 +26,49 @@ interface DividendYieldChartProps {
   dailyCloses: DailyClose[]
 }
 
+type YieldPoint = { time: number; value: number }
+
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+
+// 'yyyy-MM-dd' → segundos UTC. Todo el cálculo usa UTC (antes mezclaba hora local y UTC, lo que desfasaba
+// un día el cruce entre fechas de dividendo y de precio fuera de zonas como México).
+function toUtcSec(d: string): number | null {
+  const ms = Date.parse(dayKey(d) + 'T00:00:00Z')
+  return Number.isNaN(ms) ? null : ms / 1000
+}
+
 function computeDailyYieldSeries(
   dividends: { date: string; amount: number }[],
   dailyCloses: DailyClose[],
   years: number
-) {
-  type Point = { time: number; value: number }
-  const out: Point[] = []
-  if (!dividends.length || !dailyCloses.length) return out
+): YieldPoint[] {
+  if (!dividends.length || !dailyCloses.length) return []
 
-  const sortedDividends = [...dividends].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  )
+  const divs = dividends
+    .map(d => ({ sec: toUtcSec(d.date), amount: Number(d.amount) }))
+    .filter((d): d is { sec: number; amount: number } => d.sec != null && Number.isFinite(d.amount))
+    .sort((a, b) => a.sec - b.sec)
+  if (!divs.length) return []
 
-  const cutoff = Date.now() - years * 365 * 86400000
+  const cutoffSec = Date.now() / 1000 - years * 365 * 86400
 
-  const closes = dailyCloses
-    .map(c => {
-      const ms = new Date(c.date.split(' ')[0] + 'T00:00:00').getTime()
-      return { time: Math.floor(ms / 1000), close: c.close, ms }
-    })
-    .filter(c => !isNaN(c.close) && c.ms >= cutoff)
-    .sort((a, b) => a.time - b.time)
+  // Un cierre por fecha y en orden ascendente (la librería lanza error con fechas repetidas)
+  const byTime = new Map<number, number>()
+  for (const c of dailyCloses) {
+    const time = toUtcSec(c.date)
+    const close = Number(c.close)
+    if (time == null || !(close > 0) || time < cutoffSec) continue
+    byTime.set(time, close)
+  }
+  const closes = Array.from(byTime.entries()).sort(([a], [b]) => a - b)
 
+  const out: YieldPoint[] = []
   let idx = -1
 
-  for (const day of closes) {
-    while (
-      idx + 1 < sortedDividends.length &&
-      new Date(sortedDividends[idx + 1].date).getTime() <= day.ms
-    ) idx++
-
-    if (idx < 0) continue
-    if (day.close <= 0) continue
-
-    const amount = sortedDividends[idx].amount
-    out.push({ time: day.time, value: (amount / day.close) * 100 })
+  for (const [time, close] of closes) {
+    while (idx + 1 < divs.length && divs[idx + 1].sec <= time) idx++
+    if (idx < 0) continue // todavía no había ningún dividendo conocido
+    out.push({ time, value: (divs[idx].amount / close) * 100 })
   }
 
   return out
@@ -62,95 +76,121 @@ function computeDailyYieldSeries(
 
 export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: DividendYieldChartProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const [points, setPoints] = useState<{ time: number; value: number }[]>([])
+  const [dividends, setDividends] = useState<{ date: string; amount: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Solo los dividendos se piden a la API. Antes dailyCloses también estaba en las dependencias:
+  // si el padre pasaba un arreglo nuevo en cada render, se volvía a llamar a /api/dividends cada vez.
   useEffect(() => {
-    if (!ticker || !dailyCloses || dailyCloses.length === 0) { setLoading(false); return }
-    setLoading(true)
+    setDividends([])
     setError(null)
+    if (!ticker) { setLoading(false); return }
+
+    let cancelled = false
+    setLoading(true)
 
     fetch(`/api/dividends?symbol=${encodeURIComponent(ticker)}&years=${years}`)
       .then(r => r.json())
       .then(divData => {
+        if (cancelled) return // el ticker cambió mientras llegaba la respuesta
         if (divData.error) { setError(divData.error); return }
-        const series = computeDailyYieldSeries(divData.dividends || [], dailyCloses, years)
-        setPoints(series)
+        setDividends(divData.dividends || [])
       })
-      .catch(e => setError(String(e?.message ?? e)))
-      .finally(() => setLoading(false))
-  }, [ticker, years, dailyCloses])
+      .catch(e => { if (!cancelled) setError(String(e?.message ?? e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+
+    return () => { cancelled = true }
+  }, [ticker, years])
+
+  const points = useMemo(
+    () => computeDailyYieldSeries(dividends, dailyCloses || [], years),
+    [dividends, dailyCloses, years]
+  )
+
+  // Promedio, máximo, mínimo y último valor: una sola pasada (antes se calculaban dos veces en sitios distintos)
+  const stats = useMemo(() => {
+    if (!points.length) return null
+    let sum = 0
+    let max = points[0]
+    let min = points[0]
+    for (const p of points) {
+      sum += p.value
+      if (p.value > max.value) max = p
+      if (p.value < min.value) min = p
+    }
+    return { avg: sum / points.length, max, min, latest: points[points.length - 1] }
+  }, [points])
+
+  const hasChart = !loading && !error && points.length > 0
+
+  // Si el padre entrega un arreglo nuevo con los mismos datos, la gráfica no se destruye ni se vuelve a crear
+  const pointsKey = points.length
+    ? `${points.length}|${points[0].time}|${stats!.latest.time}|${stats!.latest.value.toFixed(4)}`
+    : ''
+  const pointsRef = useRef(points)
+  pointsRef.current = points
 
   useEffect(() => {
-    if (!ref.current || points.length === 0) return
+    const data = pointsRef.current
+    if (!hasChart || !ref.current || data.length === 0) return
 
     const chart = createChart(ref.current, {
       layout: { background: { type: ColorType.Solid, color: '#080808' }, textColor: '#999' },
       grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
-      width: ref.current.clientWidth,
-      height: 260,
+      autoSize: true, // sigue el tamaño del contenedor, sin listener de resize
       rightPriceScale: { borderColor: '#222' },
       timeScale: { borderColor: '#222' },
     })
 
-    // Calcular el promedio histórico
-    const avg = points.reduce((sum, p) => sum + p.value, 0) / points.length
+    // Promedio histórico
+    const avg = data.reduce((sum, p) => sum + p.value, 0) / data.length
 
-    // Crear una sola serie donde cada punto lleva su propio color según el promedio
-    const coloredData = points.map(p => ({
-      time: p.time,
+    // Una sola serie donde cada punto lleva su propio color según el promedio (verde arriba, rojo abajo)
+    const coloredData: LineData<UTCTimestamp>[] = data.map(p => ({
+      time: p.time as UTCTimestamp,
       value: p.value,
-      color: p.value >= avg ? C.success : C.danger, // Verde si está arriba, rojo si está abajo
+      color: p.value >= avg ? C.success : C.danger,
     }))
 
     const lineSeries = chart.addSeries(LineSeries, {
       lineWidth: 2,
       lastValueVisible: true,
       priceLineVisible: false,
-      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%` },
+      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(2)}%`, minMove: 0.01 },
     })
-    lineSeries.setData(coloredData as any)
+    lineSeries.setData(coloredData)
 
     // ── Línea de Promedio (sin etiqueta en el eje) ──
     lineSeries.createPriceLine({
       price: avg,
-      color: C.accent, // color azul
+      color: C.accent,
       lineWidth: 1,
-      lineStyle: 2,    // punteada
-      axisLabelVisible: false, // <-- Esto quita la etiqueta flotante del eje derecho
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: false, // quita la etiqueta flotante del eje derecho
       title: 'Promedio',
     })
 
-    // Encontrar el punto más alto y más bajo para las líneas blancas
-    const maxPoint = points.reduce((max, p) => p.value > max.value ? p : max, points[0])
-    const minPoint = points.reduce((min, p) => p.value < min.value ? p : min, points[0])
+    // Líneas blancas en el punto más alto y más bajo
+    const maxPoint = data.reduce((max, p) => (p.value > max.value ? p : max), data[0])
+    const minPoint = data.reduce((min, p) => (p.value < min.value ? p : min), data[0])
 
-    // Línea blanca en el punto más alto
     lineSeries.createPriceLine({
-      price: maxPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
+      price: maxPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Dashed,
       axisLabelVisible: false, title: 'Máx',
     })
-
-    // Línea blanca en el punto más bajo
     lineSeries.createPriceLine({
-      price: minPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: 2,
+      price: minPoint.value, color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Dashed,
       axisLabelVisible: false, title: 'Mín',
     })
 
     chart.timeScale().fitContent()
 
-    const handleResize = () => { if (ref.current) chart.applyOptions({ width: ref.current.clientWidth }) }
-    window.addEventListener('resize', handleResize)
+    return () => { chart.remove() }
+  }, [hasChart, pointsKey])
 
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      chart.remove()
-    }
-  }, [points])
-
-  const latest = points[points.length - 1]
-  const avg = points.length ? points.reduce((sum, p) => sum + p.value, 0) / points.length : null
+  const latest = stats?.latest
+  const avg = stats?.avg ?? null
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
@@ -158,7 +198,7 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
         <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           Dividendo vs precio — últimos {years} años (diario, sin anualizar)
         </div>
-        {latest && (
+        {hasChart && latest && (
           <div style={{ fontSize: 11, color: '#666' }}>
             Hoy: <span style={{ color: latest.value >= (avg || 0) ? C.success : C.danger, fontWeight: 700 }}>
               {latest.value.toFixed(2)}%
@@ -177,7 +217,7 @@ export default function DividendYieldChart({ ticker, years = 10, dailyCloses }: 
         </div>
       )}
 
-      {!loading && !error && points.length > 0 && (
+      {hasChart && (
         <>
           <div ref={ref} style={{ width: '100%', height: 260 }} />
           <div style={{ fontSize: 9, color: '#444', marginTop: 8 }}>
