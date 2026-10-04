@@ -54,6 +54,7 @@ interface RowDef {
   label: string
   key: RowKey
   growth?: boolean
+  invertGrowth?: boolean // crecer es malo (más acciones = dilución): el color se invierte
   ratioOf?: RowKey
   decimals?: number
   isCurrency?: boolean
@@ -97,7 +98,7 @@ const SECTIONS: Section[] = [
   {
     title: 'Acciones',
     rows: [
-      { label: 'Diluted Avg Shares', key: 'dilutedAvgShares', growth: true, isCurrency: true },
+      { label: 'Diluted Avg Shares', key: 'dilutedAvgShares', growth: true, invertGrowth: true, isCurrency: true },
     ],
   },
   {
@@ -120,62 +121,106 @@ const SECTIONS: Section[] = [
   },
 ]
 
-function fmtCurrency(v: number | null): string {
-  if (v == null) return '—'
+/* ─────────────────────────────────────────────────────────────
+   FORMATO
+───────────────────────────────────────────────────────────── */
+
+// Escala con sufijo (K/M/B) y signo delante del símbolo: -$1.20B, no $-1.20B
+function scaled(v: number, prefix: string, plainDecimals: number): string {
   const abs = Math.abs(v)
-  if (abs >= 1e9) return `$${(v / 1e9).toFixed(2)}B`
-  if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`
-  if (abs >= 1e3) return `$${(v / 1e3).toFixed(2)}K`
-  return `$${v.toFixed(2)}`
+  const sign = v < 0 ? '-' : ''
+  if (abs >= 1e9) return `${sign}${prefix}${(abs / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `${sign}${prefix}${(abs / 1e6).toFixed(2)}M`
+  if (abs >= 1e3) return `${sign}${prefix}${(abs / 1e3).toFixed(2)}K`
+  return `${sign}${prefix}${abs.toFixed(plainDecimals)}`
 }
-function fmtShares(v: number | null): string {
-  if (v == null) return '—'
-  const abs = Math.abs(v)
-  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`
-  if (abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`
-  if (abs >= 1e3) return `${(v / 1e3).toFixed(2)}K`
-  return v.toFixed(0)
+const fmtCurrency = (v: number | null) => (v == null ? '—' : scaled(v, '$', 2))
+const fmtShares = (v: number | null) => (v == null ? '—' : scaled(v, '', 0))
+const fmtEps = (v: number | null, decimals: number) =>
+  v == null ? '—' : `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(decimals)}`
+const fmtPercent = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`)
+
+/* ─────────────────────────────────────────────────────────────
+   D&A (Finnhub) ↔ año de Webull
+   Los dos proveedores no siempre numeran igual el año fiscal, así que se cruzan primero por la fecha de
+   cierre del ejercicio (±45 días) y, solo si no hay coincidencia, por el número de año.
+───────────────────────────────────────────────────────────── */
+
+const dayMs = (d: string) => Date.parse(String(d || '').split('T')[0].split(' ')[0] + 'T00:00:00Z')
+const MATCH_WINDOW_MS = 45 * 86400000
+
+type DaIndex = { byDate: { ms: number; da: number }[]; byYear: Map<number, number> }
+const EMPTY_DA: DaIndex = { byDate: [], byYear: new Map() }
+
+function buildDaIndex(history: OwnHistoryEntry[] | undefined): DaIndex {
+  const byDate: DaIndex['byDate'] = []
+  const byYear = new Map<number, number>()
+  history?.forEach((h) => {
+    if (h.depreciationAmortization == null) return
+    byYear.set(h.year, h.depreciationAmortization)
+    const ms = dayMs(h.endDate)
+    if (!Number.isNaN(ms)) byDate.push({ ms, da: h.depreciationAmortization })
+  })
+  return { byDate, byYear }
 }
-function fmtNumber(v: number | null, decimals = 2): string {
-  if (v == null) return '—'
-  return v.toFixed(decimals)
+
+function findDa(index: DaIndex, entry: IncomeEntry): number | null {
+  const target = dayMs(entry.endDate)
+  if (!Number.isNaN(target)) {
+    let best: { diff: number; da: number } | null = null
+    for (const h of index.byDate) {
+      const diff = Math.abs(h.ms - target)
+      if (diff <= MATCH_WINDOW_MS && (!best || diff < best.diff)) best = { diff, da: h.da }
+    }
+    if (best) return best.da
+  }
+  return index.byYear.get(entry.fiscalYear) ?? null
 }
-function fmtPercent(v: number | null): string {
-  if (v == null) return '—'
-  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
-}
+
+/* ─────────────────────────────────────────────────────────────
+   PAGE
+───────────────────────────────────────────────────────────── */
 
 function FundamentalsPageInner() {
   const searchParams = useSearchParams()
   const ticker = (searchParams.get('ticker') || '').toUpperCase()
 
   const [incomeData, setIncomeData] = useState<IncomeApiResponse | null>(null)
-  const [daByYear, setDaByYear] = useState<Map<number, number>>(new Map())
+  const [daIndex, setDaIndex] = useState<DaIndex>(EMPTY_DA)
+  const [daLoading, setDaLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!ticker) return
-    setLoading(true)
+    setIncomeData(null)
+    setDaIndex(EMPTY_DA)
     setError(null)
+    if (!ticker) { setLoading(false); setDaLoading(false); return }
 
-    Promise.all([
-      fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()),
-      fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`).then((r) => r.json()).catch(() => null),
-    ])
-      .then(([income, fund]: [IncomeApiResponse, FundamentalsApiResponse | null]) => {
-        if (!income.success) { setError(income.error || 'Error desconocido'); return }
-        setIncomeData(income)
+    let cancelled = false
+    setLoading(true)
+    setDaLoading(true)
 
-        // D&A por año fiscal (Finnhub 10-K) — para armar EBITDA junto con Operating Income (Webull)
-        const map = new Map<number, number>()
-        fund?.ownHistory?.forEach((h) => {
-          if (h.depreciationAmortization != null) map.set(h.year, h.depreciationAmortization)
-        })
-        setDaByYear(map)
+    // El estado de resultados se muestra en cuanto llega; el D&A (más lento) solo completa el EBITDA después
+    fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`)
+      .then((r) => r.json())
+      .then((income: IncomeApiResponse) => {
+        if (cancelled) return
+        if (!income.success) setError(income.error || 'Error desconocido')
+        else setIncomeData(income)
       })
-      .catch((e) => setError(String(e?.message ?? e)))
-      .finally(() => setLoading(false))
+      .catch((e) => { if (!cancelled) setError(String(e?.message ?? e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+
+    fetch(`/api/fundamentals?symbol=${encodeURIComponent(ticker)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((fund: FundamentalsApiResponse | null) => {
+        if (!cancelled) setDaIndex(buildDaIndex(fund?.ownHistory))
+      })
+      .finally(() => { if (!cancelled) setDaLoading(false) })
+
+    return () => { cancelled = true }
   }, [ticker])
 
   const annual = incomeData?.annual || []
@@ -193,7 +238,7 @@ function FundamentalsPageInner() {
     if (key === 'ebitda') {
       if (col.isForward || !col.entry) return null // sin D&A no hay EBITDA para TTM/forward
       const opIncome = col.entry.opIncome
-      const da = daByYear.get(col.entry.fiscalYear)
+      const da = col.key === 'ttm' ? null : findDa(daIndex, col.entry)
       if (opIncome == null || da == null) return null
       return opIncome + da
     }
@@ -219,13 +264,15 @@ function FundamentalsPageInner() {
       return `${((numV / den) * 100).toFixed(2)}%`
     }
     const v = getValue(col, row.key)
-    if (row.decimals != null) return v != null ? `$${fmtNumber(v, row.decimals)}` : '—'
+    if (row.decimals != null) return fmtEps(v, row.decimals)
     if (row.key === 'dilutedAvgShares') return fmtShares(v)
     if (row.isCurrency) return fmtCurrency(v)
     return v != null ? String(v) : '—'
   }
 
   const hasAnyEbitda = columns.some((c) => getValue(c, 'ebitda') != null)
+  const currency = last10[last10.length - 1]?.currency
+  const nonUsd = currency && currency !== 'USD' ? currency : null
 
   return (
     <AppShell>
@@ -284,7 +331,7 @@ function FundamentalsPageInner() {
                             </td>
                             {columns.map((c) => (
                               <td key={c.key} style={tdValueStyle}>
-                                {formatValue(row, c)}
+                                {row.key === 'ebitda' && daLoading && !row.ratioOf ? '…' : formatValue(row, c)}
                               </td>
                             ))}
                           </tr>
@@ -295,8 +342,9 @@ function FundamentalsPageInner() {
                               </td>
                               {columns.map((c, i) => {
                                 const g = getGrowth(i, row.key)
+                                const good = g != null && (row.invertGrowth ? g <= 0 : g >= 0)
                                 return (
-                                  <td key={c.key} style={{ ...tdValueStyle, color: g == null ? '#444' : g >= 0 ? '#22c55e' : '#f43f5e' }}>
+                                  <td key={c.key} style={{ ...tdValueStyle, color: g == null ? '#444' : good ? '#22c55e' : '#f43f5e' }}>
                                     {fmtPercent(g)}
                                   </td>
                                 )
@@ -313,12 +361,15 @@ function FundamentalsPageInner() {
 
             <div style={{ fontSize: 9, color: '#444', marginTop: 12, lineHeight: 1.6 }}>
               Fuente: Webull Fundamentals API (estado de resultados) + Finnhub (D&A para EBITDA).
-              TTM = suma de los últimos 4 trimestres reportados (acciones diluidas: promedio del trimestre más reciente, no se suma).
+              {' '}TTM = suma de los últimos 4 trimestres consecutivos reportados (acciones diluidas: promedio del trimestre más reciente, no se suma); si falta un trimestre o un dato, esa celda queda en «—».
+              {' '}El crecimiento de TTM se compara contra el último año completo, no contra el mismo periodo del año anterior.
+              {' '}En «Diluted Avg Shares» el crecimiento positivo (más acciones = dilución) se muestra en rojo.
               {incomeData.forwardEps
                 ? ` La columna ${incomeData.forwardEps.fiscalYear}E es EPS estimado por analistas (suma de ${incomeData.forwardEps.quartersCovered} trimestre${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''} aún no reportado${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''}) — el resto de las filas no tiene estimado disponible para ese año.`
                 : ' No hay estimado de EPS disponible hacia adelante para este símbolo.'}
-              {' '}EBITDA = Operating Income (Webull) + Depreciación y Amortización (Finnhub, 10-K) — solo disponible para años anuales con reporte 10-K cruzado (no TTM ni forward). No se incluye Basic EPS (Webull solo expone Diluted EPS).
-              {!hasAnyEbitda && ' No se encontró D&A para este símbolo — puede ser un ETF u otro caso sin 10-K propio.'}
+              {' '}EBITDA = Operating Income (Webull) + Depreciación y Amortización (Finnhub, 10-K), cruzados por fecha de cierre del ejercicio — solo disponible para años anuales con reporte 10-K (no TTM ni forward). No se incluye Basic EPS (Webull solo expone Diluted EPS).
+              {!daLoading && !hasAnyEbitda && ' No se encontró D&A para este símbolo — puede ser un ETF u otro caso sin 10-K propio.'}
+              {nonUsd && ` Los montos están en ${nonUsd}, no en dólares (el símbolo $ se muestra solo por formato).`}
             </div>
           </>
         )}
