@@ -16,30 +16,36 @@ function emaArr(values: number[], period: number): (number | null)[] {
   return out
 }
 
-// ── RSI (suavizado de Wilder) ────────────────────────────────────────────
-export function rsiSeries(candles: Candle[], period = 14) {
-  const closes = candles.map(c => c.close)
-  const n = closes.length
+// ── RSI (suavizado de Wilder) sobre cualquier serie de valores ──────────────
+// Devuelve null hasta que hay suficientes datos (índice `period` en adelante).
+// Lo usan el panel de RSI (sobre cierres) y el Koncorde (sobre OHLC4).
+function wilderRsi(values: number[], period = 14): (number | null)[] {
+  const n = values.length
   const out: (number | null)[] = new Array(n).fill(null)
-  if (n <= period) return candles.map(c => ({ time: c.time, value: null as number | null }))
+  if (n <= period) return out
 
   let avgGain = 0, avgLoss = 0
   for (let i = 1; i <= period; i++) {
-    const d = closes[i] - closes[i - 1]
+    const d = values[i] - values[i - 1]
     if (d > 0) avgGain += d; else avgLoss += Math.abs(d)
   }
   avgGain /= period; avgLoss /= period
   out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
 
   for (let i = period + 1; i < n; i++) {
-    const d = closes[i] - closes[i - 1]
+    const d = values[i] - values[i - 1]
     const gain = d > 0 ? d : 0
     const loss = d < 0 ? Math.abs(d) : 0
     avgGain = (avgGain * (period - 1) + gain) / period
     avgLoss = (avgLoss * (period - 1) + loss) / period
     out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
   }
-  return candles.map((c, i) => ({ time: c.time, value: out[i] }))
+  return out
+}
+
+export function rsiSeries(candles: Candle[], period = 14) {
+  const rsi = wilderRsi(candles.map(c => c.close), period)
+  return candles.map((c, i) => ({ time: c.time, value: rsi[i] }))
 }
 
 // ── MACD (12/26/9) ────────────────────────────────────────────────────────
@@ -48,8 +54,17 @@ export function macdSeries(candles: Candle[], fast = 12, slow = 26, signalPeriod
   const fastEma = emaArr(closes, fast)
   const slowEma = emaArr(closes, slow)
   const macdLine = closes.map((_, i) => (fastEma[i] != null && slowEma[i] != null) ? (fastEma[i]! - slowEma[i]!) : null)
-  const signalRaw = emaArr(macdLine.map(v => v ?? 0), signalPeriod)
-  const signal = macdLine.map((v, i) => (v == null ? null : signalRaw[i]))
+
+  // La señal es la EMA(9) de la línea MACD calculada SOLO sobre los valores válidos (con su primera media
+  // simple como semilla). Antes los huecos iniciales se rellenaban con 0 y la señal arrancaba contaminada,
+  // dando valores demasiado bajos (y un histograma inflado) durante las primeras ~30 velas.
+  const signal: (number | null)[] = new Array(closes.length).fill(null)
+  const firstValid = macdLine.findIndex(v => v != null)
+  if (firstValid >= 0) {
+    const signalValid = emaArr(macdLine.slice(firstValid) as number[], signalPeriod)
+    signalValid.forEach((v, j) => { signal[firstValid + j] = v })
+  }
+
   const hist = macdLine.map((v, i) => (v != null && signal[i] != null) ? v - (signal[i] as number) : null)
   return candles.map((c, i) => ({ time: c.time, macd: macdLine[i], signal: signal[i], hist: hist[i] }))
 }
@@ -134,11 +149,16 @@ export function koncordeSeries(candles: Candle[]) {
   const pvim = emaArr(pvi, m).map((v, i) => v ?? pvi[i])
   const nvim = emaArr(nvi, m).map((v, i) => v ?? nvi[i])
 
+  // Mínimo y máximo móviles con bucle simple (antes: slice + Math.min(...slice) por cada vela)
   const rollingMinMax = (arr: number[], win: number) => {
     const mins: number[] = [], maxs: number[] = []
     for (let i = 0; i < arr.length; i++) {
-      const slice = arr.slice(Math.max(0, i - win + 1), i + 1)
-      mins.push(Math.min(...slice)); maxs.push(Math.max(...slice))
+      let lo = arr[i], hi = arr[i]
+      for (let j = Math.max(0, i - win + 1); j < i; j++) {
+        if (arr[j] < lo) lo = arr[j]
+        if (arr[j] > hi) hi = arr[j]
+      }
+      mins.push(lo); maxs.push(hi)
     }
     return { mins, maxs }
   }
@@ -174,24 +194,9 @@ export function koncordeSeries(candles: Candle[]) {
     bollOsc[i] = (upper - lower) !== 0 ? (tprice[i] - (upper + lower) / 2) / (upper - lower) * 100 : 0
   }
 
-  // RSI(14) sobre OHLC4, como en el Koncorde original (no es el mismo RSI del panel aparte)
-  const rsiOnTprice = new Array(n).fill(50)
-  if (n > 14) {
-    let avgGain = 0, avgLoss = 0
-    for (let i = 1; i <= 14; i++) {
-      const d = tprice[i] - tprice[i - 1]
-      if (d > 0) avgGain += d; else avgLoss += Math.abs(d)
-    }
-    avgGain /= 14; avgLoss /= 14
-    rsiOnTprice[14] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
-    for (let i = 15; i < n; i++) {
-      const d = tprice[i] - tprice[i - 1]
-      const g = d > 0 ? d : 0, l = d < 0 ? Math.abs(d) : 0
-      avgGain = (avgGain * 13 + g) / 14
-      avgLoss = (avgLoss * 13 + l) / 14
-      rsiOnTprice[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss)
-    }
-  }
+  // RSI(14) sobre OHLC4, como en el Koncorde original (no es el mismo RSI del panel aparte).
+  // Mientras no hay datos suficientes vale 50 (neutro).
+  const rsiOnTprice = wilderRsi(tprice, 14).map(v => v ?? 50)
 
   const marron = xmf.map((mf, i) => (rsiOnTprice[i] + mf + bollOsc[i]) / 2)
   const verde = marron.map((v, i) => v + oscp[i])
@@ -358,31 +363,20 @@ export function detectCandlePatterns(
     return slice.reduce((sum, c) => sum + bodySize(c), 0) / slice.length
   }
 
+  // El contexto es el mismo para todas las velas, así que el puntaje se calcula una sola vez
+  // (antes se recalculaba por cada patrón encontrado).
+  const bullishResult = getBullishScore(context, true)
+  const bearishResult = getBearishScore(context, true)
+
   // Filtros de Contexto Avanzado
   const getBullishLabel = () => {
-    const result = getBullishScore(context, true)
-
-    if (result.level === 'AP_PLUS') {
-      return `🔥🔥 AP+`
-    }
-
-    if (result.level === 'AP') {
-      return `🔥 AP`
-    }
-
+    if (bullishResult.level === 'AP_PLUS') return `🔥🔥 AP+`
+    if (bullishResult.level === 'AP') return `🔥 AP`
     return null
   }
   const getBearishLabel = () => {
-    const result = getBearishScore(context, true)
-
-    if (result.level === 'RC_STRONG') {
-      return `🚨 RC+`
-    }
-
-    if (result.level === 'RC') {
-      return `⚠️ RC`
-    }
-
+    if (bearishResult.level === 'RC_STRONG') return `🚨 RC+`
+    if (bearishResult.level === 'RC') return `⚠️ RC`
     return null
   }
 
@@ -504,8 +498,7 @@ export interface MogalefPoint {
   center: number | null
 }
 
-// Regresión lineal simple evaluada en el último punto de la ventana — misma
-// fórmula que ta.linreg de Pine Script (mínimos cuadrados, x = 1..n, offset 0).
+// Regresión lineal simple evaluada en el último punto de la ventana
 function linregAt(values: number[], endIndex: number, length: number): number | null {
   if (endIndex < length - 1) return null
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
@@ -552,6 +545,7 @@ export function mogalefBandsSeries(
   const out: MogalefPoint[] = []
   let currentUpper: number | null = null
   let currentLower: number | null = null
+  let currentCenter: number | null = null
   let initialized = false
 
   for (let i = 0; i < n; i++) {
@@ -563,12 +557,15 @@ export function mogalefBandsSeries(
       if (center != null && std != null) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
+        currentCenter = center
         initialized = true
       }
     } else if (center != null && std != null && currentUpper != null && currentLower != null) {
+      // Validación estricta con el cierre para mantener el congelamiento el mayor tiempo posible
       if (close > currentUpper || close < currentLower) {
         currentUpper = center + multiplier * std
         currentLower = center - multiplier * std
+        currentCenter = center
       }
     }
 
@@ -576,7 +573,7 @@ export function mogalefBandsSeries(
       time: candles[i].time,
       sup: initialized ? currentUpper : null,
       inf: initialized ? currentLower : null,
-      center: initialized ? center : null,
+      center: initialized ? currentCenter : null,
     })
   }
 
