@@ -1,5 +1,6 @@
 'use client'
-import { createContext, useContext, useState, useEffect } from 'react'
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 interface PrivacyContextType {
   visible: boolean
@@ -10,47 +11,73 @@ interface PrivacyContextType {
   shares: (value: number | null | undefined) => string
 }
 
+const STORAGE_KEY = 'tradercat_privacy'
+
+const toNum = (value: number | null | undefined): number => {
+  const n = Number(value ?? 0)
+  return Number.isFinite(n) ? n : 0 // antes un NaN/Infinity se mostraba como "$NaN"
+}
+
+// Negativos como -$1,234.56 (antes salía $-1,234.56) y sin "-$0.00" cuando el valor redondea a cero
+function formatMoney(value: number | null | undefined, symbol: string): string {
+  const n = Math.round(toNum(value) * 100) / 100
+  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${n < 0 ? '-' : ''}${symbol}${abs}`
+}
+
+const formatShares = (value: number | null | undefined) => (toNum(value) + 0).toFixed(6)
+
 const PrivacyContext = createContext<PrivacyContextType>({
   visible: true,
   toggle: () => {},
-  money: (v) => `$${(v ?? 0).toFixed(2)}`,
-  shares: (v) => (v ?? 0).toFixed(6),
+  money: (v, symbol = '$') => formatMoney(v, symbol),
+  shares: formatShares,
 })
 
 export function PrivacyProvider({ children }: { children: React.ReactNode }) {
-  const [visible, setVisible] = useState(true)
+  // Arranca OCULTO hasta leer la preferencia guardada. Antes arrancaba visible: si habías dejado los montos
+  // ocultos, durante un instante al cargar se veían (y quedaba a la vista de quien mirara la pantalla).
+  // El servidor y el primer render del cliente coinciden, así que tampoco hay error de hidratación.
+  const [visible, setVisible] = useState(false)
+  const [ready, setReady] = useState(false)
 
-  // Carga preferencia guardada
   useEffect(() => {
-    const saved = localStorage.getItem('tradercat_privacy')
-    if (saved !== null) setVisible(saved === 'true')
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      setVisible(saved === null ? true : saved === 'true') // sin preferencia guardada: visible, como siempre
+    } catch {
+      setVisible(true) // localStorage bloqueado (modo privado, etc.)
+    }
+    setReady(true)
+
+    // Si cambias la preferencia en otra pestaña, esta se actualiza sola
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue !== null) setVisible(e.newValue === 'true')
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const toggle = () => {
+  const toggle = useCallback(() => {
     setVisible(prev => {
       const next = !prev
-      localStorage.setItem('tradercat_privacy', String(next))
+      // (guardar dentro de este callback es inofensivo: escribe el mismo valor aunque React lo ejecute dos veces)
+      try { localStorage.setItem(STORAGE_KEY, String(next)) } catch { /* sin almacenamiento: solo dura la sesión */ }
       return next
     })
-  }
+  }, [])
 
-  const money = (value: number | null | undefined, symbol = '$') => {
-    if (!visible) return `${symbol}***`
-    const n = Number(value ?? 0)
-    return `${symbol}${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  }
+  const value = useMemo<PrivacyContextType>(() => {
+    const shown = ready && visible // mientras no se haya leído la preferencia, todo se muestra oculto
+    return {
+      visible: shown,
+      toggle,
+      money: (v, symbol = '$') => (shown ? formatMoney(v, symbol) : `${symbol}***`),
+      shares: v => (shown ? formatShares(v) : '***'),
+    }
+  }, [ready, visible, toggle])
 
-  const shares = (value: number | null | undefined) => {
-    if (!visible) return '***'
-    const n = Number(value ?? 0)
-    return n.toFixed(6)
-  }
-
-  return (
-    <PrivacyContext.Provider value={{ visible, toggle, money, shares }}>
-      {children}
-    </PrivacyContext.Provider>
-  )
+  return <PrivacyContext.Provider value={value}>{children}</PrivacyContext.Provider>
 }
 
 export const usePrivacy = () => useContext(PrivacyContext)

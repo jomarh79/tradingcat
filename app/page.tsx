@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from './AppShell'
@@ -11,11 +11,18 @@ import {
   CartesianGrid, ReferenceLine,
 } from 'recharts'
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-//const SP500_DAILY = 0.0003
+// ── Fechas ───────────────────────────────────────────────────────────────────
+// 'yyyy-MM-dd[...]' → medianoche LOCAL. Inválida → NaN
+const dayMs = (d: any): number => Date.parse(String(d || '').split('T')[0].split(' ')[0] + 'T00:00:00')
+const parseDate = (d: any): Date => new Date(dayMs(d))
+
 const PORT_COLORS = ['#00bfff', '#a78bfa', '#34d399', '#fb923c', '#f472b6']
+const SECTOR_COLORS = ['#00bfff', '#a78bfa', '#34d399', '#fb923c', '#f472b6', '#eab308', '#22c55e', '#f43f5e']
+const GREEN = '#22c55e'
+const RED = '#f43f5e'
 
 type Period = 'YTD' | '1Y' | '5Y' | 'MAX'
+const PERIODS: Period[] = ['YTD', '1Y', '5Y', 'MAX']
 
 const getMondayOfWeek = (d: Date): Date => {
   const date = new Date(d)
@@ -25,12 +32,60 @@ const getMondayOfWeek = (d: Date): Date => {
   return date
 }
 
-const periodCutoff = (p: Period): Date => {
+const periodCutoff = (p: Period): number => {
   const now = new Date()
-  if (p === 'YTD') return new Date(now.getFullYear(), 0, 1)
-  if (p === '1Y')  return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-  if (p === '5Y')  return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate())
-  return new Date(2000, 0, 1)
+  if (p === 'YTD') return new Date(now.getFullYear(), 0, 1).getTime()
+  if (p === '1Y')  return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime()
+  if (p === '5Y')  return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate()).getTime()
+  return new Date(2000, 0, 1).getTime()
+}
+
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const pnlColor = (n: number) => (n >= 0 ? GREEN : RED)
+
+// ── Datos ────────────────────────────────────────────────────────────────────
+// Supabase devuelve como máximo 1000 filas por consulta (aunque pongas .limit(5000)). Antes los movimientos
+// se cortaban en 1000, y con ellos el total depositado y la gráfica comparativa. Aquí se pide por páginas.
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+// ── S&P 500 (SPY) ────────────────────────────────────────────────────────────
+type SpPoint = { t: number; close: number }
+const SP_CACHE_KEY = 'sp500'
+const SP_TTL_MS = 12 * 60 * 60 * 1000 // el plan gratuito de TwelveData tiene pocos créditos al día
+
+function readSpCache(): { ts: number; rows: SpPoint[] } | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SP_CACHE_KEY) || 'null')
+    const list = Array.isArray(raw) ? raw : raw?.rows // formato anterior: solo el arreglo (se considera vencido)
+    if (!Array.isArray(list)) return null
+    const rows = list
+      .map((d: any) => ({ t: dayMs(d.date), close: Number(d.close) }))
+      .filter((d: SpPoint) => Number.isFinite(d.t) && d.close > 0)
+    return { ts: Array.isArray(raw) ? 0 : Number(raw?.ts) || 0, rows }
+  } catch {
+    return null
+  }
+}
+
+// Índice del último elemento con t <= x (arreglo ascendente); -1 si no hay
+function lastOnOrBefore(arr: SpPoint[], x: number): number {
+  let lo = 0, hi = arr.length - 1, ans = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid].t <= x) { ans = mid; lo = mid + 1 } else hi = mid - 1
+  }
+  return ans
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -115,7 +170,7 @@ const PawTrail = ({ color = '#00bfff', opacity = 0.06, count = 4, size = 14, gap
 // Selector de período (reutilizable)
 const PeriodSelector = ({ period, onChange }: { period: Period; onChange: (p: Period) => void }) => (
   <div style={{ display: 'flex', gap: 2, background: '#050505', padding: 3, borderRadius: 8, border: '1px solid #111' }}>
-    {(['YTD', '1Y', '5Y', 'MAX'] as Period[]).map(p => (
+    {PERIODS.map(p => (
       <button key={p} onClick={() => onChange(p)} style={{
         background:    period === p ? '#1a1a1a' : 'transparent',
         border:        period === p ? '1px solid #2a2a2a' : '1px solid transparent',
@@ -130,379 +185,423 @@ const PeriodSelector = ({ period, onChange }: { period: Period; onChange: (p: Pe
   </div>
 )
 
+// ── Tarjetas reutilizables ───────────────────────────────────────────────────
+
+// Top ganancias / top pérdidas (eran dos bloques casi idénticos)
+function RankCard({ title, color, rows, emptyMsg }: {
+  title: string; color: string; rows: { id: any; ticker: string; pnlPct: number }[]; emptyMsg: string
+}) {
+  return (
+    <div style={{ ...card, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <Paw size={10} color={color} opacity={0.7} />
+        <span style={cardLabel}>{title}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {rows.map(t => (
+          <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color }}>
+              {t.pnlPct >= 0 ? '+' : ''}{t.pnlPct.toFixed(2)}%
+            </span>
+          </div>
+        ))}
+        {rows.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>{emptyMsg}</span>}
+      </div>
+    </div>
+  )
+}
+
+// Resumen del mes / del año (eran dos bloques casi idénticos)
+function SummaryCard({ title, subtitle, accent, cells, closedCount, wins, winRate, pnl, invested, prevLabel, prevPnl, money }: {
+  title: string; subtitle: string; accent: string
+  cells: { label: string; value: string | number; color: string }[]
+  closedCount: number; wins: number; winRate: number; pnl: number; invested: number
+  prevLabel: string; prevPnl: number; money: (v: number) => string
+}) {
+  const box: React.CSSProperties = { background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }
+  const boxLabel: React.CSSProperties = { fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }
+  return (
+    <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
+        <CatFull size={60} color={accent} opacity={0.04} />
+      </div>
+      <div style={{ ...cardHeader, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <Paw size={11} color={accent} opacity={0.6} />
+          <span style={cardLabel}>{title}</span>
+        </div>
+        <span style={{ fontSize: 9, color: '#444' }}>{subtitle}</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        {cells.map(k => (
+          <div key={k.label} style={box}>
+            <div style={{ ...boxLabel, marginBottom: 5 }}>{k.label.toUpperCase()}</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: k.color }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* rendimiento real */}
+      <div style={{ ...box, marginBottom: 10 }}>
+        <div style={boxLabel}>RENDIMIENTO REAL</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#666' }}>
+            {closedCount} trades · {wins} ganadores {winRate}%
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: pnlColor(pnl) }}>
+            {invested > 0 ? `${((pnl / invested) * 100).toFixed(2)}%` : '—'}
+          </span>
+        </div>
+      </div>
+
+      {/* vs período anterior */}
+      <div style={box}>
+        <div style={boxLabel}>{prevLabel.toUpperCase()}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#666' }}>{prevLabel.replace('VS ', '').replace(/^./, c => c.toUpperCase())}: {money(prevPnl)}</span>
+          {prevPnl !== 0 ? (
+            <span style={{ fontSize: 11, fontWeight: 700, color: pnl >= prevPnl ? GREEN : RED }}>
+              {pnl >= prevPnl ? '▲' : '▼'}{' '}
+              {Math.abs(((pnl - prevPnl) / Math.abs(prevPnl)) * 100).toFixed(1)}%
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: '#444' }}>Sin datos</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function HomePage() {
-  const { money } = usePrivacy()
+  const { money, visible } = usePrivacy()
 
   const [allTrades,  setAllTrades]  = useState<any[]>([])
   const [portfolios, setPortfolios] = useState<any[]>([])
   const [movements,  setMovements]  = useState<any[]>([])
   const [watchlist,  setWatchlist]  = useState<any[]>([])
   const [loading,    setLoading]    = useState(true)
+  const [loadError,  setLoadError]  = useState('')
   const [period,     setPeriod]     = useState<Period>('YTD')
   const [equityPeriod, setEquityPeriod] = useState<Period>('YTD')
-  const [sp500Data, setSp500Data] = useState<any[]>([])
-  const [dividends, setDividends] = useState<any[]>([])
+  const [sp500Data, setSp500Data] = useState<SpPoint[]>([])
 
-  const fetchData = useCallback(async () => {
-    const [{ data: t }, { data: p }, { data: m }, { data: w }] = await Promise.all([
-      supabase.from('trades').select('*, trade_executions(quantity, price, commission, execution_type)'),
-      supabase.from('portfolios').select('*'),
-      supabase.from('wallet_movements').select('amount, date, wallet_id, is_dividend, movement_type').order('date', { ascending: false }).limit(5000),
-      supabase.from('watchlist').select('*'),
-    ])
-    if (t) setAllTrades(t)
-    if (p) setPortfolios(p)
-    if (m) setMovements(m)
-    if (w) setWatchlist(w)
-
-    // Traer TODOS los dividendos sin límite de paginación
-    let allDivs: any[] = []
-    let from = 0
-    while (true) {
-      const { data: chunk } = await supabase
-        .from('wallet_movements')
-        .select('amount, date, wallet_id, is_dividend, movement_type')
-        .or('is_dividend.eq.true,movement_type.eq.dividend')
-        .range(from, from + 999)
-      if (!chunk?.length) break
-      allDivs = [...allDivs, ...chunk]
-      if (chunk.length < 1000) break
-      from += 1000
-    }
-    setDividends(allDivs)
-
-    setLoading(false)
+  // Carga de datos de la cuenta. Con bandera de cancelación: si sales de la página a mitad de la carga,
+  // no se actualiza un componente ya desmontado.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [t, p, m, w] = await Promise.all([
+          fetchAll(() => supabase.from('trades').select('*, trade_executions(quantity, price, commission, execution_type)').order('id')),
+          fetchAll(() => supabase.from('portfolios').select('*').order('id')),
+          fetchAll(() => supabase.from('wallet_movements').select('id, amount, date, wallet_id, is_dividend, movement_type').order('date').order('id')),
+          fetchAll(() => supabase.from('watchlist').select('*').order('id')),
+        ])
+        if (cancelled) return
+        setAllTrades(t); setPortfolios(p); setMovements(m); setWatchlist(w)
+      } catch (e: any) {
+        // Antes un error de Supabase se ignoraba y la página mostraba todo en ceros como si no hubiera datos
+        if (!cancelled) setLoadError(e?.message || 'No se pudieron cargar los datos')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
- useEffect(() => {
-  fetchData()
+  // S&P 500: primero la caché; solo se vuelve a pedir si tiene más de 12 horas (antes, 5000 velas en cada visita)
+  useEffect(() => {
+    let cancelled = false
+    const cached = readSpCache()
+    if (cached?.rows.length) setSp500Data(cached.rows)
+    if (cached && cached.rows.length && Date.now() - cached.ts < SP_TTL_MS) return
 
-  // 👇 Cargar cache primero (IMPORTANTE)
-  const cached = localStorage.getItem('sp500')
-  if (cached) {
-    const parsed = JSON.parse(cached).map((d: any) => ({
-      date: new Date(d.date),
-      close: Number(d.close),
-    }))
-    setSp500Data(parsed)
-  }
+    const apiKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY
+    if (!apiKey) { console.error('Falta NEXT_PUBLIC_TWELVEDATA_API_KEY'); return }
 
-  fetchSP500()
-}, [fetchData])
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `https://api.twelvedata.com/time_series?symbol=SPY&interval=1day&outputsize=5000&apikey=${apiKey}`,
+          { signal: AbortSignal.timeout(15_000) }
+        )
+        const json = await res.json()
+        if (!Array.isArray(json?.values)) { console.error('Error SP500:', json); return }
 
- const fetchSP500 = async () => {
-  try {
-    const res = await fetch(
-      `https://api.twelvedata.com/time_series?symbol=SPY&interval=1day&outputsize=5000&apikey=${process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY}`
-    )
+        const rows: SpPoint[] = json.values
+          .map((d: any) => ({ t: dayMs(d.datetime), close: Number(d.close) }))
+          .filter((d: SpPoint) => Number.isFinite(d.t) && d.close > 0)
+          .sort((a: SpPoint, b: SpPoint) => a.t - b.t)
+        if (!rows.length || cancelled) return
 
-    const json = await res.json()
+        setSp500Data(rows)
+        try {
+          localStorage.setItem(SP_CACHE_KEY, JSON.stringify({
+            ts: Date.now(),
+            rows: rows.map(r => ({ date: new Date(r.t).toLocaleDateString('sv-SE'), close: r.close })),
+          }))
+        } catch { /* almacenamiento lleno o bloqueado: solo se pierde la caché */ }
+      } catch (e) {
+        console.error('Error SP500 fetch:', e) // se queda con la caché que ya se cargó
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
-    if (json.values) {
-      const formatted = json.values
-        .map((d: any) => ({
-          date: new Date(d.datetime),
-          close: Number(d.close),
-        }))
-        .sort((a: any, b: any) => a.date.getTime() - b.date.getTime())
+  // ── Posiciones abiertas con su rendimiento (una sola vez; antes se recalculaba en cinco sitios) ──
+  const openPositions = useMemo(() =>
+    allTrades.filter(t => t.status === 'open').map(t => {
+      const qty = Number(t.quantity || 0)
+      const inv = Number(t.total_invested || 0)
+      const cur = Number(t.last_price || t.entry_price || 0)
+      const avg = inv > 0 && qty > 0 ? inv / qty : Number(t.entry_price || 0)
+      return {
+        ...t,
+        inv,
+        pnlAmt: (cur - avg) * qty,
+        pnlPct: avg > 0 ? ((cur - avg) / avg) * 100 : 0,
+      }
+    })
+  , [allTrades])
 
-      const toSave = formatted.map((d: any) => ({
-        date:  d.date.toISOString().split('T')[0],
-        close: d.close,
-      }))
-      localStorage.setItem('sp500', JSON.stringify(toSave))
-      setSp500Data(formatted)
-    } else {
-      console.error('Error SP500:', json)
-    }
-  } catch (e) {
-    console.error('Error SP500 fetch:', e)
-
-    const cached = localStorage.getItem('sp500')
-    if (cached) {
-      const parsed = JSON.parse(cached).map((d: any) => ({
-        date: new Date(d.date),
-        close: Number(d.close),
-      }))
-      setSp500Data(parsed)
-    }
-  }
-}
+  // Dividendos: salen de los mismos movimientos (antes era una segunda consulta paginada a la misma tabla)
+  const dividends = useMemo(
+    () => movements.filter(m => m.is_dividend === true || m.movement_type === 'dividend'),
+    [movements]
+  )
 
   // ── Stats globales ────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const open      = allTrades.filter(t => t.status === 'open')
-    const closed    = allTrades.filter(t => t.status === 'closed')
-    const deposited = movements.reduce((a, m) => a + Number(m.amount), 0)
-    const invested  = open.reduce((a, t) => a + Number(t.total_invested || 0), 0)
-    const pnl       = parseFloat(closed.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const wins      = closed.filter(t => Number(t.realized_pnl) > 0).length
-    const winRate   = closed.length ? parseFloat((wins / closed.length * 100).toFixed(1)) : 0
-    const avgPnl    = closed.length ? parseFloat((pnl / closed.length).toFixed(2)) : 0
-
     const now = new Date()
-    const dividendsMonth = dividends.filter(m => {
-      if (!m.date) return false
-      const d = parseDate(String(m.date))
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-    }).reduce((a, m) => a + Number(m.amount), 0)
+    const closed = allTrades.filter(t => t.status === 'closed')
+    const closedAt = (t: any) => parseDate(t.close_date || t.open_date)
+    const sumPnl = (list: any[]) => r2(list.reduce((a, t) => a + Number(t.realized_pnl || 0), 0))
+    const winsOf = (list: any[]) => list.filter(t => Number(t.realized_pnl) > 0).length
+    const rate = (w: number, n: number) => (n ? parseFloat(((w / n) * 100).toFixed(1)) : 0)
+    const sumAmt = (list: any[]) => r2(list.reduce((a, m) => a + Number(m.amount), 0))
 
-    const dividendsYear = dividends.filter(m => {
-      if (!m.date) return false
-      const d = parseDate(String(m.date))
-      return d.getFullYear() === now.getFullYear()
-    }).reduce((a, m) => a + Number(m.amount), 0)
+    const sameMonth = (d: Date, y: number, m: number) => d.getFullYear() === y && d.getMonth() === m
+    const prevM = new Date(now.getFullYear(), now.getMonth() - 1, 1)
 
-    const openPnl = open.reduce((a, t) => {
-      const cur  = Number(t.last_price || t.entry_price || 0)
-      const avg  = t.total_invested > 0 && t.quantity > 0 ? t.total_invested / t.quantity : Number(t.entry_price || 0)
-      return a + (cur - avg) * Number(t.quantity || 0)
-    }, 0)
+    const closedMonth = closed.filter(t => sameMonth(closedAt(t), now.getFullYear(), now.getMonth()))
+    const closedPrevMonth = closed.filter(t => sameMonth(closedAt(t), prevM.getFullYear(), prevM.getMonth()))
+    const closedYear = closed.filter(t => closedAt(t).getFullYear() === now.getFullYear())
+    const closedPrevYear = closed.filter(t => closedAt(t).getFullYear() === now.getFullYear() - 1)
 
-    const closedThisYear = closed.filter(t => {
-      const d = parseDate(t.close_date || t.open_date)
-      return d.getFullYear() === now.getFullYear()
-    })
-    const pnlYear      = parseFloat(closedThisYear.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const winsYear     = closedThisYear.filter(t => Number(t.realized_pnl) > 0).length
-    const winRateYear  = closedThisYear.length ? parseFloat((winsYear / closedThisYear.length * 100).toFixed(1)) : 0
+    const divDate = (m: any) => (m.date ? parseDate(String(m.date)) : null)
+    const dividendsMonth = sumAmt(dividends.filter(m => { const d = divDate(m); return !!d && sameMonth(d, now.getFullYear(), now.getMonth()) }))
+    const dividendsYear  = sumAmt(dividends.filter(m => { const d = divDate(m); return !!d && d.getFullYear() === now.getFullYear() }))
 
-    const closedThisMonth = closed.filter(t => {
-      const d = parseDate(t.close_date || t.open_date)
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-    })
-    const pnlMonth     = parseFloat(closedThisMonth.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const winsMonth    = closedThisMonth.filter(t => Number(t.realized_pnl) > 0).length
-    const winRateMonth = closedThisMonth.length ? parseFloat((winsMonth / closedThisMonth.length * 100).toFixed(1)) : 0
-
-    // Mes anterior para comparar
-    const prevMonth = closed.filter(t => {
-      const d = parseDate(t.close_date || t.open_date)
-      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear()
-    })
-    const pnlPrevMonth = parseFloat(prevMonth.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const closedPrevYear = closed.filter(t => {
-      const d = parseDate(t.close_date || t.open_date)
-      return d.getFullYear() === now.getFullYear() - 1
-    })
-    const pnlPrevYear = parseFloat(closedPrevYear.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+    const deposited = movements.reduce((a, m) => a + Number(m.amount), 0)
+    const invested  = openPositions.reduce((a, t) => a + t.inv, 0)
+    const pnl       = sumPnl(closed)
 
     return {
-      capital: parseFloat((deposited + invested).toFixed(2)),
-      pnl, wins, winRate, avgPnl,
-      openCount:      open.length,
-      closedCount:    closed.length,
-      invested:       parseFloat(invested.toFixed(2)),
-      openPnl:        parseFloat(openPnl.toFixed(2)),
-      dividendsMonth: parseFloat(dividendsMonth.toFixed(2)),
-      dividendsYear:  parseFloat(dividendsYear.toFixed(2)),
-      pnlMonth,
-      winsMonth,
-      winRateMonth,
-      closedMonthCount: closedThisMonth.length,
-      pnlPrevMonth,
-      pnlYear,
-      pnlPrevYear,
-      winsYear,
-      winRateYear,
-      closedYearCount: closedThisYear.length,
+      capital: r2(deposited + invested),
+      pnl,
+      wins: winsOf(closed),
+      winRate: rate(winsOf(closed), closed.length),
+      avgPnl: closed.length ? r2(pnl / closed.length) : 0,
+      openCount:   openPositions.length,
+      closedCount: closed.length,
+      invested:    r2(invested),
+      openPnl:     r2(openPositions.reduce((a, t) => a + t.pnlAmt, 0)),
+      dividendsMonth,
+      dividendsYear,
+      pnlMonth: sumPnl(closedMonth),
+      winsMonth: winsOf(closedMonth),
+      winRateMonth: rate(winsOf(closedMonth), closedMonth.length),
+      closedMonthCount: closedMonth.length,
+      pnlPrevMonth: sumPnl(closedPrevMonth),
+      pnlYear: sumPnl(closedYear),
+      pnlPrevYear: sumPnl(closedPrevYear),
+      winsYear: winsOf(closedYear),
+      winRateYear: rate(winsOf(closedYear), closedYear.length),
+      closedYearCount: closedYear.length,
     }
-  }, [allTrades, movements, dividends])
+  }, [allTrades, movements, dividends, openPositions])
 
-  // ── Stats por portafolio ─────────────────────────────────────────────────
-  const portfolioStats = useMemo(() => {
-    const now = new Date()
-    return portfolios.map((port, i) => {
-      const closed = allTrades.filter(t => t.status === 'closed' && t.portfolio_id === port.id)
-      const open   = allTrades.filter(t => t.status === 'open'   && t.portfolio_id === port.id)
-      const wins   = closed.filter(t => Number(t.realized_pnl) > 0).length
-      const pnl    = parseFloat(closed.reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+  // Top 5: solo ganadoras en "ganancias" y solo perdedoras en "pérdidas".
+  // Antes, con pocas posiciones, la misma operación podía salir en las dos listas (o una ganadora en "pérdidas").
+  const { top5, bottom5 } = useMemo(() => ({
+    top5:    openPositions.filter(t => t.pnlPct > 0).sort((a, b) => b.pnlPct - a.pnlPct).slice(0, 5),
+    bottom5: openPositions.filter(t => t.pnlPct < 0).sort((a, b) => a.pnlPct - b.pnlPct).slice(0, 5),
+  }), [openPositions])
 
-      const thisMonth = closed.filter(t => {
-        const d = parseDate(t.close_date || t.open_date)
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-      }).sort((a, b) => Number(b.realized_pnl) - Number(a.realized_pnl))
-
-      return {
-        id:         port.id,
-        name:       port.name,
-        color:      PORT_COLORS[i % PORT_COLORS.length],
-        closedCount: closed.length,
-        openCount:   open.length,
-        wins,
-        pnl,
-        bestTrade:  thisMonth[0]  || null,
-        worstTrade: thisMonth[thisMonth.length - 1] || null,
-      }
-    })
-  }, [allTrades, portfolios])
-
-const sectorDistribution = useMemo(() => {
-    const open = allTrades.filter(t => t.status === 'open')
-    const totalInv = open.reduce((a, t) => a + Number(t.total_invested || 0), 0)
+  const sectorDistribution = useMemo(() => {
+    const totalInv = openPositions.reduce((a, t) => a + t.inv, 0)
     const map: Record<string, number> = {}
-    open.forEach(t => {
+    openPositions.forEach(t => {
       const s = t.sector || 'Sin sector'
-      map[s] = (map[s] || 0) + Number(t.total_invested || 0)
+      map[s] = (map[s] || 0) + t.inv
     })
     return Object.entries(map)
       .map(([sector, amount]) => ({
         sector,
-        amount: parseFloat(amount.toFixed(2)),
-        pct: totalInv > 0 ? parseFloat((amount / totalInv * 100).toFixed(1)) : 0,
+        amount: r2(amount),
+        pct: totalInv > 0 ? parseFloat(((amount / totalInv) * 100).toFixed(1)) : 0,
       }))
       .sort((a, b) => b.amount - a.amount)
-  }, [allTrades])
+  }, [openPositions])
 
-const lastClosedTrades = useMemo(() =>
+  const lastClosedTrades = useMemo(() =>
     allTrades
       .filter(t => t.status === 'closed' && t.close_date)
-      .sort((a, b) => parseDate(b.close_date).getTime() - parseDate(a.close_date).getTime())
+      .sort((a, b) => dayMs(b.close_date) - dayMs(a.close_date))
       .slice(0, 5)
+      .map(t => {
+        const pnl = Number(t.realized_pnl || 0)
+        const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+        const buyExtraInv = (t.trade_executions || [])
+          .filter((e: any) => e.execution_type === 'buy')
+          .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+        const inv = r2(initialInv + buyExtraInv)
+        return { ...t, pnl, pct: inv > 0 ? (pnl / inv) * 100 : 0 }
+      })
   , [allTrades])
 
   // ── Curva de equity global con filtro de período ──────────────────────────
   const equityCurveAll = useMemo(() => {
-    const closed = allTrades
-      .filter(t => t.status === 'closed' && t.close_date)
-      .sort((a, b) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime())
     let cum = 0
-    return closed.map(t => ({
-      date:    parseDate(t.close_date),
-      dateStr: parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
-      dateFull:parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
-      pnl:     parseFloat((cum += Number(t.realized_pnl || 0), cum).toFixed(2)),
-    }))
+    return allTrades
+      .filter(t => t.status === 'closed' && Number.isFinite(dayMs(t.close_date)))
+      .sort((a, b) => dayMs(a.close_date) - dayMs(b.close_date))
+      .map(t => {
+        cum += Number(t.realized_pnl || 0)
+        const d = parseDate(t.close_date)
+        return {
+          ts: d.getTime(),
+          dateStr:  d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+          dateFull: d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
+          pnl: r2(cum),
+        }
+      })
   }, [allTrades])
 
   const equityCurve = useMemo(() => {
-    const cutoff   = periodCutoff(equityPeriod)
-    const filtered = equityCurveAll.filter(d => d.date >= cutoff)
-    const data     = filtered.length ? filtered : equityCurveAll
-    if (!data.length) return []
-    const base = data[0].pnl
-    return data.map(d => ({
-      date: equityPeriod === '5Y' || equityPeriod === 'MAX' ? d.dateFull : d.dateStr,
-      pnl:  parseFloat((d.pnl - base).toFixed(2)),
+    const cutoff = periodCutoff(equityPeriod)
+    const first = equityCurveAll.findIndex(d => d.ts >= cutoff)
+    // Antes, si no había cierres en el período, se mostraba toda la historia con la etiqueta del período
+    if (first < 0) return []
+    // La base es lo acumulado ANTES del período (antes era el primer cierre del período, que quedaba fuera de la suma)
+    const base = first > 0 ? equityCurveAll[first - 1].pnl : 0
+    const full = equityPeriod === '5Y' || equityPeriod === 'MAX'
+    return equityCurveAll.slice(first).map(d => ({
+      date: full ? d.dateFull : d.dateStr,
+      pnl:  r2(d.pnl - base),
     }))
   }, [equityCurveAll, equityPeriod])
 
-  // 2. Corrige compChart para que calcule el % real basado en el periodo visual
-  // 1. PRIMERO: Definir compChartAll (Datos base)
+  // ── Comparativo semanal por portafolio ────────────────────────────────────
+  // Mismo cálculo de antes, pero con los datos ya convertidos y un puntero por portafolio: antes cada semana
+  // volvía a filtrar y a parsear fechas de TODOS los movimientos y trades (semanas × portafolios × movimientos).
   const compChartAll = useMemo(() => {
     if (!movements.length || !portfolios.length) return []
-    const allDates = movements.map(m => parseDate(m.date))
-    const sortedDates = allDates.sort((a, b) => a.getTime() - b.getTime())
-    const firstMonday = getMondayOfWeek(sortedDates[0])
-    const weeks: Date[] = []
-    const cur = new Date(firstMonday)
-    const now = getMondayOfWeek(new Date())
-    while (cur <= now) { weeks.push(new Date(cur)); cur.setDate(cur.getDate() + 7) }
 
-    const cumMap: Record<string, number> = {}
-    portfolios.forEach(p => { cumMap[p.id] = 0 })
+    const moves = movements
+      .map(m => ({ t: dayMs(m.date), wallet: m.wallet_id, amount: Number(m.amount) || 0 }))
+      .filter(m => Number.isFinite(m.t))
+      .sort((a, b) => a.t - b.t)
+    if (!moves.length) return []
 
-    return weeks.map((monday, i) => {
-      const nextM = new Date(monday)
-      nextM.setDate(nextM.getDate() + 7)
+    const states = portfolios.map(p => ({
+      name: p.name as string,
+      moves: moves.filter(m => m.wallet === p.id),
+      idx: 0,
+      cum: 0,
+      trades: allTrades
+        .filter(t => t.portfolio_id === p.id)
+        .map(t => ({
+          open:  dayMs(t.open_date),
+          close: t.status === 'open' ? Infinity : dayMs(t.close_date),
+          value: Number(t.quantity || 0) * Number(t.last_price || t.entry_price || 0),
+        })),
+    }))
+
+    const lastMonday = getMondayOfWeek(new Date())
+    const out: any[] = []
+    for (let monday = getMondayOfWeek(new Date(moves[0].t)); monday <= lastMonday; ) {
+      const mondayMs = monday.getTime()
+      const next = new Date(monday)
+      next.setDate(next.getDate() + 7)
+      const nextMs = next.getTime()
+
       const point: any = {
-        label: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+        label:     monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
         labelFull: monday.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
-        date: monday,
+        ts: mondayMs,
       }
-      portfolios.forEach(p => {
-        const wm = movements.filter(m => m.wallet_id === p.id && parseDate(m.date) >= monday && parseDate(m.date) < nextM)
-        const openAtTime = allTrades.filter(t => t.portfolio_id === p.id && parseDate(t.open_date) <= monday && (t.status === 'open' || parseDate(t.close_date) > monday))
-        cumMap[p.id] += wm.reduce((a, m) => a + Number(m.amount), 0)
-        // El saldo acumulado ya incluye depósitos + retiros + ganancias de trades cerrados
-        // Solo agregamos el valor actual de los abiertos para no doble-contar
-        const openValue = openAtTime.reduce((a, t) => {
-          const qty = Number(t.quantity || 0)
-          const price = Number(t.last_price || t.entry_price || 0)
-          return a + qty * price
-        }, 0)
-        point[p.name] = cumMap[p.id] + openValue
-      })
-      return point
-    })
+
+      for (const s of states) {
+        while (s.idx < s.moves.length && s.moves[s.idx].t < nextMs) s.cum += s.moves[s.idx++].amount
+        // El saldo acumulado ya incluye depósitos + retiros + ganancias de trades cerrados;
+        // solo se agrega el valor de los abiertos en esa fecha para no doble-contar
+        let openValue = 0
+        for (const t of s.trades) {
+          if (Number.isFinite(t.open) && t.open <= mondayMs && t.close > mondayMs) openValue += t.value
+        }
+        point[s.name] = s.cum + openValue
+      }
+
+      out.push(point)
+      monday = next
+    }
+    return out
   }, [movements, portfolios, allTrades])
 
-  // 2. SEGUNDO: Definir compChart (Cálculo porcentual)
   const compChart = useMemo(() => {
     if (!compChartAll.length) return []
     const cutoff = periodCutoff(period)
-    const data = compChartAll.filter(row => row.date >= cutoff)
-    const spDataSortedDesc = [...sp500Data]
-      .sort((a, b) => b.date.getTime() - a.date.getTime())
+    const data = compChartAll.filter(row => row.ts >= cutoff)
     if (!data.length) return []
 
-    const spInPeriod = sp500Data.filter(d => d.date >= cutoff)
-    const spBaseMatch = [...sp500Data]
-      .sort((a, b) => b.date.getTime() - a.date.getTime())
-      .find(d => d.date <= cutoff)
-
-    const spBasePrice = spBaseMatch
-      ? spBaseMatch.close
-      : spInPeriod.length
-      ? spInPeriod[0].close
-      : sp500Data.length
-      ? sp500Data[0].close
-      : null
-
-   if (!spBasePrice) {
-  return data.map(row => {
-    const point: any = {
-      label: row.label,
-      'S&P 500': 0
-    }
-
-    portfolios.forEach(p => {
-      const firstVal = data[0][p.name] || 0
-      const currentVal = row[p.name] || 0
-      point[p.name] = firstVal === 0 ? 0 : ((currentVal - firstVal) / firstVal) * 100
-    })
-
-    return point
-  })
-}
+    // sp500Data ya viene ordenado de menor a mayor; antes se reordenaba (dos veces) en cada cálculo
+    const idxBase = lastOnOrBefore(sp500Data, cutoff)
+    const spBase = idxBase >= 0 ? sp500Data[idxBase].close : sp500Data.length ? sp500Data[0].close : null
+    const full = period === '5Y' || period === 'MAX'
 
     return data.map(row => {
-      const spMatch = spDataSortedDesc.find(d => d.date <= row.date)
-      const currentPrice = spMatch ? spMatch.close : spBasePrice
-      const point: any = {
-        label: period === '5Y' || period === 'MAX' ? row.labelFull : row.label,
-        'S&P 500': parseFloat((((currentPrice - spBasePrice) / spBasePrice) * 100).toFixed(2))
+      const point: any = { label: full ? row.labelFull : row.label }
+      if (spBase) {
+        const i = lastOnOrBefore(sp500Data, row.ts)
+        const price = i >= 0 ? sp500Data[i].close : spBase
+        point['S&P 500'] = r2(((price - spBase) / spBase) * 100)
+      } else {
+        point['S&P 500'] = 0
       }
       portfolios.forEach(p => {
         const firstVal = data[0][p.name] || 0
         const currentVal = row[p.name] || 0
-        point[p.name] = firstVal === 0 ? 0 : parseFloat((((currentVal - firstVal) / firstVal) * 100).toFixed(2))
+        point[p.name] = firstVal === 0 ? 0 : r2(((currentVal - firstVal) / firstVal) * 100)
       })
       return point
     })
   }, [compChartAll, period, portfolios, sp500Data])
 
-
-  // ── Watchlist en zona ─────────────────────────────────────────────────────
-  const inZone = useMemo(() =>
-    watchlist
-      .filter(i => i.current_price && Math.abs((i.current_price - i.buy_target) / i.buy_target) <= 0.02)
-      .map(i => ({
-        ...i,
-        dist: parseFloat(((i.buy_target - i.current_price) / i.current_price * 100).toFixed(2)),
-      }))
-  , [watchlist])
-
   const lastValues = useMemo(() => {
-    if (!compChart.length) return {}
+    if (!compChart.length) return {} as Record<string, number>
     const last = compChart[compChart.length - 1]
     const result: Record<string, number> = { 'S&P 500': last['S&P 500'] ?? 0 }
     portfolios.forEach(p => { result[p.name] = last[p.name] ?? 0 })
     return result
   }, [compChart, portfolios])
+
+  // ── Watchlist en zona (±2% del precio objetivo) ───────────────────────────
+  const inZone = useMemo(() =>
+    watchlist
+      .filter(i => Number(i.current_price) > 0 && Number(i.buy_target) > 0 &&
+        Math.abs((i.current_price - i.buy_target) / i.buy_target) <= 0.02)
+      .map(i => ({
+        ...i,
+        dist: r2(((i.buy_target - i.current_price) / i.current_price) * 100),
+      }))
+      .sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist))
+  , [watchlist])
 
   const tt = { background: '#0a0a0a', border: '1px solid #1a1a1a', fontSize: 11, borderRadius: 8 }
 
@@ -520,11 +619,11 @@ const lastClosedTrades = useMemo(() =>
     </AppShell>
   )
 
-const pnlColor     = stats.pnl >= 0 ? '#22c55e' : '#f43f5e'
-const lastEquityPt = equityCurve[equityCurve.length - 1]
-const currentYear = new Date().getFullYear()
+  const lastEquityPt = equityCurve[equityCurve.length - 1]
+  const currentYear = new Date().getFullYear()
+  const spLast = lastValues['S&P 500'] ?? 0
 
-return (
+  return (
     <AppShell>
       <div style={{ color: 'white', padding: '20px 28px', maxWidth: 1400, margin: '0 auto', position: 'relative', overflow: 'hidden' }}>
 
@@ -545,87 +644,32 @@ return (
           <PawTrail color="#a78bfa" opacity={0.04} count={4} size={12} gap={18} />
         </div>
 
-        {/* ═══ FILA 1 — TARJETA PRINCIPAL + KPIs POR PORTAFOLIO ══════════ */}
-        <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '1fr 1fr 160px 160px 160px 160px',
-            gap: 12,
-            marginBottom: 16, 
-            position: 'relative', 
-            zIndex: 1 
+        {loadError && (
+          <div style={{
+            position: 'relative', zIndex: 1, marginBottom: 14, padding: '10px 14px', borderRadius: 10,
+            background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: RED, fontSize: 12,
           }}>
+            No se pudieron cargar los datos ({loadError}). Lo que ves abajo puede estar incompleto; recarga la página.
+          </div>
+        )}
 
-{/* ── Top 5 ganancias ── */}
-          {(() => {
-            const open = allTrades.filter(t => t.status === 'open').map(t => {
-              const qty = Number(t.quantity || 0)
-              const inv = Number(t.total_invested || 0)
-              const cur = Number(t.last_price || t.entry_price || 0)
-              const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-              const pnlPct = avg > 0 ? ((cur - avg) / avg * 100) : 0
-              return { ...t, pnlPct }
-            })
-            const top5 = [...open].sort((a, b) => b.pnlPct - a.pnlPct).slice(0, 5)
-            return (
-              <div style={{ ...card, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                  <Paw size={10} color="#22c55e" opacity={0.7} />
-                  <span style={cardLabel}>TOP GANANCIAS</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {top5.map(t => (
-                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</span>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: '#22c55e' }}>
-                        +{t.pnlPct.toFixed(2)}%
-                      </span>
-                    </div>
-                  ))}
-                  {top5.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin posiciones</span>}
-                </div>
-              </div>
-            )
-          })()}
+        {/* ═══ FILA 1 — TOP GANANCIAS / PÉRDIDAS + KPIs ══════════════════ */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 160px 160px 160px 160px',
+          gap: 12,
+          marginBottom: 16,
+          position: 'relative',
+          zIndex: 1,
+        }}>
+          <RankCard title="TOP GANANCIAS" color={GREEN} rows={top5} emptyMsg="Sin ganancias abiertas" />
+          <RankCard title="TOP PÉRDIDAS"  color={RED}   rows={bottom5} emptyMsg="Sin pérdidas abiertas" />
 
-          {/* ── Top 5 pérdidas ── */}
-          {(() => {
-            const open = allTrades.filter(t => t.status === 'open').map(t => {
-              const qty = Number(t.quantity || 0)
-              const inv = Number(t.total_invested || 0)
-              const cur = Number(t.last_price || t.entry_price || 0)
-              const avg = qty > 0 ? inv / qty : Number(t.entry_price || 0)
-              const pnlPct = avg > 0 ? ((cur - avg) / avg * 100) : 0
-              return { ...t, pnlPct }
-            })
-            const bottom5 = [...open].sort((a, b) => a.pnlPct - b.pnlPct).slice(0, 5)
-            return (
-              <div style={{ ...card, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                  <Paw size={10} color="#f43f5e" opacity={0.7} />
-                  <span style={cardLabel}>TOP PÉRDIDAS</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {bottom5.map(t => (
-                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</span>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: '#f43f5e' }}>
-                        {t.pnlPct.toFixed(2)}%
-                      </span>
-                    </div>
-                  ))}
-                  {bottom5.length === 0 && <span style={{ fontSize: 10, color: '#333' }}>Sin posiciones</span>}
-                </div>
-              </div>
-            )
-          })()}
-
-
-          {/* ── KPIs por portafolio — 4 secciones ── */}
           {[
-            { label: 'INVERTIDO',     value: money(stats.invested),       color: '#fff',     sub: `${stats.openCount} posiciones` },
-            { label: 'PnL ABIERTOS',  value: money(stats.openPnl),        color: stats.openPnl >= 0 ? '#22c55e' : '#f43f5e', sub: stats.openPnl >= 0 ? 'en positivo' : 'en negativo' },
-            { label: 'PnL CERRADOS',  value: money(stats.pnl),            color: stats.pnl >= 0 ? '#22c55e' : '#f43f5e',    sub: `${stats.closedCount} trades` },
-            { label: 'DIVIDENDOS',value: `${money(stats.dividendsMonth)} / ${money(stats.dividendsYear)}`, color: '#eab308', sub: 'mes / año' },
+            { label: 'INVERTIDO',    value: money(stats.invested), color: '#fff', sub: `${stats.openCount} posiciones` },
+            { label: 'PnL ABIERTOS', value: money(stats.openPnl),  color: pnlColor(stats.openPnl), sub: stats.openPnl >= 0 ? 'en positivo' : 'en negativo' },
+            { label: 'PnL CERRADOS', value: money(stats.pnl),      color: pnlColor(stats.pnl),     sub: `${stats.closedCount} trades` },
+            { label: 'DIVIDENDOS',   value: `${money(stats.dividendsMonth)} / ${money(stats.dividendsYear)}`, color: '#eab308', sub: 'mes / año' },
           ].map(k => (
             <div key={k.label} style={{ ...kpiGroup, borderColor: '#1a1a1a', justifyContent: 'center' }}>
               <div style={{ fontSize: 9, color: '#555', fontWeight: 700, letterSpacing: 0.8, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -638,17 +682,11 @@ return (
           ))}
         </div>
 
-        {/* ═══ FILA 2 — POSICIONES ABIERTAS + EQUITY ══════════════════════ */}
+        {/* ═══ FILA 2 — EQUITY + COMPARATIVO ══════════════════════════════ */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
-{/* Curva de equity CON filtro de período */}
-          <div style={{
-              ...card,
-              position: 'relative',
-              overflow: 'hidden',
-              gridColumn: '1'
-            }}>
-            {/* Gato decorativo dentro de la tarjeta */}
+          {/* Curva de equity CON filtro de período */}
+          <div style={{ ...card, position: 'relative', overflow: 'hidden', gridColumn: '1' }}>
             <div style={{ position: 'absolute', bottom: 0, right: -8, pointerEvents: 'none' }}>
               <CatFull size={55} color="#00bfff" opacity={0.04} />
             </div>
@@ -658,7 +696,7 @@ return (
                 <Paw size={11} color="#00bfff" opacity={0.6} />
                 <span style={cardLabel}>EQUITY</span>
                 {lastEquityPt && (
-                  <span style={{ fontSize: 12, fontWeight: 800, color: lastEquityPt.pnl >= 0 ? '#22c55e' : '#f43f5e', marginLeft: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: pnlColor(lastEquityPt.pnl), marginLeft: 6 }}>
                     {lastEquityPt.pnl >= 0 ? '+' : ''}{money(lastEquityPt.pnl)}
                   </span>
                 )}
@@ -677,7 +715,8 @@ return (
                   </defs>
                   <CartesianGrid stroke="#0d0d0d" vertical={false} strokeDasharray="3 3" />
                   <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
+                  {/* Con los montos ocultos el eje también: antes mostraba los importes aunque activaras la privacidad */}
+                  <YAxis tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={v => (visible ? `$${v}` : '')} />
                   <Tooltip contentStyle={tt} formatter={(v: any) => [money(v), 'PnL']} />
                   <ReferenceLine y={0} stroke="#222" strokeDasharray="3 3" />
                   <Area type="monotone" dataKey="pnl" stroke="#00bfff" fill="url(#eqGrad)" strokeWidth={2.5} dot={false} />
@@ -711,7 +750,7 @@ return (
                     <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <span style={{ width: 9, height: 9, borderRadius: '50%', background: PORT_COLORS[i % PORT_COLORS.length], display: 'inline-block' }} />
                       <span style={{ fontSize: 10, color: '#666' }}>{p.name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: val >= 0 ? '#22c55e' : '#f43f5e' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pnlColor(val) }}>
                         {val >= 0 ? '+' : ''}{val.toFixed(2)}%
                       </span>
                     </div>
@@ -720,8 +759,8 @@ return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span style={{ width: 12, height: 1, background: '#6366f1', display: 'inline-block' }} />
                   <span style={{ fontSize: 10, color: '#666' }}>S&P 500</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: (lastValues['S&P 500'] ?? 0) >= 0 ? '#22c55e' : '#f43f5e' }}>
-                    {(lastValues['S&P 500'] ?? 0) >= 0 ? '+' : ''}{(lastValues['S&P 500'] ?? 0).toFixed(2)}%
+                  <span style={{ fontSize: 11, fontWeight: 700, color: pnlColor(spLast) }}>
+                    {spLast >= 0 ? '+' : ''}{spLast.toFixed(2)}%
                   </span>
                 </div>
               </div>
@@ -733,7 +772,7 @@ return (
                   <CartesianGrid stroke="#0d0d0d" vertical={false} strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fill: '#888', fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
-                  <Tooltip contentStyle={tt} formatter={(v: any, n?: string) => [`${parseFloat(v) >= 0 ? '+' : ''}${parseFloat(v).toFixed(2)}%`, n]} />
+                  <Tooltip contentStyle={tt} formatter={(v: any, n?: any) => [`${parseFloat(v) >= 0 ? '+' : ''}${parseFloat(v).toFixed(2)}%`, n]} />
                   <ReferenceLine y={0} stroke="#222" strokeDasharray="3 3" />
                   <Line type="monotone" dataKey="S&P 500" stroke="#6366f1" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
                   {portfolios.map((p, i) => (
@@ -748,124 +787,38 @@ return (
           </div>
         </div>
 
-        {/* ═══ FILA 3 — RESUMEN MES + ÚLTIMOS CERRADOS + SECTORES ══════════ */}
+        {/* ═══ FILA 3 — RESUMEN MES + AÑO + ÚLTIMOS CERRADOS + SECTORES ═══ */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16, position: 'relative', zIndex: 1 }}>
 
-          {/* ── Resumen del mes ── */}
-          <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
-              <CatFull size={60} color="#a78bfa" opacity={0.04} />
-            </div>
-            <div style={{ ...cardHeader, marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Paw size={11} color="#a78bfa" opacity={0.6} />
-                <span style={cardLabel}>RESUMEN DEL MES</span>
-              </div>
-              <span style={{ fontSize: 9, color: '#444' }}>
-                {new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
-              </span>
-            </div>
+          <SummaryCard
+            title="RESUMEN DEL MES"
+            subtitle={new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
+            accent="#a78bfa"
+            cells={[
+              { label: 'PnL del mes',     value: money(stats.pnlMonth),        color: pnlColor(stats.pnlMonth) },
+              { label: 'Trades cerrados', value: stats.closedMonthCount,       color: '#fff' },
+              { label: 'Win rate mes',    value: `${stats.winRateMonth}%`,     color: stats.winRateMonth >= 50 ? GREEN : RED },
+              { label: 'Dividendos',      value: money(stats.dividendsMonth),  color: '#eab308' },
+            ]}
+            closedCount={stats.closedMonthCount} wins={stats.winsMonth} winRate={stats.winRateMonth}
+            pnl={stats.pnlMonth} invested={stats.invested}
+            prevLabel="VS MES ANTERIOR" prevPnl={stats.pnlPrevMonth} money={money}
+          />
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              {[
-                { label: 'PnL del mes',    value: money(stats.pnlMonth),        color: stats.pnlMonth >= 0 ? '#22c55e' : '#f43f5e' },
-                { label: 'Trades cerrados', value: stats.closedMonthCount,       color: '#fff' },
-                { label: 'Win rate mes',   value: `${stats.winRateMonth}%`,      color: stats.winRateMonth >= 50 ? '#22c55e' : '#f43f5e' },
-                { label: 'Dividendos',     value: money(stats.dividendsMonth),   color: '#eab308' },
-              ].map(k => (
-                <div key={k.label} style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
-                  <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>{k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 16, fontWeight: 900, color: k.color }}>{k.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* rendimiento real mes */}
-            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>RENDIMIENTO REAL</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#666' }}>
-                  {stats.closedMonthCount} trades · {stats.winsMonth} ganadores {stats.winRateMonth}%
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: stats.pnlMonth >= 0 ? '#22c55e' : '#f43f5e' }}>
-                  {stats.invested > 0 ? `${((stats.pnlMonth / stats.invested) * 100).toFixed(2)}%` : '—'}
-                </span>
-              </div>
-            </div>
-
-            {/* vs mes anterior */}
-            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
-              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>VS MES ANTERIOR</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#666' }}>Mes anterior: {money(stats.pnlPrevMonth)}</span>
-                {stats.pnlPrevMonth !== 0 && (
-                  <span style={{
-                    fontSize: 11, fontWeight: 700,
-                    color: stats.pnlMonth >= stats.pnlPrevMonth ? '#22c55e' : '#f43f5e',
-                  }}>
-                    {stats.pnlMonth >= stats.pnlPrevMonth ? '▲' : '▼'}{' '}
-                    {Math.abs(((stats.pnlMonth - stats.pnlPrevMonth) / Math.abs(stats.pnlPrevMonth || 1)) * 100).toFixed(1)}%
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-{/* ── Resumen del año ── */}
-          <div style={{ ...card, position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
-              <CatFull size={60} color="#22c55e" opacity={0.04} />
-            </div>
-            <div style={{ ...cardHeader, marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Paw size={11} color="#22c55e" opacity={0.6} />
-                <span style={cardLabel}>RESUMEN DEL AÑO</span>
-              </div>
-              <span style={{ fontSize: 9, color: '#444' }}>{currentYear}</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              {[
-                { label: 'PnL del año',     value: money(stats.pnlYear),        color: stats.pnlYear >= 0 ? '#22c55e' : '#f43f5e' },
-                { label: 'Trades cerrados', value: stats.closedYearCount,        color: '#fff' },
-                { label: 'Win rate año',    value: `${stats.winRateYear}%`,      color: stats.winRateYear >= 50 ? '#22c55e' : '#f43f5e' },
-                { label: 'Dividendos año',  value: money(stats.dividendsYear),   color: '#eab308' },
-              ].map(k => (
-                <div key={k.label} style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
-                  <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 5 }}>{k.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 16, fontWeight: 900, color: k.color }}>{k.value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111', marginBottom: 10 }}>
-              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>RENDIMIENTO REAL</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#666' }}>
-                  {stats.closedYearCount} trades · {stats.winsYear} ganadores {stats.winRateYear}%
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: stats.pnlYear >= 0 ? '#22c55e' : '#f43f5e' }}>
-                  {stats.invested > 0 ? `${((stats.pnlYear / stats.invested) * 100).toFixed(2)}%` : '—'}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ background: '#050505', borderRadius: 8, padding: '10px 12px', border: '1px solid #111' }}>
-              <div style={{ fontSize: 8, color: '#444', fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>VS AÑO ANTERIOR</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#666' }}>
-                  Año anterior: {money(stats.pnlPrevYear)}
-                </span>
-                {stats.pnlPrevYear !== 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: stats.pnlYear >= stats.pnlPrevYear ? '#22c55e' : '#f43f5e' }}>
-                    {stats.pnlYear >= stats.pnlPrevYear ? '▲' : '▼'}{' '}
-                    {Math.abs(((stats.pnlYear - stats.pnlPrevYear) / Math.abs(stats.pnlPrevYear)) * 100).toFixed(1)}%
-                  </span>
-                )}
-                {stats.pnlPrevYear === 0 && (
-                  <span style={{ fontSize: 11, color: '#444' }}>Sin datos</span>
-                )}
-              </div>
-            </div>
-          </div>
+          <SummaryCard
+            title="RESUMEN DEL AÑO"
+            subtitle={String(currentYear)}
+            accent={GREEN}
+            cells={[
+              { label: 'PnL del año',     value: money(stats.pnlYear),        color: pnlColor(stats.pnlYear) },
+              { label: 'Trades cerrados', value: stats.closedYearCount,       color: '#fff' },
+              { label: 'Win rate año',    value: `${stats.winRateYear}%`,     color: stats.winRateYear >= 50 ? GREEN : RED },
+              { label: 'Dividendos año',  value: money(stats.dividendsYear),  color: '#eab308' },
+            ]}
+            closedCount={stats.closedYearCount} wins={stats.winsYear} winRate={stats.winRateYear}
+            pnl={stats.pnlYear} invested={stats.invested}
+            prevLabel="VS AÑO ANTERIOR" prevPnl={stats.pnlPrevYear} money={money}
+          />
 
           {/* ── Últimos 5 trades cerrados ── */}
           <div style={{ ...card, overflow: 'hidden' }}>
@@ -879,39 +832,29 @@ return (
               {lastClosedTrades.length === 0 && (
                 <span style={{ fontSize: 11, color: '#333' }}>Sin trades cerrados aún.</span>
               )}
-              {lastClosedTrades.map(t => {
-                const pnl  = Number(t.realized_pnl || 0)
-                const execs = t.trade_executions || []
-                const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-                const buyExtraInv = execs
-                  .filter((e: any) => e.execution_type === 'buy')
-                  .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
-                const inv  = parseFloat((initialInv + buyExtraInv).toFixed(2))
-                const pct  = inv > 0 ? (pnl / inv * 100) : 0
-                return (
-                  <div key={t.id} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: '#050505', borderRadius: 8, padding: '8px 12px',
-                    border: `1px solid ${pnl >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)'}`,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</div>
-                      <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>
-                        {parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
-                        {t.close_reason ? ` · ${t.close_reason}` : ''}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: pnl >= 0 ? '#22c55e' : '#f43f5e' }}>
-                        {pnl >= 0 ? '+' : ''}{money(pnl)}
-                      </div>
-                      <div style={{ fontSize: 9, color: pnl >= 0 ? '#22c55e' : '#f43f5e', opacity: 0.7 }}>
-                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                      </div>
+              {lastClosedTrades.map(t => (
+                <div key={t.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: '#050505', borderRadius: 8, padding: '8px 12px',
+                  border: `1px solid ${t.pnl >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(244,63,94,0.1)'}`,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#00bfff' }}>{t.ticker}</div>
+                    <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>
+                      {parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
+                      {t.close_reason ? ` · ${t.close_reason}` : ''}
                     </div>
                   </div>
-                )
-              })}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: pnlColor(t.pnl) }}>
+                      {t.pnl >= 0 ? '+' : ''}{money(t.pnl)}
+                    </div>
+                    <div style={{ fontSize: 9, color: pnlColor(t.pnl), opacity: 0.7 }}>
+                      {t.pct >= 0 ? '+' : ''}{t.pct.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -926,8 +869,7 @@ return (
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sectorDistribution.map((s, i) => {
-                const colors = ['#00bfff','#a78bfa','#34d399','#fb923c','#f472b6','#eab308','#22c55e','#f43f5e']
-                const color  = colors[i % colors.length]
+                const color = SECTOR_COLORS[i % SECTOR_COLORS.length]
                 return (
                   <div key={s.sector}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -950,10 +892,8 @@ return (
 
         </div>
 
-        
-        {/* ═══ FILA 3 — WATCHLIST EN ZONA ══════════════════════════════════ */}
+        {/* ═══ FILA 4 — WATCHLIST EN ZONA ══════════════════════════════════ */}
         <div style={{ ...card, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
-          {/* Decoración interna */}
           <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
             <CatFull size={68} color="#22c55e" opacity={0.04} />
           </div>
@@ -971,7 +911,7 @@ return (
               </span>
               {inZone.length > 0 && (
                 <span style={{
-                  fontSize: 10, fontWeight: 700, color: '#22c55e',
+                  fontSize: 10, fontWeight: 700, color: GREEN,
                   background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: 4,
                   border: '1px solid rgba(34,197,94,0.2)',
                 }}>
@@ -993,7 +933,7 @@ return (
               {inZone.map(item => {
                 const veryClose = Math.abs(item.dist) <= 0.5
                 return (
-                  <div key={item.ticker} style={{
+                  <div key={item.id ?? item.ticker} style={{
                     background: '#050505',
                     border: `1px solid ${veryClose ? 'rgba(34,197,94,0.3)' : 'rgba(34,197,94,0.12)'}`,
                     borderRadius: 12, padding: '12px 16px',
@@ -1004,19 +944,19 @@ return (
                       <Paw size={34} color="#22c55e" opacity={0.04} />
                     </div>
                     <div>
-                      <div style={{ fontWeight: 900, color: '#22c55e', fontSize: 15, marginBottom: 2 }}>{item.ticker}</div>
+                      <div style={{ fontWeight: 900, color: GREEN, fontSize: 15, marginBottom: 2 }}>{item.ticker}</div>
                       {item.price_name && <div style={{ fontSize: 9, color: '#444' }}>{item.price_name}</div>}
                       {item.ai_signal && (
                         <div style={{ fontSize: 9, color: '#888', marginTop: 3 }}>{item.ai_signal}</div>
                       )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>${item.current_price?.toFixed(2)}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>${Number(item.current_price).toFixed(2)}</div>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <span style={{ fontSize: 9, color: '#444' }}>obj ${item.buy_target?.toFixed(2)}</span>
+                        <span style={{ fontSize: 9, color: '#444' }}>obj ${Number(item.buy_target).toFixed(2)}</span>
                         <span style={{
                           fontSize: 10, fontWeight: 800,
-                          color: veryClose ? '#22c55e' : '#eab308',
+                          color: veryClose ? GREEN : '#eab308',
                           background: veryClose ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
                           padding: '1px 6px', borderRadius: 4,
                         }}>
@@ -1072,7 +1012,4 @@ const cardLabel: React.CSSProperties = {
 const kpiGroup: React.CSSProperties = {
   background: '#080808', border: '1px solid #1a1a1a', borderRadius: 14,
   padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 6,
-}
-const kpiRow: React.CSSProperties = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
 }
