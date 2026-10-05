@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
@@ -35,9 +35,46 @@ function heatColor(pct: number): string {
   return `rgb(${mix(base.r, target.r)}, ${mix(base.g, target.g)}, ${mix(base.b, target.b)})`
 }
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const localDayKey = (d: Date) => d.toLocaleDateString('sv-SE') // yyyy-MM-dd en hora local
+const dayMs = (k: string) => new Date(k + 'T00:00:00').getTime()
+const r2 = (n: number) => parseFloat(n.toFixed(2))
 
 type RangeKey = 'YTD' | '1Y' | '5Y' | 'MAX'
+
+// Máximo 1000 filas por consulta en Supabase: se pide por páginas
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+// Costo vigente de una posición abierta (mismo criterio que el resto de páginas)
+function openInvested(t: any): number {
+  const ti = Number(t.total_invested)
+  if (Number.isFinite(ti) && ti > 0) return ti
+  const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+  const buyExtra = (t.trade_executions || [])
+    .filter((e: any) => e.execution_type === 'buy')
+    .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+  return r2(initialInv + buyExtra)
+}
+
+// Un solo criterio de sector para dona, PnL por sector y mapa de calor
+// (antes la dona decía "Otros" y el mapa de calor "ETFs" para lo mismo)
+function normSector(s: any): string {
+  const v = String(s || '').trim()
+  if (!v) return 'ETFs'
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()
+}
 
 // ── Cat decorators ─────────────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#444', opacity = 1, style: s = {} }: any) => (
@@ -80,28 +117,44 @@ export default function EstadisticasPage() {
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState('all')
   const [loading,           setLoading]           = useState(true)
-  const [sp500Data,         setSp500Data]         = useState<Record<string, number>>({})
+  const [loadError,         setLoadError]         = useState('')
+  const [spSeries,          setSpSeries]          = useState<{ dates: string[]; closes: number[] }>({ dates: [], closes: [] })
   const [range,             setRange]             = useState<RangeKey>('MAX')
 
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
   const fetchData = useCallback(async () => {
-    const [{ data: tData }, { data: pData }] = await Promise.all([
-      supabase.from('trades').select('*, portfolios(name)').eq('status', 'open'),
-      supabase.from('portfolios').select('*'),
-    ])
-    if (tData) setTrades(tData)
-    if (pData) setPortfolios(pData)
-    setLoading(false)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const [tData, pData] = await Promise.all([
+        fetchAll(() => supabase.from('trades')
+          .select('*, portfolios(name), trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id).eq('status', 'open').order('open_date').order('id')),
+        fetchAll(() => supabase.from('portfolios').select('id, name').eq('user_id', user.id).order('id')),
+      ])
+      if (!alive.current) return
+      setTrades(tData); setPortfolios(pData); setLoadError('')
+    } catch (e: any) {
+      if (alive.current) setLoadError(e?.message || 'No se pudieron cargar los datos')
+    } finally {
+      if (alive.current) setLoading(false)
+    }
   }, [])
 
+  // Caché del S&P 500 (acepta formato viejo [{date,close}] y nuevo {ts,rows})
   const loadSP500 = useCallback(() => {
     try {
       const cached = localStorage.getItem('sp500')
-      if (cached) {
-        const parsed: { date: string, close: number }[] = JSON.parse(cached)
-        const map: Record<string, number> = {}
-        parsed.forEach(d => { map[d.date] = d.close })
-        setSp500Data(map)
-      }
+      if (!cached) return
+      const parsed = JSON.parse(cached)
+      const rows: { date: string; close: number }[] = Array.isArray(parsed) ? parsed : (parsed?.rows || [])
+      const clean = rows
+        .map(d => ({ date: dayKey(d.date), close: Number(d.close) }))
+        .filter(d => DAY_RE.test(d.date) && d.close > 0)
+        .sort((a, b) => a.date.localeCompare(b.date))
+      setSpSeries({ dates: clean.map(d => d.date), closes: clean.map(d => d.close) })
     } catch (e) { console.error('SP500 cache error:', e) }
   }, [])
 
@@ -115,165 +168,156 @@ export default function EstadisticasPage() {
   const stats = useMemo(() => {
     if (!filteredTrades.length) return null
 
-    const totalInvested = filteredTrades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
-    const totalCurrent = filteredTrades.reduce((acc, t) => {
-      const qty = Number(t.quantity || 0)
-      const cur = Number(t.last_price || t.entry_price || 0)
-      return acc + qty * cur
-    }, 0)
-    const totalPnL = totalCurrent - totalInvested
-    const totalPnLPct = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0
+    // Una sola vez por trade: costo, valor actual, PnL
+    const withPnl = filteredTrades.map(t => {
+      const qty      = Number(t.quantity || 0)
+      const invested = openInvested(t)
+      const avgPrice = qty > 0 ? invested / qty : Number(t.entry_price || 0)
+      const curPrice = Number(t.last_price || t.entry_price || 0)
+      const value    = qty * curPrice
+      const pnl      = r2(value - invested)
+      const pnlPct   = invested > 0 ? r2(((value - invested) / invested) * 100) : 0
+      return { ...t, invested, qty, avgPrice, curPrice, value, pnl, pnlPct, sectorN: normSector(t.sector) }
+    })
+
+    const totalInvested = withPnl.reduce((a, t) => a + t.invested, 0)
+    const totalCurrent  = withPnl.reduce((a, t) => a + t.value, 0)
+    const totalPnL      = totalCurrent - totalInvested
+    const totalPnLPct   = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0
 
     // Horizonte por billetera — SIEMPRE global, no depende del filtro de portafolio seleccionado
-    const globalTotalInvested = trades.reduce((acc, t) => acc + Number(t.total_invested || 0), 0)
     const horizonStats = { long: 0, mid: 0, short: 0 }
+    let globalTotalInvested = 0
     trades.forEach(t => {
       const pName = (t.portfolios?.name || '').toLowerCase()
-      const inv   = Number(t.total_invested || 0)
+      const inv   = openInvested(t)
+      globalTotalInvested += inv
       if (pName.includes('largo'))      horizonStats.long  += inv
       else if (pName.includes('media')) horizonStats.mid   += inv
       else                              horizonStats.short += inv
     })
+    const hp = (v: number) => globalTotalInvested > 0 ? parseFloat((v / globalTotalInvested * 100).toFixed(1)) : 0
     const horizonData = [
-      { name: 'Largo plazo (>10a)',   value: horizonStats.long,  pct: globalTotalInvested > 0 ? parseFloat((horizonStats.long  / globalTotalInvested * 100).toFixed(1)) : 0, color: C.success },
-      { name: 'Mediano plazo (1-5a)', value: horizonStats.mid,   pct: globalTotalInvested > 0 ? parseFloat((horizonStats.mid   / globalTotalInvested * 100).toFixed(1)) : 0, color: C.warning },
-      { name: 'Corto / Especulativo', value: horizonStats.short, pct: globalTotalInvested > 0 ? parseFloat((horizonStats.short / globalTotalInvested * 100).toFixed(1)) : 0, color: C.danger  },
+      { name: 'Largo plazo (>10a)',   value: horizonStats.long,  pct: hp(horizonStats.long),  color: C.success },
+      { name: 'Mediano plazo (1-5a)', value: horizonStats.mid,   pct: hp(horizonStats.mid),   color: C.warning },
+      { name: 'Corto / Especulativo', value: horizonStats.short, pct: hp(horizonStats.short), color: C.danger  },
     ]
 
-    // Distribución por sector (para dona)
+    // Distribución por sector / país (dona)
+    const toDist = (m: Record<string, number>) => Object.entries(m)
+      .map(([name, value]) => ({ name, value: r2(value), pct: totalInvested > 0 ? parseFloat((value / totalInvested * 100).toFixed(1)) : 0 }))
+      .sort((a, b) => b.value - a.value)
     const sectorMap: Record<string, number> = {}
-    filteredTrades.forEach(t => {
-      const s = t.sector || 'Otros'
-      sectorMap[s] = (sectorMap[s] || 0) + Number(t.total_invested || 0)
-    })
-    const sectorData = Object.entries(sectorMap)
-      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)), pct: totalInvested > 0 ? parseFloat((value / totalInvested * 100).toFixed(1)) : 0 }))
-      .sort((a, b) => b.value - a.value)
-
-    // Distribución por país (para dona)
     const countryMap: Record<string, number> = {}
-    filteredTrades.forEach(t => {
-      const c = t.country || 'Otros'
-      countryMap[c] = (countryMap[c] || 0) + Number(t.total_invested || 0)
+    withPnl.forEach(t => {
+      sectorMap[t.sectorN] = (sectorMap[t.sectorN] || 0) + t.invested
+      const c = String(t.country || '').trim() || 'Otros'
+      countryMap[c] = (countryMap[c] || 0) + t.invested
     })
-    const countryData = Object.entries(countryMap)
-      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)), pct: totalInvested > 0 ? parseFloat((value / totalInvested * 100).toFixed(1)) : 0 }))
-      .sort((a, b) => b.value - a.value)
+    const sectorData  = toDist(sectorMap)
+    const countryData = toDist(countryMap)
 
-    // PnL no realizado por trade
-    const withPnl = filteredTrades.map(t => {
-      const qty      = Number(t.quantity || 0)
-      const avgPrice = qty > 0 ? Number(t.total_invested || 0) / qty : Number(t.entry_price || 0)
-      const curPrice = Number(t.last_price || t.entry_price || 0)
-      const pnl      = parseFloat(((curPrice - avgPrice) * qty).toFixed(2))
-      const pnlPct   = avgPrice > 0 ? parseFloat(((curPrice - avgPrice) / avgPrice * 100).toFixed(2)) : 0
-      return { ...t, pnl, pnlPct, avgPrice, curPrice }
-    })
     const winningTrades = withPnl.filter(t => t.pnl > 0).length
     const losingTrades  = withPnl.filter(t => t.pnl < 0).length
-
-    const topGains  = [...withPnl].filter(t => t.pnl > 0).sort((a, b) => b.pnl - a.pnl).slice(0, 5)
-    const topLosses = [...withPnl].filter(t => t.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 5)
+    const topGains  = withPnl.filter(t => t.pnl > 0).sort((a, b) => b.pnl - a.pnl).slice(0, 5)
+    const topLosses = withPnl.filter(t => t.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 5)
 
     // PnL no realizado por sector
-    const sectorPnlMap: Record<string, { pnl: number, invested: number, count: number }> = {}
+    const sectorPnlMap: Record<string, { pnl: number; invested: number; count: number }> = {}
     withPnl.forEach(t => {
-      const s = t.sector || 'Otros'
-      if (!sectorPnlMap[s]) sectorPnlMap[s] = { pnl: 0, invested: 0, count: 0 }
-      sectorPnlMap[s].pnl      += t.pnl
-      sectorPnlMap[s].invested += Number(t.total_invested || 0)
-      sectorPnlMap[s].count    += 1
+      const d = (sectorPnlMap[t.sectorN] ||= { pnl: 0, invested: 0, count: 0 })
+      d.pnl += t.pnl; d.invested += t.invested; d.count += 1
     })
     const sectorPnlData = Object.entries(sectorPnlMap)
       .map(([sector, d]) => ({
-        sector, pnl: parseFloat(d.pnl.toFixed(2)),
-        pct: d.invested > 0 ? parseFloat((d.pnl / d.invested * 100).toFixed(2)) : 0,
+        sector, pnl: r2(d.pnl),
+        pct: d.invested > 0 ? r2(d.pnl / d.invested * 100) : 0,
         count: d.count,
       }))
       .sort((a, b) => b.pnl - a.pnl)
 
-    // Mapa de calor — posiciones agrupadas por sector, tamaño = valor actual en $, color = % no realizado
+    // Mapa de calor — agrupado por sector, tamaño = valor actual, color = % no realizado
     const heatmapBySector: Record<string, { name: string; size: number; pnlPct: number }[]> = {}
     withPnl.forEach(t => {
-      // Si tu portafolio es de ETFs y no trae sector, puedes detectar si es ETF o poner "ETFs" por defecto
-      // O si prefieres que si no hay sector diga "ETFs", cámbialo aquí:
-      const rawSector = t.sector && t.sector.trim() !== '' ? t.sector : 'ETFs'
-      // Opcional: si quieres capitalizar o limpiar el nombre del sector:
-      const sector = rawSector.charAt(0).toUpperCase() + rawSector.slice(1).toLowerCase()
-
-      const curValue = Number(t.quantity || 0) * t.curPrice
-      if (!heatmapBySector[sector]) heatmapBySector[sector] = []
-      heatmapBySector[sector].push({
+      ;(heatmapBySector[t.sectorN] ||= []).push({
         name: t.ticker,
-        size: curValue > 0 ? parseFloat(curValue.toFixed(2)) : 0.01,
+        size: t.value > 0 ? r2(t.value) : 0.01,
         pnlPct: t.pnlPct,
       })
     })
+    const heatmapData = Object.entries(heatmapBySector).map(([sector, children]) => ({ name: sector, children }))
 
-    const heatmapData = Object.entries(heatmapBySector).map(([sector, children]) => ({
-      name: sector,
-      children,
-    }))
-
-    // Tiempo en posición
-    const now = new Date()
-    const daysInPosition = withPnl.map(t => {
-      const days = Math.floor((now.getTime() - parseDate(t.open_date).getTime()) / 86400000)
-      return {
-        ticker: t.ticker,
-        days,
-        pnlPct: t.pnlPct,
-        color: t.pnlPct >= 0 ? C.success : C.danger,
-      }
-    }).sort((a, b) => b.days - a.days)
-
-    const avgDuration = filteredTrades.reduce((acc, t) =>
-      acc + Math.ceil((now.getTime() - parseDate(t.open_date).getTime()) / 86400000), 0
-    ) / filteredTrades.length
-
-    const rrTrades = filteredTrades.filter(t => t.stop_loss && t.take_profit_1 && t.entry_price)
-    const avgRR    = rrTrades.length > 0
-      ? rrTrades.reduce((acc, t) => {
-          const risk   = Math.abs(Number(t.entry_price) - Number(t.stop_loss))
-          const reward = Math.abs(Number(t.take_profit_1) - Number(t.entry_price))
-          return acc + (risk > 0 ? reward / risk : 0)
-        }, 0) / rrTrades.length
+    // Tiempo en posición (mismo cálculo para el gráfico y el promedio: días completos)
+    const nowMs = Date.now()
+    const daysOf = (t: any) => {
+      const k = dayKey(t.open_date)
+      return DAY_RE.test(k) ? Math.max(0, Math.floor((nowMs - dayMs(k)) / 86400000)) : null
+    }
+    const daysInPosition = withPnl
+      .map(t => ({ ticker: t.ticker, days: daysOf(t), pnlPct: t.pnlPct, color: t.pnlPct >= 0 ? C.success : C.danger }))
+      .filter((d): d is { ticker: string; days: number; pnlPct: number; color: string } => d.days !== null)
+      .sort((a, b) => b.days - a.days)
+    const avgDuration = daysInPosition.length
+      ? daysInPosition.reduce((a, d) => a + d.days, 0) / daysInPosition.length
       : 0
 
-    // Curva de equity vs S&P 500, respetando el rango seleccionado
-    const sortedByDate = [...filteredTrades].sort((a, b) => parseDate(a.open_date).getTime() - parseDate(b.open_date).getTime())
-
-    let cutoff: Date | null = null
-    if (range === 'YTD') cutoff = new Date(now.getFullYear(), 0, 1)
-    else if (range === '1Y') cutoff = new Date(now.getTime() - 365 * 86400000)
-    else if (range === '5Y') cutoff = new Date(now.getTime() - 5 * 365 * 86400000)
-
-    const rangeTrades = cutoff ? sortedByDate.filter(t => parseDate(t.open_date).getTime() >= cutoff!.getTime()) : sortedByDate
-
-    let portfolioBase: number | null = null
-    let sp500Base: number | null     = null
-    let cumInvested = 0
-
-    const vsData = rangeTrades
+    // R/R promedio (solo si hay SL y TP válidos)
+    const rrList = withPnl
       .map(t => {
-        cumInvested += Number(t.total_invested || 0)
-        const dateStr = t.open_date
-        const sp500Val = sp500Data[dateStr] || Object.entries(sp500Data).reverse().find(([d]) => d <= dateStr)?.[1]
-
-        if (portfolioBase === null && cumInvested > 0) portfolioBase = cumInvested
-        if (sp500Base === null && sp500Val) sp500Base = sp500Val
-
-        const portfolioPct = portfolioBase ? parseFloat(((cumInvested / portfolioBase - 1) * 100).toFixed(2)) : 0
-        const sp500Pct     = (sp500Base && sp500Val) ? parseFloat(((sp500Val / sp500Base - 1) * 100).toFixed(2)) : null
-
-        return {
-          date: parseDate(dateStr).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
-          dateStr,
-          portfolio: portfolioPct,
-          sp500: sp500Pct,
-        }
+        const e = Number(t.entry_price), sl = Number(t.stop_loss), tp = Number(t.take_profit_1)
+        if (!(e > 0) || !(sl > 0) || !(tp > 0)) return null
+        const risk = Math.abs(e - sl), reward = Math.abs(tp - e)
+        return risk > 0 ? reward / risk : null
       })
-      .filter(d => d.sp500 !== null)
+      .filter((x): x is number => x !== null)
+    const avgRR = rrList.length ? rrList.reduce((a, b) => a + b, 0) / rrList.length : 0
+
+    // ── Curva "tu portafolio vs haber comprado S&P 500" ───────────────────
+    // Antes la línea del portafolio era capital aportado acumulado (crecía con cada compra aunque
+    // no ganaras nada), así que no era comparable con el S&P. Ahora, para los trades abiertos hasta cada fecha:
+    //   portafolio = valor actual / costo − 1
+    //   S&P        = lo que valdrían hoy esos mismos importes si se hubieran puesto en el S&P ese día − 1
+    const { dates, closes } = spSeries
+    const spAt = (k: string): number | null => {
+      let lo = 0, hi = dates.length - 1, idx = -1
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (dates[mid] <= k) { idx = mid; lo = mid + 1 } else hi = mid - 1
+      }
+      return idx >= 0 ? closes[idx] : null
+    }
+    const spLast = closes.length ? closes[closes.length - 1] : null
+
+    const todayD = new Date()
+    let cutoffKey: string | null = null
+    if (range === 'YTD') cutoffKey = `${todayD.getFullYear()}-01-01`
+    else if (range === '1Y') cutoffKey = localDayKey(new Date(todayD.getFullYear() - 1, todayD.getMonth(), todayD.getDate()))
+    else if (range === '5Y') cutoffKey = localDayKey(new Date(todayD.getFullYear() - 5, todayD.getMonth(), todayD.getDate()))
+
+    const byDate = [...withPnl]
+      .filter(t => DAY_RE.test(dayKey(t.open_date)))
+      .sort((a, b) => dayKey(a.open_date).localeCompare(dayKey(b.open_date)))
+      .filter(t => !cutoffKey || dayKey(t.open_date) >= cutoffKey)
+
+    const vsData: { date: string; dateStr: string; portfolio: number; sp500: number }[] = []
+    if (spLast) {
+      let cumInv = 0, cumCur = 0, spUnits = 0
+      byDate.forEach(t => {
+        const k = dayKey(t.open_date)
+        const sp = spAt(k)
+        if (!sp || t.invested <= 0) return
+        cumInv += t.invested; cumCur += t.value; spUnits += t.invested / sp
+        const point = {
+          date: new Date(k + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }),
+          dateStr: k,
+          portfolio: r2((cumCur / cumInv - 1) * 100),
+          sp500: r2((spUnits * spLast / cumInv - 1) * 100),
+        }
+        // varios trades el mismo día → un solo punto (el acumulado final del día)
+        if (vsData.length && vsData[vsData.length - 1].dateStr === k) vsData[vsData.length - 1] = point
+        else vsData.push(point)
+      })
+    }
 
     return {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
@@ -282,9 +326,9 @@ export default function EstadisticasPage() {
       topGains, topLosses, daysInPosition, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
-      rrCount: rrTrades.length,
+      rrCount: rrList.length,
     }
-  }, [filteredTrades, trades, sp500Data, range])
+  }, [filteredTrades, trades, spSeries, range])
 
   if (loading) return (
     <AppShell>
@@ -311,6 +355,12 @@ export default function EstadisticasPage() {
           <BarChart2 size={20} color="#00bfff" />
           <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Estadísticas — trades abiertos</h1>
         </div>
+
+        {loadError && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12, background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: C.danger }}>
+            No se pudieron cargar los datos ({loadError}). Recarga la página.
+          </div>
+        )}
 
         {/* FILTRO PORTAFOLIOS */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
@@ -345,10 +395,10 @@ export default function EstadisticasPage() {
                 desc={`${stats.rrCount} con SL y TP`} />
             </div>
 
-            {/* ══ FILA 2 — CURVA EQUITY + SP500 ══ */}
+            {/* ══ FILA 2 — CURVA PORTAFOLIO vs S&P 500 ══ */}
             <ChartCard
-              title="Curva de equity vs S&P 500"
-              sub="Rendimiento % comparado desde la primera operación del rango — requiere datos de mercado"
+              title="Portafolio vs haber comprado S&P 500"
+              sub="Por cada fecha de apertura: rendimiento actual de tus trades abiertos hasta ese día vs. lo que rendirían esos mismos importes si se hubieran invertido en el S&P 500 ese día"
               headerRight={
                 <div style={{ display: 'flex', gap: 6 }}>
                   {(['YTD','1Y','5Y','MAX'] as RangeKey[]).map(r => (
@@ -361,9 +411,9 @@ export default function EstadisticasPage() {
                 <ResponsiveContainer width="100%" height={260}>
                   <ComposedChart data={stats.vsData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
                     <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                    <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`} />} />
+                    <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}%`} />} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="portfolio" name="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
                     <Line type="monotone" dataKey="sp500"     name="S&P 500"   stroke={C.sp500} strokeWidth={2}   dot={false} strokeDasharray="6 3" />
@@ -371,7 +421,12 @@ export default function EstadisticasPage() {
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyChart message="Cargando datos del S&P 500... o no hay suficientes trades con fechas en este rango" height={260} />
+                <EmptyChart
+                  message={spSeries.dates.length === 0
+                    ? 'Sin datos del S&P 500 en caché — abre Inicio una vez para cargarlos'
+                    : 'No hay suficientes trades con fecha en este rango'}
+                  height={260}
+                />
               )}
             </ChartCard>
 
@@ -392,7 +447,7 @@ export default function EstadisticasPage() {
                     <thead><tr>{['Ticker','PnL','%'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>
                       {stats.topGains.map(t => (
-                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                        <tr key={t.id ?? t.ticker} style={{ borderBottom: '1px solid #111' }}>
                           <td style={td}><span style={{ color: '#22c55e', fontWeight: 700 }}>{t.ticker}</span></td>
                           <td style={{ ...td, textAlign: 'right', color: '#22c55e', fontWeight: 700 }}>+{money(t.pnl)}</td>
                           <td style={{ ...td, textAlign: 'right', color: '#888' }}>+{t.pnlPct}%</td>
@@ -418,7 +473,7 @@ export default function EstadisticasPage() {
                     <thead><tr>{['Ticker','PnL','%'].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>
                       {stats.topLosses.map(t => (
-                        <tr key={t.ticker} style={{ borderBottom: '1px solid #111' }}>
+                        <tr key={t.id ?? t.ticker} style={{ borderBottom: '1px solid #111' }}>
                           <td style={td}><span style={{ color: '#f43f5e', fontWeight: 700 }}>{t.ticker}</span></td>
                           <td style={{ ...td, textAlign: 'right', color: '#f43f5e', fontWeight: 700 }}>{money(t.pnl)}</td>
                           <td style={{ ...td, textAlign: 'right', color: '#888' }}>{t.pnlPct}%</td>
@@ -461,7 +516,7 @@ export default function EstadisticasPage() {
               </div>
             </div>
 
-            {/* ══ FILA 4 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR / PAÍS (DONAS) ══ */}
+            {/* ══ FILA 4 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR / PAÍS ══ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <ChartCard title="Tiempo en posición" sub="Días desde apertura">
                 {stats.daysInPosition.length > 0 ? (
@@ -470,7 +525,7 @@ export default function EstadisticasPage() {
                       <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
                       <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
                       <YAxis type="category" dataKey="ticker" tick={{ fill: '#aaa', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false} width={46} />
-                      <Tooltip content={<CustomTooltip formatter={(v: number, name: string) => name === 'Días' ? `${v} días` : `${v}%`} />} />
+                      <Tooltip content={<CustomTooltip formatter={(v: number) => `${v} días`} />} />
                       <Bar dataKey="days" name="Días" radius={[0, 6, 6, 0]}>
                         {stats.daysInPosition.map((e, i) => <Cell key={i} fill={e.color} fillOpacity={0.8} />)}
                       </Bar>
@@ -479,77 +534,9 @@ export default function EstadisticasPage() {
                 ) : <EmptyChart message="Sin trades abiertos" height={180} />}
               </ChartCard>
 
-              <ChartCard title="Horizonte por billetera">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                  <ResponsiveContainer width={160} height={160}>
-                    <PieChart>
-                      <Pie data={stats.horizonData} cx="50%" cy="50%" innerRadius={44} outerRadius={70} paddingAngle={5} dataKey="value" startAngle={90} endAngle={-270}>
-                        {stats.horizonData.map((h, i) => <Cell key={i} fill={h.color} stroke="none" />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {stats.horizonData.map(h => (
-                      <div key={h.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                        <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: h.color, display: 'inline-block' }} />
-                          {h.name}
-                        </span>
-                        <span style={{ fontWeight: 700, color: h.color }}>{h.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </ChartCard>
-
-              <ChartCard title="Distribución por sector">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                  <ResponsiveContainer width={160} height={160}>
-                    <PieChart>
-                      <Pie data={stats.sectorData} cx="50%" cy="50%" innerRadius={44} outerRadius={70} paddingAngle={3} dataKey="value">
-                        {stats.sectorData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 110, overflowY: 'auto' }}>
-                    {stats.sectorData.map((s, i) => (
-                      <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                        <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
-                          {s.name}
-                        </span>
-                        <span style={{ fontWeight: 700, color: '#fff' }}>{s.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </ChartCard>
-
-              <ChartCard title="Distribución por país">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                  <ResponsiveContainer width={160} height={160}>
-                    <PieChart>
-                      <Pie data={stats.countryData} cx="50%" cy="50%" innerRadius={44} outerRadius={70} paddingAngle={3} dataKey="value">
-                        {stats.countryData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 110, overflowY: 'auto' }}>
-                    {stats.countryData.map((s, i) => (
-                      <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                        <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
-                          {s.name}
-                        </span>
-                        <span style={{ fontWeight: 700, color: '#fff' }}>{s.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </ChartCard>
+              <DonutCard title="Horizonte por billetera" data={stats.horizonData} money={money} colorOf={(d: any) => d.color} />
+              <DonutCard title="Distribución por sector" data={stats.sectorData} money={money} />
+              <DonutCard title="Distribución por país"   data={stats.countryData} money={money} />
             </div>
 
             {/* ══ FILA 5 — MAPA DE CALOR POR SECTOR ══ */}
@@ -564,7 +551,7 @@ export default function EstadisticasPage() {
                     dataKey="size"
                     aspectRatio={4 / 3}
                     stroke="#050505"
-                    content={<HeatmapCell />}
+                    content={<HeatmapCell money={money} />}
                   />
                 </ResponsiveContainer>
               ) : <EmptyChart message="Sin posiciones abiertas" height={300} />}
@@ -578,29 +565,48 @@ export default function EstadisticasPage() {
 }
 
 // ── Subcomponentes ──────────────────────────────────────────────────────
-function HeatmapCell(props: any) {
-  const { x, y, width, height, name, pnlPct, size, depth } = props
+// Dona + leyenda (antes el mismo bloque estaba copiado tres veces)
+function DonutCard({ title, data, money, colorOf }: { title: string; data: any[]; money: (n: number) => string; colorOf?: (d: any) => string }) {
+  const col = (d: any, i: number) => colorOf ? colorOf(d) : PIE_COLORS[i % PIE_COLORS.length]
+  return (
+    <ChartCard title={title}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <ResponsiveContainer width={160} height={160}>
+          <PieChart>
+            <Pie data={data} cx="50%" cy="50%" innerRadius={44} outerRadius={70} paddingAngle={3} dataKey="value">
+              {data.map((d, i) => <Cell key={i} fill={col(d, i)} stroke="none" />)}
+            </Pie>
+            <Tooltip content={<CustomTooltip formatter={(v: number) => money(v)} />} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 110, overflowY: 'auto' }}>
+          {data.map((s, i) => (
+            <div key={s.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
+              <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: col(s, i), display: 'inline-block' }} />
+                {s.name}
+              </span>
+              <span style={{ fontWeight: 700, color: colorOf ? col(s, i) : '#fff' }}>{s.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ChartCard>
+  )
+}
 
-  // Nivel 1 = Grupo o Sector (Muestra el nombre del sector arriba)
+function HeatmapCell(props: any) {
+  const { x, y, width, height, name, pnlPct, size, depth, money } = props
+
+  // Nivel 1 = Sector
   if (depth === 1) {
     return (
       <g>
-        <rect 
-          x={x} 
-          y={y} 
-          width={width} 
-          height={height} 
-          style={{ fill: '#090909', stroke: '#222222', strokeWidth: 1.5, rx: 4 }} 
-        />
+        <rect x={x} y={y} width={width} height={height}
+          style={{ fill: '#090909', stroke: '#222222', strokeWidth: 1.5, rx: 4 }} />
         {width > 60 && height > 18 && (
-          <text 
-            x={x + 6} 
-            y={y + 14} 
-            fontSize={10} 
-            fill="#00bfff" 
-            fontWeight={800}
-            style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}
-          >
+          <text x={x + 6} y={y + 14} fontSize={10} fill="#00bfff" fontWeight={800}
+            style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             {name}
           </text>
         )}
@@ -608,38 +614,23 @@ function HeatmapCell(props: any) {
     )
   }
 
-  // Nivel 2 = Posición individual (Ticker y % en blanco limpio)
-  const fill = heatColor(pnlPct ?? 0)
+  // Nivel 2 = Posición individual
+  const pct = Number(pnlPct ?? 0)
+  const fill = heatColor(pct)
+  const valueTxt = money ? money(Number(size || 0)) : ''
   return (
     <g>
       <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
-      <title>{`${name}: $${Number(size || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} · ${pnlPct >= 0 ? '+' : ''}${(pnlPct ?? 0).toFixed(1)}%`}</title>
-      
+      <title>{`${name}: ${valueTxt} · ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}</title>
       {width > 36 && height > 22 && (
         <>
-          <text 
-            x={x + width / 2} 
-            y={y + height / 2 - 4} 
-            textAnchor="middle" 
-            fontSize={11} 
-            fontWeight={900} 
-            fill="#ffffff"
-            stroke="#000000"
-            strokeWidth={0.5}
-          >
+          <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle"
+            fontSize={11} fontWeight={900} fill="#ffffff" stroke="#000000" strokeWidth={0.5}>
             {name}
           </text>
-          <text 
-            x={x + width / 2} 
-            y={y + height / 2 + 10} 
-            textAnchor="middle" 
-            fontSize={9} 
-            fontWeight={800} 
-            fill="#ffffff"
-            stroke="#000000"
-            strokeWidth={0.4}
-          >
-            {pnlPct >= 0 ? '+' : ''}{(pnlPct ?? 0).toFixed(1)}%
+          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle"
+            fontSize={9} fontWeight={800} fill="#ffffff" stroke="#000000" strokeWidth={0.4}>
+            {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
           </text>
         </>
       )}
@@ -669,7 +660,7 @@ function ChartCard({ title, sub, children, headerRight }: any) {
             <Paw size={10} color="#666" opacity={0.5} />
             {title}
           </div>
-          {sub && <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>{sub}</div>}
+          {sub && <div style={{ fontSize: 9, color: '#555', marginTop: 3, maxWidth: 760 }}>{sub}</div>}
         </div>
         {headerRight}
       </div>
@@ -680,7 +671,7 @@ function ChartCard({ title, sub, children, headerRight }: any) {
 
 function EmptyChart({ message, height = 200 }: { message: string, height?: number }) {
   return (
-    <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11, border: '1px dashed #1a1a1a', borderRadius: 8, gap: 8 }}>
+    <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11, border: '1px dashed #1a1a1a', borderRadius: 8, gap: 8, textAlign: 'center', padding: '0 16px' }}>
       <Paw size={24} color="#333" opacity={0.4} />
       {message}
     </div>
