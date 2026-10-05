@@ -1,17 +1,16 @@
 'use client'
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
+
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import AppShell from '../AppShell'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const money     = (v: number) => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtPct    = (v: number, decimals = 2) => `${v >= 0 ? '+' : ''}${v.toFixed(decimals)}%`
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const fmtPct = (v: number, decimals = 2) => `${v >= 0 ? '+' : ''}${v.toFixed(decimals)}%`
+const localDayKey = (d: Date) => d.toLocaleDateString('sv-SE') // yyyy-MM-dd en hora local
 
 const C = {
   bg:     '#070709',
@@ -30,118 +29,160 @@ const C = {
 const MONTH_ORDER   = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 const SECTOR_COLORS = ['#00bfff','#a78bfa','#22c55e','#eab308','#f472b6','#fb923c','#34d399','#f43f5e','#60a5fa','#c084fc']
 
+const SP_CACHE_KEY = 'sp500'
+
+// Máximo 1000 filas por consulta en Supabase: se pide por páginas
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+// Costo vigente de una posición abierta: total_invested (el mismo que usa la página de inicio). La suma de compras
+// queda de respaldo: no descuenta lo ya vendido en parciales, por eso daba un costo promedio inflado.
+function openInvested(t: any): number {
+  const ti = Number(t.total_invested)
+  if (Number.isFinite(ti) && ti > 0) return ti
+  const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+  const buyExtra = (t.trade_executions || [])
+    .filter((e: any) => e.execution_type === 'buy')
+    .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+  return r2(initialInv + buyExtra)
+}
+
+// La caché del S&P la escribe la página de inicio. Se aceptan los dos formatos:
+// el arreglo de antes y { ts, rows } de ahora.
+function readSpCache(): { date: string; close: number }[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SP_CACHE_KEY) || 'null')
+    const list = Array.isArray(raw) ? raw : raw?.rows
+    if (!Array.isArray(list)) return []
+    return list
+      .map((d: any) => ({ date: dayKey(d.date), close: Number(d.close) }))
+      .filter(d => DAY_RE.test(d.date) && d.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  } catch (e) {
+    console.error('SP500 cache:', e)
+    return []
+  }
+}
+
 export default function InformeAbiertos() {
+  const { money, visible } = usePrivacy()
+
   const [trades,       setTrades]       = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
-  const [sp500Map,     setSp500Map]     = useState<Record<string, number>>({})
+  const [spSeries,     setSpSeries]     = useState<{ date: string; close: number }[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState('')
   const [filterWallet, setFilterWallet] = useState('all')
+
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
-
-    const [{ data: tData }, { data: pData }] = await Promise.all([
-      supabase.from('trades')
-        .select('*, trade_executions(quantity, price, commission, execution_type), portfolios(name, id)')
-        .eq('user_id', user.id)
-        .eq('status', 'open'),
-      supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id),
-    ])
-
-    setTrades(tData || [])
-    setPortfolios(pData || [])
-
     try {
-      const cached = localStorage.getItem('sp500')
-      if (cached) {
-        const parsed: { date: string, close: number }[] = JSON.parse(cached)
-        const map: Record<string, number> = {}
-        parsed.forEach(d => { map[d.date] = d.close })
-        setSp500Map(map)
-      }
-    } catch (e) { console.error('SP500 cache:', e) }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-    setLoading(false)
+      const [tData, pData] = await Promise.all([
+        fetchAll(() => supabase.from('trades')
+          .select('*, trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .order('id')),
+        fetchAll(() => supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id).order('id')),
+      ])
+      if (!alive.current) return
+      setTrades(tData)
+      setPortfolios(pData)
+      setLoadError('')
+    } catch (e: any) {
+      // Antes un error de Supabase dejaba la página vacía como si no hubiera posiciones
+      if (alive.current) setLoadError(e?.message || 'No se pudieron cargar los datos')
+    } finally {
+      if (alive.current) setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { setSpSeries(readSpCache()) }, [])
 
-  const calcInvested = useCallback((t: any): number => {
-    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-    const buyExtra   = (t.trade_executions || [])
-      .filter((e: any) => e.execution_type === 'buy')
-      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
-    return parseFloat((initialInv + buyExtra).toFixed(2))
-  }, [])
-
-  const filtered = useMemo(() => {
-    return trades.filter(t => filterWallet === 'all' || t.portfolio_id === filterWallet)
-  }, [trades, filterWallet])
+  const filtered = useMemo(
+    () => trades.filter(t => filterWallet === 'all' || t.portfolio_id === filterWallet),
+    [trades, filterWallet]
+  )
 
   const stats = useMemo(() => {
     if (!filtered.length) return null
     const now = new Date()
+    const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
 
     const tradesWithCalc = filtered.map(t => {
-      const inv      = calcInvested(t)
+      const inv      = openInvested(t)
       const qty      = Number(t.quantity || 0)
       const cur      = Number(t.last_price || t.entry_price || 0)
-      const avg      = qty > 0 ? inv / qty : Number(t.entry_price || 0)
+      const avg      = inv > 0 && qty > 0 ? inv / qty : Number(t.entry_price || 0)
       const curValue = cur * qty
-      const pnl      = parseFloat(((cur - avg) * qty).toFixed(2))
-      const pnlPct   = avg > 0 ? parseFloat(((cur - avg) / avg * 100).toFixed(2)) : 0
+      const pnl      = r2((cur - avg) * qty)
+      const pnlPct   = avg > 0 ? r2(((cur - avg) / avg) * 100) : 0
       const dayChg   = Number(t.day_change || 0)
-      const days     = Math.floor((now.getTime() - parseDate(t.open_date).getTime()) / 86400000)
+      // Lo ganado/perdido HOY: el % del día se aplica sobre el valor de AYER (antes se aplicaba sobre el de hoy)
+      const dayAmt   = dayChg > -100 ? curValue - curValue / (1 + dayChg / 100) : 0
+      const openMs   = Date.parse(dayKey(t.open_date) + 'T00:00:00')
+      const days     = Number.isFinite(openMs) ? Math.max(0, Math.floor((todayMs - openMs) / 86400000)) : 0
       const rsi      = Number(t.rsi || 0)
-      return { ...t, inv, qty, cur, avg, curValue, pnl, pnlPct, dayChg, days, rsi }
+      return { ...t, inv, qty, cur, avg, curValue, pnl, pnlPct, dayAmt, days, rsi, openKey: dayKey(t.open_date) }
     })
 
     // ── KPIs ─────────────────────────────────────────────────────────────
-    const totalInv    = parseFloat(tradesWithCalc.reduce((a, t) => a + t.inv, 0).toFixed(2))
-    const totalCurVal = parseFloat(tradesWithCalc.reduce((a, t) => a + t.curValue, 0).toFixed(2))
-    const totalPnl    = parseFloat(tradesWithCalc.reduce((a, t) => a + t.pnl, 0).toFixed(2))
-    const totalPnlPct = totalInv > 0 ? parseFloat((totalPnl / totalInv * 100).toFixed(2)) : 0
     const total       = tradesWithCalc.length
+    const totalInv    = r2(tradesWithCalc.reduce((a, t) => a + t.inv, 0))
+    const totalCurVal = r2(tradesWithCalc.reduce((a, t) => a + t.curValue, 0))
+    const totalPnl    = r2(tradesWithCalc.reduce((a, t) => a + t.pnl, 0))
+    const totalPnlPct = totalInv > 0 ? r2((totalPnl / totalInv) * 100) : 0
     const inGain      = tradesWithCalc.filter(t => t.pnl > 0).length
-    const inLoss      = tradesWithCalc.filter(t => t.pnl < 0).length
-    const gainRate    = total > 0 ? parseFloat((inGain / total * 100).toFixed(1)) : 0
+    const gainRate    = parseFloat(((inGain / total) * 100).toFixed(1))
     const avgDays     = parseFloat((tradesWithCalc.reduce((a, t) => a + t.days, 0) / total).toFixed(1))
-    const avgRsi      = tradesWithCalc.filter(t => t.rsi > 0).length > 0
-      ? parseFloat((tradesWithCalc.filter(t => t.rsi > 0).reduce((a, t) => a + t.rsi, 0) / tradesWithCalc.filter(t => t.rsi > 0).length).toFixed(1))
-      : 0
-    const dayPnl      = parseFloat(tradesWithCalc.reduce((a, t) => a + (t.dayChg / 100 * t.curValue), 0).toFixed(2))
+    const withRsi     = tradesWithCalc.filter(t => t.rsi > 0)
+    const avgRsi      = withRsi.length ? parseFloat((withRsi.reduce((a, t) => a + t.rsi, 0) / withRsi.length).toFixed(1)) : 0
+    const dayPnl      = r2(tradesWithCalc.reduce((a, t) => a + t.dayAmt, 0))
 
     // ── Mejor y peor posición ─────────────────────────────────────────────
     const byPnl      = [...tradesWithCalc].sort((a, b) => b.pnl - a.pnl)
-    const top5Best   = byPnl.slice(0, 5)
-    const top5Worst  = byPnl.slice(-5).reverse()
-    const bestTrade  = top5Best[0]
-    const worstTrade = top5Worst[0]
+    const bestTrade  = byPnl[0]
+    const worstTrade = byPnl[byPnl.length - 1]
+    // Las listas solo llevan lo que corresponde: antes, con pocas posiciones, "pérdidas" mostraba ganadoras
+    // (y la misma posición podía salir en las dos listas)
+    const top5Best  = byPnl.filter(t => t.pnl > 0).slice(0, 5)
+    const top5Worst = byPnl.filter(t => t.pnl < 0).slice(-5).reverse()
 
     // ── Por sector ────────────────────────────────────────────────────────
-    const sectorMap: Record<string, { inv: number, curVal: number, pnl: number, count: number }> = {}
+    const sectorMap: Record<string, { inv: number; pnl: number; count: number }> = {}
     tradesWithCalc.forEach(t => {
-      const s = t.sector || 'Sin sector'
-      if (!sectorMap[s]) sectorMap[s] = { inv: 0, curVal: 0, pnl: 0, count: 0 }
-      sectorMap[s].inv    += t.inv
-      sectorMap[s].curVal += t.curValue
-      sectorMap[s].pnl    += t.pnl
-      sectorMap[s].count  += 1
+      const s = (sectorMap[t.sector || 'Sin sector'] ??= { inv: 0, pnl: 0, count: 0 })
+      s.inv += t.inv; s.pnl += t.pnl; s.count += 1
     })
     const sectorData = Object.entries(sectorMap)
       .map(([sector, d]) => ({
         sector,
-        pnl:    parseFloat(d.pnl.toFixed(2)),
-        inv:    parseFloat(d.inv.toFixed(2)),
-        weight: totalInv > 0 ? parseFloat((d.inv / totalInv * 100).toFixed(1)) : 0,
+        pnl:    r2(d.pnl),
+        inv:    r2(d.inv),
+        weight: totalInv > 0 ? parseFloat(((d.inv / totalInv) * 100).toFixed(1)) : 0,
         count:  d.count,
       }))
       .sort((a, b) => b.inv - a.inv)
 
     // ── Tiempo en posición por rango ──────────────────────────────────────
-    const durationMap: Record<string, { count: number, pnl: number }> = {
+    const durationMap: Record<string, { count: number; pnl: number }> = {
       '0-30d':    { count: 0, pnl: 0 },
       '31-90d':   { count: 0, pnl: 0 },
       '91-180d':  { count: 0, pnl: 0 },
@@ -154,61 +195,60 @@ export default function InformeAbiertos() {
       durationMap[key].pnl += t.pnl
     })
     const durationData = Object.entries(durationMap)
-      .map(([range, d]) => ({ range, count: d.count, pnl: parseFloat(d.pnl.toFixed(2)) }))
+      .map(([range, d]) => ({ range, count: d.count, pnl: r2(d.pnl) }))
       .filter(d => d.count > 0)
 
     // ── Evolución mensual (PnL latente por mes de apertura) ───────────────
-    const monthly: Record<string, { pnl: number, count: number }> = {}
+    const monthly: Record<string, number> = {}
     tradesWithCalc.forEach(t => {
-      const d   = parseDate(t.open_date)
-      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
-      if (!monthly[key]) monthly[key] = { pnl: 0, count: 0 }
-      monthly[key].pnl   += t.pnl
-      monthly[key].count += 1
+      if (!DAY_RE.test(t.openKey)) return
+      const key = t.openKey.slice(0, 7) // 'YYYY-MM'
+      monthly[key] = (monthly[key] || 0) + t.pnl
     })
     let cumPnl = 0
     const monthlyData = Object.entries(monthly)
-      .sort(([a], [b]) => {
-        const [ya, ma] = a.split('-'); const [yb, mb] = b.split('-')
-        return parseInt(ya) !== parseInt(yb) ? parseInt(ya) - parseInt(yb) : parseInt(ma) - parseInt(mb)
-      })
-      .map(([key, d]) => {
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, pnl]) => {
         const [y, m] = key.split('-')
-        cumPnl = parseFloat((cumPnl + d.pnl).toFixed(2))
-        return { label: `${MONTH_ORDER[parseInt(m)]} ${y}`, pnl: parseFloat(d.pnl.toFixed(2)), cumPnl, count: d.count }
+        cumPnl = r2(cumPnl + pnl)
+        return { label: `${MONTH_ORDER[Number(m) - 1]} ${y}`, pnl: r2(pnl), cumPnl }
       })
 
     // ── Rendimiento vs SP500 ──────────────────────────────────────────────
-    const sp500Keys = Object.keys(sp500Map).sort()
-    const periods   = [
+    // Portafolio: PnL / invertido de las posiciones abiertas DENTRO del período. S&P: del inicio del período a hoy.
+    const periods = [
       { label: '1 mes',   months: 1  },
       { label: '3 meses', months: 3  },
       { label: '6 meses', months: 6  },
       { label: '1 año',   months: 12 },
       { label: '5 años',  months: 60 },
     ]
+    const spEnd = spSeries.length ? spSeries[spSeries.length - 1].close : null
     const periodRows = periods.map(p => {
-      const cutoff        = new Date(now.getFullYear(), now.getMonth() - p.months, now.getDate())
-      const pTrades       = tradesWithCalc.filter(t => parseDate(t.open_date) >= cutoff)
-      const pInv          = pTrades.reduce((a, t) => a + t.inv, 0)
-      const pPnl          = pTrades.reduce((a, t) => a + t.pnl, 0)
-      const portRend      = pInv > 0 ? parseFloat((pPnl / pInv * 100).toFixed(2)) : null
-      const cutoffStr     = cutoff.toISOString().split('T')[0]
-      const sp500StartKey = sp500Keys.filter(k => k <= cutoffStr).slice(-1)[0]
-      const sp500EndKey   = sp500Keys.slice(-1)[0]
-      const sp500Start    = sp500StartKey ? sp500Map[sp500StartKey] : null
-      const sp500End      = sp500EndKey   ? sp500Map[sp500EndKey]   : null
-      const sp500Rend     = sp500Start && sp500End ? parseFloat(((sp500End - sp500Start) / sp500Start * 100).toFixed(2)) : null
-      const diff          = portRend !== null && sp500Rend !== null ? parseFloat((portRend - sp500Rend).toFixed(2)) : null
+      const cutoffKey = localDayKey(new Date(now.getFullYear(), now.getMonth() - p.months, now.getDate()))
+      const pTrades   = tradesWithCalc.filter(t => t.openKey >= cutoffKey)
+      const pInv      = pTrades.reduce((a, t) => a + t.inv, 0)
+      const pPnl      = pTrades.reduce((a, t) => a + t.pnl, 0)
+      const portRend  = pInv > 0 ? r2((pPnl / pInv) * 100) : null
+
+      // Último cierre del S&P en o antes del inicio del período (búsqueda binaria)
+      let lo = 0, hi = spSeries.length - 1, idx = -1
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (spSeries[mid].date <= cutoffKey) { idx = mid; lo = mid + 1 } else hi = mid - 1
+      }
+      const spStart  = idx >= 0 ? spSeries[idx].close : null
+      const sp500Rend = spStart && spEnd ? r2(((spEnd - spStart) / spStart) * 100) : null
+      const diff = portRend !== null && sp500Rend !== null ? r2(portRend - sp500Rend) : null
       return { label: p.label, portRend, sp500Rend, diff }
     })
 
     // ── Portfolio Score ───────────────────────────────────────────────────
-    const scoreGainRate  = Math.min(gainRate, 100)
-    const scoreDiversif  = Math.min((sectorData.length / 8) * 100, 100)
-    const scoreRetorno   = Math.min(Math.max((totalPnlPct + 20) * 2.5, 0), 100)
-    const scoreRsi       = avgRsi > 0 ? (avgRsi >= 30 && avgRsi <= 60 ? 100 : avgRsi < 30 || avgRsi > 70 ? 40 : 70) : 50
-    const scoreTiempo    = avgDays <= 180 ? 100 : avgDays <= 365 ? 70 : 40
+    const scoreGainRate = Math.min(gainRate, 100)
+    const scoreDiversif = Math.min((sectorData.length / 8) * 100, 100)
+    const scoreRetorno  = Math.min(Math.max((totalPnlPct + 20) * 2.5, 0), 100)
+    const scoreRsi      = avgRsi > 0 ? (avgRsi >= 30 && avgRsi <= 60 ? 100 : avgRsi < 30 || avgRsi > 70 ? 40 : 70) : 50
+    const scoreTiempo   = avgDays <= 180 ? 100 : avgDays <= 365 ? 70 : 40
     const portfolioScore = Math.round(
       scoreGainRate * 0.30 + scoreDiversif * 0.20 +
       scoreRetorno  * 0.25 + scoreRsi      * 0.15 + scoreTiempo * 0.10
@@ -221,27 +261,37 @@ export default function InformeAbiertos() {
       sectorData, durationData, monthlyData, periodRows,
       portfolioScore, scoreGainRate, scoreDiversif, scoreRetorno, scoreRsi, scoreTiempo,
     }
-  }, [filtered, calcInvested, sp500Map])
+  }, [filtered, spSeries])
 
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
   const scoreLabel = (s: number) => s >= 75 ? 'Sólido' : s >= 50 ? 'Regular' : 'Mejorable'
 
-  const FilterBar = () => (
+  // Eje en modo privado: oculto (antes mostraba los importes aunque activaras la privacidad)
+  const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
+
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    background: active ? C.accent : C.dim,
+    color: active ? '#000' : C.muted,
+    border: `1px solid ${active ? C.accent : C.border}`,
+  })
+
+  // (Era un componente definido dentro de la página: se recreaba en cada render)
+  const filterBar = (
     <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-      <button onClick={() => setFilterWallet('all')} style={{
-        padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-        background: filterWallet === 'all' ? C.accent : C.dim,
-        color: filterWallet === 'all' ? '#000' : C.muted,
-        border: `1px solid ${filterWallet === 'all' ? C.accent : C.border}`,
-      }}>Todas</button>
+      <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
-        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-          padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-          background: filterWallet === p.id ? C.accent : C.dim,
-          color: filterWallet === p.id ? '#000' : C.muted,
-          border: `1px solid ${filterWallet === p.id ? C.accent : C.border}`,
-        }}>{p.name}</button>
+        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
       ))}
+    </div>
+  )
+
+  const errorBanner = loadError && (
+    <div style={{
+      marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12,
+      background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: C.loss,
+    }}>
+      No se pudieron cargar los datos ({loadError}). El informe puede estar incompleto; recarga la página.
     </div>
   )
 
@@ -260,12 +310,35 @@ export default function InformeAbiertos() {
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📈 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Abiertos</h1>
         </div>
-        <FilterBar />
+        {errorBanner}
+        {filterBar}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
           Sin trades abiertos para el portafolio seleccionado.
         </div>
       </div>
     </AppShell>
+  )
+
+  // Fila de top 5 (ganancias y pérdidas eran dos bloques idénticos salvo el color)
+  const rankList = (list: typeof stats.top5Best, color: string) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {list.map((t, i) => (
+        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 9, color: '#444', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</div>
+              <div style={{ fontSize: 8, color: '#555' }}>{t.days}d · RSI {t.rsi > 0 ? t.rsi.toFixed(0) : '—'}</div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color }}>{money(t.pnl)}</div>
+            <div style={{ fontSize: 9, color, opacity: 0.7 }}>{fmtPct(t.pnlPct)}</div>
+          </div>
+        </div>
+      ))}
+      {list.length === 0 && <span style={{ fontSize: 11, color: '#444' }}>Ninguna por ahora.</span>}
+    </div>
   )
 
   return (
@@ -294,8 +367,8 @@ export default function InformeAbiertos() {
           </div>
         </div>
 
-        {/* ── Filtros ── */}
-        <FilterBar />
+        {errorBanner}
+        {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 16 }}>
@@ -340,11 +413,11 @@ export default function InformeAbiertos() {
                 </defs>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} width={36} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={40} />
                 <Tooltip
                   contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.accent, fontWeight: 700 }}
-                  formatter={(v: number | undefined, name: string | undefined) => [money(v || 0), name === 'cumPnl' ? 'Acumulado' : 'PnL latente']}
+                  formatter={(v: any, name: any) => [money(Number(v) || 0), name === 'cumPnl' ? 'Acumulado' : 'PnL latente']}
                 />
                 <Bar dataKey="pnl" name="PnL latente" radius={[4, 4, 0, 0]}>
                   {stats.monthlyData.map((m, i) => <Cell key={i} fill={m.pnl >= 0 ? 'url(#gainGradA)' : C.loss} fillOpacity={0.85} />)}
@@ -382,54 +455,25 @@ export default function InformeAbiertos() {
                 ))}
               </tbody>
             </table>
+            {spSeries.length === 0 && (
+              <div style={{ fontSize: 9, color: '#555', marginTop: 10 }}>
+                Sin datos del S&P 500: abre la página de inicio para que se descarguen.
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Fila 3: Top posiciones + Sectores + Tiempo ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 0.7fr', gap: 14, marginBottom: 16 }}>
 
-          {/* Top 5 ganancias */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>🏆 TOP 5 GANANCIAS LATENTES</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {stats.top5Best.map((t, i) => (
-                <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 9, color: '#444', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</div>
-                      <div style={{ fontSize: 8, color: '#555' }}>{t.days}d · RSI {t.rsi > 0 ? t.rsi.toFixed(0) : '—'}</div>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.gain }}>{money(t.pnl)}</div>
-                    <div style={{ fontSize: 9, color: C.gain, opacity: 0.7 }}>{fmtPct(t.pnlPct)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {rankList(stats.top5Best, C.gain)}
           </div>
 
-          {/* Top 5 pérdidas */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>⚠️ TOP 5 PÉRDIDAS LATENTES</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {stats.top5Worst.map((t, i) => (
-                <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 9, color: '#444', fontWeight: 700, minWidth: 14 }}>{i + 1}</span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{t.ticker}</div>
-                      <div style={{ fontSize: 8, color: '#555' }}>{t.days}d · RSI {t.rsi > 0 ? t.rsi.toFixed(0) : '—'}</div>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.loss }}>{money(t.pnl)}</div>
-                    <div style={{ fontSize: 9, color: C.loss, opacity: 0.7 }}>{fmtPct(t.pnlPct)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {rankList(stats.top5Worst, C.loss)}
           </div>
 
           {/* Sectores */}
@@ -486,11 +530,11 @@ export default function InformeAbiertos() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
             {[
-              { label: 'En ganancia',    pct: 30, score: Math.round(stats.scoreGainRate) },
-              { label: 'Retorno',        pct: 25, score: Math.min(Math.round(stats.scoreRetorno), 100) },
-              { label: 'Diversificación',pct: 20, score: Math.round(stats.scoreDiversif) },
-              { label: 'RSI',            pct: 15, score: Math.round(stats.scoreRsi) },
-              { label: 'Tiempo',         pct: 10, score: Math.round(stats.scoreTiempo) },
+              { label: 'En ganancia',     pct: 30, score: Math.round(stats.scoreGainRate) },
+              { label: 'Retorno',         pct: 25, score: Math.min(Math.round(stats.scoreRetorno), 100) },
+              { label: 'Diversificación', pct: 20, score: Math.round(stats.scoreDiversif) },
+              { label: 'RSI',             pct: 15, score: Math.round(stats.scoreRsi) },
+              { label: 'Tiempo',          pct: 10, score: Math.round(stats.scoreTiempo) },
             ].map(k => (
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
