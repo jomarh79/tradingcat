@@ -1,16 +1,15 @@
 'use client'
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
+
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const money = (v: number) => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const localDayKey = (d: Date) => d.toLocaleDateString('sv-SE') // yyyy-MM-dd en hora local
 
 const C = {
   bg:       '#070709',
@@ -29,285 +28,292 @@ const C = {
 const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 const MESES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
+// Máximo 1000 filas por consulta en Supabase: se pide por páginas
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+// Costo vigente de una posición abierta: total_invested (el mismo que usa la página de inicio);
+// la suma de compras queda de respaldo
+function openInvested(t: any): number {
+  const ti = Number(t.total_invested)
+  if (Number.isFinite(ti) && ti > 0) return ti
+  const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+  const buyExtra = (t.trade_executions || [])
+    .filter((e: any) => e.execution_type === 'buy')
+    .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+  return r2(initialInv + buyExtra)
+}
+
+const monthKey = (year: number, monthIdx: number) => `${year}-${String(monthIdx + 1).padStart(2, '0')}`
+
 export default function DividendosInforme() {
+  const { money, visible } = usePrivacy()
+
   const [dividends,    setDividends]    = useState<any[]>([])
   const [trades,       setTrades]       = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState('')
   const [filterWallet, setFilterWallet] = useState('all')
   const [filterYear,   setFilterYear]   = useState<string>(new Date().getFullYear().toString())
 
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-    // Traer TODOS los dividendos con paginación
-    let allDivs: any[] = []
-    let from = 0
-    while (true) {
-      const { data: chunk } = await supabase
-        .from('wallet_movements')
-        .select('ticker, amount, date, wallet_id')
-        .or('is_dividend.eq.true,movement_type.eq.dividend')
-        .eq('user_id', user.id)
-        .order('date', { ascending: true })
-        .range(from, from + 999)
-      if (!chunk?.length) break
-      allDivs = [...allDivs, ...chunk]
-      if (chunk.length < 1000) break
-      from += 1000
+      const [divs, pData, tData] = await Promise.all([
+        fetchAll(() => supabase.from('wallet_movements')
+          .select('id, ticker, amount, date, wallet_id')
+          .or('is_dividend.eq.true,movement_type.eq.dividend')
+          .eq('user_id', user.id)
+          .order('date', { ascending: true })
+          .order('id')),
+        fetchAll(() => supabase.from('portfolios').select('id, name').eq('user_id', user.id).order('id')),
+        // Solo posiciones ABIERTAS: es el costo sobre el que se mide el rendimiento por dividendos.
+        // Antes se traían también los trades cerrados y su costo histórico entraba en todos los porcentajes.
+        fetchAll(() => supabase.from('trades')
+          .select('ticker, total_invested, quantity, entry_price, initial_quantity, initial_entry_price, portfolio_id, trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id)
+          .eq('status', 'open')
+          .order('id')),
+      ])
+      if (!alive.current) return
+      setDividends(divs); setPortfolios(pData); setTrades(tData)
+      setLoadError('')
+    } catch (e: any) {
+      if (alive.current) setLoadError(e?.message || 'No se pudieron cargar los datos')
+    } finally {
+      if (alive.current) setLoading(false)
     }
-    setDividends(allDivs)
-
-    const { data: pData } = await supabase
-      .from('portfolios')
-      .select('id, name')
-      .eq('user_id', user.id)
-    setPortfolios(pData || [])
-
-    // Trades abiertos para capital invertido
-    const { data: tData } = await supabase
-      .from('trades')
-      .select('ticker, total_invested, status, quantity, entry_price, initial_quantity, initial_entry_price, portfolio_id, trade_executions(quantity, price, commission, execution_type)')
-      .eq('user_id', user.id)
-    setTrades(tData || [])
-    setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const calcInvested = (t: any): number => {
-    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-    const buyExtra = (t.trade_executions || [])
-      .filter((e: any) => e.execution_type === 'buy')
-      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
-    return parseFloat((initialInv + buyExtra).toFixed(2))
-  }
-
-  const filteredDividends = useMemo(() => {
-    return dividends.filter(d => {
-      const matchWallet = filterWallet === 'all' || d.wallet_id === filterWallet
-      const matchYear   = filterYear === 'all' || parseDate(d.date).getFullYear().toString() === filterYear
-      return matchWallet && matchYear
+  // Dividendos con fechas ya convertidas (una vez)
+  const divRows = useMemo(() => dividends
+    .map(d => {
+      const key = dayKey(d.date)
+      return {
+        key, year: Number(key.slice(0, 4)), month: Number(key.slice(5, 7)) - 1,
+        ticker: String(d.ticker || ''), amount: Number(d.amount) || 0, wallet: d.wallet_id,
+      }
     })
-  }, [dividends, filterWallet, filterYear])
+    .filter(d => DAY_RE.test(d.key))
+  , [dividends])
+
+  // Solo por billetera (para histórico anual, meta, año anterior) y además por año (para el período elegido)
+  const walletDivs = useMemo(
+    () => divRows.filter(d => filterWallet === 'all' || d.wallet === filterWallet),
+    [divRows, filterWallet]
+  )
+  const filteredDividends = useMemo(
+    () => walletDivs.filter(d => filterYear === 'all' || String(d.year) === filterYear),
+    [walletDivs, filterYear]
+  )
 
   const availableYears = useMemo(() => {
-    const years = new Set(dividends.map(d => parseDate(d.date).getFullYear().toString()))
+    const years = new Set<string>([new Date().getFullYear().toString()])
+    divRows.forEach(d => years.add(String(d.year)))
     return Array.from(years).sort((a, b) => b.localeCompare(a))
-  }, [dividends])
+  }, [divRows])
 
   const stats = useMemo(() => {
     if (!filteredDividends.length) return null
-    const now             = new Date()
-    const currentYear     = now.getFullYear()
-    const month           = now.getMonth()
-    const selectedYearNum = filterYear === 'all' ? currentYear : parseInt(filterYear)
-    const year            = selectedYearNum
-    const prevYear        = selectedYearNum - 1
-    // ── YTD ──────────────────────────────────────────────────────────────
-    const ytd = filteredDividends.filter(d => {
-      const dt = parseDate(d.date)
-      return dt.getFullYear() === selectedYearNum
-    })
-    const ytdTotal = ytd.reduce((a, d) => a + Number(d.amount), 0)
+    const now         = new Date()
+    const currentYear = now.getFullYear()
+    const curMonth    = now.getMonth()
+    const year        = filterYear === 'all' ? currentYear : parseInt(filterYear)
+    const isCurrent   = year === currentYear
+    // Antes se usaba SIEMPRE el mes en curso: al elegir un año pasado se dividía entre 10 meses (no 12) y el
+    // "dividendo del mes" mostraba el mes actual de aquel año.
+    const monthsElapsed = isCurrent ? curMonth + 1 : 12
+    const refMonth      = isCurrent ? curMonth : 11
 
-    // ── Mes actual ───────────────────────────────────────────────────────
-    const thisMonth = filteredDividends.filter(d => {
-      const dt = parseDate(d.date)
-      return dt.getFullYear() === year && dt.getMonth() === month
-    })
-    const monthTotal = thisMonth.reduce((a, d) => a + Number(d.amount), 0)
+    // ── Cobrado en el año y en el mes de referencia ──────────────────────
+    const ytd = walletDivs.filter(d => d.year === year)
+    const ytdTotal = ytd.reduce((a, d) => a + d.amount, 0)
+    const monthTotal = ytd.filter(d => d.month === refMonth).reduce((a, d) => a + d.amount, 0)
 
-    // ── Capital invertido total ───────────────────────────────────────────
-    const filteredTrades = filterWallet === 'all'
-      ? trades
-      : trades.filter(t => t.portfolio_id === filterWallet)
-    const totalInvested = filteredTrades.reduce((a, t) => a + calcInvested(t), 0)
-
-    // ── Retorno por dividendos ────────────────────────────────────────────
-    const retorno = totalInvested > 0 ? (ytdTotal / totalInvested * 100) : 0
-
-    // ── YOC por ticker ───────────────────────────────────────────────────
-    // Dividendos anualizados / costo base por ticker
-    const divByTicker: Record<string, number> = {}
-    ytd.forEach(d => { divByTicker[d.ticker] = (divByTicker[d.ticker] || 0) + Number(d.amount) })
+    // ── Capital invertido hoy (posiciones abiertas de la billetera elegida) ──
+    const openTrades = trades.filter(t => filterWallet === 'all' || t.portfolio_id === filterWallet)
     const costByTicker: Record<string, number> = {}
-    trades.forEach(t => { costByTicker[t.ticker] = (costByTicker[t.ticker] || 0) + calcInvested(t) })
-    let yocSum = 0, yocCount = 0
-    Object.entries(divByTicker).forEach(([ticker, div]) => {
-      const cost = costByTicker[ticker] || 0
-      if (cost > 0) { yocSum += (div / cost * 100); yocCount++ }
-    })
-    const yoc = yocCount > 0 ? yocSum / yocCount : 0
+    openTrades.forEach(t => { costByTicker[t.ticker] = (costByTicker[t.ticker] || 0) + openInvested(t) })
+    const totalInvested = Object.values(costByTicker).reduce((a, b) => a + b, 0)
+    const retorno = totalInvested > 0 ? (ytdTotal / totalInvested) * 100 : 0
+
+    // ── YOC: dividendos de 12 meses (o del año elegido, si es pasado) entre el costo de los tickers que pagan ──
+    // Antes era el promedio simple de (cobrado en lo que va del año / costo) por ticker: un año a medias
+    // subestimaba el rendimiento y todos los tickers pesaban igual. También incluía el costo de trades ya cerrados.
+    const todayKey = localDayKey(now)
+    const fromKey  = localDayKey(new Date(currentYear, curMonth - 11, now.getDate()))
+    const yocDivs = isCurrent
+      ? walletDivs.filter(d => d.key > fromKey && d.key <= todayKey)
+      : ytd
+    const yocByTicker: Record<string, number> = {}
+    yocDivs.forEach(d => { if (costByTicker[d.ticker] > 0) yocByTicker[d.ticker] = (yocByTicker[d.ticker] || 0) + d.amount })
+    const yocNum = Object.values(yocByTicker).reduce((a, b) => a + b, 0)
+    const yocDen = Object.keys(yocByTicker).reduce((a, t) => a + costByTicker[t], 0)
+    const yoc = yocDen > 0 ? (yocNum / yocDen) * 100 : 0
 
     // ── Proyección anual ─────────────────────────────────────────────────
-    const mesesTranscurridos = month + 1
-    const promMensual = mesesTranscurridos > 0 ? ytdTotal / mesesTranscurridos : 0
+    const promMensual = ytdTotal / monthsElapsed
     const proyeccion = promMensual * 12
 
-    // ── Meta = promedio histórico anual ──────────────────────────────────
+    // ── Meta = promedio de los años anteriores completos ─────────────────
+    // Antes se promediaban los años del filtro actual: con un año elegido era solo ese año,
+    // la meta salía igual a lo cobrado y el progreso siempre marcaba 100%.
     const byYear: Record<number, number> = {}
-    dividends.forEach(d => {
-      const y = parseDate(d.date).getFullYear()
-      byYear[y] = (byYear[y] || 0) + Number(d.amount)
-    })
+    walletDivs.forEach(d => { byYear[d.year] = (byYear[d.year] || 0) + d.amount })
+    const prevYearsTotals = Object.entries(byYear).filter(([y]) => Number(y) < year).map(([, v]) => v)
+    const meta = prevYearsTotals.length ? prevYearsTotals.reduce((a, b) => a + b, 0) / prevYearsTotals.length : proyeccion
+    const metaPct = meta > 0 ? Math.min((ytdTotal / meta) * 100, 100) : 0
 
-    // Meta basada en histórico filtrado por portafolio/año
-    const byYearFiltered: Record<number, number> = {}
-    filteredDividends.forEach(d => {
-      const y = parseDate(d.date).getFullYear()
-      byYearFiltered[y] = (byYearFiltered[y] || 0) + Number(d.amount)
-    })
-    const yearsFiltered = Object.values(byYearFiltered)
-    const meta = yearsFiltered.length > 0
-      ? yearsFiltered.reduce((a, b) => a + b, 0) / yearsFiltered.length
-      : proyeccion
-    const metaPct = meta > 0 ? Math.min((ytdTotal / meta * 100), 100) : 0
+    // ── Serie mensual (con acumulado) ────────────────────────────────────
+    const totals: Record<string, number> = {}
+    filteredDividends.forEach(d => { const k = monthKey(d.year, d.month); totals[k] = (totals[k] || 0) + d.amount })
 
-    const monthly: Record<string, number> = {}
-
-    // Si hay filtro de año inicializar los 12 meses de ese año
-    // Si es "todos los años" usar todos los meses con dividendos
+    const keys: string[] = []
     if (filterYear !== 'all') {
-      for (let i = 0; i < 12; i++) {
-        const key = `${year}-${String(i).padStart(2,'0')}`
-        monthly[key] = 0
-      }
-      filteredDividends.forEach(d => {
-        const dt  = parseDate(d.date)
-        const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2,'0')}`
-        if (key in monthly) monthly[key] += Number(d.amount)
-      })
+      for (let i = 0; i < 12; i++) keys.push(monthKey(year, i))
     } else {
-      // Todos los años — usar filteredDividends que respeta filtro de billetera
-      filteredDividends.forEach(d => {
-        const dt  = parseDate(d.date)
-        const key = `${dt.getFullYear()}-${String(dt.getMonth()).padStart(2,'0')}`
-        if (!monthly[key]) monthly[key] = 0
-        monthly[key] += Number(d.amount)
-      })
+      // Todos los años: continuo desde el primer dividendo hasta hoy (antes solo salían los meses con dividendo)
+      const first = filteredDividends.reduce((a, d) => (d.key < a ? d.key : a), filteredDividends[0].key)
+      let y = Number(first.slice(0, 4)), m = Number(first.slice(5, 7)) - 1
+      while (y < currentYear || (y === currentYear && m <= curMonth)) {
+        keys.push(monthKey(y, m))
+        if (++m > 11) { m = 0; y++ }
+      }
     }
-
-    const MONTH_ORDER_DIV = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
-    const monthlyData = Object.entries(monthly)
-      .sort(([a], [b]) => {
-        const [ya, ma] = a.split('-'); const [yb, mb] = b.split('-')
-        return parseInt(ya) !== parseInt(yb) ? parseInt(ya) - parseInt(yb) : parseInt(ma) - parseInt(mb)
-      })
-      .map(([key, total]) => {
-        const [y, m] = key.split('-')
-        return {
-          key,
-          label: `${MONTH_ORDER_DIV[parseInt(m)]} ${y}`,
-          total: parseFloat(total.toFixed(2)),
-        }
-      })
+    let cum = 0
+    const monthlyData = keys.map(k => {
+      const total = r2(totals[k] || 0)
+      cum = r2(cum + total)
+      const [y, m] = k.split('-')
+      return { key: k, label: `${MESES[Number(m) - 1]} ${y}`, total, cumTotal: cum }
+    })
+    const mejorMes = monthlyData.reduce((a, b) => (b.total > a.total ? b : a), { key: '', label: '—', total: 0, cumTotal: 0 })
 
     // ── Top pagadores ────────────────────────────────────────────────────
-    const allByTicker: Record<string, number> = {}
-    filteredDividends.forEach(d => {
-      allByTicker[d.ticker] = (allByTicker[d.ticker] || 0) + Number(d.amount)
-    })
-    const totalDivAll = Object.values(allByTicker).reduce((a, b) => a + b, 0)
-    const topPagadores = Object.entries(allByTicker)
-      .map(([ticker, total]) => ({ ticker, total: parseFloat(total.toFixed(2)), pct: totalDivAll > 0 ? (total / totalDivAll * 100) : 0 }))
+    const byTicker: Record<string, number> = {}
+    filteredDividends.forEach(d => { if (d.ticker) byTicker[d.ticker] = (byTicker[d.ticker] || 0) + d.amount })
+    const totalDivAll = Object.values(byTicker).reduce((a, b) => a + b, 0)
+    const topPagadores = Object.entries(byTicker)
+      .map(([ticker, total]) => ({ ticker, total: r2(total), pct: totalDivAll > 0 ? (total / totalDivAll) * 100 : 0 }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 10)
 
-    // ── Empresas que pagan ────────────────────────────────────────────────
-    const tickersPagan = new Set(filteredDividends.map(d => d.ticker)).size
-    const tickersTotal = new Set(trades.map(t => t.ticker)).size
+    // ── Empresas que pagan (el total incluye las que pagan y las abiertas, así nunca sale "5 de 3") ──
+    const payers = new Set(Object.keys(byTicker))
+    const allTickers = new Set<string>([...Object.keys(costByTicker), ...payers])
+    const tickersPagan = payers.size
+    const tickersTotal = allTickers.size
 
-    // ── Tiempo para recuperar inversión ──────────────────────────────────
     const aniosRecuperacion = proyeccion > 0 ? totalInvested / proyeccion : null
 
-    // prevYtd usa dividends sin filtro de año para poder comparar con año anterior
-    const prevYtd = dividends.filter(d => {
-      const dt = parseDate(d.date)
-      const matchWallet = filterWallet === 'all' || d.wallet_id === filterWallet
-      const monthLimit = filterYear === 'all' ? month : 11
-      return dt.getFullYear() === prevYear && dt.getMonth() <= monthLimit && matchWallet
-    }).reduce((a, d) => a + Number(d.amount), 0)
-    const crecimiento  = prevYtd > 0 ? ((ytdTotal - prevYtd) / prevYtd * 100) : null
-    const semaforo     = crecimiento === null ? 'nuevo' : crecimiento > 5 ? 'verde' : crecimiento >= -5 ? 'amarillo' : 'rojo'
+    // ── Año anterior, al mismo punto del año ─────────────────────────────
+    // Antes, con el año en curso elegido se comparaba contra el año anterior COMPLETO (mes 11)
+    const prevYtd = walletDivs
+      .filter(d => d.year === year - 1 && d.month <= refMonth)
+      .reduce((a, d) => a + d.amount, 0)
+    const crecimiento = prevYtd > 0 ? ((ytdTotal - prevYtd) / prevYtd) * 100 : null
+    const semaforo = crecimiento === null ? 'nuevo' : crecimiento > 5 ? 'verde' : crecimiento >= -5 ? 'amarillo' : 'rojo'
 
-    // ── Dividend Score ────────────────────────────────────────────────────
-    // 1. Crecimiento YTD vs año anterior (25%)
+    // ── Dividend Score (los componentes se calculan una vez y se reutilizan en el desglose) ──
+    const monthsWithDiv = new Set(ytd.map(d => d.month)).size
     const scoreCrec = crecimiento === null ? 50 : Math.min(Math.max(50 + crecimiento * 2, 0), 100)
-    // 2. YOC (25%) — ideal > 4%
-    const scoreYoc = Math.min((yoc / 8) * 100, 100)
-    // 3. Diversificación (20%) — ideal > 10 pagadores
-    const scoreDiv = Math.min((tickersPagan / 15) * 100, 100)
-    // 4. Proyección vs meta (20%)
+    const scoreYoc  = Math.min((yoc / 8) * 100, 100)
+    const scoreDiv  = Math.min((tickersPagan / 15) * 100, 100)
     const scoreMeta = Math.min(metaPct, 100)
-    // 5. Consistencia mensual (10%) — meses con dividendo / meses transcurridos
-    const mesesConDiv = monthlyData.filter(m => m.total > 0).length
-    const scoreConsistencia = mesesTranscurridos > 0 ? Math.min((mesesConDiv / mesesTranscurridos) * 100, 100) : 0
+    const scoreConsistencia = Math.min((monthsWithDiv / monthsElapsed) * 100, 100)
     const dividendScore = Math.round(
-      scoreCrec * 0.25 +
-      scoreYoc  * 0.25 +
-      scoreDiv  * 0.20 +
-      scoreMeta * 0.20 +
-      scoreConsistencia * 0.10
+      scoreCrec * 0.25 + scoreYoc * 0.25 + scoreDiv * 0.20 + scoreMeta * 0.20 + scoreConsistencia * 0.10
     )
+    const scoreParts = [
+      { label: 'Crecimiento',     pct: 25, score: Math.round(scoreCrec) },
+      { label: 'YOC',             pct: 25, score: Math.round(scoreYoc) },
+      { label: 'Diversificación', pct: 20, score: Math.round(scoreDiv) },
+      { label: 'Meta',            pct: 20, score: Math.round(scoreMeta) },
+      { label: 'Consistencia',    pct: 10, score: Math.round(scoreConsistencia) },
+    ]
 
-    // ── Mejor mes histórico ───────────────────────────────────────────────
-    const mejorMes = monthlyData.reduce((a, b) => b.total > a.total ? b : a, { label: '—', total: 0 })
-
-    // Crecimiento anual histórico
-    const byYearData: Record<string, number> = {}
-    dividends.forEach(d => {
-      const y = parseDate(d.date).getFullYear().toString()
-      byYearData[y] = (byYearData[y] || 0) + Number(d.amount)
-    })
-    const crecimientoAnual = Object.entries(byYearData)
+    // ── Ingreso pasivo anual (toda la historia de la billetera elegida) ──
+    // (antes ignoraba el filtro de billetera)
+    const crecimientoAnual = Object.entries(byYear)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([year, total]) => ({ year, total: parseFloat(total.toFixed(2)) }))
-
-    // ── Frecuencia por ticker (simplificada) ─────────────────────────────
-    const freqByTicker: Record<string, number> = {}
-    filteredDividends.forEach(d => {
-      freqByTicker[d.ticker] = (freqByTicker[d.ticker] || 0) + 1
-    })
+      .map(([y, total]) => ({ year: y, total: r2(total) }))
 
     return {
-      ytdTotal: parseFloat(ytdTotal.toFixed(2)),
-      monthTotal: parseFloat(monthTotal.toFixed(2)),
-      retorno: parseFloat(retorno.toFixed(2)),
-      yoc: parseFloat(yoc.toFixed(2)),
-      proyeccion: parseFloat(proyeccion.toFixed(2)),
-      meta: parseFloat(meta.toFixed(2)),
-      metaPct: parseFloat(metaPct.toFixed(1)),
-      promMensual: parseFloat(promMensual.toFixed(2)),
-      mesesTranscurridos,
-      monthlyData,
-      topPagadores,
-      tickersPagan,
-      tickersTotal,
-      totalInvested: parseFloat(totalInvested.toFixed(2)),
-      aniosRecuperacion,
-      crecimiento,
-      semaforo,
-      dividendScore,
-      mejorMes,
-      prevYtd: parseFloat(prevYtd.toFixed(2)),
-      year,
-      crecimientoAnual,
+      ytdTotal: r2(ytdTotal), monthTotal: r2(monthTotal), retorno: r2(retorno), yoc: r2(yoc),
+      proyeccion: r2(proyeccion), meta: r2(meta), metaPct: parseFloat(metaPct.toFixed(1)),
+      promMensual: r2(promMensual), monthsElapsed, refMonth,
+      monthlyData, mejorMes, topPagadores, tickersPagan, tickersTotal,
+      totalInvested: r2(totalInvested), aniosRecuperacion,
+      crecimiento, semaforo, dividendScore, scoreParts,
+      prevYtd: r2(prevYtd), year, crecimientoAnual,
     }
-  }, [filteredDividends, trades, filterWallet, filterYear])
+  }, [filteredDividends, walletDivs, trades, filterWallet, filterYear])
 
-  // ── Score color ──────────────────────────────────────────────────────────
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
   const scoreLabel = (s: number) => s >= 75 ? 'Excelente' : s >= 50 ? 'Regular' : 'Necesita atención'
 
-  // ── Semáforo ──────────────────────────────────────────────────────────────
   const semColorMap: Record<string, string> = { verde: C.gain, amarillo: C.gold, rojo: C.loss, nuevo: C.accent }
   const semLabelMap: Record<string, string> = { verde: '🟢 Creciendo', amarillo: '🟡 Estable', rojo: '🔴 Disminuyendo', nuevo: '🔵 Sin histórico' }
 
-  // ── Bar máx para gráfica mensual ─────────────────────────────────────────
-  const maxMonthly = stats ? Math.max(...stats.monthlyData.map(m => m.total), 1) : 1
+  // Eje en modo privado: oculto (antes mostraba los importes aunque activaras la privacidad)
+  const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
+
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    background: active ? C.gold : C.dim,
+    color: active ? '#000' : C.muted,
+    border: `1px solid ${active ? C.gold : C.border}`,
+  })
+
+  // Una sola barra de filtros (estaba copiada dos veces: la del estado vacío y la del informe)
+  const filterBar = (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ position: 'relative' }}>
+        <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
+          background: C.dim, border: `1px solid ${C.border}`, color: C.text,
+          padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
+        }}>
+          <option value="all">Todos los años</option>
+          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
+      </div>
+      <div style={{ width: 1, background: C.border, height: 28 }} />
+      <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
+      {portfolios.map(p => (
+        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
+      ))}
+    </div>
+  )
+
+  const errorBanner = loadError && (
+    <div style={{
+      marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12,
+      background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: C.loss,
+    }}>
+      No se pudieron cargar los datos ({loadError}). El informe puede estar incompleto; recarga la página.
+    </div>
+  )
 
   if (loading) return (
     <AppShell>
@@ -317,47 +323,26 @@ export default function DividendosInforme() {
     </AppShell>
   )
 
-  if (!stats || !dividends.length) return (
+  if (!stats) return (
     <AppShell>
       <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>💰 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gold }}>Dividendos</h1>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
-            <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
-              background: C.dim, border: `1px solid ${C.border}`, color: C.text,
-              padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-              cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
-            }}>
-              <option value="all">Todos los años</option>
-              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
-          </div>
-          <div style={{ width: 1, background: C.border, height: 28 }} />
-          <button onClick={() => setFilterWallet('all')} style={{
-            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: filterWallet === 'all' ? C.gold : C.dim,
-            color: filterWallet === 'all' ? '#000' : C.muted,
-            border: `1px solid ${filterWallet === 'all' ? C.gold : C.border}`,
-          }}>Todas</button>
-          {portfolios.map(p => (
-            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: filterWallet === p.id ? C.gold : C.dim,
-              color: filterWallet === p.id ? '#000' : C.muted,
-              border: `1px solid ${filterWallet === p.id ? C.gold : C.border}`,
-            }}>{p.name}</button>
-          ))}
-        </div>
+        {errorBanner}
+        {filterBar}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
           Sin dividendos registrados para el período seleccionado.
         </div>
       </div>
     </AppShell>
   )
+
+  const maxAnnual = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }
+  const cardTitle: React.CSSProperties = { fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }
+  const lineRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }
 
   return (
     <AppShell>
@@ -373,7 +358,7 @@ export default function DividendosInforme() {
               Dividendos
             </h1>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-              {stats.year} · {stats.mesesTranscurridos} meses transcurridos
+              {filterYear === 'all' ? `Histórico (indicadores de ${stats.year})` : stats.year} · {stats.monthsElapsed} meses
             </div>
           </div>
           {/* Dividend Score */}
@@ -386,57 +371,18 @@ export default function DividendosInforme() {
           </div>
         </div>
 
-        {/* ── Filtros ── */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-
-          <div style={{ position: 'relative' }}>
-            <select
-              value={filterYear}
-              onChange={e => setFilterYear(e.target.value)}
-              style={{
-                background: C.dim, border: `1px solid ${C.border}`,
-                color: C.text, padding: '6px 32px 6px 14px', borderRadius: 8,
-                fontSize: 11, fontWeight: 700, cursor: 'pointer', appearance: 'none',
-                WebkitAppearance: 'none', outline: 'none',
-              }}
-            >
-              <option value="all">Todos los años</option>
-              {availableYears.map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
-          </div>
-
-          {/* Billeteras */}
-          <button onClick={() => setFilterWallet('all')} style={{
-            padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: filterWallet === 'all' ? C.gold : C.dim,
-            color: filterWallet === 'all' ? '#000' : C.muted,
-            border: `1px solid ${filterWallet === 'all' ? C.gold : C.border}`,
-          }}>Todas</button>
-          {portfolios.map(p => (
-            <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-              background: filterWallet === p.id ? C.gold : C.dim,
-              color: filterWallet === p.id ? '#000' : C.muted,
-              border: `1px solid ${filterWallet === p.id ? C.gold : C.border}`,
-            }}>{p.name}</button>
-          ))}
-          <div style={{ width: 1, background: C.border, margin: '0 4px' }} />
-          {/* Años */}
-
-        </div>
+        {errorBanner}
+        {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 16 }}>
           {[
-            { label: 'COBRADOS YTD',   value: money(stats.ytdTotal),       color: C.gold,   sub: `vs ${money(stats.prevYtd)} año anterior` },
-            { label: 'DIVIDENDO MES',  value: money(stats.monthTotal),      color: C.text,   sub: MESES_FULL[new Date().getMonth()] },
-            { label: 'YIELD ON COST',  value: `${stats.yoc}%`,             color: C.accent, sub: 'sobre costo base' },
-            { label: 'RETORNO REAL',   value: `${stats.retorno}%`,         color: stats.retorno >= 3 ? C.gain : C.gold, sub: `÷ $${(stats.totalInvested/1000).toFixed(1)}k invertido` },
-            { label: 'PROYECCIÓN AÑO', value: money(stats.proyeccion),      color: C.gain,   sub: `${money(stats.promMensual)}/mes promedio` },
-            { label: 'META ANUAL',     value: money(stats.meta),            color: C.muted,  sub: 'media histórica' },
+            { label: 'COBRADOS YTD',   value: money(stats.ytdTotal),   color: C.gold,   sub: `vs ${money(stats.prevYtd)} año anterior` },
+            { label: 'DIVIDENDO MES',  value: money(stats.monthTotal), color: C.text,   sub: MESES_FULL[stats.refMonth] },
+            { label: 'YIELD ON COST',  value: `${stats.yoc}%`,         color: C.accent, sub: 'últimos 12 meses / costo' },
+            { label: 'RETORNO REAL',   value: `${stats.retorno}%`,     color: stats.retorno >= 3 ? C.gain : C.gold, sub: visible ? `÷ $${(stats.totalInvested / 1000).toFixed(1)}k invertido` : '÷ $*** invertido' },
+            { label: 'PROYECCIÓN AÑO', value: money(stats.proyeccion), color: C.gain,   sub: `${money(stats.promMensual)}/mes promedio` },
+            { label: 'META ANUAL',     value: money(stats.meta),       color: C.muted,  sub: 'media de años anteriores' },
           ].map(k => (
             <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
@@ -447,7 +393,7 @@ export default function DividendosInforme() {
         </div>
 
         {/* ── Progreso meta ── */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
+        <div style={{ ...card, padding: '14px 18px', marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div>
               <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>PROGRESO HACIA META ANUAL</span>
@@ -474,28 +420,22 @@ export default function DividendosInforme() {
           </div>
         </div>
 
-        {/* ── Fila 2: Evolución mensual + Top pagadores + Crecimiento anual ── */}
+        {/* ── Fila 2: Evolución mensual + Top pagadores + Ingreso anual ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.5fr 0.5fr', gap: 14, marginBottom: 16 }}>
 
           {/* Evolución mensual */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>EVOLUCIÓN MENSUAL</div>
-                <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>Últimos 12 meses</div>
+                <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>{filterYear === 'all' ? 'Histórico completo' : `Año ${stats.year}`}</div>
               </div>
               <div style={{ fontSize: 11, color: C.muted }}>
                 Mejor: <span style={{ color: C.gold, fontWeight: 700 }}>{stats.mejorMes.label} {money(stats.mejorMes.total)}</span>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={160}>
-              <ComposedChart data={(() => {
-                let cum = 0
-                return stats.monthlyData.map(m => {
-                  cum = parseFloat((cum + m.total).toFixed(2))
-                  return { ...m, cumTotal: cum }
-                })
-              })()} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <ComposedChart data={stats.monthlyData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.9} />
@@ -504,21 +444,21 @@ export default function DividendosInforme() {
                 </defs>
                 <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} width={36} />
+                <YAxis tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={40} />
                 <Tooltip
                   contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.gold, fontWeight: 700 }}
-                  formatter={(v: number | undefined, name: string | undefined) => [money(v || 0), name === 'cumTotal' ? 'Acumulado' : 'Mes']}
+                  formatter={(v: any, name: any) => [money(Number(v) || 0), name === 'cumTotal' ? 'Acumulado' : 'Mes']}
                 />
                 <Bar dataKey="total" name="Mes" fill="url(#barGrad)" radius={[4, 4, 0, 0]} />
                 <Line type="monotone" dataKey="cumTotal" name="cumTotal" stroke="#00bfff" strokeWidth={2} dot={{ fill: '#00bfff', r: 3, strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </ComposedChart>
             </ResponsiveContainer>
-            </div>
-            
-            {/* Top pagadores */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>TOP PAGADORES HISTÓRICO</div>
+          </div>
+
+          {/* Top pagadores */}
+          <div style={card}>
+            <div style={cardTitle}>TOP PAGADORES · {filterYear === 'all' ? 'HISTÓRICO' : stats.year}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.topPagadores.map((t, i) => (
                 <div key={t.ticker}>
@@ -540,14 +480,12 @@ export default function DividendosInforme() {
             </div>
           </div>
 
-            {/* Crecimiento anual — lista */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>INGRESO PASIVO ANUAL</div>
+          {/* Ingreso pasivo anual */}
+          <div style={card}>
+            <div style={cardTitle}>INGRESO PASIVO ANUAL</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[...stats.crecimientoAnual].reverse().map((y, i) => {
-                const isCurrentYear = y.year === stats.year.toString()
-                const max = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
-                const pct = (y.total / max * 100)
+              {[...stats.crecimientoAnual].reverse().map(y => {
+                const isCurrentYear = y.year === String(stats.year)
                 return (
                   <div key={y.year}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -559,7 +497,7 @@ export default function DividendosInforme() {
                       </span>
                     </div>
                     <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
-                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2,
+                      <div style={{ width: `${(y.total / maxAnnual) * 100}%`, height: '100%', borderRadius: 2,
                         background: isCurrentYear ? C.gold : 'rgba(234,179,8,0.25)' }} />
                     </div>
                   </div>
@@ -574,17 +512,17 @@ export default function DividendosInforme() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
 
           {/* Indicadores */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>INDICADORES</div>
+          <div style={card}>
+            <div style={cardTitle}>INDICADORES</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { label: 'Dividendos cobrados YTD',     value: money(stats.ytdTotal),         color: C.gold },
-                { label: 'Yield on Cost promedio',       value: `${stats.yoc}%`,               color: C.accent },
-                { label: 'Retorno por dividendos',       value: `${stats.retorno}%`,           color: stats.retorno >= 3 ? C.gain : C.gold },
-                { label: 'Empresas que pagan',           value: `${stats.tickersPagan} de ${stats.tickersTotal}`, color: C.text },
-                { label: 'Promedio mensual YTD',         value: money(stats.promMensual),       color: C.muted },
+                { label: 'Dividendos cobrados YTD', value: money(stats.ytdTotal),   color: C.gold },
+                { label: 'Yield on Cost (12 meses)', value: `${stats.yoc}%`,        color: C.accent },
+                { label: 'Retorno por dividendos',  value: `${stats.retorno}%`,     color: stats.retorno >= 3 ? C.gain : C.gold },
+                { label: 'Empresas que pagan',      value: `${stats.tickersPagan} de ${stats.tickersTotal}`, color: C.text },
+                { label: 'Promedio mensual YTD',    value: money(stats.promMensual), color: C.muted },
               ].map(k => (
-                <div key={k.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }}>
+                <div key={k.label} style={lineRow}>
                   <span style={{ fontSize: 11, color: C.muted }}>{k.label}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: k.color }}>{k.value}</span>
                 </div>
@@ -604,19 +542,19 @@ export default function DividendosInforme() {
             </div>
           </div>
 
-          {/* Proyección inteligente */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>PROYECCIÓN DEL AÑO</div>
+          {/* Proyección */}
+          <div style={card}>
+            <div style={cardTitle}>PROYECCIÓN DEL AÑO</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                { label: 'Dividendos cobrados',    value: money(stats.ytdTotal) },
-                { label: 'Meses transcurridos',    value: `${stats.mesesTranscurridos} de 12` },
-                { label: 'Promedio mensual',        value: money(stats.promMensual) },
-                { label: 'Proyección anual',        value: money(stats.proyeccion), bold: true, color: C.gain },
+                { label: 'Dividendos cobrados', value: money(stats.ytdTotal), bold: false, color: undefined as string | undefined },
+                { label: 'Meses transcurridos', value: `${stats.monthsElapsed} de 12`, bold: false, color: undefined },
+                { label: 'Promedio mensual',    value: money(stats.promMensual), bold: false, color: undefined },
+                { label: 'Proyección anual',    value: money(stats.proyeccion), bold: true, color: C.gain },
               ].map(k => (
-                <div key={k.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }}>
+                <div key={k.label} style={lineRow}>
                   <span style={{ fontSize: 11, color: C.muted }}>{k.label}</span>
-                  <span style={{ fontSize: (k as any).bold ? 15 : 13, fontWeight: 700, color: (k as any).color || C.text }}>{k.value}</span>
+                  <span style={{ fontSize: k.bold ? 15 : 13, fontWeight: 700, color: k.color || C.text }}>{k.value}</span>
                 </div>
               ))}
               <div style={{ marginTop: 6, padding: '10px 12px', background: C.dim, borderRadius: 8, border: `1px solid ${C.border}` }}>
@@ -629,24 +567,24 @@ export default function DividendosInforme() {
                     </div>
                 }
                 <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>
-                  Meta basada en media histórica de {money(stats.meta)}/año
+                  Meta = media de los años anteriores: {money(stats.meta)}/año
                 </div>
               </div>
             </div>
           </div>
 
           {/* Tiempo para recuperar inversión */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>RECUPERACIÓN POR DIVIDENDOS</div>
+          <div style={card}>
+            <div style={cardTitle}>RECUPERACIÓN POR DIVIDENDOS</div>
             <div style={{ textAlign: 'center', padding: '10px 0 14px' }}>
-              <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>Capital invertido total</div>
+              <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>Capital invertido hoy</div>
               <div style={{ fontSize: 20, fontWeight: 900, color: C.text, marginBottom: 12 }}>{money(stats.totalInvested)}</div>
               <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>Dividendos proyectados / año</div>
               <div style={{ fontSize: 20, fontWeight: 900, color: C.gold, marginBottom: 16 }}>{money(stats.proyeccion)}</div>
               <div style={{ width: '100%', height: 1, background: C.border, marginBottom: 16 }} />
               <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>Tiempo estimado de recuperación</div>
               <div style={{ fontSize: 32, fontWeight: 900, color: C.accent, lineHeight: 1 }}>
-                {stats.aniosRecuperacion ? `${stats.aniosRecuperacion.toFixed(1)}` : '—'}
+                {stats.aniosRecuperacion ? stats.aniosRecuperacion.toFixed(1) : '—'}
               </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>años</div>
               <div style={{ fontSize: 9, color: '#666', marginTop: 8 }}>
@@ -657,7 +595,7 @@ export default function DividendosInforme() {
         </div>
 
         {/* ── Dividend Score detalle ── */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+        <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>DIVIDEND SCORE — DESGLOSE</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -666,13 +604,7 @@ export default function DividendosInforme() {
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-            {[
-              { label: 'Crecimiento',    pct: 25, score: Math.round(stats.crecimiento === null ? 50 : Math.min(Math.max(50 + stats.crecimiento * 2, 0), 100)) },
-              { label: 'YOC',            pct: 25, score: Math.round(Math.min((stats.yoc / 8) * 100, 100)) },
-              { label: 'Diversificación',pct: 20, score: Math.round(Math.min((stats.tickersPagan / 15) * 100, 100)) },
-              { label: 'Meta',           pct: 20, score: Math.round(Math.min(stats.metaPct, 100)) },
-              { label: 'Consistencia',   pct: 10, score: Math.min(Math.round(stats.monthlyData.filter(m => m.total > 0).length / stats.mesesTranscurridos * 100), 100) },
-            ].map(k => (
+            {stats.scoreParts.map(k => (
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
                 <div style={{ fontSize: 18, fontWeight: 900, color: scoreColor(k.score) }}>{k.score}</div>
