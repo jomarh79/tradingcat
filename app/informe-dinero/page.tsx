@@ -1,17 +1,15 @@
 'use client'
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, AreaChart, Area } from 'recharts'
+
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { usePrivacy } from '@/lib/PrivacyContext'
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts'
 import AppShell from '../AppShell'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
-const money     = (v: number) => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtPct    = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 
 const C = {
   bg:     '#070709', card:   '#0a0a0c', border: '#141418',
@@ -22,257 +20,250 @@ const C = {
 
 const MONTH_ORDER = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 
+// 'YYYY-MM' → 'ene 2025' / 'ene 25'
+const monthLabel = (key: string, shortYear = false) => {
+  const [y, m] = key.split('-')
+  return `${MONTH_ORDER[Number(m) - 1]} ${shortYear ? y.slice(2) : y}`
+}
+const nextMonth = (key: string) => {
+  const [y, m] = key.split('-').map(Number)
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+}
+
 // Clasificadores — solo dinero real, excluye movement_type='trade'
 const isDividend = (m: any) => m.movement_type === 'dividend' || m.is_dividend === true
 const isDeposit  = (m: any) => m.movement_type === 'deposito'
 const isWithdraw = (m: any) => m.movement_type === 'retiro'
 const isReal     = (m: any) => isDeposit(m) || isWithdraw(m) || isDividend(m)
 
+// Máximo 1000 filas por consulta en Supabase: se pide por páginas. Antes eran 20 páginas como tope y un error
+// cortaba la carga en silencio; los trades ni siquiera se paginaban.
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+type Kind = 'dep' | 'wd' | 'div'
+
+// Lo que se invirtió en una posición ABIERTA. Preferimos total_invested (costo vigente, el mismo que usa la página
+// de inicio); la suma de compras solo queda de respaldo: no descuenta lo ya vendido en parciales.
+function openInvested(t: any): number {
+  const ti = Number(t.total_invested)
+  if (Number.isFinite(ti) && ti > 0) return ti
+  const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+  const buyExtra = (t.trade_executions || [])
+    .filter((e: any) => e.execution_type === 'buy')
+    .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+  return r2(initialInv + buyExtra)
+}
+
 export default function InformeDinero() {
+  const { money, visible } = usePrivacy()
+
   const [movements,    setMovements]    = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
   const [trades,       setTrades]       = useState<any[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState('')
   const [filterWallet, setFilterWallet] = useState('all')
   const [filterYear,   setFilterYear]   = useState<string>(new Date().getFullYear().toString())
-  const [hideValues,   setHideValues]   = useState(false)
+
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
+      if (!user) return
 
-    let allMov: any[] = []
-    let from = 0
-    const MAX_PAGES = 20
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const { data: chunk, error: chunkErr } = await supabase
-        .from('wallet_movements')
-        .select('id, amount, date, movement_type, is_dividend, wallet_id, ticker, notes')
-        .eq('user_id', user.id)
-        .order('date', { ascending: true })
-        .range(from, from + 999)
-      if (chunkErr || !chunk?.length) break
-      allMov = [...allMov, ...chunk]
-      if (chunk.length < 1000) break
-      from += 1000
-    }
-    setMovements(allMov)
-
-    const [
-      { data: pData, error: pErr },
-      { data: tData, error: tErr }
-    ] = await Promise.all([
-      supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id),
-      supabase.from('trades')
-        .select('portfolio_id, realized_pnl, status, close_date, initial_entry_price, initial_quantity, entry_price, quantity, trade_executions(quantity, price, commission, execution_type)')
-        .eq('user_id', user.id),
-    ])
-    if (pErr) console.error('portfolios error:', pErr)
-    if (tErr) console.error('trades error:', tErr)
-    setPortfolios(pData || [])
-    setTrades(tData || [])
-    setLoading(false)
-    } catch (err) {
-      console.error('fetchData error:', err)
-      setLoading(false)
+      const [mv, p, t] = await Promise.all([
+        fetchAll(() => supabase.from('wallet_movements')
+          .select('id, amount, date, movement_type, is_dividend, wallet_id')
+          .eq('user_id', user.id).order('date').order('id')),
+        fetchAll(() => supabase.from('portfolios').select('id, name, grupo').eq('user_id', user.id).order('id')),
+        fetchAll(() => supabase.from('trades')
+          .select('id, portfolio_id, realized_pnl, status, close_date, total_invested, initial_entry_price, initial_quantity, entry_price, quantity, trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id).order('id')),
+      ])
+      if (!alive.current) return
+      setMovements(mv); setPortfolios(p); setTrades(t); setLoadError('')
+    } catch (err: any) {
+      // Antes un error de Supabase dejaba el informe en ceros sin avisar
+      if (alive.current) setLoadError(err?.message || 'No se pudieron cargar los datos')
+    } finally {
+      if (alive.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const calcInvested = useCallback((t: any): number => {
-    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-    const buyExtra   = (t.trade_executions || [])
-      .filter((e: any) => e.execution_type === 'buy')
-      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
-    return parseFloat((initialInv + buyExtra).toFixed(2))
-  }, [])
+  // ── Movimientos reales y trades ya normalizados (las fechas se leen una sola vez) ──
+  const real = useMemo(() => movements
+    .filter(isReal)
+    .map(m => {
+      const date = dayKey(m.date)
+      const kind: Kind = isDividend(m) ? 'div' : isDeposit(m) ? 'dep' : 'wd'
+      const amount = Number(m.amount) || 0
+      // Los retiros se manejan como magnitud (antes unos sitios usaban el valor con signo y otros el absoluto)
+      return { date, month: date.slice(0, 7), year: date.slice(0, 4), wallet: m.wallet_id, kind, amount: kind === 'wd' ? Math.abs(amount) : amount }
+    })
+    .filter(m => DAY_RE.test(m.date))
+  , [movements])
+
+  const closedTrades = useMemo(() => trades
+    .filter(t => t.status === 'closed' && DAY_RE.test(dayKey(t.close_date)))
+    .map(t => {
+      const date = dayKey(t.close_date)
+      return { wallet: t.portfolio_id, month: date.slice(0, 7), year: date.slice(0, 4), pnl: Number(t.realized_pnl || 0) }
+    })
+  , [trades])
 
   const availableYears = useMemo(() => {
-    const years = new Set(movements.filter(isReal).map(m => parseDate(m.date).getFullYear().toString()))
+    const years = new Set<string>([new Date().getFullYear().toString()])
+    real.forEach(m => years.add(m.year))
+    closedTrades.forEach(t => years.add(t.year))
     return Array.from(years).sort((a, b) => b.localeCompare(a))
-  }, [movements])
-
-  // Movimientos reales filtrados por año y billetera (para flujo mensual)
-  const filteredMovements = useMemo(() => {
-    return movements.filter(m => {
-      if (!isReal(m)) return false
-      const matchWallet = filterWallet === 'all' || m.wallet_id === filterWallet
-      const matchYear   = filterYear === 'all' || parseDate(m.date).getFullYear().toString() === filterYear
-      return matchWallet && matchYear
-    })
-  }, [movements, filterWallet, filterYear])
-
-  // Movimientos reales filtrados solo por billetera (para totales globales)
-  const realMovByWallet = useMemo(() => {
-    return movements.filter(m => isReal(m) && (filterWallet === 'all' || m.wallet_id === filterWallet))
-  }, [movements, filterWallet])
+  }, [real, closedTrades])
 
   const stats = useMemo(() => {
-    const now   = new Date()
-    const year  = filterYear === 'all' ? now.getFullYear() : parseInt(filterYear)
-    const month = now.getMonth()
+    const now = new Date()
+    const inWallet = (w: any) => filterWallet === 'all' || w === filterWallet
 
-    const totalDeposited = parseFloat(realMovByWallet.filter(isDeposit).reduce((a, m) => a + Number(m.amount), 0).toFixed(2))
-    const totalWithdrawn = parseFloat(Math.abs(realMovByWallet.filter(isWithdraw).reduce((a, m) => a + Number(m.amount), 0)).toFixed(2))
-    const totalDividends = parseFloat(realMovByWallet.filter(isDividend).reduce((a, m) => a + Number(m.amount), 0).toFixed(2))
+    const rm = real.filter(m => inWallet(m.wallet))
+    const sumKind = (list: typeof rm, k: Kind) => list.filter(m => m.kind === k).reduce((a, m) => a + m.amount, 0)
 
-    const filteredTrades = trades.filter(t => filterWallet === 'all' || t.portfolio_id === filterWallet)
-    const totalInvested  = parseFloat(filteredTrades.filter(t => t.status === 'open').reduce((a, t) => a + calcInvested(t), 0).toFixed(2))
-    const totalPnlReal   = parseFloat(filteredTrades.filter(t => t.status === 'closed').reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
+    const totalDeposited = r2(sumKind(rm, 'dep'))
+    const totalWithdrawn = r2(sumKind(rm, 'wd'))
+    const totalDividends = r2(sumKind(rm, 'div'))
 
-    const capitalNeto  = parseFloat((totalDeposited - totalWithdrawn).toFixed(2))
-    const patrimonio   = parseFloat((capitalNeto + totalPnlReal + totalDividends).toFixed(2))
-    const rendimiento  = capitalNeto > 0 ? parseFloat(((totalPnlReal + totalDividends) / capitalNeto * 100).toFixed(2)) : 0
+    const wTrades = trades.filter(t => inWallet(t.portfolio_id))
+    const totalInvested = r2(wTrades.filter(t => t.status === 'open').reduce((a, t) => a + openInvested(t), 0))
+    const wClosed = closedTrades.filter(t => inWallet(t.wallet))
+    const totalPnlReal = r2(wClosed.reduce((a, t) => a + t.pnl, 0))
+
+    const capitalNeto = r2(totalDeposited - totalWithdrawn)
+    const patrimonio  = r2(capitalNeto + totalPnlReal + totalDividends)
+    const rendimiento = capitalNeto > 0 ? r2(((totalPnlReal + totalDividends) / capitalNeto) * 100) : 0
 
     if (totalDeposited === 0 && portfolios.length === 0) return null
 
-    // ── Flujo mensual ─────────────────────────────────────────────────────
-    const monthly: Record<string, { depositos: number, retiros: number, dividendos: number }> = {}
-    if (filterYear !== 'all') {
-      for (let i = 0; i < 12; i++) {
-        const key = `${year}-${String(i).padStart(2,'0')}`
-        monthly[key] = { depositos: 0, retiros: 0, dividendos: 0 }
-      }
-    }
-    filteredMovements.forEach(m => {
-      const d   = parseDate(m.date)
-      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
-      if (!monthly[key]) monthly[key] = { depositos: 0, retiros: 0, dividendos: 0 }
-      if (isDividend(m))      monthly[key].dividendos += Number(m.amount)
-      else if (isDeposit(m))  monthly[key].depositos  += Number(m.amount)
-      else if (isWithdraw(m)) monthly[key].retiros    += Math.abs(Number(m.amount))
-    })
+    // ── Flujo mensual (del año elegido, o de todos los meses con actividad) ──
+    const monthly: Record<string, { depositos: number; retiros: number; dividendos: number; pnl: number }> = {}
+    const ensure = (k: string) => (monthly[k] ??= { depositos: 0, retiros: 0, dividendos: 0, pnl: 0 })
+    if (filterYear !== 'all') for (let i = 1; i <= 12; i++) ensure(`${filterYear}-${String(i).padStart(2, '0')}`)
 
-    // PnL mensual de trades cerrados filtrados por mes de cierre
-    const pnlByMonth: Record<string, number> = {}
-    filteredTrades.filter(t => t.status === 'closed' && t.close_date).forEach((t: any) => {
-      const d   = parseDate(t.close_date)
-      const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
-      if (filterYear === 'all' || d.getFullYear().toString() === filterYear) {
-        pnlByMonth[key] = parseFloat(((pnlByMonth[key] || 0) + Number(t.realized_pnl || 0)).toFixed(2))
-      }
+    rm.filter(m => filterYear === 'all' || m.year === filterYear).forEach(m => {
+      const row = ensure(m.month)
+      if (m.kind === 'div') row.dividendos += m.amount
+      else if (m.kind === 'dep') row.depositos += m.amount
+      else row.retiros += m.amount
     })
+    // PnL de trades cerrados, en el mes de cierre
+    wClosed.filter(t => filterYear === 'all' || t.year === filterYear).forEach(t => { ensure(t.month).pnl += t.pnl })
+
     const monthlyData = Object.entries(monthly)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, d]) => {
-        const [y, mo] = key.split('-')
-        return {
-          label:      `${MONTH_ORDER[parseInt(mo)]} ${y}`,
-          depositos:  parseFloat(d.depositos.toFixed(2)),
-          retiros:    parseFloat(d.retiros.toFixed(2)),
-          dividendos: parseFloat(d.dividendos.toFixed(2)),
-          pnl:        parseFloat((pnlByMonth[key] || 0).toFixed(2)),
-          neto:       parseFloat((d.depositos - d.retiros + d.dividendos + (pnlByMonth[key] || 0)).toFixed(2)),
-        }
-      })
+      .map(([key, d]) => ({
+        label:      monthLabel(key),
+        depositos:  r2(d.depositos),
+        retiros:    r2(d.retiros),
+        dividendos: r2(d.dividendos),
+        pnl:        r2(d.pnl),
+        neto:       r2(d.depositos - d.retiros + d.dividendos + d.pnl),
+      }))
 
-    // Construir mapa de PnL acumulado por mes usando close_date de trades
-    const pnlCumMap: Record<string, number> = {}
-    const closedSorted = filteredTrades
-      .filter((t: any) => t.status === 'closed' && t.close_date)
-      .sort((a: any, b: any) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime())
-    let cumPnlAccum = 0
-    closedSorted.forEach((t: any) => {
-      cumPnlAccum += Number(t.realized_pnl || 0)
-      const d     = parseDate(t.close_date)
-      const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
-      pnlCumMap[label] = parseFloat(cumPnlAccum.toFixed(2))
+    // ── Crecimiento del patrimonio: una línea de tiempo mensual continua, acumulando mes a mes ──
+    // Antes el PnL y los dividendos solo se reflejaban en los meses que tenían un depósito o retiro, y los meses
+    // con solo cierres de trades no aparecían.
+    const delta: Record<string, { cap: number; pnl: number; div: number }> = {}
+    const dEnsure = (k: string) => (delta[k] ??= { cap: 0, pnl: 0, div: 0 })
+    rm.forEach(m => {
+      const d = dEnsure(m.month)
+      if (m.kind === 'dep') d.cap += m.amount
+      else if (m.kind === 'wd') d.cap -= m.amount
+      else d.div += m.amount
     })
+    wClosed.forEach(t => { dEnsure(t.month).pnl += t.pnl })
 
-    // Construir mapa de dividendos acumulados por mes
-    const divCumMap: Record<string, number> = {}
-    let cumDivAccum = 0
-    realMovByWallet
-      .filter(isDividend)
-      .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
-      .forEach(m => {
-        cumDivAccum += Number(m.amount)
-        const d     = parseDate(m.date)
-        const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
-        divCumMap[label] = parseFloat(cumDivAccum.toFixed(2))
-      })
+    const growthData: { label: string; capital: number; patrimonio: number }[] = []
+    const keys = Object.keys(delta).sort()
+    if (keys.length) {
+      const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      const end = keys[keys.length - 1] > currentKey ? keys[keys.length - 1] : currentKey
+      let cap = 0, pnl = 0, div = 0
+      for (let k = keys[0]; k <= end; k = nextMonth(k)) {
+        const d = delta[k]
+        if (d) { cap += d.cap; pnl += d.pnl; div += d.div }
+        growthData.push({ label: monthLabel(k, true), capital: r2(cap), patrimonio: r2(cap + pnl + div) })
+      }
+    }
 
-    // Combinar todos los puntos en orden cronológico
-    let cumDeposit = 0
-    let lastPnl    = 0
-    let lastDiv    = 0
-    const growthMap: Record<string, { capital: number, patrimonio: number }> = {}
-
-    realMovByWallet
-      .slice()
-      .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime())
-      .forEach(m => {
-        if (isDeposit(m))       cumDeposit += Number(m.amount)
-        else if (isWithdraw(m)) cumDeposit += Number(m.amount)
-        const d     = parseDate(m.date)
-        const label = `${MONTH_ORDER[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`
-        lastPnl = pnlCumMap[label] ?? lastPnl
-        lastDiv = divCumMap[label] ?? lastDiv
-        growthMap[label] = {
-          capital:    parseFloat(Math.max(cumDeposit, 0).toFixed(2)),
-          patrimonio: parseFloat((Math.max(cumDeposit, 0) + lastPnl + lastDiv).toFixed(2)),
-        }
-      })
-
-    // Agregar puntos de PnL que no tienen movimiento de dinero en ese mes
-    Object.entries(pnlCumMap).forEach(([label, pnl]) => {
-      if (!growthMap[label]) return
-      growthMap[label].patrimonio = parseFloat((growthMap[label].capital + pnl + (divCumMap[label] ?? lastDiv)).toFixed(2))
+    // ── Por billetera (siempre todas, sin los filtros de arriba) ──
+    const walletAgg = new Map<any, { dep: number; wd: number; div: number }>()
+    real.forEach(m => {
+      const a = walletAgg.get(m.wallet) ?? { dep: 0, wd: 0, div: 0 }
+      if (m.kind === 'dep') a.dep += m.amount
+      else if (m.kind === 'wd') a.wd += m.amount
+      else a.div += m.amount
+      walletAgg.set(m.wallet, a)
     })
-
-    const growthData = Object.entries(growthMap).map(([label, d]) => ({ label, ...d }))
-
-    // ── Por billetera ─────────────────────────────────────────────────────
     const walletStats = portfolios.map(p => {
-      const wMov = movements.filter(m => m.wallet_id === p.id && isReal(m))
-      const wDep = parseFloat(wMov.filter(isDeposit).reduce((a, m) => a + Number(m.amount), 0).toFixed(2))
-      const wWit = parseFloat(Math.abs(wMov.filter(isWithdraw).reduce((a, m) => a + Number(m.amount), 0)).toFixed(2))
-      const wDiv = parseFloat(wMov.filter(isDividend).reduce((a, m) => a + Number(m.amount), 0).toFixed(2))
-      const wTrades = trades.filter(t => t.portfolio_id === p.id)
-      const wInv    = parseFloat(wTrades.filter(t => t.status === 'open').reduce((a, t) => a + calcInvested(t), 0).toFixed(2))
-      const wPnl    = parseFloat(wTrades.filter(t => t.status === 'closed').reduce((a, t) => a + Number(t.realized_pnl || 0), 0).toFixed(2))
-      const wNeto   = parseFloat((wDep - wWit).toFixed(2))
-      const wRend   = wNeto > 0 ? parseFloat(((wPnl + wDiv) / wNeto * 100).toFixed(2)) : 0
-      return { name: p.name, depositado: wDep, retirado: wWit, invertido: wInv, dividendos: wDiv, pnl: wPnl, neto: wNeto, rendimiento: wRend }
+      const a = walletAgg.get(p.id) ?? { dep: 0, wd: 0, div: 0 }
+      const pTrades = trades.filter(t => t.portfolio_id === p.id)
+      const invertido = r2(pTrades.filter(t => t.status === 'open').reduce((s, t) => s + openInvested(t), 0))
+      const pnl = r2(closedTrades.filter(t => t.wallet === p.id).reduce((s, t) => s + t.pnl, 0))
+      const neto = r2(a.dep - a.wd)
+      return {
+        name: p.name as string,
+        depositado: r2(a.dep), retirado: r2(a.wd), invertido, dividendos: r2(a.div), pnl, neto,
+        rendimiento: neto > 0 ? r2(((pnl + a.div) / neto) * 100) : 0,
+      }
     }).filter(w => w.depositado > 0 || w.invertido > 0 || w.pnl !== 0)
 
-    // ── Distribución ──────────────────────────────────────────────────────
-    const saldoDisponible = parseFloat(Math.max(capitalNeto - totalInvested, 0).toFixed(2))
-    const totalPat = Math.abs(patrimonio) || 1
-    
-    // ── Historial anual (histórico completo sin filtro de año) ────────────
-    const byYear: Record<string, { depositos: number, retiros: number, dividendos: number }> = {}
-    realMovByWallet.forEach(m => {
-      const y = parseDate(m.date).getFullYear().toString()
-      if (!byYear[y]) byYear[y] = { depositos: 0, retiros: 0, dividendos: 0 }
-      if (isDividend(m))      byYear[y].dividendos += Number(m.amount)
-      else if (isDeposit(m))  byYear[y].depositos  += Number(m.amount)
-      else if (isWithdraw(m)) byYear[y].retiros    += Math.abs(Number(m.amount))
+    // ── Historial anual (histórico completo, solo filtrado por billetera) ──
+    const byYear: Record<string, { depositos: number; retiros: number; dividendos: number }> = {}
+    rm.forEach(m => {
+      const y = (byYear[m.year] ??= { depositos: 0, retiros: 0, dividendos: 0 })
+      if (m.kind === 'div') y.dividendos += m.amount
+      else if (m.kind === 'dep') y.depositos += m.amount
+      else y.retiros += m.amount
     })
     const historialAnual = Object.entries(byYear)
       .sort(([a], [b]) => b.localeCompare(a))
-      .map(([y, d]) => ({
-        year:       y,
-        depositos:  parseFloat(d.depositos.toFixed(2)),
-        retirado:   parseFloat(d.retiros.toFixed(2)),
-        neto:       parseFloat((d.depositos - d.retiros).toFixed(2)),
-        dividendos: parseFloat(d.dividendos.toFixed(2)),
+      .map(([year, d]) => ({
+        year, depositos: r2(d.depositos), retirado: r2(d.retiros),
+        neto: r2(d.depositos - d.retiros), dividendos: r2(d.dividendos),
       }))
 
-    // ── Money Score ───────────────────────────────────────────────────────
-    const scoreRendimiento  = Math.min(Math.max(rendimiento * 5, 0), 100)
-    const scoreDiversif     = Math.min((walletStats.length / 4) * 100, 100)
-    const mesesConDeposito  = monthlyData.filter(m => m.depositos > 0).length
-    const totalMeses        = Math.max(filterYear !== 'all' ? month + 1 : monthlyData.length, 1)
+    // ── Money Score ──
+    const scoreRendimiento = Math.min(Math.max(rendimiento * 5, 0), 100)
+    const scoreDiversif    = Math.min((walletStats.length / 4) * 100, 100)
+    const mesesConDeposito = monthlyData.filter(m => m.depositos > 0).length
+    // Meses que "debieron" tener depósito. Antes, al elegir un año pasado se dividía entre el mes en curso (p. ej. 10)
+    // en vez de 12, y con "todos los años" solo se contaban los meses que tenían actividad.
+    const totalMeses = Math.max(
+      filterYear === 'all'
+        ? growthData.length
+        : Number(filterYear) === now.getFullYear() ? now.getMonth() + 1 : 12,
+      1
+    )
     const scoreConsistencia = Math.min((mesesConDeposito / totalMeses) * 100, 100)
-    const scoreAhorro       = (capitalNeto + totalWithdrawn) > 0 ? Math.min((capitalNeto / (capitalNeto + totalWithdrawn)) * 150, 100) : 0
-    const scorePatrimonio   = totalPnlReal + totalDividends > 0 ? 100 : totalPnlReal + totalDividends === 0 ? 50 : 20
+    const scoreAhorro = (capitalNeto + totalWithdrawn) > 0
+      ? Math.min((capitalNeto / (capitalNeto + totalWithdrawn)) * 150, 100) : 0
+    const gain = totalPnlReal + totalDividends
+    const scorePatrimonio = gain > 0 ? 100 : gain === 0 ? 50 : 20
     const moneyScore = Math.round(
-      scoreRendimiento  * 0.30 + scoreDiversif     * 0.20 +
-      scoreConsistencia * 0.20 + scoreAhorro       * 0.15 + scorePatrimonio * 0.15
+      scoreRendimiento * 0.30 + scoreDiversif * 0.20 +
+      scoreConsistencia * 0.20 + scoreAhorro * 0.15 + scorePatrimonio * 0.15
     )
 
     return {
@@ -281,13 +272,26 @@ export default function InformeDinero() {
       monthlyData, growthData, walletStats, historialAnual,
       moneyScore, scoreRendimiento, scoreDiversif, scoreConsistencia, scoreAhorro, scorePatrimonio,
     }
-  }, [filteredMovements, realMovByWallet, portfolios, trades, calcInvested, filterWallet, filterYear])
+  }, [real, closedTrades, trades, portfolios, filterWallet, filterYear])
 
   const scoreColor = (s: number) => s >= 75 ? C.gain : s >= 50 ? C.gold : C.loss
   const scoreLabel = (s: number) => s >= 75 ? 'Sólido' : s >= 50 ? 'Regular' : 'Mejorable'
-  const hide = (v: string) => hideValues ? '••••' : v
 
-  const FilterBar = () => (
+  // Ejes y tooltips respetan el modo privacidad global (antes la página tenía su propio botón de ocultar
+  // y los ejes seguían mostrando los importes)
+  const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
+  const tooltipMoney = (v: any, name: any) => [money(Number(v) || 0), name || '']
+  const tooltipStyle = { background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }
+
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    background: active ? C.accent : C.dim,
+    color: active ? '#000' : C.muted,
+    border: `1px solid ${active ? C.accent : C.border}`,
+  })
+
+  // (Era un componente definido dentro de la página: se recreaba en cada render)
+  const filterBar = (
     <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
       <div style={{ position: 'relative' }}>
         <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
@@ -301,26 +305,19 @@ export default function InformeDinero() {
         <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
       </div>
       <div style={{ width: 1, background: C.border, height: 28 }} />
-      <button onClick={() => setFilterWallet('all')} style={{
-        padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-        background: filterWallet === 'all' ? C.accent : C.dim,
-        color: filterWallet === 'all' ? '#000' : C.muted,
-        border: `1px solid ${filterWallet === 'all' ? C.accent : C.border}`,
-      }}>Todas</button>
+      <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
-        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={{
-          padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-          background: filterWallet === p.id ? C.accent : C.dim,
-          color: filterWallet === p.id ? '#000' : C.muted,
-          border: `1px solid ${filterWallet === p.id ? C.accent : C.border}`,
-        }}>{p.name}</button>
+        <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
       ))}
-      <div style={{ marginLeft: 'auto' }}>
-        <button onClick={() => setHideValues(v => !v)} style={{
-          padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-          background: C.dim, color: C.muted, border: `1px solid ${C.border}`,
-        }}>{hideValues ? '👁 Mostrar' : '🙈 Ocultar'} valores</button>
-      </div>
+    </div>
+  )
+
+  const errorBanner = loadError && (
+    <div style={{
+      marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12,
+      background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: C.loss,
+    }}>
+      No se pudieron cargar los datos ({loadError}). El informe puede estar incompleto; recarga la página.
     </div>
   )
 
@@ -339,13 +336,16 @@ export default function InformeDinero() {
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>💵 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gain }}>Dinero</h1>
         </div>
-        <FilterBar />
+        {errorBanner}
+        {filterBar}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
           Sin movimientos de dinero registrados.
         </div>
       </div>
     </AppShell>
   )
+
+  const maxNeto = Math.max(...stats.historialAnual.map(x => Math.abs(x.neto)), 1)
 
   return (
     <AppShell>
@@ -367,17 +367,18 @@ export default function InformeDinero() {
           </div>
         </div>
 
-        <FilterBar />
+        {errorBanner}
+        {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 16 }}>
           {[
-            { label: 'CAPITAL DEPOSITADO',  value: hide(money(stats.totalDeposited)), color: C.accent, sub: 'dinero de tu bolsillo' },
-            { label: 'RETIRADO',            value: hide(money(stats.totalWithdrawn)), color: C.muted,  sub: 'dinero sacado' },
-            { label: 'CAPITAL NETO',        value: hide(money(stats.capitalNeto)),    color: C.text,   sub: 'depositado − retirado' },
-            { label: 'INVERTIDO EN TRADES', value: hide(money(stats.totalInvested)),  color: C.purple, sub: 'posiciones abiertas' },
-            { label: 'PnL REALIZADO',       value: hide(money(stats.totalPnlReal)),   color: stats.totalPnlReal >= 0 ? C.gain : C.loss, sub: 'trades cerrados' },
-            { label: 'DIVIDENDOS COBRADOS', value: hide(money(stats.totalDividends)), color: C.gold,   sub: 'ingreso pasivo' },
+            { label: 'CAPITAL DEPOSITADO',  value: money(stats.totalDeposited), color: C.accent, sub: 'dinero de tu bolsillo' },
+            { label: 'RETIRADO',            value: money(stats.totalWithdrawn), color: C.muted,  sub: 'dinero sacado' },
+            { label: 'CAPITAL NETO',        value: money(stats.capitalNeto),    color: C.text,   sub: 'depositado − retirado' },
+            { label: 'INVERTIDO EN TRADES', value: money(stats.totalInvested),  color: C.purple, sub: 'posiciones abiertas' },
+            { label: 'PnL REALIZADO',       value: money(stats.totalPnlReal),   color: stats.totalPnlReal >= 0 ? C.gain : C.loss, sub: 'trades cerrados' },
+            { label: 'DIVIDENDOS COBRADOS', value: money(stats.totalDividends), color: C.gold,   sub: 'ingreso pasivo' },
           ].map(k => (
             <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
@@ -391,7 +392,7 @@ export default function InformeDinero() {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>PATRIMONIO TOTAL ESTIMADO</div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: stats.patrimonio >= 0 ? C.gain : C.loss }}>{hide(money(stats.patrimonio))}</div>
+            <div style={{ fontSize: 26, fontWeight: 900, color: stats.patrimonio >= 0 ? C.gain : C.loss }}>{money(stats.patrimonio)}</div>
             <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>Capital neto + PnL realizado + Dividendos</div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -409,14 +410,10 @@ export default function InformeDinero() {
               <ComposedChart data={stats.monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} width={40} />
-                <Tooltip
-                  contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-                  labelStyle={{ color: C.accent, fontWeight: 700 }}
-                  formatter={(v: number | undefined, name: string | undefined) => [hideValues ? '••••' : money(v || 0), name || '']}
-                />
-                <Bar dataKey="depositos"  name="Depósitos"  fill={C.gain} fillOpacity={0.8} radius={[3,3,0,0]} />
-                <Bar dataKey="retiros"    name="Retiros"    fill={C.loss} fillOpacity={0.7} radius={[3,3,0,0]} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={44} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.accent, fontWeight: 700 }} formatter={tooltipMoney} />
+                <Bar dataKey="depositos"  name="Depósitos"  fill={C.gain}   fillOpacity={0.8} radius={[3,3,0,0]} />
+                <Bar dataKey="retiros"    name="Retiros"    fill={C.loss}   fillOpacity={0.7} radius={[3,3,0,0]} />
                 <Bar dataKey="dividendos" name="Dividendos" fill={C.gold}   fillOpacity={0.8} radius={[3,3,0,0]} />
                 <Bar dataKey="pnl"        name="PnL trades" fill={C.purple} fillOpacity={0.8} radius={[3,3,0,0]} />
                 <Line type="monotone" dataKey="neto" name="Neto" stroke={C.accent} strokeWidth={2} dot={false} />
@@ -447,14 +444,10 @@ export default function InformeDinero() {
                 </defs>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} width={40} />
-                <Tooltip
-                  contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
-                  labelStyle={{ color: C.accent, fontWeight: 700 }}
-                  formatter={(v: number | undefined, name: string | undefined) => [hideValues ? '••••' : money(v || 0), name || '']}
-                />
-                <Area type="monotone" dataKey="capital"    name="Capital depositado" stroke={C.accent} strokeWidth={2} fill="url(#capGrad)" dot={false} />
-                <Area type="monotone" dataKey="patrimonio" name="Patrimonio estimado" stroke={C.gain}  strokeWidth={2} fill="url(#patGrad)" dot={false} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={44} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.accent, fontWeight: 700 }} formatter={tooltipMoney} />
+                <Area type="monotone" dataKey="capital"    name="Capital depositado"  stroke={C.accent} strokeWidth={2} fill="url(#capGrad)" dot={false} />
+                <Area type="monotone" dataKey="patrimonio" name="Patrimonio estimado" stroke={C.gain}   strokeWidth={2} fill="url(#patGrad)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
             <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
@@ -467,7 +460,7 @@ export default function InformeDinero() {
           </div>
         </div>
 
-        {/* ── Fila 3: Por billetera + Distribución + Historial anual ── */}
+        {/* ── Fila 3: Por billetera + Flujo anual ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr', gap: 14, marginBottom: 16 }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>RESUMEN POR BILLETERA</div>
@@ -483,11 +476,11 @@ export default function InformeDinero() {
                 {stats.walletStats.map(w => (
                   <tr key={w.name} style={{ borderBottom: '1px solid #0a0a0a' }}>
                     <td style={{ padding: '8px 8px', color: C.text, fontWeight: 600 }}>{w.name}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.accent }}>{hide(money(w.depositado))}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.muted }}>{hide(w.retirado > 0 ? money(w.retirado) : '—')}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.purple }}>{hide(money(w.invertido))}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.gold }}>{hide(w.dividendos > 0 ? money(w.dividendos) : '—')}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: w.pnl >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{hide(money(w.pnl))}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.accent }}>{money(w.depositado)}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.muted }}>{w.retirado > 0 ? money(w.retirado) : '—'}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.purple }}>{money(w.invertido)}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.gold }}>{w.dividendos > 0 ? money(w.dividendos) : '—'}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', color: w.pnl >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{money(w.pnl)}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', color: w.rendimiento >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{fmtPct(w.rendimiento)}</td>
                   </tr>
                 ))}
@@ -495,12 +488,10 @@ export default function InformeDinero() {
             </table>
           </div>
 
-
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>FLUJO ANUAL</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.historialAnual.map(y => {
-                const maxNeto    = Math.max(...stats.historialAnual.map(x => Math.abs(x.neto)), 1)
                 const width      = Math.abs(y.neto) / maxNeto * 100
                 const isSelected = y.year === filterYear
                 return (
@@ -510,8 +501,8 @@ export default function InformeDinero() {
                         {y.year}{isSelected && <span style={{ fontSize: 8, color: C.gain, marginLeft: 4 }}>●</span>}
                       </span>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: y.neto >= 0 ? C.gain : C.loss }}>{hide(money(y.neto))}</div>
-                        {y.dividendos > 0 && <div style={{ fontSize: 8, color: C.gold }}>+{hide(money(y.dividendos))} div.</div>}
+                        <div style={{ fontSize: 13, fontWeight: 700, color: y.neto >= 0 ? C.gain : C.loss }}>{money(y.neto)}</div>
+                        {y.dividendos > 0 && <div style={{ fontSize: 8, color: C.gold }}>+{money(y.dividendos)} div.</div>}
                       </div>
                     </div>
                     <div style={{ height: 3, background: C.dim, borderRadius: 2 }}>
@@ -535,11 +526,11 @@ export default function InformeDinero() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
             {[
-              { label: 'Rendimiento',    pct: 30, score: Math.round(stats.scoreRendimiento), desc: `${fmtPct(stats.rendimiento)} sobre capital` },
-              { label: 'Diversificación',pct: 20, score: Math.round(stats.scoreDiversif),    desc: `${stats.walletStats.length} billeteras activas` },
-              { label: 'Consistencia',   pct: 20, score: Math.round(stats.scoreConsistencia),desc: 'depósitos regulares' },
-              { label: 'Ahorro',         pct: 15, score: Math.round(stats.scoreAhorro),      desc: 'capital retenido' },
-              { label: 'Patrimonio',     pct: 15, score: Math.round(stats.scorePatrimonio),  desc: 'PnL + dividendos' },
+              { label: 'Rendimiento',     pct: 30, score: Math.round(stats.scoreRendimiento),  desc: `${fmtPct(stats.rendimiento)} sobre capital` },
+              { label: 'Diversificación', pct: 20, score: Math.round(stats.scoreDiversif),     desc: `${stats.walletStats.length} billeteras activas` },
+              { label: 'Consistencia',    pct: 20, score: Math.round(stats.scoreConsistencia), desc: 'depósitos regulares' },
+              { label: 'Ahorro',          pct: 15, score: Math.round(stats.scoreAhorro),       desc: 'capital retenido' },
+              { label: 'Patrimonio',      pct: 15, score: Math.round(stats.scorePatrimonio),   desc: 'PnL + dividendos' },
             ].map(k => (
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
