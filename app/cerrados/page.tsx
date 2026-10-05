@@ -1,13 +1,28 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
 import { Trash2, X, History, Pencil, Check, AlertTriangle } from 'lucide-react'
 import { FaSort, FaSortUp, FaSortDown } from 'react-icons/fa'
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const parseDate = (d: any) => new Date(dayKey(d) + 'T00:00:00')
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const yearOf = (key: string) => Number(key.slice(0, 4))
+const monthOf = (key: string) => Number(key.slice(5, 7))
+const closeKeyOf = (t: any) => dayKey(t.close_date || t.open_date)
+
+const fmtDay = (d: any, year: '2-digit' | 'numeric' = '2-digit') => {
+  const key = dayKey(d)
+  if (!DAY_RE.test(key)) return '—'
+  return parseDate(key).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year })
+}
+
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const r6 = (n: number) => parseFloat(n.toFixed(6))
+
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 const CLOSE_REASONS = [
@@ -15,6 +30,27 @@ const CLOSE_REASONS = [
   'Rompió estructura', 'Cambio de tesis', 'Necesidad de liquidez',
   'Error de análisis', 'Otro',
 ]
+
+// ── Supabase ──────────────────────────────────────────────────────────────────
+// Supabase devuelve {error} en vez de lanzarlo: sin esto, un fallo en medio de una edición pasaba desapercibido
+function must<T extends { error: any }>(res: T): T {
+  if (res.error) throw new Error(res.error.message || String(res.error))
+  return res
+}
+
+// Máximo 1000 filas por consulta: se pide por páginas (antes se cortaban los trades y dividendos a 1000)
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
 
 // ── Cat SVGs ──────────────────────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#555', opacity = 1, rotate = 0 }: any) => (
@@ -52,23 +88,83 @@ interface EditRow {
   commission:  number
 }
 
-// ── Recalcular realized_pnl de un trade completo ─────────────────────────────
-// PnL = suma(ventas/cierres netos) − inversión total
-async function recalcPnL(tradeId: string, tradeData: any, executions: any[]): Promise<number> {
-  const initialQty = Number(tradeData.initial_quantity || tradeData.quantity)
-  const initialInv = initialQty * Number(tradeData.entry_price)
+type HistKind = EditRow['kind'] | 'div'
+interface HistRow {
+  key:         string
+  kind:        HistKind
+  executionId: string | null
+  date:        string
+  quantity:    number
+  price:       number
+  commission:  number
+  net:         number
+}
 
-  const buyExtraInv = executions
-    .filter(e => e.execution_type?.toLowerCase() === 'buy')
-    .reduce((acc, e) => acc + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+const HIST_LABEL: Record<HistKind, { label: string; color: string }> = {
+  apertura: { label: 'Apertura',      color: '#00bfff' },
+  buy:      { label: 'Recompra',      color: '#22c55e' },
+  sell:     { label: 'Venta parcial', color: '#f43f5e' },
+  close:    { label: 'Cierre',        color: '#00bfff' },
+  div:      { label: 'Dividendo',     color: '#eab308' },
+}
 
-  const totalInv = initialInv + buyExtraInv
+const execType = (e: any) => String(e?.execution_type || '').toLowerCase()
+
+// ── Cálculo de un trade (una sola fuente: tabla, resumen, modal y guardado de ediciones) ──
+// Antes, el guardado (recalcPnL) y la pantalla (calculateTradeData) tenían cada uno su copia de la fórmula.
+function calcTrade(t: any, executions: any[] = t.trade_executions || []) {
+  const openDate  = parseDate(t.open_date)
+  const closeDate = parseDate(t.close_date || t.closed_at || t.open_date)
+  const rawDays   = Math.round(Math.abs(closeDate.getTime() - openDate.getTime()) / 86400000)
+  const diffDays  = Number.isFinite(rawDays) ? Math.max(1, rawDays) : 1
+
+  const initialQty = r6(Number(t.initial_quantity || t.quantity))
+  const initialInv = r2(initialQty * Number(t.entry_price))
+
+  const buyExecs = executions
+    .filter(e => execType(e) === 'buy')
+    .reduce((acc, e) => r2(acc + Number(e.quantity) * Number(e.price) + Number(e.commission || 0)), 0)
+
+  const totalInvested = r2(initialInv + buyExecs)
 
   const totalSells = executions
-    .filter(e => ['sell', 'close'].includes(e.execution_type?.toLowerCase()))
-    .reduce((acc, e) => acc + Number(e.quantity) * Number(e.price) - Number(e.commission || 0), 0)
+    .filter(e => ['sell', 'close'].includes(execType(e)))
+    .reduce((acc, e) => r2(acc + Number(e.quantity) * Number(e.price) - Number(e.commission || 0)), 0)
 
-  return parseFloat((totalSells - totalInv).toFixed(2))
+  const pnlCash   = r2(totalSells - totalInvested)
+  const pnlPct    = totalInvested > 0 ? r2((pnlCash / totalInvested) * 100) : 0
+  const annualPct = pnlPct > -100
+    ? r2((Math.pow(1 + pnlPct / 100, 365 / diffDays) - 1) * 100)
+    : -100
+
+  return { diffDays, totalInvested, totalSells, pnlCash, pnlPct, annualPct }
+}
+
+// El movimiento de apertura no tiene execution_id. Se busca por billetera + ticker + tipo 'trade' + monto
+// negativo + fecha de apertura y, si hay varios (mismo ticker abierto dos veces el mismo día), se toma el de monto
+// más parecido. Antes, al editar una apertura se tomaba el movimiento MÁS ANTIGUO de ese ticker en la billetera:
+// con dos trades del mismo ticker se modificaba la apertura del otro.
+async function findOpeningMovement(trade: any): Promise<any | null> {
+  const gross = Number(trade.initial_quantity || trade.quantity) * Number(trade.entry_price)
+  const { data } = must(await supabase
+    .from('wallet_movements')
+    .select('*')
+    .eq('wallet_id', trade.portfolio_id)
+    .eq('ticker', trade.ticker)
+    .eq('movement_type', 'trade')
+    .lt('amount', 0)
+    .is('execution_id', null)
+    .eq('date', dayKey(trade.open_date)))
+  if (!data?.length) return null
+  return [...data].sort((a: any, b: any) =>
+    Math.abs(Number(a.amount) + gross) - Math.abs(Number(b.amount) + gross))[0]
+}
+
+function SortIcon({ col, sort }: { col: string; sort: { key: string; direction: 'asc' | 'desc' } }) {
+  if (sort.key !== col) return <FaSort style={{ marginLeft: 4, opacity: 0.2 }} />
+  return sort.direction === 'asc'
+    ? <FaSortUp   style={{ marginLeft: 4, color: '#00bfff' }} />
+    : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
 }
 
 export default function CerradosPage() {
@@ -78,12 +174,14 @@ export default function CerradosPage() {
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState('all')
   const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
-  const [filterMonth, setFilterMonth] = useState('all')
+  const [filterMonth,       setFilterMonth]       = useState('all')
   const [filterTicker,      setFilterTicker]      = useState('')
   const [filterReason,      setFilterReason]      = useState('all')
   const [filterSector,      setFilterSector]      = useState('all')
-  const [allDividends, setAllDividends] = useState<any[]>([])
+  const [allDividends,      setAllDividends]      = useState<any[]>([])
   const [viewingTrade,      setViewingTrade]      = useState<any>(null)
+  const [pageError,         setPageError]         = useState('')
+  const [deletingId,        setDeletingId]        = useState<string | null>(null)
   const [sortConfig,        setSortConfig]        = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'close_date', direction: 'desc',
   })
@@ -94,150 +192,143 @@ export default function CerradosPage() {
   const [editSaving,  setEditSaving]  = useState(false)
   const [editError,   setEditError]   = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const [{ data: pData }, { data: tData }] = await Promise.all([
-      supabase.from('portfolios').select('*').eq('user_id', user.id),
-      supabase.from('trades')
-        .select('*, portfolios(name), trade_executions(*)')
-        .eq('user_id', user.id)
-        .eq('status', 'closed'),
-    ])
-    if (pData) setPortfolios(pData)
-    if (tData) setTrades(tData)
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
-    // Cargar todos los dividendos con fecha para filtrar por rango del trade
-    const { data: divData } = await supabase
-      .from('wallet_movements')
-      .select('ticker, amount, date')
-      .eq('is_dividend', true)
-      .eq('user_id', user.id)
+  // Devuelve los trades cargados (el guardado los usa para refrescar el modal sin otra consulta)
+  const fetchData = useCallback(async (): Promise<any[]> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return []
 
-    setAllDividends(divData || [])
+      const [pData, tData, divData] = await Promise.all([
+        fetchAll(() => supabase.from('portfolios').select('*').eq('user_id', user.id).order('id')),
+        fetchAll(() => supabase.from('trades')
+          .select('*, portfolios(name), trade_executions(*)')
+          .eq('user_id', user.id)
+          .eq('status', 'closed')
+          .order('id')),
+        // Dividendos con fecha y billetera, para repartirlos entre los trades del rango.
+        // Mismo criterio que la página de inicio (is_dividend o movement_type = 'dividend').
+        fetchAll(() => supabase.from('wallet_movements')
+          .select('id, ticker, amount, date, wallet_id')
+          .or('is_dividend.eq.true,movement_type.eq.dividend')
+          .eq('user_id', user.id)
+          .order('date')
+          .order('id')),
+      ])
+
+      if (alive.current) {
+        setPortfolios(pData)
+        setTrades(tData)
+        setAllDividends(divData)
+        setPageError('')
+      }
+      return tData
+    } catch (e: any) {
+      if (alive.current) setPageError(`No se pudieron cargar los datos: ${e?.message || e}`)
+      return []
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // ── Dividendos indexados por ticker (antes: recorrer todos los dividendos por cada trade y parsear fechas) ──
+  const dividendsByTicker = useMemo(() => {
+    const map = new Map<string, { key: string; amount: number; wallet: any }[]>()
+    for (const d of allDividends) {
+      const key = dayKey(d.date)
+      if (!DAY_RE.test(key)) continue
+      const list = map.get(d.ticker) || []
+      list.push({ key, amount: Number(d.amount) || 0, wallet: d.wallet_id })
+      map.set(d.ticker, list)
+    }
+    return map
+  }, [allDividends])
+
+  // Dividendos que caen dentro de las fechas del trade. Ahora también deben ser de SU billetera: antes, si tenías el
+  // mismo ticker en dos portafolios al mismo tiempo, cada dividendo se sumaba a los dos trades.
+  const getDividendsForTrade = useCallback((t: any) => {
+    const list = dividendsByTicker.get(t.ticker)
+    if (!list) return []
+    const from = dayKey(t.open_date)
+    const to   = dayKey(t.close_date || t.open_date)
+    return list.filter(d => d.key >= from && d.key <= to && (!d.wallet || d.wallet === t.portfolio_id))
+  }, [dividendsByTicker])
+
   const availableYears = useMemo(() => {
-    const years = new Set(trades.map(t => parseDate(t.close_date || t.open_date).getFullYear()))
+    const years = new Set(trades.map(t => yearOf(closeKeyOf(t))))
     years.add(new Date().getFullYear())
-    return Array.from(years).sort((a, b) => b - a)
+    return Array.from(years).filter(Number.isFinite).sort((a, b) => b - a)
   }, [trades])
 
   const availableMonths = useMemo(() => {
     const months = new Set(
       trades
-        .filter(t => selectedYear === 'all' || parseDate(t.close_date || t.open_date).getFullYear().toString() === selectedYear)
-        .map(t => String(parseDate(t.close_date || t.open_date).getMonth() + 1))
+        .filter(t => selectedYear === 'all' || String(yearOf(closeKeyOf(t))) === selectedYear)
+        .map(t => String(monthOf(closeKeyOf(t))))
     )
     return Array.from(months).sort((a, b) => Number(a) - Number(b))
   }, [trades, selectedYear])
 
   const availableSectors = useMemo(() => {
-    const sectors = new Set(trades.map(t => t.sector || 'Sin sector').filter(Boolean))
+    const sectors = new Set(trades.map(t => t.sector || 'Sin sector'))
     return Array.from(sectors).sort()
   }, [trades])
 
-  const calculateTradeData = useCallback((t: any) => {
-    const openDate  = parseDate(t.open_date)
-    const closeDate = parseDate(t.close_date || t.closed_at || t.open_date)
-    const diffDays  = Math.max(1, Math.ceil(Math.abs(closeDate.getTime() - openDate.getTime()) / 86400000))
-    const executions = t.trade_executions || []
-
-    const initialQty = parseFloat(Number(t.initial_quantity || t.quantity).toFixed(6))
-    const initialInv = parseFloat((initialQty * Number(t.entry_price)).toFixed(2))
-
-    const buyExecs = executions
-      .filter((e: any) => e.execution_type?.toLowerCase() === 'buy')
-      .reduce((acc: number, e: any) => {
-        return parseFloat((acc + Number(e.quantity) * Number(e.price) + Number(e.commission || 0)).toFixed(2))
-      }, 0)
-
-    const totalInvested = parseFloat((initialInv + buyExecs).toFixed(2))
-
-    const totalSells = executions
-      .filter((e: any) => ['sell', 'close'].includes(e.execution_type?.toLowerCase()))
-      .reduce((acc: number, e: any) => {
-        return parseFloat((acc + Number(e.quantity) * Number(e.price) - Number(e.commission || 0)).toFixed(2))
-      }, 0)
-
-    const pnlCash   = parseFloat((totalSells - totalInvested).toFixed(2))
-    const pnlPct    = totalInvested > 0 ? parseFloat(((pnlCash / totalInvested) * 100).toFixed(2)) : 0
-    const annualPct = pnlPct > -100
-      ? parseFloat(((Math.pow(1 + pnlPct / 100, 365 / diffDays) - 1) * 100).toFixed(2))
-      : -100
-
-    return { diffDays, totalInvested, totalSells, pnlCash, pnlPct, annualPct }
-  }, [])
-
-  const getDividendsForTrade = useCallback((ticker: string, openDate: string, closeDate: string) => {
-    const open  = new Date(openDate  + 'T00:00:00').getTime()
-    const close = new Date((closeDate || openDate) + 'T23:59:59').getTime()
-    return allDividends.filter(d =>
-      d.ticker === ticker &&
-      new Date(d.date + 'T00:00:00').getTime() >= open &&
-      new Date(d.date + 'T00:00:00').getTime() <= close
-    )
-  }, [allDividends])
+  // Razones del catálogo + las que existan en los datos (antes, una razón fuera del catálogo no se podía filtrar)
+  const availableReasons = useMemo(() => {
+    const reasons = new Set<string>(CLOSE_REASONS)
+    trades.forEach(t => { if (t.close_reason) reasons.add(t.close_reason) })
+    return Array.from(reasons)
+  }, [trades])
 
   const handleSort = (key: string) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }))
   }
 
-  const SortIcon = ({ col }: { col: string }) => {
-    if (sortConfig.key !== col) return <FaSort style={{ marginLeft: 4, opacity: 0.2 }} />
-    return sortConfig.direction === 'asc'
-      ? <FaSortUp   style={{ marginLeft: 4, color: '#00bfff' }} />
-      : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
-  }
-
+  // ── Eliminar trade ────────────────────────────────────────────────────────
+  // Las tablas dependen entre sí (movimientos → ejecuciones → trade), así que se borran en ese orden. Como no es una
+  // sola transacción, se guarda lo borrado y, si un paso falla, se vuelve a insertar: antes un fallo a medias dejaba
+  // el trade sin sus movimientos de billetera (y sin avisar, porque no se revisaban los errores).
   const handleDelete = async (trade: any) => {
-  if (!confirm(`¿Eliminar trade de ${trade.ticker}? Se revertirán los movimientos de esta operación en la billetera.`)) return
+    if (deletingId) return
+    if (!confirm(`¿Eliminar trade de ${trade.ticker}? Se revertirán los movimientos de esta operación en la billetera.`)) return
 
-  // 1. Obtener los IDs de las ejecuciones de ESTE trade
-  const { data: execs } = await supabase
-    .from('trade_executions')
-    .select('id')
-    .eq('trade_id', trade.id)
+    setDeletingId(trade.id)
+    setPageError('')
+    const undo: (() => PromiseLike<any>)[] = []
 
-  const execIds = (execs || []).map((e: any) => e.id)
+    try {
+      const execs: any[] = trade.trade_executions || []
+      const execIds = execs.map(e => e.id)
 
-  // 2. Borrar wallet_movements vinculados a estas ejecuciones (recompras, cierres, ventas)
-  if (execIds.length > 0) {
-    await supabase
-      .from('wallet_movements')
-      .delete()
-      .in('execution_id', execIds)
+      // Movimientos vinculados a las ejecuciones (recompras, ventas, cierres) + el de apertura
+      const linked = execIds.length
+        ? (must(await supabase.from('wallet_movements').select('*').in('execution_id', execIds)).data || [])
+        : []
+      const opening = await findOpeningMovement(trade)
+      const movements = opening ? [...linked, opening] : linked
+
+      if (movements.length) {
+        must(await supabase.from('wallet_movements').delete().in('id', movements.map((m: any) => m.id)))
+        undo.push(() => supabase.from('wallet_movements').insert(movements))
+      }
+      if (execs.length) {
+        must(await supabase.from('trade_executions').delete().eq('trade_id', trade.id))
+        undo.push(() => supabase.from('trade_executions').insert(execs))
+      }
+      must(await supabase.from('trades').delete().eq('id', trade.id))
+
+      if (viewingTrade?.id === trade.id) setViewingTrade(null)
+    } catch (err: any) {
+      for (const fn of undo.reverse()) { try { await fn() } catch { /* mejor esfuerzo */ } }
+      setPageError(`No se pudo eliminar ${trade.ticker}: ${err?.message || err}. Se restauró lo que se alcanzó a borrar.`)
+    } finally {
+      setDeletingId(null)
+      await fetchData()
+    }
   }
-
-  // 3. Borrar el movimiento de APERTURA de este trade
-  //    Se identifica por: mismo ticker, misma billetera, tipo 'trade',
-  //    monto negativo, execution_id null, y fecha igual a open_date
-  await supabase
-    .from('wallet_movements')
-    .delete()
-    .eq('wallet_id', trade.portfolio_id)
-    .eq('ticker', trade.ticker)
-    .eq('movement_type', 'trade')
-    .lt('amount', 0)
-    .is('execution_id', null)
-    .eq('date', trade.open_date)
-
-  // 4. Borrar ejecuciones del trade
-  await supabase
-    .from('trade_executions')
-    .delete()
-    .eq('trade_id', trade.id)
-
-  // 5. Borrar el trade
-  await supabase
-    .from('trades')
-    .delete()
-    .eq('id', trade.id)
-
-  fetchData()
-}
 
   // ── Abrir modal de edición ────────────────────────────────────────────────
   const openEdit = (row: EditRow) => {
@@ -252,196 +343,234 @@ export default function CerradosPage() {
   }
 
   // ── Guardar edición ───────────────────────────────────────────────────────
+  // Cada escritura guarda su valor anterior; si algo falla se restaura todo (antes los errores no se revisaban y una
+  // edición podía quedar a medias: ejecución cambiada pero billetera y PnL sin actualizar).
   const saveEdit = async () => {
-    if (!editingRow || !viewingTrade) return
-    setEditSaving(true)
-    setEditError(null)
+    if (!editingRow || !viewingTrade || editSaving) return
 
     const newQty   = parseFloat(editValues.quantity)
     const newPrice = parseFloat(editValues.price)
     const newComm  = parseFloat(editValues.commission) || 0
     const newDate  = editValues.date
 
-    if (isNaN(newQty) || isNaN(newPrice) || newQty <= 0 || newPrice <= 0) {
+    if (!Number.isFinite(newQty) || !Number.isFinite(newPrice) || newQty <= 0 || newPrice <= 0) {
       setEditError('Cantidad y precio deben ser números positivos.')
-      setEditSaving(false)
       return
     }
+    if (newComm < 0) { setEditError('La comisión no puede ser negativa.'); return }
+    if (!DAY_RE.test(newDate)) { setEditError('Fecha inválida.'); return }
+
+    setEditSaving(true)
+    setEditError(null)
+    const undo: (() => PromiseLike<any>)[] = []
 
     try {
       const trade = viewingTrade
+      const execs: any[] = trade.trade_executions || []
 
       // ── APERTURA ──────────────────────────────────────────────────────────
       if (editingRow.kind === 'apertura') {
-        const oldGross = Number(trade.initial_quantity || trade.quantity) * Number(trade.entry_price)
-        const newGross = newQty * newPrice
+        const newGross = r6(newQty * newPrice)
+        const movement = await findOpeningMovement(trade)
+        const newPnL = calcTrade({ ...trade, entry_price: newPrice, initial_quantity: newQty }, execs).pnlCash
 
-        // 1. Actualizar trade
-        await supabase.from('trades').update({
-          entry_price:       newPrice,
-          initial_quantity:  newQty,
-          open_date:         newDate,
-        }).eq('id', trade.id)
+        const oldTrade = {
+          entry_price: trade.entry_price, initial_quantity: trade.initial_quantity,
+          open_date: trade.open_date, realized_pnl: trade.realized_pnl,
+        }
+        must(await supabase.from('trades').update({
+          entry_price: newPrice, initial_quantity: newQty, open_date: newDate, realized_pnl: newPnL,
+        }).eq('id', trade.id))
+        undo.push(() => supabase.from('trades').update(oldTrade).eq('id', trade.id))
 
-        // 2. Actualizar wallet_movement de apertura
-        //    El movimiento de apertura no tiene execution_id, se identifica por
-        //    ticker + portfolio_id + movement_type='trade' + monto negativo (compra)
-        const { data: wms } = await supabase
-          .from('wallet_movements')
-          .select('*')
-          .eq('wallet_id', trade.portfolio_id)
-          .eq('ticker', trade.ticker)
-          .eq('movement_type', 'trade')
-          .lt('amount', 0)
-          .is('execution_id', null)
-          .order('date', { ascending: true })
-          .limit(1)
-
-        if (wms && wms.length > 0) {
-          await supabase.from('wallet_movements')
-            .update({ amount: -newGross, date: newDate })
-            .eq('id', wms[0].id)
+        if (movement) {
+          must(await supabase.from('wallet_movements').update({ amount: -newGross, date: newDate }).eq('id', movement.id))
+          undo.push(() => supabase.from('wallet_movements').update({ amount: movement.amount, date: movement.date }).eq('id', movement.id))
         }
 
-        // 3. Recalcular realized_pnl con las ejecuciones actualizadas
-        const updatedExecs = trade.trade_executions || []
-        const newPnL = await recalcPnL(trade.id, { ...trade, entry_price: newPrice, initial_quantity: newQty }, updatedExecs)
-        await supabase.from('trades').update({ realized_pnl: newPnL }).eq('id', trade.id)
+      // ── RECOMPRA / VENTA PARCIAL / CIERRE ─────────────────────────────────
+      } else if (editingRow.executionId) {
+        const execId = editingRow.executionId
+        const isBuy  = editingRow.kind === 'buy'
+        const oldExec = execs.find(e => e.id === execId)
+        if (!oldExec) throw new Error('No se encontró la ejecución a editar')
 
-      // ── RECOMPRA (buy) ────────────────────────────────────────────────────
-      } else if (editingRow.kind === 'buy' && editingRow.executionId) {
-        const oldExec = trade.trade_executions.find((e: any) => e.id === editingRow.executionId)
-        const newNet  = newQty * newPrice + newComm   // débito de billetera
+        // Recompra: sale dinero de la billetera. Venta/cierre: entra, menos comisión.
+        const walletAmount = isBuy ? -(newQty * newPrice + newComm) : newQty * newPrice - newComm
 
-        // 1. Actualizar ejecución
-        await supabase.from('trade_executions').update({
+        must(await supabase.from('trade_executions').update({
           quantity:    newQty,
           price:       newPrice,
           commission:  newComm,
           executed_at: newDate + 'T12:00:00',
           total:       newQty * newPrice,
-        }).eq('id', editingRow.executionId)
+        }).eq('id', execId))
+        undo.push(() => supabase.from('trade_executions').update({
+          quantity: oldExec.quantity, price: oldExec.price, commission: oldExec.commission,
+          executed_at: oldExec.executed_at, total: oldExec.total,
+        }).eq('id', execId))
 
-        // 2. Actualizar wallet_movement vinculado por execution_id
-        await supabase.from('wallet_movements')
-          .update({ amount: -newNet, date: newDate })
-          .eq('execution_id', editingRow.executionId)
+        const { data: oldMovs } = must(await supabase
+          .from('wallet_movements').select('id, amount, date').eq('execution_id', execId))
+        must(await supabase.from('wallet_movements')
+          .update({ amount: walletAmount, date: newDate })
+          .eq('execution_id', execId))
+        for (const m of oldMovs || []) {
+          undo.push(() => supabase.from('wallet_movements').update({ amount: m.amount, date: m.date }).eq('id', m.id))
+        }
 
-        // 3. Recalcular PnL
-        const updatedExecs = trade.trade_executions.map((e: any) =>
-          e.id === editingRow.executionId
-            ? { ...e, quantity: newQty, price: newPrice, commission: newComm }
-            : e
-        )
-        const newPnL = await recalcPnL(trade.id, trade, updatedExecs)
-        await supabase.from('trades').update({ realized_pnl: newPnL }).eq('id', trade.id)
+        const updatedExecs = execs.map(e =>
+          e.id === execId ? { ...e, quantity: newQty, price: newPrice, commission: newComm } : e)
+        const tradeUpdate: Record<string, any> = { realized_pnl: calcTrade(trade, updatedExecs).pnlCash }
+        // Si se corrige la fecha del cierre, la fecha de cierre del trade (la que usan la tabla y los filtros) la sigue
+        if (editingRow.kind === 'close' && dayKey(trade.close_date) !== newDate) tradeUpdate.close_date = newDate
 
-      // ── VENTA PARCIAL (sell) o CIERRE (close) ────────────────────────────
-      } else if ((editingRow.kind === 'sell' || editingRow.kind === 'close') && editingRow.executionId) {
-        const newNet = newQty * newPrice - newComm   // crédito a billetera
-
-        // 1. Actualizar ejecución
-        await supabase.from('trade_executions').update({
-          quantity:    newQty,
-          price:       newPrice,
-          commission:  newComm,
-          executed_at: newDate + 'T12:00:00',
-          total:       newQty * newPrice,
-        }).eq('id', editingRow.executionId)
-
-        // 2. Actualizar wallet_movement vinculado
-        await supabase.from('wallet_movements')
-          .update({ amount: newNet, date: newDate })
-          .eq('execution_id', editingRow.executionId)
-
-        // 3. Recalcular PnL
-        const updatedExecs = trade.trade_executions.map((e: any) =>
-          e.id === editingRow.executionId
-            ? { ...e, quantity: newQty, price: newPrice, commission: newComm }
-            : e
-        )
-        const newPnL = await recalcPnL(trade.id, trade, updatedExecs)
-        await supabase.from('trades').update({ realized_pnl: newPnL }).eq('id', trade.id)
+        const oldTradeFields: Record<string, any> = {}
+        for (const k of Object.keys(tradeUpdate)) oldTradeFields[k] = trade[k]
+        must(await supabase.from('trades').update(tradeUpdate).eq('id', trade.id))
+        undo.push(() => supabase.from('trades').update(oldTradeFields).eq('id', trade.id))
       }
 
-      // Refrescar datos
-      await fetchData()
-
-      // Actualizar viewingTrade con los datos frescos
-      const { data: freshTrade } = await supabase
-        .from('trades')
-        .select('*, portfolios(name), trade_executions(*)')
-        .eq('id', trade.id)
-        .single()
-      if (freshTrade) setViewingTrade(freshTrade)
-
-      setEditingRow(null)
+      // Refrescar datos y el modal con lo recién guardado
+      const fresh = await fetchData()
+      if (alive.current) {
+        setViewingTrade(fresh.find((t: any) => t.id === trade.id) ?? null)
+        setEditingRow(null)
+      }
 
     } catch (err: any) {
-      setEditError(err?.message ?? 'Error al guardar. Revisa la consola.')
+      for (const fn of undo.reverse()) { try { await fn() } catch { /* mejor esfuerzo */ } }
+      setEditError(`No se guardó: ${err?.message ?? 'error desconocido'}. Se restauraron los valores anteriores.`)
       console.error(err)
     } finally {
-      setEditSaving(false)
+      if (alive.current) setEditSaving(false)
     }
   }
 
-  const filteredAndSorted = useMemo(() => {
-    let result = trades.filter(t => {
-      const matchPortfolio = selectedPortfolio === 'all' || t.portfolio_id === selectedPortfolio
-      const matchYear      = selectedYear === 'all' || parseDate(t.close_date || t.open_date).getFullYear().toString() === selectedYear
-      const matchTicker    = !filterTicker || t.ticker.toLowerCase().includes(filterTicker.toLowerCase())
-      const matchReason    = filterReason === 'all' || (t.close_reason || '') === filterReason
-      const matchSector    = filterSector === 'all' || (t.sector || 'Sin sector') === filterSector
+  const closeModal = () => {
+    if (editSaving) return // no cerrar a mitad de un guardado
+    setViewingTrade(null)
+    setEditingRow(null)
+  }
 
-      const matchMonth = filterMonth === 'all' || (() => {
-        const d = parseDate(t.close_date || t.open_date)
-        return String(d.getMonth() + 1) === filterMonth
-      })()
-      return matchPortfolio && matchYear && matchTicker && matchReason && matchSector && matchMonth
-    })
+  // ── Filas de la tabla: filtro + cálculo + orden (el cálculo se hace una vez por trade, no en cada comparación) ──
+  const rows = useMemo(() => {
+    const tickerQ = filterTicker.toLowerCase()
+    const list = trades
+      .filter(t => {
+        const key = closeKeyOf(t)
+        if (selectedPortfolio !== 'all' && t.portfolio_id !== selectedPortfolio) return false
+        if (selectedYear !== 'all' && String(yearOf(key)) !== selectedYear) return false
+        if (filterMonth !== 'all' && String(monthOf(key)) !== filterMonth) return false
+        if (tickerQ && !String(t.ticker).toLowerCase().includes(tickerQ)) return false
+        if (filterReason !== 'all' && (t.close_reason || '') !== filterReason) return false
+        if (filterSector !== 'all' && (t.sector || 'Sin sector') !== filterSector) return false
+        return true
+      })
+      .map(t => {
+        const d = calcTrade(t)
+        const divTotal = getDividendsForTrade(t).reduce((a, dv) => a + dv.amount, 0)
+        const totalWithDiv = d.pnlCash + divTotal
+        return {
+          t, ...d, divTotal, totalWithDiv,
+          pctWithDiv: d.totalInvested > 0 ? (totalWithDiv / d.totalInvested) * 100 : 0,
+          openKey: dayKey(t.open_date), closeKey: closeKeyOf(t),
+        }
+      })
 
-    return result.sort((a, b) => {
-      const da = calculateTradeData(a)
-      const db = calculateTradeData(b)
-      let v1: any = a[sortConfig.key] ?? 0
-      let v2: any = b[sortConfig.key] ?? 0
-      if (sortConfig.key === 'close_date' || sortConfig.key === 'open_date') {
-        v1 = parseDate(a[sortConfig.key] || a.open_date).getTime()
-        v2 = parseDate(b[sortConfig.key] || b.open_date).getTime()
+    // La tabla muestra PnL $ y PnL % CON dividendos: el orden ahora usa esos mismos valores
+    const sortValue = (r: (typeof list)[number]): string | number => {
+      switch (sortConfig.key) {
+        case 'ticker':     return String(r.t.ticker || '')
+        case 'sector':     return String(r.t.sector || '')
+        case 'open_date':  return r.openKey
+        case 'close_date': return r.closeKey
+        case 'diffDays':   return r.diffDays
+        case 'annualPct':  return r.annualPct
+        case 'pnlCash':    return r.totalWithDiv
+        case 'pnlPct':     return r.pctWithDiv
+        default:           return 0
       }
-      if (sortConfig.key === 'pnlCash')   { v1 = da.pnlCash;   v2 = db.pnlCash }
-      if (sortConfig.key === 'pnlPct')    { v1 = da.pnlPct;    v2 = db.pnlPct }
-      if (sortConfig.key === 'diffDays')  { v1 = da.diffDays;  v2 = db.diffDays }
-      if (sortConfig.key === 'annualPct') { v1 = da.annualPct; v2 = db.annualPct }
-      if (v1 < v2) return sortConfig.direction === 'asc' ? -1 : 1
-      if (v1 > v2) return sortConfig.direction === 'asc' ? 1 : -1
-      return 0
+    }
+    const dir = sortConfig.direction === 'asc' ? 1 : -1
+    return list.sort((a, b) => {
+      const v1 = sortValue(a), v2 = sortValue(b)
+      if (typeof v1 === 'string' && typeof v2 === 'string') return v1.localeCompare(v2) * dir
+      return ((v1 as number) - (v2 as number)) * dir
     })
-  }, [trades, selectedPortfolio, selectedYear, filterMonth, filterTicker, filterReason, filterSector, sortConfig, calculateTradeData])
+  }, [trades, selectedPortfolio, selectedYear, filterMonth, filterTicker, filterReason, filterSector, sortConfig, getDividendsForTrade])
 
-    const summary = useMemo(() => {
-    const perTrade = filteredAndSorted.map(t => {
-      const d = calculateTradeData(t)
-      const divTotal = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
-        .reduce((a: number, dv: any) => a + Number(dv.amount), 0)
-      return { ...d, divTotal, totalWithDiv: d.pnlCash + divTotal }
+  const summary = useMemo(() => {
+    const total    = rows.length
+    const winners  = rows.filter(r => r.pnlCash > 0).length
+    const totalPnl = rows.reduce((a, r) => a + r.pnlCash, 0)
+    const totalInv = rows.reduce((a, r) => a + r.totalInvested, 0)
+    const totalSell = rows.reduce((a, r) => a + r.totalSells, 0)
+    const totalDividends = rows.reduce((a, r) => a + r.divTotal, 0)
+    return {
+      total, winners,
+      winRate: total > 0 ? (winners / total) * 100 : 0,
+      totalPnl, totalInv, totalSell, totalDividends,
+      totalPnlWithDividends: totalPnl + totalDividends,
+      // Retorno sobre lo invertido en el filtro actual (no es anualizado; antes se llamaba "Rend. anual")
+      totalReturn: totalInv > 0 ? r2((totalPnl / totalInv) * 100) : 0,
+    }
+  }, [rows])
+
+  // ── Filas del historial del trade abierto en el modal (apertura + ejecuciones + dividendos) ──
+  const historyRows = useMemo<HistRow[]>(() => {
+    if (!viewingTrade) return []
+    const t = viewingTrade
+    const gross = Number(t.initial_quantity || t.quantity) * Number(t.entry_price)
+
+    const apertura: HistRow = {
+      key: 'apertura', kind: 'apertura', executionId: null,
+      date: dayKey(t.open_date),
+      quantity: Number(t.initial_quantity || t.quantity),
+      price: Number(t.entry_price),
+      commission: 0,
+      net: -gross,
+    }
+
+    const execRows: (HistRow & { created: string })[] = (t.trade_executions || []).map((ex: any) => {
+      const type  = execType(ex)
+      const isBuy = type === 'buy'
+      const comm  = Number(ex.commission || 0)
+      const g     = Number(ex.quantity) * Number(ex.price)
+      return {
+        key: ex.id,
+        kind: (isBuy ? 'buy' : type === 'close' ? 'close' : 'sell') as HistKind,
+        executionId: ex.id,
+        date: dayKey(ex.executed_at),
+        quantity: Number(ex.quantity),
+        price: Number(ex.price),
+        commission: comm,
+        net: isBuy ? -(g + comm) : g - comm,
+        created: String(ex.created_at || ''),
+      }
     })
 
-    const total    = perTrade.length
-    const winners  = perTrade.filter(d => d.pnlCash > 0).length
-    const winRate  = total > 0 ? (winners / total * 100) : 0
-    const totalPnl = perTrade.reduce((acc, d) => acc + d.pnlCash, 0)
-    const totalInv = perTrade.reduce((acc, d) => acc + d.totalInvested, 0)
-    const totalSell = perTrade.reduce((acc, d) => acc + d.totalSells, 0)
-    const totalDividends = perTrade.reduce((acc, d) => acc + d.divTotal, 0)
-    const totalPnlWithDividends = totalPnl + totalDividends
-    // PnL anual ponderado: suma de (pnlCash / totalInvested * annualPct) ponderado por inversión
-    const weightedAnnual = totalInv > 0
-      ? parseFloat(((totalPnl / totalInv) * 100).toFixed(2))
-      : 0
+    const divRows: (HistRow & { created: string })[] = getDividendsForTrade(t).map((dv, i) => ({
+      key: `div-${i}`, kind: 'div' as HistKind, executionId: null,
+      date: dv.key, quantity: 0, price: 0, commission: 0, net: dv.amount, created: '',
+    }))
 
-    return { total, winners, winRate, totalPnl, totalInv, totalSell, totalDividends, totalPnlWithDividends, weightedAnnual }
-  }, [filteredAndSorted, calculateTradeData, getDividendsForTrade])
+    // Por fecha; el mismo día, por orden de creación (antes el orden entre ejecuciones del mismo día era arbitrario)
+    const rest = [...execRows, ...divRows].sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : a.created.localeCompare(b.created))
+
+    return [apertura, ...rest]
+  }, [viewingTrade, getDividendsForTrade])
+
+  const viewingSummary = useMemo(() => {
+    if (!viewingTrade) return null
+    const d = calcTrade(viewingTrade)
+    const divTotal = getDividendsForTrade(viewingTrade).reduce((a, dv) => a + dv.amount, 0)
+    return { ...d, totalWithDiv: d.pnlCash + divTotal }
+  }, [viewingTrade, getDividendsForTrade])
+
+  const editField = (field: 'date' | 'quantity' | 'price' | 'commission') =>
+    (e: React.ChangeEvent<HTMLInputElement>) => setEditValues(p => ({ ...p, [field]: e.target.value }))
 
   return (
     <AppShell>
@@ -469,13 +598,13 @@ export default function CerradosPage() {
 
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {[
-              { label: 'Trades',      value: summary.total,                   color: '#fff' },
+              { label: 'Trades',      value: summary.total,                    color: '#fff' },
               { label: 'Win rate',    value: `${summary.winRate.toFixed(1)}%`, color: summary.winRate >= 50 ? '#22c55e' : '#f43f5e' },
-              { label: 'Invertido',  value: money(summary.totalInv),         color: '#aaa' },
-              { label: 'Recuperado', value: money(summary.totalSell),        color: '#aaa' },
-                            { label: 'PnL total',  value: money(summary.totalPnl),         color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
+              { label: 'Invertido',   value: money(summary.totalInv),          color: '#aaa' },
+              { label: 'Recuperado',  value: money(summary.totalSell),         color: '#aaa' },
+              { label: 'PnL total',   value: money(summary.totalPnl),          color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
               { label: 'P/T + dividendos', value: money(summary.totalPnlWithDividends), color: summary.totalPnlWithDividends >= 0 ? '#22c55e' : '#f43f5e' },
-              { label: 'Rend. anual', value: `${summary.weightedAnnual >= 0 ? '+' : ''}${summary.weightedAnnual.toFixed(2)}%`, color: summary.weightedAnnual >= 0 ? '#22c55e' : '#f43f5e' },
+              { label: 'Rend. total', value: `${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn.toFixed(2)}%`, color: summary.totalReturn >= 0 ? '#22c55e' : '#f43f5e' },
             ].map(c => (
               <div key={c.label} style={summaryCard}>
                 <span style={summaryLabel}>{c.label}</span>
@@ -484,6 +613,15 @@ export default function CerradosPage() {
             ))}
           </div>
         </div>
+
+        {pageError && (
+          <div style={{
+            marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12,
+            background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: '#f43f5e',
+          }}>
+            {pageError}
+          </div>
+        )}
 
         {/* ── TABS PORTAFOLIOS ── */}
         <div style={walletNav}>
@@ -496,7 +634,7 @@ export default function CerradosPage() {
 
         {/* ── FILTROS ── */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
+          <select value={selectedYear} onChange={e => { setSelectedYear(e.target.value); setFilterMonth('all') }} style={selectStyle}>
             <option value="all">Todos los años</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
@@ -508,7 +646,7 @@ export default function CerradosPage() {
           </select>
           <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={selectStyle}>
             <option value="all">Todas las razones</option>
-            {CLOSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            {availableReasons.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
           <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={selectStyle}>
             <option value="all">Todos los sectores</option>
@@ -517,7 +655,7 @@ export default function CerradosPage() {
           <input placeholder="Buscar ticker..." value={filterTicker}
             onChange={e => setFilterTicker(e.target.value.toUpperCase())}
             style={{ ...selectStyle, minWidth: 140 }} />
-          <span style={{ fontSize: 10, color: '#aaa' }}>{filteredAndSorted.length} resultado(s)</span>
+          <span style={{ fontSize: 10, color: '#aaa' }}>{rows.length} resultado(s)</span>
         </div>
 
         {/* ── TABLA ── */}
@@ -543,14 +681,14 @@ export default function CerradosPage() {
                   <th key={label} style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
                     onClick={key ? () => handleSort(key) : undefined}>
                     <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                      {label} {key && <SortIcon col={key} />}
+                      {label} {key && <SortIcon col={key} sort={sortConfig} />}
                     </span>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filteredAndSorted.length === 0 && (
+              {rows.length === 0 && (
                 <tr>
                   <td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#666' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
@@ -560,57 +698,46 @@ export default function CerradosPage() {
                   </td>
                 </tr>
               )}
-              {filteredAndSorted.map(t => {
-                const d = calculateTradeData(t)
-
-                const divs = getDividendsForTrade(t.ticker, t.open_date, t.close_date)
-                const divTotal = divs.reduce((a: number, dv: any) => a + Number(dv.amount), 0)
-                const totalWithDiv = d.pnlCash + divTotal
-                const pctWithDiv = d.totalInvested > 0 ? (totalWithDiv / d.totalInvested * 100) : 0
-
+              {rows.map(r => {
+                const t = r.t
                 return (
                   <tr key={t.id} style={trStyle}>
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>
-                      {t.ticker}
-
-                    </td>
-                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>
-                      {t.open_date ? parseDate(t.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
-                    </td>
-                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>
-                      {t.close_date ? parseDate(t.close_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'center', color: '#aaa' }}>{d.diffDays}</td>
+                    <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>{t.ticker}</td>
+                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.open_date ? fmtDay(t.open_date) : '—'}</td>
+                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.close_date ? fmtDay(t.close_date) : '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center', color: '#aaa' }}>{r.diffDays}</td>
                     <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
                       {t.close_reason || <span style={{ color: '#555' }}>—</span>}
                     </td>
                     <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
                       {t.sector || <span style={{ color: '#555' }}>—</span>}
                     </td>
-                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalInvested)}</td>
-                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(d.totalSells)}</td>
+                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalInvested)}</td>
+                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalSells)}</td>
                     <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
-                       {divTotal > 0 ? money(divTotal) : <span style={{ color: '#333' }}>—</span>}
-                     </td>
+                      {r.divTotal > 0 ? money(r.divTotal) : <span style={{ color: '#333' }}>—</span>}
+                    </td>
                     <td style={{ ...tdStyle, fontWeight: 'bold' }}>
-                       <span style={{ color: totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{money(totalWithDiv)}</span>
-                     </td>
-                    <td style={{ ...tdStyle }}>
-                       <span style={{ color: pctWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{`${pctWithDiv >= 0 ? '+' : ''}${pctWithDiv.toFixed(2)}%`}</span>
-                     </td>
-                    <td style={{ ...tdStyle, color: d.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                      {d.annualPct > 500 ? '>500' : `${d.annualPct >= 0 ? '+' : ''}${d.annualPct.toFixed(1)}`}%
+                      <span style={{ color: r.totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{money(r.totalWithDiv)}</span>
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={{ color: r.pctWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>
+                        {`${r.pctWithDiv >= 0 ? '+' : ''}${r.pctWithDiv.toFixed(2)}%`}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, color: r.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                      {r.annualPct > 500 ? '>500' : `${r.annualPct >= 0 ? '+' : ''}${r.annualPct.toFixed(1)}`}%
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                         <button onClick={() => setViewingTrade(t)} style={actionBtn('#00bfff')}
                           title="Historial"
                           onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                          onMouseLeave={e => (e.currentTarget.style.color = '#777')}>
                           Historial
                         </button>
-                        <button onClick={() => handleDelete(t)} style={iconBtn}
-                          title="Eliminar"
+                        <button onClick={() => handleDelete(t)} style={{ ...iconBtn, opacity: deletingId === t.id ? 0.4 : 1 }}
+                          title="Eliminar" disabled={!!deletingId}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
                           <Trash2 size={13} />
@@ -626,14 +753,14 @@ export default function CerradosPage() {
 
         <div style={{ marginTop: 8, fontSize: 9, color: '#555', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
           <Paw size={9} color="#444" opacity={0.5} />
-          {filteredAndSorted.length} trades · PnL considera comisiones de cada ejecución
+          {rows.length} trades · PnL considera comisiones de cada ejecución
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
             MODAL HISTORIAL + EDICIÓN
         ════════════════════════════════════════════════════════════════════ */}
         {viewingTrade && (
-          <div style={overlayStyle} onClick={() => { setViewingTrade(null); setEditingRow(null) }}>
+          <div style={overlayStyle} onClick={closeModal}>
             <div style={modalStyle} onClick={e => e.stopPropagation()}>
 
               {/* Header del modal */}
@@ -647,7 +774,7 @@ export default function CerradosPage() {
                     <span style={{ fontSize: 11, color: '#777', marginLeft: 4 }}>{viewingTrade.sector}</span>
                   )}
                 </div>
-                <button onClick={() => { setViewingTrade(null); setEditingRow(null) }}
+                <button onClick={closeModal} aria-label="Cerrar"
                   style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}>
                   <X size={18} />
                 </button>
@@ -674,155 +801,98 @@ export default function CerradosPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {/* ── FILA APERTURA ── */}
-                    {(() => {
-                      const isEditing = editingRow?.kind === 'apertura'
-                      const gross = Number(viewingTrade.initial_quantity || viewingTrade.quantity) * Number(viewingTrade.entry_price)
+                    {historyRows.map(r => {
+                      const meta = HIST_LABEL[r.kind]
+
+                      // Dividendos: solo lectura
+                      if (r.kind === 'div') {
+                        return (
+                          <tr key={r.key} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
+                            <td style={modalTd}>{fmtDay(r.date, 'numeric')}</td>
+                            <td style={{ ...modalTd, color: meta.color, fontWeight: 700 }}>{meta.label}</td>
+                            <td style={{ ...modalTd, color: '#555' }}>—</td>
+                            <td style={{ ...modalTd, color: '#555' }}>—</td>
+                            <td style={{ ...modalTd, color: '#555' }}>—</td>
+                            <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>+{money(r.net)}</td>
+                            <td style={modalTd} />
+                          </tr>
+                        )
+                      }
+
+                      const isEditing = !!editingRow && (r.kind === 'apertura'
+                        ? editingRow.kind === 'apertura'
+                        : editingRow.executionId === r.executionId)
+                      const netColor = r.kind === 'apertura' || r.net < 0 ? '#f43f5e' : '#22c55e'
+
                       return (
-                        <tr style={{ ...trStyle, background: isEditing ? 'rgba(0,191,255,0.04)' : 'transparent' }}>
+                        <tr key={r.key} style={{ ...trStyle, background: isEditing ? 'rgba(0,191,255,0.04)' : 'transparent' }}>
                           <td style={modalTd}>{isEditing
-                            ? <input type="date" value={editValues.date} onChange={e => setEditValues(p => ({ ...p, date: e.target.value }))} style={editInp} />
-                            : parseDate(viewingTrade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                            ? <input type="date" value={editValues.date} onChange={editField('date')} style={editInp} />
+                            : fmtDay(r.date, 'numeric')
                           }</td>
-                          <td style={{ ...modalTd, color: '#00bfff', fontWeight: 700 }}>Apertura</td>
+                          <td style={{ ...modalTd, color: meta.color, fontWeight: 700 }}>{meta.label}</td>
                           <td style={modalTd}>{isEditing
-                            ? <input type="number" min="0" value={editValues.quantity} onChange={e => setEditValues(p => ({ ...p, quantity: e.target.value }))} style={{ ...editInp, width: 80 }} />
-                            : shares(viewingTrade.initial_quantity || viewingTrade.quantity)
+                            ? <input type="number" min="0" step="any" value={editValues.quantity} onChange={editField('quantity')} style={{ ...editInp, width: 80 }} />
+                            : shares(r.quantity)
                           }</td>
                           <td style={modalTd}>{isEditing
-                            ? <input type="number" min="0" value={editValues.price} onChange={e => setEditValues(p => ({ ...p, price: e.target.value }))} style={{ ...editInp, width: 90 }} />
-                            : money(viewingTrade.entry_price)
+                            ? <input type="number" min="0" step="any" value={editValues.price} onChange={editField('price')} style={{ ...editInp, width: 90 }} />
+                            : money(r.price)
                           }</td>
-                          <td style={{ ...modalTd, color: '#666' }}>—</td>
-                          <td style={{ ...modalTd, color: '#f43f5e' }}>−{money(gross)}</td>
+                          <td style={{ ...modalTd, color: r.kind === 'apertura' ? '#666' : '#aaa' }}>
+                            {r.kind === 'apertura'
+                              ? '—'
+                              : isEditing
+                                ? <input type="number" min="0" step="any" value={editValues.commission} onChange={editField('commission')} style={{ ...editInp, width: 80 }} />
+                                : r.commission > 0 ? money(r.commission) : '—'
+                            }
+                          </td>
+                          <td style={{ ...modalTd, color: netColor, fontWeight: 600 }}>
+                            {r.net >= 0 ? '+' : ''}{money(r.net)}
+                          </td>
                           <td style={modalTd}>
                             {isEditing
                               ? <EditActions onSave={saveEdit} onCancel={() => setEditingRow(null)} saving={editSaving} />
                               : <EditPencil onClick={() => openEdit({
-                                  kind: 'apertura', executionId: null,
-                                  date: viewingTrade.open_date, quantity: Number(viewingTrade.initial_quantity || viewingTrade.quantity),
-                                  price: Number(viewingTrade.entry_price), commission: 0,
+                                  kind: r.kind as EditRow['kind'], executionId: r.executionId,
+                                  date: r.date, quantity: r.quantity, price: r.price, commission: r.commission,
                                 })} />
                             }
                           </td>
                         </tr>
                       )
-                    })()}
-
-                    {/* ── TODAS LAS FILAS ORDENADAS POR FECHA ── */}
-                    {[
-                      // Ejecuciones normalizadas
-                      ...(viewingTrade.trade_executions || []).map((ex: any) => ({
-                        _type: 'exec',
-                        _date: new Date((ex.executed_at || '').split('T')[0] + 'T00:00:00').getTime(),
-                        ex,
-                      })),
-                      // Dividendos normalizados
-                      ...getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
-                        .map((div: any, idx: number) => ({
-                          _type: 'div',
-                          _date: new Date(div.date + 'T00:00:00').getTime(),
-                          div,
-                          idx,
-                        })),
-                    ]
-                      .sort((a, b) => a._date - b._date)
-                      .map(row => {
-                        if (row._type === 'div') {
-                          const { div, idx } = row
-                          return (
-                            <tr key={`div-${idx}`} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
-                              <td style={modalTd}>
-                                {parseDate(div.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                              </td>
-                              <td style={{ ...modalTd, color: '#eab308', fontWeight: 700 }}>Dividendo</td>
-                              <td style={{ ...modalTd, color: '#555' }}>—</td>
-                              <td style={{ ...modalTd, color: '#555' }}>—</td>
-                              <td style={{ ...modalTd, color: '#555' }}>—</td>
-                              <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>+{money(Number(div.amount))}</td>
-                              <td style={modalTd} />
-                            </tr>
-                          )
-                        }
-
-                        // Ejecución normal
-                        const { ex } = row
-                        const type      = ex.execution_type?.toLowerCase()
-                        const isBuy     = type === 'buy'
-                        const isClose   = type === 'close'
-                        const comm      = Number(ex.commission || 0)
-                        const gross     = Number(ex.quantity) * Number(ex.price)
-                        const net       = isBuy ? -(gross + comm) : gross - comm
-                        const typeLabel = isBuy ? 'Recompra' : isClose ? 'Cierre' : 'Venta parcial'
-                        const typeColor = isBuy ? '#22c55e' : isClose ? '#00bfff' : '#f43f5e'
-                        const isEditing = editingRow?.executionId === ex.id
-                        const exDateStr = (ex.executed_at || '').split('T')[0]
-
-                        return (
-                          <tr key={ex.id} style={{ ...trStyle, background: isEditing ? 'rgba(0,191,255,0.04)' : 'transparent' }}>
-                            <td style={modalTd}>{isEditing
-                              ? <input type="date" value={editValues.date} onChange={e => setEditValues(p => ({ ...p, date: e.target.value }))} style={editInp} />
-                              : parseDate(exDateStr).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-                            }</td>
-                            <td style={{ ...modalTd, color: typeColor, fontWeight: 700 }}>{typeLabel}</td>
-                            <td style={modalTd}>{isEditing
-                              ? <input type="number" min="0" value={editValues.quantity} onChange={e => setEditValues(p => ({ ...p, quantity: e.target.value }))} style={{ ...editInp, width: 80 }} />
-                              : shares(ex.quantity)
-                            }</td>
-                            <td style={modalTd}>{isEditing
-                              ? <input type="number" min="0" value={editValues.price} onChange={e => setEditValues(p => ({ ...p, price: e.target.value }))} style={{ ...editInp, width: 90 }} />
-                              : money(ex.price)
-                            }</td>
-                            <td style={{ ...modalTd, color: '#aaa' }}>{isEditing
-                              ? <input type="number" min="0" value={editValues.commission} onChange={e => setEditValues(p => ({ ...p, commission: e.target.value }))} style={{ ...editInp, width: 80 }} />
-                              : comm > 0 ? money(comm) : '—'
-                            }</td>
-                            <td style={{ ...modalTd, color: net >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600 }}>
-                              {net >= 0 ? '+' : ''}{money(net)}
-                            </td>
-                            <td style={modalTd}>
-                              {isEditing
-                                ? <EditActions onSave={saveEdit} onCancel={() => setEditingRow(null)} saving={editSaving} />
-                                : <EditPencil onClick={() => openEdit({
-                                    kind: isBuy ? 'buy' : isClose ? 'close' : 'sell',
-                                    executionId: ex.id,
-                                    date: exDateStr, quantity: Number(ex.quantity),
-                                    price: Number(ex.price), commission: comm,
-                                  })} />
-                              }
-                            </td>
-                          </tr>
-                        )
-                      })}
+                    })}
                   </tbody>
                 </table>
               </div>
 
-              {/* Error de edición */}
+              {/* Error de edición (antes se guardaba el mensaje pero nunca se mostraba) */}
+              {editError && (
+                <div style={{
+                  marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 11, color: '#f43f5e',
+                  background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)',
+                }}>
+                  {editError}
+                </div>
+              )}
 
               {/* Resumen del trade */}
-                {(() => {
-                 const d = calculateTradeData(viewingTrade)
-                 const divTotal = getDividendsForTrade(viewingTrade.ticker, viewingTrade.open_date, viewingTrade.close_date)
-                   .reduce((a: number, dv: any) => a + Number(dv.amount), 0)
-                 const totalWithDiv = d.pnlCash + divTotal
-                 return (
-                   <div style={{ display: 'flex', gap: 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', borderTop: '1px solid #111' }}>
-                     {[
-                       { label: 'Invertido',  value: money(d.totalInvested), color: '#aaa' },
-                       { label: 'Recuperado', value: money(d.totalSells),    color: '#aaa' },
-                       { label: 'PnL (+ dividendos)', value: money(totalWithDiv), color: totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' },
-                       { label: 'PnL %',      value: `${d.pnlPct >= 0 ? '+' : ''}${d.pnlPct.toFixed(2)}%`, color: d.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
-                       { label: 'Duración',   value: `${d.diffDays} días`,   color: '#aaa' },
-                     ].map(item => (
-                      <div key={item.label} style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
+              {viewingSummary && (
+                <div style={{ display: 'flex', gap: 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', borderTop: '1px solid #111' }}>
+                  {[
+                    { label: 'Invertido',  value: money(viewingSummary.totalInvested), color: '#aaa' },
+                    { label: 'Recuperado', value: money(viewingSummary.totalSells),    color: '#aaa' },
+                    { label: 'PnL (+ dividendos)', value: money(viewingSummary.totalWithDiv), color: viewingSummary.totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' },
+                    { label: 'PnL %',      value: `${viewingSummary.pnlPct >= 0 ? '+' : ''}${viewingSummary.pnlPct.toFixed(2)}%`, color: viewingSummary.pnlPct >= 0 ? '#22c55e' : '#f43f5e' },
+                    { label: 'Duración',   value: `${viewingSummary.diffDays} días`,   color: '#aaa' },
+                  ].map(item => (
+                    <div key={item.label} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -835,7 +905,7 @@ export default function CerradosPage() {
 // ── Botón lápiz ───────────────────────────────────────────────────────────────
 function EditPencil({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick} title="Editar este registro"
+    <button onClick={onClick} title="Editar este registro" aria-label="Editar este registro"
       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#444', padding: 4, transition: 'color 0.2s', display: 'flex', alignItems: 'center' }}
       onMouseEnter={e => (e.currentTarget.style.color = '#eab308')}
       onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
@@ -852,7 +922,7 @@ function EditActions({ onSave, onCancel, saving }: { onSave: () => void; onCance
         style={{ background: saving ? '#111' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', color: '#22c55e', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
         <Check size={11} /> {saving ? '...' : 'OK'}
       </button>
-      <button onClick={onCancel} disabled={saving}
+      <button onClick={onCancel} disabled={saving} aria-label="Cancelar"
         style={{ background: 'none', border: '1px solid #222', color: '#666', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 10 }}>
         <X size={11} />
       </button>
@@ -870,7 +940,7 @@ const trStyle: React.CSSProperties      = { borderBottom: '1px solid #0a0a0a' }
 const selectStyle: React.CSSProperties  = { background: '#0a0a0a', color: '#ccc', border: '1px solid #1a1a1a', padding: '6px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
 const summaryCard: React.CSSProperties  = { display: 'flex', flexDirection: 'column', gap: 3, background: '#0a0a0a', padding: '8px 14px', borderRadius: 8, border: '1px solid #1a1a1a' }
 const summaryLabel: React.CSSProperties = { fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
-const actionBtn = (hoverColor: string): React.CSSProperties => ({ background: 'none', border: '1px solid #1a1a1a', color: '#777', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10, fontWeight: 'bold', transition: 'color 0.2s' })
+const actionBtn = (_hoverColor: string): React.CSSProperties => ({ background: 'none', border: '1px solid #1a1a1a', color: '#777', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10, fontWeight: 'bold', transition: 'color 0.2s' })
 const iconBtn: React.CSSProperties      = { background: 'none', border: 'none', color: '#444', cursor: 'pointer', transition: 'color 0.2s', padding: 4, display: 'flex', alignItems: 'center' }
 const overlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modalStyle: React.CSSProperties   = { background: '#0a0a0a', padding: 24, borderRadius: 16, width: '92%', maxWidth: 720, border: '1px solid #1a1a1a', maxHeight: '90vh', overflowY: 'auto' }
