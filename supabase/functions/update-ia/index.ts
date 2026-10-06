@@ -1,10 +1,21 @@
-import { serve } from "https://deno.land/std/http/server.ts";
-
+// Esta función la llaman el cron de Supabase y el servidor de Next.js (/api/trigger-ia), no el navegador:
+// no necesita CORS abierto a todo el mundo, solo el origen de la app.
 const CORS = {
-  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Origin":  Deno.env.get("ALLOWED_ORIGIN") ?? "https://tradingcat.onrender.com",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
+
+// Los tokens SOLO vienen de los secrets de la función (mismos nombres que en update-trades). Sin valores por
+// defecto en el código: si un secret no existe, ese acceso queda desactivado (cerrado por defecto).
+const CRON_SECRET   = Deno.env.get("CRON_SECRET")   ?? "";
+const MANUAL_SECRET = Deno.env.get("MANUAL_SECRET") ?? "";
+const CRON_TOKEN    = CRON_SECRET   ? `Bearer ${CRON_SECRET}`   : "";
+const MANUAL_TOKEN  = MANUAL_SECRET ? `Bearer ${MANUAL_SECRET}` : "";
+
+// Secreto con el que /api/notify acepta las alertas de esta función (cabecera x-notify-secret)
+const NOTIFY_SECRET = Deno.env.get("NOTIFY_SECRET") ?? "";
+const NOTIFY_URL = "https://tradingcat.onrender.com/api/notify";
 
 // Webull permite 60 llamadas/minuto por App ID. El sleep de 1s entre
 // tickers (ver loop principal) ya respeta ese límite, así que no hace
@@ -22,6 +33,55 @@ const SNAPSHOT_BATCH_SIZE = 20;
 
 // Separación mínima entre dos análisis del MISMO ticker individual (agregar / reanalizar fila).
 const SINGLE_TICKER_MIN_MINUTES = 1;
+
+// Un análisis manual de TODA la lista no se repite si hasta el ticker más viejo se actualizó hace menos de esto
+const MANUAL_ALL_MIN_MINUTES = 2;
+
+// Tiempo máximo de una corrida: si se agota, se corta y lo pendiente sigue en la siguiente
+// (la lista va ordenada del más desactualizado al más reciente). Evita que Supabase mate la función a mitad.
+const RUN_DEADLINE_MS = 120_000;
+
+// Tiempo tras el cual un candado "ocupado" se considera abandonado
+const LOCK_TTL_MIN = 20;
+
+const FETCH_TIMEOUT_MS = 15_000;
+
+// Acepta AAPL, BRK.B, BF-B y también listados con espacio como "IVV PESOS"
+const TICKER_RE = /^[A-Z0-9][A-Z0-9.\- ]{0,19}$/;
+
+// fetch con tiempo límite: una llamada colgada ya no deja la función esperando hasta que Supabase la corte
+const fetchT = (url: string, init: RequestInit = {}) =>
+  fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+
+// Comparación sin atajos por contenido (no revela por tiempo cuántos caracteres coinciden)
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// ── Reloj de México ─────────────────────────────────────────────────────────
+function mexicoClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Mexico_City",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+  const time = Number(get("hour")) + Number(get("minute")) / 60;
+  return { day, time };
+}
+
+// Ventana amplia (7:00–15:00 CDMX) que cubre el horario de Nueva York con y sin horario de verano.
+// No considera festivos de la bolsa.
+function isMarketOpenNow(): boolean {
+  const { day, time } = mexicoClock();
+  return day >= 1 && day <= 5 && time >= 7 && time < 15;
+}
 
 // ── Webull: firma HMAC-SHA256 vía Web Crypto API (compatible con Deno) ─────
 
@@ -119,10 +179,11 @@ async function getStoredWebullToken(
   SUPABASE_URL: string,
   dbHeaders: Record<string, string>
 ): Promise<WebullTokenRow | null> {
-  const res = await fetch(
+  const res = await fetchT(
     `${SUPABASE_URL}/rest/v1/webull_auth?id=eq.1&select=access_token,status,expires_at`,
     { headers: dbHeaders }
   );
+  if (!res.ok) throw new Error(`No se pudo leer webull_auth (${res.status})`);
   const data = await res.json();
   return Array.isArray(data) && data.length > 0 ? data[0] : null;
 }
@@ -148,7 +209,7 @@ async function checkWebullToken(
     body,
   });
 
-  const res = await fetch(`${webullApiUrl}${path}`, {
+  const res = await fetchT(`${webullApiUrl}${path}`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -187,11 +248,12 @@ async function getWebullAccessToken(
   const checked = await checkWebullToken(stored.access_token, webullApiUrl, appKey, appSecret);
 
   // Mantener Supabase sincronizado con el estado más reciente.
-  await fetch(`${SUPABASE_URL}/rest/v1/webull_auth?id=eq.1`, {
+  const patch = await fetchT(`${SUPABASE_URL}/rest/v1/webull_auth?id=eq.1`, {
     method: "PATCH",
     headers: dbHeaders,
     body: JSON.stringify({ status: checked.status, expires_at: checked.expires, updated_at: new Date().toISOString() }),
   });
+  if (!patch.ok) console.error("No se pudo guardar el estado del token:", await patch.text());
 
   return {
     token: checked.token,
@@ -245,7 +307,7 @@ async function fetchWebullBars(
 
   const qs = new URLSearchParams(queryParams).toString();
 
-  const res = await fetch(`${marketDataUrl}${path}?${qs}`, {
+  const res = await fetchT(`${marketDataUrl}${path}?${qs}`, {
     headers: {
       Accept: "application/json",
       "x-app-key": appKey,
@@ -260,13 +322,13 @@ async function fetchWebullBars(
   });
 
   if (!res.ok) {
-    const text = await res.text();
+    const text = (await res.text()).slice(0, 300);
     throw new Error(`Webull Bars ${symbol} ${res.status}: ${text}`);
   }
 
   const data = await res.json();
   if (!Array.isArray(data)) {
-    throw new Error(`Webull Bars ${symbol}: respuesta inesperada — ${JSON.stringify(data)}`);
+    throw new Error(`Webull Bars ${symbol}: respuesta inesperada — ${JSON.stringify(data).slice(0, 300)}`);
   }
   return data as WebullBar[];
 }
@@ -314,7 +376,7 @@ async function fetchWebullSnapshotBatch(
 
   const qs = new URLSearchParams(queryParams).toString();
 
-  const res = await fetch(`${marketDataUrl}${path}?${qs}`, {
+  const res = await fetchT(`${marketDataUrl}${path}?${qs}`, {
     headers: {
       Accept: "application/json",
       "x-app-key": appKey,
@@ -329,13 +391,13 @@ async function fetchWebullSnapshotBatch(
   });
 
   if (!res.ok) {
-    const text = await res.text();
+    const text = (await res.text()).slice(0, 300);
     throw new Error(`Webull Snapshot ${res.status}: ${text}`);
   }
 
   const data = await res.json();
   if (!Array.isArray(data)) {
-    throw new Error(`Webull Snapshot: respuesta inesperada — ${JSON.stringify(data)}`);
+    throw new Error(`Webull Snapshot: respuesta inesperada — ${JSON.stringify(data).slice(0, 300)}`);
   }
   return data as WebullSnapshot[];
 }
@@ -348,21 +410,28 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 // ── Handler principal ───────────────────────────────────────────────────────
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS });
   }
 
-  const getEnv = (key: string) => {
-    return Deno.env.get(key) || (globalThis as any).process?.env?.[key] || "";
-  };
+  // ── Autorización (antes de cualquier otra cosa) ──────────────────────────
+  // Antes bastaba con mandar CUALQUIER valor en el header "apikey", y los tokens estaban escritos en el código.
+  // Ahora solo valen CRON_SECRET / MANUAL_SECRET (secrets de la función).
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const isCron     = CRON_TOKEN   !== "" && safeEqual(authHeader, CRON_TOKEN);
+  const isManual   = MANUAL_TOKEN !== "" && safeEqual(authHeader, MANUAL_TOKEN);
 
-  const SUPABASE_URL       = getEnv("SUPABASE_URL");
-  const SUPABASE_KEY       = getEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const WEBULL_APP_KEY     = getEnv("WEBULL_APP_KEY");
-  const WEBULL_APP_SECRET  = getEnv("WEBULL_KEY_APP_SECRET");
-  const WEBULL_API_URL     = getEnv("WEBULL_API_URL") || "https://api.webull.com";
-  const WEBULL_MARKET_URL  = getEnv("WEBULL_MARKET_DATA_URL") || "https://api.webull.com";
+  if (!isCron && !isManual) {
+    return new Response("Unauthorized", { status: 401, headers: CORS });
+  }
+
+  const SUPABASE_URL       = Deno.env.get("SUPABASE_URL") ?? "";
+  const SUPABASE_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const WEBULL_APP_KEY     = Deno.env.get("WEBULL_APP_KEY") ?? "";
+  const WEBULL_APP_SECRET  = Deno.env.get("WEBULL_KEY_APP_SECRET") ?? "";
+  const WEBULL_API_URL     = Deno.env.get("WEBULL_API_URL") || "https://api.webull.com";
+  const WEBULL_MARKET_URL  = Deno.env.get("WEBULL_MARKET_DATA_URL") || "https://api.webull.com";
 
   const dbHeaders = {
     apikey:         SUPABASE_KEY,
@@ -377,36 +446,24 @@ serve(async (req) => {
     );
   }
 
-  const mexicoTime = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
-  );
-  const day  = mexicoTime.getDay();
-  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  const isMarketOpen = day >= 1 && day <= 5 && time >= 7 && time < 15;
+  const isMarketOpen = isMarketOpenNow();
 
   let singleTicker: string | null = null;
   let force = false;
 
-  try {
-    if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = await req.json().catch(() => ({}));
-      if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
-      force = body?.force === true;
-    }
-  } catch {
-    /* sin body está bien */
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const body = await req.json().catch(() => ({}));
+    if (body?.ticker) singleTicker = String(body.ticker).toUpperCase().trim();
+    force = body?.force === true;
+  }
+
+  // El ticker va dentro de la URL del filtro: se valida para que nadie pueda agregar condiciones propias
+  if (singleTicker && !TICKER_RE.test(singleTicker)) {
+    return new Response("Ticker inválido", { status: 400, headers: CORS });
   }
 
   if (!isMarketOpen && !singleTicker && !force) {
     return new Response("Mercado cerrado", { headers: CORS });
-  }
-
-  const authHeader = req.headers.get("Authorization");
-  const isCron = authHeader === "Bearer tradingcat-cron-2026";
-  const isManual = authHeader === "Bearer tradingcat-manual-2026";
-
-  if (!isCron && !isManual && !req.headers.get("apikey")) {
-    return new Response("Unauthorized", { status: 401, headers: CORS });
   }
 
   const todayStr = new Intl.DateTimeFormat("en-CA", {
@@ -414,30 +471,43 @@ serve(async (req) => {
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
-  if (!singleTicker) {
-    const lockRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1&select=running,started_at`,
-      { headers: dbHeaders }
-    );
-    const lockData = await lockRes.json();
-    const lock = lockData?.[0];
+  // ── Candado para que no corran dos análisis completos a la vez ───────────
+  // Antes se leía el estado y luego se escribía (dos pasos): dos llamadas simultáneas podían pasar las dos.
+  // Ahora el PATCH es condicional y atómico: solo gana quien logra cambiar running a true.
+  let locked = false;
+  const lockUrl = `${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`;
 
-    if (lock?.running) {
-      const started = lock.started_at ? new Date(lock.started_at).getTime() : 0;
-      const minutes = (Date.now() - started) / 60000;
-      if (minutes < 20) {
-        return new Response(`Skip — ocupado (${minutes.toFixed(1)} min)`, { headers: CORS });
-      }
-      console.log("🔓 Lock expirado. Se recupera automáticamente.");
-    }
-
-    await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-      method: "PATCH", headers: dbHeaders,
-      body: JSON.stringify({ running: true, started_at: new Date().toISOString() }),
-    });
-  }
+  const startedAtRun = Date.now();
 
   try {
+    if (!singleTicker) {
+      const staleIso = new Date(Date.now() - LOCK_TTL_MIN * 60000).toISOString();
+      const res = await fetchT(
+        `${lockUrl}&or=(running.is.false,running.is.null,started_at.lt.${encodeURIComponent(staleIso)})`,
+        {
+          method: "PATCH",
+          headers: { ...dbHeaders, Prefer: "return=representation" },
+          body: JSON.stringify({ running: true, started_at: new Date().toISOString() }),
+        }
+      );
+      if (!res.ok) throw new Error(`No se pudo tomar el candado (${res.status})`);
+      const got = await res.json();
+
+      if (Array.isArray(got) && got.length > 0) {
+        locked = true;
+      } else {
+        // Nadie cambió nada: o está ocupado de verdad, o la fila del candado no existe
+        const rowRes = await fetchT(`${lockUrl}&select=running,started_at`, { headers: dbHeaders });
+        const rows = rowRes.ok ? await rowRes.json() : [];
+        if (Array.isArray(rows) && rows.length > 0) {
+          const started = rows[0].started_at ? new Date(rows[0].started_at).getTime() : 0;
+          const minutes = (Date.now() - started) / 60000;
+          return new Response(`Skip — ocupado (${minutes.toFixed(1)} min)`, { headers: CORS });
+        }
+        console.log("⚠️ No existe la fila id=1 en update_ia_lock — se corre sin candado");
+      }
+    }
+
     // ── Token de Webull ────────────────────────────────────────────────
     const auth = await getWebullAccessToken(
       SUPABASE_URL, dbHeaders, WEBULL_API_URL, WEBULL_APP_KEY, WEBULL_APP_SECRET
@@ -455,9 +525,12 @@ serve(async (req) => {
 
     // ── Obtener watchlist ────────────────────────────────────────────────
     let url = `${SUPABASE_URL}/rest/v1/watchlist?buy_target=gt.0&order=last_updated.asc.nullsfirst`;
-    if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${singleTicker}&buy_target=gt.0`;
+    if (singleTicker) url = `${SUPABASE_URL}/rest/v1/watchlist?ticker=eq.${encodeURIComponent(singleTicker)}&buy_target=gt.0`;
 
-    const res = await fetch(url, { headers: dbHeaders });
+    const res = await fetchT(url, { headers: dbHeaders });
+    if (!res.ok) {
+      return new Response(`Error leyendo watchlist (${res.status}): ${(await res.text()).slice(0, 300)}`, { status: 500, headers: CORS });
+    }
     const list = await res.json();
 
     if (!Array.isArray(list) || list.length === 0) {
@@ -467,34 +540,7 @@ serve(async (req) => {
       );
     }
 
-        const processList = list.slice(0, WEBULL_MAX_CALLS);
-
-    // ── Snapshot en lote — precio EN VIVO para todos los tickers de la corrida ──
-    // Se excluyen proactivamente tickers con espacio (ej. "IVV PESOS") — símbolos
-    // que ningún proveedor reconoce y que tumbarían el lote completo si se incluyen.
-    const allTickersToQuote = Array.from(new Set(processList.map((t: any) => t.ticker)));
-    const tickersToQuote = allTickersToQuote.filter((t) => !/\s/.test(t));
-    const quoteBatches = chunk(tickersToQuote, SNAPSHOT_BATCH_SIZE);
-    const quoteMap = new Map<string, { price: number; change: number }>();
-
-    for (const batch of quoteBatches) {
-      try {
-        const snapshots = await fetchWebullSnapshotBatch(
-          batch, auth.token, WEBULL_MARKET_URL, WEBULL_APP_KEY, WEBULL_APP_SECRET
-        );
-        for (const snap of snapshots) {
-          const price = parseFloat(snap.price) > 0 ? parseFloat(snap.price) : parseFloat(snap.pre_close) || 0;
-          if (price <= 0) continue;
-          const changeRatio = parseFloat(snap.change_ratio);
-          const change = !isNaN(changeRatio) ? changeRatio * 100 : 0;
-          quoteMap.set(snap.symbol, { price, change });
-        }
-      } catch (err) {
-        console.error("Error en batch de snapshot, se usará el cierre del bar como fallback:", batch, err);
-      }
-      if (quoteBatches.length > 1) await sleep(1100);
-    }
-
+    // ── Protecciones de frecuencia (ahora ANTES de gastar llamadas a Webull) ─────
     if (singleTicker) {
       const item = list[0];
       if (item.last_updated) {
@@ -506,13 +552,59 @@ serve(async (req) => {
           );
         }
       }
+    } else if (isManual) {
+      // La lista viene ordenada del más desactualizado al más reciente: si el más viejo es reciente, todo lo es
+      const oldest = list[0].last_updated ? new Date(list[0].last_updated).getTime() : 0;
+      const minutesSince = (Date.now() - oldest) / 60000;
+      if (oldest > 0 && minutesSince < MANUAL_ALL_MIN_MINUTES) {
+        return new Response(
+          `⏭️ Toda la lista se actualizó hace menos de ${MANUAL_ALL_MIN_MINUTES} min`,
+          { headers: CORS }
+        );
+      }
+    }
+
+    const processList = list.slice(0, WEBULL_MAX_CALLS);
+
+    // ── Snapshot en lote — precio EN VIVO para todos los tickers de la corrida ──
+    // Se excluyen proactivamente tickers con espacio (ej. "IVV PESOS") — símbolos
+    // que ningún proveedor reconoce y que tumbarían el lote completo si se incluyen.
+    const allTickersToQuote: string[] = Array.from(new Set(processList.map((t: any) => String(t.ticker).toUpperCase())));
+    const tickersToQuote = allTickersToQuote.filter((t) => !/\s/.test(t));
+    const quoteBatches = chunk(tickersToQuote, SNAPSHOT_BATCH_SIZE);
+    const quoteMap = new Map<string, { price: number; change: number }>();
+
+    for (let b = 0; b < quoteBatches.length; b++) {
+      try {
+        const snapshots = await fetchWebullSnapshotBatch(
+          quoteBatches[b], auth.token, WEBULL_MARKET_URL, WEBULL_APP_KEY, WEBULL_APP_SECRET
+        );
+        for (const snap of snapshots) {
+          const last = parseFloat(snap.price);
+          const price = last > 0 ? last : parseFloat(snap.pre_close) || 0;
+          if (price <= 0) continue;
+          const changeRatio = parseFloat(snap.change_ratio);
+          const change = !isNaN(changeRatio) ? changeRatio * 100 : 0;
+          quoteMap.set(String(snap.symbol).toUpperCase(), { price, change });
+        }
+      } catch (err) {
+        console.error("Error en batch de snapshot, se usará el cierre del bar como fallback:", quoteBatches[b], err);
+      }
+      if (b < quoteBatches.length - 1) await sleep(1100);
     }
 
     let processed = 0;
-    console.log(`📊 Procesando ${list.length} tickers`);
+    let attempted = 0;
+    console.log(`📊 Procesando ${processList.length} tickers`);
 
     for (let i = 0; i < processList.length; i++) {
       const item = processList[i];
+
+      if (Date.now() - startedAtRun > RUN_DEADLINE_MS) {
+        console.log(`⏱️ Tiempo agotado tras ${attempted} tickers — el resto queda para la siguiente corrida`);
+        break;
+      }
+      attempted++;
 
       // Delay entre tickers — Webull permite 60/min, 1s de separación lo respeta con margen.
       if (i > 0) await sleep(1000);
@@ -538,9 +630,9 @@ serve(async (req) => {
         const prices: number[] = dailyRows.map((r) => r.close);
         const priceName = rawBars[0]?.symbol || item.ticker;
 
-                // Precio EN VIVO del snapshot — si por algo no vino (ticker excluido o
+        // Precio EN VIVO del snapshot — si por algo no vino (ticker excluido o
         // falló el lote), se usa el cierre del bar diario como respaldo.
-        const quote = quoteMap.get(item.ticker);
+        const quote = quoteMap.get(String(item.ticker).toUpperCase());
 
         let price: number;
         let change: number;
@@ -595,32 +687,30 @@ serve(async (req) => {
 
         const inZone = Math.abs((price - item.buy_target) / item.buy_target) <= 0.02;
         if (isMarketOpen && inZone && item.last_alert_date !== todayStr) {
-          await sendAlert({ ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target, type: "🟢 POSIBLE ENTRADA" });
-          updateData.last_alert_date = todayStr;
+          const sent = await sendAlert({ ticker: item.ticker, currentPrice: price, targetPrice: item.buy_target, type: "🟢 POSIBLE ENTRADA" });
+          // Solo se marca el día si la alerta realmente salió; si falló, se reintenta en la próxima corrida
+          if (sent) updateData.last_alert_date = todayStr;
         }
 
-        console.log(`💾 Guardando ${item.ticker}:`, updateData);
-
-        const patchRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${item.id}`,
+        const patchRes = await fetchT(
+          `${SUPABASE_URL}/rest/v1/watchlist?id=eq.${encodeURIComponent(String(item.id))}`,
           {
             method: "PATCH",
-            headers: { ...dbHeaders, "Prefer": "return=representation" },
+            headers: { ...dbHeaders, "Prefer": "return=minimal" },
             body: JSON.stringify(updateData),
           }
         );
 
-        const patchData = await patchRes.json();
-        console.log(`📝 PATCH ${item.ticker} Estado: ${patchRes.status}`, patchData);
-
         if (!patchRes.ok) {
-          console.error(`❌ PATCH ERROR ${item.ticker}:`, patchData);
+          console.error(`❌ PATCH ERROR ${item.ticker} (${patchRes.status}):`, (await patchRes.text()).slice(0, 300));
+          continue;
         }
 
-        await fetch(
-          `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${item.ticker}&status=eq.open`,
+        const rsiRes = await fetchT(
+          `${SUPABASE_URL}/rest/v1/trades?ticker=eq.${encodeURIComponent(String(item.ticker))}&status=eq.open`,
           { method: "PATCH", headers: dbHeaders, body: JSON.stringify({ rsi: parseFloat(rsi.toFixed(2)) }) }
         );
+        if (!rsiRes.ok) console.error(`No se pudo actualizar el RSI de los trades de ${item.ticker} (${rsiRes.status})`);
 
         processed++;
 
@@ -638,12 +728,17 @@ serve(async (req) => {
     return new Response(`Error: ${e?.message ?? String(e)}`, { status: 500, headers: CORS });
 
   } finally {
-    if (!singleTicker) {
-      await fetch(`${SUPABASE_URL}/rest/v1/update_ia_lock?id=eq.1`, {
-        method: "PATCH",
-        headers: dbHeaders,
-        body: JSON.stringify({ running: false, started_at: null }),
-      });
+    // Solo se libera el candado si ESTA corrida lo tomó (antes también se "liberaba" al salir por "ocupado")
+    if (locked) {
+      try {
+        await fetchT(lockUrl, {
+          method: "PATCH",
+          headers: dbHeaders,
+          body: JSON.stringify({ running: false, started_at: null }),
+        });
+      } catch (err) {
+        console.error("No se pudo liberar el candado (se recupera solo a los", LOCK_TTL_MIN, "min):", err);
+      }
     }
   }
 });
@@ -652,27 +747,30 @@ serve(async (req) => {
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
-async function sendAlert(payload: Record<string, any>) {
-  const mexicoTime = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" })
-  );
-  const day  = mexicoTime.getDay();
-  const time = mexicoTime.getHours() + mexicoTime.getMinutes() / 60;
-  const isMarketOpen = day >= 1 && day <= 5 && time >= 7 && time < 15;
-
-  if (!isMarketOpen) {
+// true solo si /api/notify confirmó el envío
+async function sendAlert(payload: Record<string, any>): Promise<boolean> {
+  if (!isMarketOpenNow()) {
     console.log("🔕 Alerta bloqueada — mercado cerrado");
-    return;
+    return false;
   }
 
   try {
-    await fetch("https://tradingcat.onrender.com/api/notify", {
+    const res = await fetchT(NOTIFY_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(NOTIFY_SECRET ? { "x-notify-secret": NOTIFY_SECRET } : {}),
+      },
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      console.error(`Alerta rechazada por /api/notify (${res.status})`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("Error enviando alerta:", err);
+    return false;
   }
 }
 

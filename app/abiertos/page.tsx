@@ -34,19 +34,24 @@ const FRESH_THRESHOLD_MIN = 6
 // Separación mínima entre refrescos individuales del mismo trade (espejo del cooldown de servidor)
 const SINGLE_TICKER_MIN_MINUTES = 1
 
-const UPDATE_TRADES_URL = "https://kdxqnaglhhjwnzvptqvt.supabase.co/functions/v1/update-trades"
-const UPDATE_TRADES_TOKEN = "tradingcat-manual-2026"
-
-// Un solo punto de llamada para refrescar todos los precios o un ticker
+// Un solo punto de llamada para refrescar todos los precios o un ticker.
+// Va a nuestra ruta del servidor con la sesión; el token de la función ya no está en el navegador.
 async function callUpdateTrades(ticker?: string) {
-  const res = await fetch(UPDATE_TRADES_URL, {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error("Sesión expirada, vuelve a iniciar sesión")
+  const res = await fetch("/api/update-trades", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${UPDATE_TRADES_TOKEN}` },
-    body: ticker ? JSON.stringify({ ticker }) : undefined,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(ticker ? { ticker } : {}),
   })
-  if (!res.ok) throw new Error(`update-trades respondió ${res.status}`)
+  if (!res.ok) {
+    const j = await res.json().catch(() => null)
+    throw new Error(j?.error || `update-trades respondió ${res.status}`)
+  }
 }
-
 const TARGETS = [
   { field: 'take_profit_1', hit: 'tp1_hit' },
   { field: 'take_profit_2', hit: 'tp2_hit' },

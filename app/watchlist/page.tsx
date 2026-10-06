@@ -117,9 +117,14 @@ async function fetchAnalystTarget(ticker: string): Promise<number | null> {
 // Devuelve si el servidor aceptó la petición (antes se ignoraba la respuesta y un error pasaba como éxito).
 async function triggerIA(ticker?: string, force = false): Promise<boolean> {
   try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { console.error('trigger-ia: sin sesión'); return false }
     const res = await fetch('/api/trigger-ia', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({ ...(ticker ? { ticker } : {}), force }),
     })
     if (!res.ok) console.error('trigger-ia respondió', res.status)

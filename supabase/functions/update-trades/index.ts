@@ -1,14 +1,20 @@
+// Esta función la llaman el cron de Supabase y el servidor de Next.js (no el navegador), así que no necesita
+// CORS abierto a todo el mundo: solo se permite el origen de la app.
 const CORS = {
-  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Origin":  Deno.env.get("ALLOWED_ORIGIN") ?? "https://tradingcat.onrender.com",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-// Los tokens se leen de los secrets de la función (CRON_SECRET / MANUAL_SECRET). Mientras no los definas se usan
-// los valores de siempre, para que el cron y el botón de abiertos sigan funcionando sin cambios.
-// Cuando los definas, actualiza también el header del cron y el cliente, y quita estos valores por defecto.
-const CRON_TOKEN   = `Bearer ${Deno.env.get("CRON_SECRET")   ?? "tradingcat-cron-2026"}`;
-const MANUAL_TOKEN = `Bearer ${Deno.env.get("MANUAL_SECRET") ?? "tradingcat-manual-2026"}`;
+// Los tokens SOLO vienen de los secrets de la función (CRON_SECRET / MANUAL_SECRET). Ya no hay valores por
+// defecto en el código: si un secret no existe, ese acceso queda desactivado (cerrado por defecto).
+const CRON_SECRET   = Deno.env.get("CRON_SECRET")   ?? "";
+const MANUAL_SECRET = Deno.env.get("MANUAL_SECRET") ?? "";
+const CRON_TOKEN    = CRON_SECRET   ? `Bearer ${CRON_SECRET}`   : "";
+const MANUAL_TOKEN  = MANUAL_SECRET ? `Bearer ${MANUAL_SECRET}` : "";
+
+// Secreto con el que /api/notify acepta las alertas de esta función (cabecera x-notify-secret)
+const NOTIFY_SECRET = Deno.env.get("NOTIFY_SECRET") ?? "";
 
 const NOTIFY_URL = "https://tradingcat.onrender.com/api/notify";
 
@@ -17,6 +23,8 @@ const SNAPSHOT_BATCH_SIZE = 20;
 
 // Separación mínima entre dos refrescos del MISMO trade individual (ícono por fila)
 const SINGLE_TICKER_MIN_MINUTES = 1;
+// Separación mínima entre dos refrescos MANUALES de todos los trades (el cron no tiene este límite)
+const MANUAL_ALL_MIN_SECONDS = 60;
 
 const FETCH_TIMEOUT_MS = 10_000;
 const PATCH_CONCURRENCY = 10;
@@ -340,7 +348,10 @@ async function sendAlert(payload: Record<string, unknown>): Promise<boolean> {
   try {
     const res = await fetchT(NOTIFY_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(NOTIFY_SECRET ? { "x-notify-secret": NOTIFY_SECRET } : {}),
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -363,24 +374,19 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const SUPABASE_ANON_KEY  = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const WEBULL_APP_KEY     = Deno.env.get("WEBULL_APP_KEY") || "";
   const WEBULL_APP_SECRET  = Deno.env.get("WEBULL_KEY_APP_SECRET") || "";
   const WEBULL_API_URL     = Deno.env.get("WEBULL_API_URL") || "https://api.webull.com";
   const WEBULL_MARKET_URL  = Deno.env.get("WEBULL_MARKET_DATA_URL") || "https://api.webull.com";
 
   // ── Autorización ──────────────────────────────────────────────────────────
-  // Antes bastaba con mandar CUALQUIER valor en el header "apikey". Ahora debe ser uno de los tokens,
-  // o la clave anon/service del proyecto.
+  // Solo valen los dos tokens secretos. Antes también se aceptaba la clave "anon" del proyecto, pero esa clave es
+  // pública (va en el código del navegador), así que cualquiera podía disparar esta función.
   const authHeader = req.headers.get("Authorization") ?? "";
-  const apikey     = req.headers.get("apikey") ?? "";
-  const isCron     = safeEqual(authHeader, CRON_TOKEN);
-  const isManual   = safeEqual(authHeader, MANUAL_TOKEN);
-  const hasProjectKey =
-    (SUPABASE_ANON_KEY !== "" && safeEqual(apikey, SUPABASE_ANON_KEY)) ||
-    (SUPABASE_KEY !== "" && safeEqual(apikey, SUPABASE_KEY));
+  const isCron     = CRON_TOKEN   !== "" && safeEqual(authHeader, CRON_TOKEN);
+  const isManual   = MANUAL_TOKEN !== "" && safeEqual(authHeader, MANUAL_TOKEN);
 
-  if (!isCron && !isManual && !hasProjectKey) {
+  if (!isCron && !isManual) {
     return new Response("Unauthorized", { status: 401, headers: CORS });
   }
 
@@ -468,6 +474,21 @@ Deno.serve(async (req) => {
             { headers: CORS }
           );
         }
+      }
+    }
+
+    // Refresco manual de TODOS los trades: no se repite si se actualizó hace menos de MANUAL_ALL_MIN_SECONDS
+    if (isManual && !singleTicker) {
+      const lastAll = Math.max(
+        0,
+        ...trades.map((t: any) => (t.last_price_updated_at ? new Date(t.last_price_updated_at).getTime() : 0))
+      );
+      const secondsSince = (Date.now() - lastAll) / 1000;
+      if (lastAll > 0 && secondsSince < MANUAL_ALL_MIN_SECONDS) {
+        return new Response(
+          `⏭️ Ya se actualizó hace ${Math.round(secondsSince)} s — espera al menos ${MANUAL_ALL_MIN_SECONDS} s`,
+          { headers: CORS }
+        );
       }
     }
 
