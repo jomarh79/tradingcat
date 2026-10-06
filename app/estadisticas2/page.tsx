@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
@@ -9,9 +9,15 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar, PieChart, Pie, Cell,
   AreaChart, Area, LineChart, Line, ReferenceLine, ComposedChart,
+  ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 
-const parseDate = (d: string) => new Date((d || '').split('T')[0] + 'T00:00:00')
+const dayKey = (d: any) => String(d || '').split('T')[0].split(' ')[0]
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const dayMs = (k: string) => new Date(k + 'T00:00:00').getTime()
+const localDayKey = (d: Date) => d.toLocaleDateString('sv-SE') // yyyy-MM-dd en hora local
+const r2 = (n: number) => parseFloat(n.toFixed(2))
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 
 const C = {
   gain:    '#22c55e',
@@ -25,6 +31,37 @@ const C = {
 }
 
 const PIE_COLORS = ['#00bfff','#6366f1','#22c55e','#eab308','#f43f5e','#a855f7','#ec4899','#14b8a6','#f97316','#84cc16']
+
+type Period = 'YTD' | '1Y' | '5Y' | 'MAX'
+
+// Máximo 1000 filas por consulta en Supabase: se pide por páginas
+const PAGE = 1000
+async function fetchAll(make: () => any): Promise<any[]> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+  }
+  return rows
+}
+
+// Capital con el que se abrió y se fue aumentando un trade (para trades cerrados)
+function closedInvested(t: any): number {
+  const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
+  const buyExtra = (t.trade_executions || [])
+    .filter((e: any) => e.execution_type === 'buy')
+    .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
+  return r2(initialInv + buyExtra)
+}
+
+function normSector(s: any): string {
+  const v = String(s || '').trim()
+  if (!v) return 'ETFs'
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()
+}
 
 // ── Cat decorators ─────────────────────────────────────────────────────────
 const Paw = ({ size = 14, color = '#666', opacity = 1, style: s = {} }: any) => (
@@ -88,359 +125,275 @@ const CatTooltip = ({ active, payload, label, formatter, labelFormatter }: any) 
 }
 
 export default function EstadisticasCerradosPage() {
-  const { money } = usePrivacy()
+  const { money, visible } = usePrivacy()
 
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
   const [selectedPortfolio, setSelectedPortfolio] = useState('all')
   const [selectedYear,      setSelectedYear]      = useState(new Date().getFullYear().toString())
   const [loading,           setLoading]           = useState(true)
-  const [sp500Map,          setSp500Map]          = useState<Record<string, number>>({})
-  const [equityPeriod,      setEquityPeriod]      = useState<'YTD' | '1Y' | '5Y' | 'MAX'>('YTD')
+  const [loadError,         setLoadError]         = useState('')
+  const [spSeries,          setSpSeries]          = useState<{ dates: string[]; closes: number[] }>({ dates: [], closes: [] })
+  const [equityPeriod,      setEquityPeriod]      = useState<Period>('YTD')
+
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
   const fetchData = useCallback(async () => {
-    const [{ data: pData }, { data: tData }] = await Promise.all([
-      supabase.from('portfolios').select('*'),
-      supabase.from('trades').select('*, portfolios(name, id), trade_executions(quantity, price, commission, execution_type)').eq('status', 'closed'),
-    ])
-    if (pData) setPortfolios(pData)
-    if (tData) setTrades(tData)
-    setLoading(false)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const [pData, tData] = await Promise.all([
+        fetchAll(() => supabase.from('portfolios').select('id, name').eq('user_id', user.id).order('id')),
+        fetchAll(() => supabase.from('trades')
+          .select('*, portfolios(name, id), trade_executions(quantity, price, commission, execution_type)')
+          .eq('user_id', user.id).eq('status', 'closed').order('close_date').order('id')),
+      ])
+      if (!alive.current) return
+      setPortfolios(pData); setTrades(tData); setLoadError('')
+    } catch (e: any) {
+      if (alive.current) setLoadError(e?.message || 'No se pudieron cargar los datos')
+    } finally {
+      if (alive.current) setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     fetchData()
+    // Caché del S&P 500: acepta el formato viejo [{date,close}] y el nuevo {ts,rows}
+    // (con el nuevo, el código anterior fallaba al hacer forEach sobre un objeto)
     try {
       const cached = localStorage.getItem('sp500')
       if (cached) {
-        const parsed: { date: string, close: number }[] = JSON.parse(cached)
-        const map: Record<string, number> = {}
-        parsed.forEach(d => { map[d.date] = d.close })
-        setSp500Map(map)
+        const parsed = JSON.parse(cached)
+        const rows: { date: string; close: number }[] = Array.isArray(parsed) ? parsed : (parsed?.rows || [])
+        const clean = rows
+          .map(d => ({ date: dayKey(d.date), close: Number(d.close) }))
+          .filter(d => DAY_RE.test(d.date) && d.close > 0)
+          .sort((a, b) => a.date.localeCompare(b.date))
+        setSpSeries({ dates: clean.map(d => d.date), closes: clean.map(d => d.close) })
       }
     } catch (e) { console.error('SP500 cache:', e) }
   }, [fetchData])
 
+  const hasSp = spSeries.dates.length > 0
+
+  // Cierre del S&P 500 en o antes de una fecha (búsqueda binaria)
+  const spAt = useCallback((k: string): number | null => {
+    const { dates, closes } = spSeries
+    let lo = 0, hi = dates.length - 1, idx = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (dates[mid] <= k) { idx = mid; lo = mid + 1 } else hi = mid - 1
+    }
+    return idx >= 0 ? closes[idx] : null
+  }, [spSeries])
+
+  // Trades cerrados con todos los campos derivados calculados UNA vez
+  const enriched = useMemo(() => trades
+    .map(t => {
+      const closeKey = dayKey(t.close_date || t.open_date)
+      const openKey  = dayKey(t.open_date || t.close_date)
+      if (!DAY_RE.test(closeKey) || !DAY_RE.test(openKey)) return null
+      const invested = closedInvested(t)
+      const pnl      = Number(t.realized_pnl) || 0
+      const days     = Math.max(1, Math.ceil(Math.abs(dayMs(closeKey) - dayMs(openKey)) / 86400000))
+      // Lo que habría ganado ese mismo capital en el S&P 500 entre las mismas fechas
+      const spO = spAt(openKey), spC = spAt(closeKey)
+      const bench = spO && spC && invested > 0 ? invested * (spC / spO - 1) : null
+      return {
+        ...t, closeKey, openKey, invested, pnl, days, bench,
+        pct: invested > 0 ? (pnl / invested) * 100 : 0,
+        sectorN: normSector(t.sector),
+      }
+    })
+    .filter((t): t is NonNullable<typeof t> => t !== null)
+    .sort((a, b) => a.closeKey.localeCompare(b.closeKey) || String(a.id).localeCompare(String(b.id)))
+  , [trades, spAt])
+
   const availableYears = useMemo(() => {
-    const years = trades.map(t => parseDate(t.close_date || t.open_date).getFullYear().toString())
-    return Array.from(new Set(years)).sort((a, b) => b.localeCompare(a))
-  }, [trades])
+    const years = new Set<string>([new Date().getFullYear().toString()])
+    enriched.forEach(t => years.add(t.closeKey.slice(0, 4)))
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [enriched])
 
-  const filteredTrades = useMemo(() => trades.filter(t => {
-    const matchP = selectedPortfolio === 'all' || t.portfolio_id === selectedPortfolio
-    const matchY = selectedYear === 'all' || parseDate(t.close_date || t.open_date).getFullYear().toString() === selectedYear
-    return matchP && matchY
-  }), [trades, selectedPortfolio, selectedYear])
+  // Billetera elegida (sin filtro de año): base de la tabla por período
+  const portRows = useMemo(
+    () => enriched.filter(t => selectedPortfolio === 'all' || t.portfolio_id === selectedPortfolio),
+    [enriched, selectedPortfolio]
+  )
+  const rows = useMemo(
+    () => portRows.filter(t => selectedYear === 'all' || t.closeKey.startsWith(selectedYear)),
+    [portRows, selectedYear]
+  )
 
-  const calcInvested = useCallback((t: any): number => {
-    const initialInv = Number(t.initial_entry_price || t.entry_price || 0) * Number(t.initial_quantity || t.quantity || 0)
-    const buyExtra = (t.trade_executions || [])
-      .filter((e: any) => e.execution_type === 'buy')
-      .reduce((a: number, e: any) => a + Number(e.quantity) * Number(e.price) + Number(e.commission || 0), 0)
-    return parseFloat((initialInv + buyExtra).toFixed(2))
-  }, [])
-
-  // ── Métricas y tarjetas (números, rachas, top trades) ─────────────────────
+  // ── Métricas y tarjetas ───────────────────────────────────────────────────
   const stats = useMemo(() => {
-    if (!filteredTrades.length) return null
+    if (!rows.length) return null
 
-    const sorted = [...filteredTrades].sort(
-      (a, b) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime()
-    )
+    const total   = rows.length
+    const wins    = rows.filter(t => t.pnl > 0)
+    const losses  = rows.filter(t => t.pnl < 0)
+    const breakEven = total - wins.length - losses.length
 
-    const totalTrades = sorted.length
-    const wins   = sorted.filter(t => Number(t.realized_pnl) > 0)
-    const losses = sorted.filter(t => Number(t.realized_pnl) < 0)
-    const breakEven = sorted.filter(t => Number(t.realized_pnl) === 0)
+    const totalPnL = r2(rows.reduce((a, t) => a + t.pnl, 0))
+    const totalInv = rows.reduce((a, t) => a + t.invested, 0)
+    const totalPnLPct = totalInv > 0 ? r2((totalPnL / totalInv) * 100) : 0
+    const totalWin  = r2(wins.reduce((a, t) => a + t.pnl, 0))
+    const totalLoss = r2(losses.reduce((a, t) => a + Math.abs(t.pnl), 0))
 
-    const totalPnL  = parseFloat(sorted.reduce((acc, t) => acc + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const totalInvestedPnL = sorted.reduce((acc, t) => acc + calcInvested(t), 0)
+    const winRate      = parseFloat(((wins.length / total) * 100).toFixed(1))
+    const avgWin       = wins.length   ? r2(totalWin  / wins.length)   : 0
+    const avgLoss      = losses.length ? r2(totalLoss / losses.length) : 0
+    const winLossRatio = avgLoss > 0 ? r2(avgWin / avgLoss) : 0
+    // Sin pérdidas el factor no existe (antes se mostraba "100")
+    const profitFactor: number | null = totalLoss > 0 ? r2(totalWin / totalLoss) : null
+    // Expectativa exacta = PnL medio por trade (antes se calculaba con el win rate ya redondeado)
+    const expectancy = r2(totalPnL / total)
+    const avgDuration = parseFloat((rows.reduce((a, t) => a + t.days, 0) / total).toFixed(1))
+    const avgReturnPct = r2(rows.reduce((a, t) => a + t.pct, 0) / total)
 
-    const totalPnLPct = totalInvestedPnL > 0 ? parseFloat(((totalPnL / totalInvestedPnL) * 100).toFixed(2)) : 0
-    const totalWin  = parseFloat(wins.reduce((acc, t)   => acc + Number(t.realized_pnl || 0), 0).toFixed(2))
-    const totalLoss = parseFloat(losses.reduce((acc, t)  => acc + Math.abs(Number(t.realized_pnl || 0)), 0).toFixed(2))
-
-    const winRate      = parseFloat(((wins.length / totalTrades) * 100).toFixed(1))
-    const avgWin       = wins.length   ? parseFloat((totalWin  / wins.length).toFixed(2))   : 0
-    const avgLoss      = losses.length ? parseFloat((totalLoss / losses.length).toFixed(2)) : 0
-    const winLossRatio = avgLoss > 0   ? parseFloat((avgWin / avgLoss).toFixed(2))          : 0
-    const profitFactor = totalLoss > 0 ? parseFloat((totalWin / totalLoss).toFixed(2))      : totalWin > 0 ? 100 : 0
-    const expectancy   = parseFloat((((winRate / 100) * avgWin) - ((1 - winRate / 100) * avgLoss)).toFixed(2))
-
-    const avgDuration = parseFloat((
-      sorted.reduce((acc, t) => {
-        const days = Math.max(1, Math.ceil(
-          Math.abs(parseDate(t.close_date).getTime() - parseDate(t.open_date).getTime()) / 86400000
-        ))
-        return acc + days
-      }, 0) / totalTrades
-    ).toFixed(1))
-
-  // Streaks, drawdown, equity
-let equity = 0, peak = 0, maxDD = 0
-let winStrk = 0, maxWinStrk = 0, lossStrk = 0, maxLossStrk = 0
-
-sorted.forEach(t => {
-  const pnl = Number(t.realized_pnl || 0)
-
-  equity += pnl
-
-  if (equity > peak) peak = equity
-
-  const dd = peak - equity
-
-  if (dd > maxDD) maxDD = dd
-
-  if (pnl > 0) {
-    winStrk++
-    lossStrk = 0
-    if (winStrk > maxWinStrk) maxWinStrk = winStrk
-  } else {
-    lossStrk++
-    winStrk = 0
-    if (lossStrk > maxLossStrk) maxLossStrk = lossStrk
-  }
-})
-
-const recoveryFactor =
-  maxDD > 0
-    ? parseFloat((totalPnL / maxDD).toFixed(2))
-    : null
-
-    const tradesWithPct = sorted.map(t => {
-      const invested = calcInvested(t)
-      const pnl = Number(t.realized_pnl || 0)
-      return invested > 0 ? (pnl / invested) * 100 : 0
+    // Rachas y drawdown (en $, desde el pico del PnL acumulado; el pico parte de 0).
+    // Un trade en cero no corta ni suma racha (antes contaba como perdido).
+    let equity = 0, peak = 0, maxDD = 0
+    let winStrk = 0, maxWinStrk = 0, lossStrk = 0, maxLossStrk = 0
+    rows.forEach(t => {
+      equity += t.pnl
+      if (equity > peak) peak = equity
+      if (peak - equity > maxDD) maxDD = peak - equity
+      if (t.pnl > 0)      { winStrk++; lossStrk = 0; if (winStrk > maxWinStrk) maxWinStrk = winStrk }
+      else if (t.pnl < 0) { lossStrk++; winStrk = 0; if (lossStrk > maxLossStrk) maxLossStrk = lossStrk }
     })
-    const avgReturnPct = tradesWithPct.length > 0
-      ? parseFloat((tradesWithPct.reduce((acc, pct) => acc + pct, 0) / tradesWithPct.length).toFixed(2))
-      : 0
+    const recoveryFactor = maxDD > 0 ? r2(totalPnL / maxDD) : null
 
-    const withPct = sorted.map(t => ({
-      ...t,
-      pct: calcInvested(t) > 0 ? (Number(t.realized_pnl) / calcInvested(t)) * 100 : 0,
+    const bestTradePct  = rows.reduce((a, b) => (b.pct > a.pct ? b : a), rows[0])
+    const worstTradePct = rows.reduce((a, b) => (b.pct < a.pct ? b : a), rows[0])
+
+    // Mes a mes (clave yyyy-MM: ordena bien y evita parsear textos como "sep." / "sept.")
+    const monthlyMap: Record<string, { pnl: number; wins: number; losses: number; trades: number }> = {}
+    rows.forEach(t => {
+      const k = t.closeKey.slice(0, 7)
+      const m = (monthlyMap[k] ||= { pnl: 0, wins: 0, losses: 0, trades: 0 })
+      m.pnl += t.pnl; m.trades++
+      if (t.pnl > 0) m.wins++
+      else if (t.pnl < 0) m.losses++
+    })
+    const monthKeys = Object.keys(monthlyMap).sort()
+    const monthLabel = (k: string) => `${MESES[Number(k.slice(5, 7)) - 1]} ${k.slice(0, 4)}`
+    const monthlyTable = monthKeys.map(k => {
+      const m = monthlyMap[k]
+      return {
+        key: k, month: monthLabel(k), pnl: r2(m.pnl), trades: m.trades, wins: m.wins, losses: m.losses,
+        winRate: m.trades > 0 ? Math.round((m.wins / m.trades) * 100) : 0,
+      }
+    })
+    const bestMonth  = monthlyTable.reduce((a, b) => (b.pnl > a.pnl ? b : a), monthlyTable[0])
+    const worstMonth = monthlyTable.reduce((a, b) => (b.pnl < a.pnl ? b : a), monthlyTable[0])
+
+    // Acumulado mensual como cascada: cada barra flota entre el acumulado anterior y el nuevo
+    // (el apilado con base transparente se rompía cuando el acumulado cruzaba el cero)
+    let cum = 0
+    const monthlyWaterfall = monthlyTable.map(m => {
+      const from = cum, to = cum + m.pnl
+      cum = to
+      return {
+        month: m.month, value: m.pnl, cumPnl: r2(to),
+        range: [r2(Math.min(from, to)), r2(Math.max(from, to))] as [number, number],
+        fill: m.pnl >= 0 ? C.gain : C.loss,
+      }
+    })
+
+    // Sector: PnL (con signo) → barras horizontales. Con negativos una dona no tiene sentido.
+    const sectorMap: Record<string, { pnl: number; count: number }> = {}
+    rows.forEach(t => { const s = (sectorMap[t.sectorN] ||= { pnl: 0, count: 0 }); s.pnl += t.pnl; s.count++ })
+    const sectorData = Object.entries(sectorMap)
+      .map(([name, d]) => ({ name, value: r2(d.pnl), count: d.count }))
+      .sort((a, b) => b.value - a.value)
+
+    const reasonMap: Record<string, { pnl: number; count: number }> = {}
+    rows.forEach(t => { const r = String(t.close_reason || '').trim() || 'Sin especificar'; const o = (reasonMap[r] ||= { pnl: 0, count: 0 }); o.pnl += t.pnl; o.count++ })
+    const closeReasonData = Object.entries(reasonMap)
+      .map(([reason, d]) => ({ reason, pnl: r2(d.pnl), count: d.count }))
+      .sort((a, b) => b.count - a.count)
+
+    const buckets = { '1-7 días': 0, '8-30 días': 0, '31-90 días': 0, '+90 días': 0 }
+    rows.forEach(t => {
+      if (t.days <= 7) buckets['1-7 días']++
+      else if (t.days <= 30) buckets['8-30 días']++
+      else if (t.days <= 90) buckets['31-90 días']++
+      else buckets['+90 días']++
+    })
+    const durationData = Object.entries(buckets).map(([bucket, count]) => ({ bucket, count }))
+
+    const scatterData = rows.map(t => ({
+      ticker: t.ticker, days: t.days, pnlPct: r2(t.pct), pnl: r2(t.pnl), color: t.pnl >= 0 ? C.gain : C.loss,
     }))
-    const bestTradePct  = [...withPct].sort((a, b) => b.pct - a.pct)[0]
-    const worstTradePct = [...withPct].sort((a, b) => a.pct - b.pct)[0]
-
-    // Mejor y peor mes (solo para las tarjetas de rachas — el detalle completo está en "Resumen por mes")
-    const monthlyStats: Record<string, { count: number, pnl: number, wins: number }> = {}
-    sorted.forEach(t => {
-      const key = parseDate(t.close_date).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
-      if (!monthlyStats[key]) monthlyStats[key] = { count: 0, pnl: 0, wins: 0 }
-      monthlyStats[key].count++
-      monthlyStats[key].pnl = parseFloat((monthlyStats[key].pnl + Number(t.realized_pnl || 0)).toFixed(2))
-      if (Number(t.realized_pnl || 0) > 0) monthlyStats[key].wins++
-    })
-    const monthEntries = Object.entries(monthlyStats)
-    const bestMonth  = [...monthEntries].sort(([, a], [, b]) => b.pnl - a.pnl)[0]
-    const worstMonth = [...monthEntries].sort(([, a], [, b]) => a.pnl - b.pnl)[0]
 
     return {
-      totalTrades, totalPnL, totalPnLPct, winRate, profitFactor, expectancy,
-      avgWin, avgLoss, winLossRatio, maxDD: parseFloat(maxDD.toFixed(2)),
-      maxWinStrk, maxLossStrk, avgDuration,
-      bestMonth, worstMonth,
-      topWinners: [...sorted].sort((a, b) => Number(b.realized_pnl) - Number(a.realized_pnl)).slice(0, 5),
-      topLosers:  [...sorted].sort((a, b) => Number(a.realized_pnl) - Number(b.realized_pnl)).slice(0, 5),
-      recoveryFactor, avgReturnPct,
-      bestTradePct, worstTradePct,
-      winsCount: wins.length, lossesCount: losses.length, breakEvenCount: breakEven.length,
+      totalTrades: total, totalPnL, totalPnLPct, winRate, profitFactor, expectancy,
+      avgWin, avgLoss, winLossRatio, maxDD: r2(maxDD),
+      maxWinStrk, maxLossStrk, avgDuration, bestMonth, worstMonth,
+      // solo ganadores / solo perdedores reales (antes, con pocos trades, el "top" podía traer del lado contrario)
+      topWinners: wins.slice().sort((a, b) => b.pnl - a.pnl).slice(0, 5),
+      topLosers:  losses.slice().sort((a, b) => a.pnl - b.pnl).slice(0, 5),
+      recoveryFactor, avgReturnPct, bestTradePct, worstTradePct,
+      winsCount: wins.length, lossesCount: losses.length, breakEvenCount: breakEven,
+      monthlyTable, monthlyWaterfall, sectorData, closeReasonData, durationData, scatterData,
     }
-  }, [filteredTrades, calcInvested])
+  }, [rows])
 
-  // ── Gráficas ────────────────────────────────────────────────────────────
-  const charts = useMemo(() => {
-    if (!filteredTrades.length) return null
+  // ── Curvas del período elegido (drawdown y vs S&P 500), reiniciadas al inicio del período ──
+  const curves = useMemo(() => {
+    const now = new Date()
+    let cutoffKey = ''
+    if (equityPeriod === 'YTD') cutoffKey = `${now.getFullYear()}-01-01`
+    else if (equityPeriod === '1Y') cutoffKey = localDayKey(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()))
+    else if (equityPeriod === '5Y') cutoffKey = localDayKey(new Date(now.getFullYear() - 5, now.getMonth(), now.getDate()))
 
-    const sorted = [...filteredTrades].sort(
-      (a, b) => parseDate(a.close_date).getTime() - parseDate(b.close_date).getTime()
-    )
+    const inPeriod = rows.filter(t => !cutoffKey || t.closeKey >= cutoffKey)
+    // Si hay datos del S&P, solo se usan trades que tengan precio de referencia (en ambas líneas)
+    const usable = hasSp ? inPeriod.filter(t => t.bench !== null) : inPeriod
+    const skipped = inPeriod.length - usable.length
 
-    let equity = 0, peak = 0
-
-    const firstDateStr = sorted[0].close_date
-    const sp500Prices  = Object.entries(sp500Map).sort(([a], [b]) => a.localeCompare(b))
-    const sp500Base    = sp500Map[firstDateStr] ||
-      sp500Prices.reverse().find(([d]) => d <= firstDateStr)?.[1] || null
-
-    const drawdownCurve: any[] = []
-    const sp500Curve: any[]    = []
-    const monthly: Record<string, { pnl: number, wins: number, trades: number }> = {}
-    const sector: Record<string, { pnl: number, count: number }> = {}
-    const weekday: Record<string, number> = {}
-    const closeReason: Record<string, { pnl: number, count: number }> = {}
-    const pnlDistribution: any[] = []
-    const durationBuckets: Record<string, number> = {
-      '1-7 días': 0, '8-30 días': 0, '31-90 días': 0, '+90 días': 0
-    }
-    const monthlyWaterfall: any[] = []
-
-    sorted.forEach(t => {
-      const pnl      = Number(t.realized_pnl) || 0
-      const thisDate = parseDate(t.close_date)
-      const tradeDays = Math.max(1, Math.ceil(
-        Math.abs(parseDate(t.close_date).getTime() - parseDate(t.open_date).getTime()) / 86400000
-      ))
-
-      if      (tradeDays <= 7)  durationBuckets['1-7 días']++
-      else if (tradeDays <= 30) durationBuckets['8-30 días']++
-      else if (tradeDays <= 90) durationBuckets['31-90 días']++
-      else                      durationBuckets['+90 días']++
-
-      equity += pnl
+    let equity = 0, peak = 0, bench = 0
+    const drawdown: any[] = []
+    const vs: any[] = []
+    usable.forEach(t => {
+      equity += t.pnl
       if (equity > peak) peak = equity
-      const dd = peak > 0 ? ((peak - equity) / peak) * 100 : 0
-
-      const label = thisDate.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
-      drawdownCurve.push({ date: label, rawDate: t.close_date, drawdown: parseFloat((-dd).toFixed(2)) })
-
-      const closeDateStr = t.close_date
-      const sp500Current = sp500Map[closeDateStr] ||
-        Object.entries(sp500Map).sort(([a],[b]) => b.localeCompare(a)).find(([d]) => d <= closeDateStr)?.[1] || null
-      const sp500Pct = sp500Base && sp500Current
-        ? parseFloat(((sp500Current - sp500Base) / sp500Base * equity).toFixed(2))
-        : null
-
-      sp500Curve.push({
-        date: label,
-        rawDate: t.close_date,
-        Portafolio: parseFloat(equity.toFixed(2)),
-        'S&P 500':  sp500Pct,
-      })
-
-      const m = thisDate.toLocaleDateString('es-MX', { year: 'numeric', month: 'short' })
-      if (!monthly[m]) monthly[m] = { pnl: 0, wins: 0, trades: 0 }
-      monthly[m].pnl += pnl
-      monthly[m].trades++
-      if (pnl > 0) monthly[m].wins++
-
-      const s = t.sector || 'Otros'
-      if (!sector[s]) sector[s] = { pnl: 0, count: 0 }
-      sector[s].pnl   += pnl
-      sector[s].count++
-
-      const d = thisDate.toLocaleDateString('es-MX', { weekday: 'short' })
-      weekday[d] = (weekday[d] || 0) + pnl
-
-      const r = t.close_reason || 'Sin especificar'
-      if (!closeReason[r]) closeReason[r] = { pnl: 0, count: 0 }
-      closeReason[r].pnl   += pnl
-      closeReason[r].count++
-
-      const invReal = calcInvested(t)
-      const pnlPct  = invReal > 0 ? parseFloat(((pnl / invReal) * 100).toFixed(1)) : 0
-      pnlDistribution.push({ ticker: t.ticker, pnlPct, color: pnl >= 0 ? C.gain : C.loss })
+      bench += t.bench ?? 0
+      const label = new Date(t.closeKey + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })
+      drawdown.push({ date: label, drawdown: r2(equity - peak) })
+      vs.push({ date: label, Portafolio: r2(equity), 'S&P 500': hasSp ? r2(bench) : null })
     })
+    return { drawdown, vs, skipped }
+  }, [rows, equityPeriod, hasSp])
 
-    const MONTH_ORDER = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
-    const sortedByMonth = Object.entries(monthly).sort(([a], [b]) => {
-      const partsA   = a.replace('.','').split(' ')
-      const partsB   = b.replace('.','').split(' ')
-      const yearDiff = parseInt(partsA[1]) - parseInt(partsB[1])
-      if (yearDiff !== 0) return yearDiff
-      return MONTH_ORDER.indexOf(partsA[0].toLowerCase().slice(0,3)) - MONTH_ORDER.indexOf(partsB[0].toLowerCase().slice(0,3))
-    })
-
-    let cumPnl = 0
-    sortedByMonth.forEach(([month, d]: [string, any]) => {
-      const val = parseFloat(d.pnl.toFixed(2))
-      monthlyWaterfall.push({
-        month,
-        value:  val,
-        base:   val >= 0 ? cumPnl : cumPnl + val,
-        cumPnl: parseFloat((cumPnl + val).toFixed(2)),
-        fill:   val >= 0 ? '#22c55e' : '#f43f5e',
-      })
-      cumPnl += val
-    })
-
-    const now2    = new Date()
+  // ── Rendimiento por período vs S&P (mismo capital y mismas fechas) ────────
+  const periodRows = useMemo(() => {
+    const now = new Date()
     const periods = [
-      { label: '1 mes',   months: 1  },
-      { label: '3 meses', months: 3  },
-      { label: '6 meses', months: 6  },
-      { label: '1 año',   months: 12 },
-      { label: '3 años',  months: 36 },
-      { label: '5 años',  months: 60 },
+      { label: '1 mes', months: 1 }, { label: '3 meses', months: 3 }, { label: '6 meses', months: 6 },
+      { label: '1 año', months: 12 }, { label: '3 años', months: 36 }, { label: '5 años', months: 60 },
     ]
-    const periodRows = periods.map(p => {
-      const cutoff        = new Date(now2.getFullYear(), now2.getMonth() - p.months, now2.getDate())
-      const periodTrades  = sorted.filter(t => parseDate(t.close_date) >= cutoff)
-      const periodInv     = periodTrades.reduce((a, t) => a + calcInvested(t), 0)
-      const periodPnl     = periodTrades.reduce((a, t) => a + Number(t.realized_pnl || 0), 0)
-      const portRend      = periodInv > 0 ? parseFloat((periodPnl / periodInv * 100).toFixed(2)) : null
-      const cutoffStr     = cutoff.toISOString().split('T')[0]
-      const sp500Keys     = Object.keys(sp500Map).sort()
-      const sp500StartKey = sp500Keys.filter(k => k <= cutoffStr).slice(-1)[0]
-      const sp500EndKey   = sp500Keys.slice(-1)[0]
-      const sp500Start    = sp500StartKey ? sp500Map[sp500StartKey] : null
-      const sp500End      = sp500EndKey   ? sp500Map[sp500EndKey]   : null
-      const sp500Rend     = sp500Start && sp500End
-        ? parseFloat(((sp500End - sp500Start) / sp500Start * 100).toFixed(2))
-        : null
-      const diff = portRend !== null && sp500Rend !== null
-        ? parseFloat((portRend - sp500Rend).toFixed(2))
-        : null
+    return periods.map(p => {
+      const cutoff = localDayKey(new Date(now.getFullYear(), now.getMonth() - p.months, now.getDate()))
+      const set = portRows.filter(t => t.closeKey >= cutoff && (!hasSp || t.bench !== null))
+      const inv = set.reduce((a, t) => a + t.invested, 0)
+      const pnl = set.reduce((a, t) => a + t.pnl, 0)
+      const bench = set.reduce((a, t) => a + (t.bench ?? 0), 0)
+      const portRend = inv > 0 ? r2((pnl / inv) * 100) : null
+      const sp500Rend = hasSp && inv > 0 ? r2((bench / inv) * 100) : null
+      const diff = portRend !== null && sp500Rend !== null ? r2(portRend - sp500Rend) : null
       return { label: p.label, portRend, sp500Rend, diff }
     }).reverse()
-
-    return {
-      drawdownCurve, sp500Curve, monthlyWaterfall,
-      durationData: Object.entries(durationBuckets).map(([bucket, count]) => ({ bucket, count })),
-      sectorData: Object.entries(sector)
-        .map(([name, d]) => ({ name, value: parseFloat(d.pnl.toFixed(2)), count: d.count }))
-        .sort((a, b) => b.value - a.value),
-      weekdayData: (() => {
-        const DAY_ORDER = ['lun','mar','mié','jue','vie','sáb','dom']
-        return Object.entries(weekday)
-          .map(([day, pnl]) => ({ day, pnl: parseFloat((pnl as number).toFixed(2)) }))
-          .sort((a, b) => {
-            const ia = DAY_ORDER.findIndex(d => a.day.toLowerCase().startsWith(d))
-            const ib = DAY_ORDER.findIndex(d => b.day.toLowerCase().startsWith(d))
-            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-          })
-      })(),
-      closeReasonData: Object.entries(closeReason)
-        .map(([reason, d]) => ({ reason, pnl: parseFloat(d.pnl.toFixed(2)), count: d.count }))
-        .sort((a, b) => b.count - a.count),
-      pnlDistribution: pnlDistribution.sort((a, b) => a.pnlPct - b.pnlPct),
-      periodRows,
-      scatterData: sorted.map(t => {
-        const inv = calcInvested(t)
-        const pnl = Number(t.realized_pnl || 0)
-        const days = Math.max(1, Math.ceil(
-          Math.abs(parseDate(t.close_date).getTime() - parseDate(t.open_date).getTime()) / 86400000
-        ))
-        const pnlPct = inv > 0 ? parseFloat(((pnl / inv) * 100).toFixed(2)) : 0
-        return { ticker: t.ticker, days, pnlPct, pnl: parseFloat(pnl.toFixed(2)), color: pnl >= 0 ? C.gain : C.loss }
-      }),
-      monthlyTable: sortedByMonth.map(([month, d]: [string, any]) => ({
-        month,
-        pnl:     parseFloat(d.pnl.toFixed(2)),
-        trades:  d.trades,
-        wins:    d.wins,
-        losses:  d.trades - d.wins,
-        winRate: d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0,
-      })).sort((a, b) => b.pnl - a.pnl),
-    }
-  }, [filteredTrades, sp500Map, calcInvested])
+  }, [portRows, hasSp])
 
   const fmtMoney = (v: number) => money(v)
+  // En modo privado el eje de importes se oculta
+  const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
 
-  const periodCutoff = (p: 'YTD' | '1Y' | '5Y' | 'MAX'): Date => {
-    const now = new Date()
-    if (p === 'YTD') return new Date(now.getFullYear(), 0, 1)
-    if (p === '1Y')  return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-    if (p === '5Y')  return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate())
-    return new Date(2000, 0, 1)
-  }
-  const cutoff = periodCutoff(equityPeriod)
-  const filterCurve = (data: any[]) => data.filter(d => !d.rawDate || new Date(d.rawDate + 'T00:00:00') >= cutoff)
-  const drawdownFiltered = charts ? filterCurve(charts.drawdownCurve) : []
-  const sp500Filtered    = charts ? filterCurve(charts.sp500Curve)    : []
-
-  const PeriodSelector = () => (
+  const periodSelector = (
     <div style={{ display: 'flex', gap: 2, background: '#050505', padding: 3, borderRadius: 8, border: '1px solid #111' }}>
       {(['YTD', '1Y', '5Y', 'MAX'] as const).map(p => (
         <button key={p} onClick={() => setEquityPeriod(p)} style={{
@@ -461,6 +414,8 @@ const recoveryFactor =
       </div>
     </AppShell>
   )
+
+  const benchNote = curves.skipped > 0 ? ` · ${curves.skipped} trade(s) sin precio del S&P omitidos` : ''
 
   return (
     <AppShell>
@@ -486,6 +441,12 @@ const recoveryFactor =
           <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Performance histórico — trades cerrados</h1>
         </div>
 
+        {loadError && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12, background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: C.loss }}>
+            No se pudieron cargar los datos ({loadError}). Recarga la página.
+          </div>
+        )}
+
         {/* ── FILTROS ── */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
           <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
@@ -499,7 +460,7 @@ const recoveryFactor =
           ))}
         </div>
 
-        {!stats || !charts ? (
+        {!stats ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <CatSitting size={60} color="#444" opacity={0.4} />
             <Paw size={24} color="#333" opacity={0.5} />
@@ -519,13 +480,13 @@ const recoveryFactor =
               <StatCard label="Win rate" value={`${stats.winRate}%`}
                 desc={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos${stats.breakEvenCount ? ` · ${stats.breakEvenCount} BE` : ''}`}
                 color="#fff" bar={stats.winRate} pawColor="#fff" />
-              <StatCard label="Profit factor" value={String(stats.profitFactor)}
-                desc={stats.profitFactor >= 1.5 ? 'Sistema rentable' : stats.profitFactor >= 1 ? 'Marginalmente rentable' : 'Sistema con pérdidas'}
-                color={stats.profitFactor >= 1.5 ? '#22c55e' : stats.profitFactor >= 1 ? '#eab308' : '#f43f5e'}
+              <StatCard label="Profit factor" value={stats.profitFactor === null ? '∞' : String(stats.profitFactor)}
+                desc={stats.profitFactor === null ? 'Sin pérdidas' : stats.profitFactor >= 1.5 ? 'Sistema rentable' : stats.profitFactor >= 1 ? 'Marginalmente rentable' : 'Sistema con pérdidas'}
+                color={stats.profitFactor === null || stats.profitFactor >= 1.5 ? '#22c55e' : stats.profitFactor >= 1 ? '#eab308' : '#f43f5e'}
                 pawColor="#eab308" />
               <StatCard label="Expectativa por trade" value={money(stats.expectancy)}
-                desc={`Ganas en promedio ${money(Math.abs(stats.expectancy))} por operación`}
-                color="#00bfff" pawColor="#00bfff" />
+                desc={stats.expectancy >= 0 ? `Ganas en promedio ${money(Math.abs(stats.expectancy))} por operación` : `Pierdes en promedio ${money(Math.abs(stats.expectancy))} por operación`}
+                color={stats.expectancy >= 0 ? '#00bfff' : '#f43f5e'} pawColor="#00bfff" />
               <StatCard label="Rendimiento % promedio / trade" value={`${stats.avgReturnPct}%`}
                 desc="Por trade vs capital invertido"
                 color={stats.avgReturnPct >= 0 ? '#22c55e' : '#f43f5e'} pawColor="#a78bfa" />
@@ -534,22 +495,14 @@ const recoveryFactor =
                 value={stats.recoveryFactor !== null ? String(stats.recoveryFactor) : '—'}
                 desc={
                   stats.recoveryFactor !== null
-                    ? stats.recoveryFactor >= 5
-                      ? 'Excelente recuperación'
-                      : stats.recoveryFactor >= 3
-                        ? 'Muy buena recuperación'
-                        : stats.recoveryFactor >= 2
-                          ? 'Buena recuperación'
-                          : stats.recoveryFactor >= 1
-                            ? 'Recuperación aceptable'
-                            : 'Recuperación deficiente'
+                    ? stats.recoveryFactor >= 5 ? 'Excelente recuperación'
+                    : stats.recoveryFactor >= 3 ? 'Muy buena recuperación'
+                    : stats.recoveryFactor >= 2 ? 'Buena recuperación'
+                    : stats.recoveryFactor >= 1 ? 'Recuperación aceptable'
+                    : 'Recuperación deficiente'
                     : 'Sin drawdown registrado'
                 }
-                color={
-                  stats.recoveryFactor !== null
-                    ? (stats.recoveryFactor >= 2 ? '#22c55e' : stats.recoveryFactor >= 1 ? '#eab308' : '#f43f5e')
-                    : '#888'
-                }
+                color={stats.recoveryFactor !== null ? (stats.recoveryFactor >= 2 ? '#22c55e' : stats.recoveryFactor >= 1 ? '#eab308' : '#f43f5e') : '#888'}
                 pawColor="#a78bfa"
               />
               <StatCard label="Duración promedio" value={`${stats.avgDuration} días`}
@@ -591,13 +544,13 @@ const recoveryFactor =
                     Mejor trade (%)
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#22c55e' }}>
-                    {stats.bestTradePct?.ticker} · +{stats.bestTradePct?.pct.toFixed(1)}%
+                    {stats.bestTradePct.ticker} · {stats.bestTradePct.pct >= 0 ? '+' : ''}{stats.bestTradePct.pct.toFixed(1)}%
                   </div>
                   <div style={{ fontSize: 9, color: '#888', fontWeight: 700, textTransform: 'uppercase' as const, marginBottom: 4, marginTop: 8, letterSpacing: 0.5 }}>
                     Peor trade (%)
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#f43f5e' }}>
-                    {stats.worstTradePct?.ticker} · {stats.worstTradePct?.pct.toFixed(1)}%
+                    {stats.worstTradePct.ticker} · {stats.worstTradePct.pct.toFixed(1)}%
                   </div>
                 </div>
               </div>
@@ -614,8 +567,8 @@ const recoveryFactor =
                 <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>trades ganados consecutivos</div>
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 9, color: '#888', fontWeight: 700, textTransform: 'uppercase' as const, marginBottom: 4, letterSpacing: 0.5 }}>Mejor mes</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#22c55e', textTransform: 'capitalize' as const }}>{stats.bestMonth?.[0] || '—'}</div>
-                  <div style={{ fontSize: 13, color: '#22c55e' }}>{stats.bestMonth ? money(stats.bestMonth[1].pnl) : ''}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#22c55e', textTransform: 'capitalize' as const }}>{stats.bestMonth.month}</div>
+                  <div style={{ fontSize: 13, color: '#22c55e' }}>{money(stats.bestMonth.pnl)}</div>
                 </div>
               </div>
 
@@ -631,8 +584,8 @@ const recoveryFactor =
                 <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>trades perdidos consecutivos</div>
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 9, color: '#888', fontWeight: 700, textTransform: 'uppercase' as const, marginBottom: 4, letterSpacing: 0.5 }}>Peor mes</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f43f5e', textTransform: 'capitalize' as const }}>{stats.worstMonth?.[0] || '—'}</div>
-                  <div style={{ fontSize: 13, color: '#f43f5e' }}>{stats.worstMonth ? money(stats.worstMonth[1].pnl) : ''}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f43f5e', textTransform: 'capitalize' as const }}>{stats.worstMonth.month}</div>
+                  <div style={{ fontSize: 13, color: '#f43f5e' }}>{money(stats.worstMonth.pnl)}</div>
                 </div>
               </div>
 
@@ -644,6 +597,7 @@ const recoveryFactor =
                   <Paw size={10} color="#22c55e" opacity={0.7} style={{ marginRight: 6 }} />
                   Mejores cierres
                 </div>
+                {stats.topWinners.length === 0 && <div style={{ color: '#555', fontSize: 11 }}>Sin ganadores</div>}
                 {stats.topWinners.map((t, i) => (
                   <div key={t.id} style={listRow}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -651,13 +605,9 @@ const recoveryFactor =
                       <span style={{ color: '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
                     </span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 12 }}>
-                        +{money(Number(t.realized_pnl))}
-                      </div>
-                      {calcInvested(t) > 0 && (
-                        <div style={{ color: '#22c55e', fontSize: 10, opacity: 0.8 }}>
-                          +{((Number(t.realized_pnl) / calcInvested(t)) * 100).toFixed(2)}%
-                        </div>
+                      <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 12 }}>+{money(t.pnl)}</div>
+                      {t.invested > 0 && (
+                        <div style={{ color: '#22c55e', fontSize: 10, opacity: 0.8 }}>+{t.pct.toFixed(2)}%</div>
                       )}
                     </div>
                   </div>
@@ -672,17 +622,14 @@ const recoveryFactor =
                   <Paw size={10} color="#f43f5e" opacity={0.7} style={{ marginRight: 6 }} />
                   Peores cierres
                 </div>
+                {stats.topLosers.length === 0 && <div style={{ color: '#555', fontSize: 11 }}>Sin perdedores</div>}
                 {stats.topLosers.map(t => (
                   <div key={t.id} style={listRow}>
                     <span style={{ color: '#00bfff', fontWeight: 700 }}>{t.ticker}</span>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: '#f43f5e', fontWeight: 700, fontSize: 12 }}>
-                        {money(Number(t.realized_pnl))}
-                      </div>
-                      {calcInvested(t) > 0 && (
-                        <div style={{ color: '#f43f5e', fontSize: 10, opacity: 0.8 }}>
-                          {((Number(t.realized_pnl) / calcInvested(t)) * 100).toFixed(2)}%
-                        </div>
+                      <div style={{ color: '#f43f5e', fontWeight: 700, fontSize: 12 }}>{money(t.pnl)}</div>
+                      {t.invested > 0 && (
+                        <div style={{ color: '#f43f5e', fontSize: 10, opacity: 0.8 }}>{t.pct.toFixed(2)}%</div>
                       )}
                     </div>
                   </div>
@@ -692,100 +639,76 @@ const recoveryFactor =
 
             {/* ── F3: Scatter días vs PnL % ── */}
             <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
-              {charts.scatterData.length > 0 ? (
-                <div style={{ position: 'relative', height: 220 }}>
-                  <svg width="100%" height={220} viewBox="0 0 1200 220" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-                    {(() => {
-                      const data = charts.scatterData
-                      const maxDays = Math.max(...data.map(d => d.days), 1)
-                      const maxPct  = Math.max(...data.map(d => Math.abs(d.pnlPct)), 1)
-                      const padX = 40, padY = 20, padR = 16, padB = 30
-                      const W = 1200, H = 220
-                      const toX = (days: number) => padX + (days / maxDays) * (W - padX - padR)
-                      const toY = (pct: number)  => padY + ((maxPct - pct) / (maxPct * 2)) * (H - padY - padB)
-                      const zeroY = toY(0)
-                      return (
-                        <>
-                          <line x1={padX} y1={padY} x2={padX} y2={H - padB} stroke="#222" strokeWidth={1} />
-                          <line x1={padX} y1={zeroY} x2={W - padR} y2={zeroY} stroke="#333" strokeWidth={1} strokeDasharray="4 4" />
-                          {[-maxPct, -maxPct/2, 0, maxPct/2, maxPct].map(v => (
-                            <text key={v} x={padX - 4} y={toY(v) + 4} textAnchor="end" fill="#555" fontSize={8}>
-                              {v.toFixed(0)}%
-                            </text>
-                          ))}
-                          {[0, Math.round(maxDays/4), Math.round(maxDays/2), Math.round(maxDays*3/4), maxDays].map(v => (
-                            <text key={v} x={toX(v)} y={H - padB + 14} textAnchor="middle" fill="#555" fontSize={8}>
-                              {v}d
-                            </text>
-                          ))}
-                          {data.map((d, i) => (
-                            <g key={i}>
-                              <circle
-                                cx={toX(d.days)} cy={toY(d.pnlPct)}
-                                r={5} fill={d.color} fillOpacity={0.75}
-                                stroke={d.color} strokeWidth={1}
-                              />
-                              <title>{d.ticker} · {d.days}d · {d.pnlPct}%</title>
-                            </g>
-                          ))}
-                        </>
-                      )
-                    })()}
-                  </svg>
-                  <div style={{ position: 'absolute', bottom: 4, right: 8, fontSize: 8, color: '#444', display: 'flex', gap: 12 }}>
-                    <span style={{ color: C.gain }}>● ganancia</span>
-                    <span style={{ color: C.loss }}>● pérdida</span>
-                  </div>
-                </div>
-              ) : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: 11 }}>Sin datos</div>}
+              <ResponsiveContainer width="100%" height={240}>
+                <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+                  <CartesianGrid stroke="#151515" strokeDasharray="3 3" />
+                  <XAxis type="number" dataKey="days" name="Días" domain={[0, 'dataMax']} tick={{ fill: '#888', fontSize: 9 }}
+                    axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
+                  <YAxis type="number" dataKey="pnlPct" name="PnL %" tick={{ fill: '#888', fontSize: 9 }}
+                    axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} width={44} />
+                  <ZAxis range={[70, 70]} />
+                  <ReferenceLine y={0} stroke="#333" strokeDasharray="4 4" />
+                  <Tooltip cursor={{ stroke: '#333', strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0].payload
+                    return (
+                      <div style={{ background: '#0a0a0a', border: '1px solid #333', borderRadius: 8, padding: '8px 12px', fontSize: 11 }}>
+                        <div style={{ color: '#00bfff', fontWeight: 700, marginBottom: 3 }}>{d.ticker}</div>
+                        <div style={{ color: '#aaa' }}>{d.days} días · <span style={{ color: d.color, fontWeight: 700 }}>{d.pnlPct >= 0 ? '+' : ''}{d.pnlPct}%</span></div>
+                        <div style={{ color: d.color, fontWeight: 700 }}>{money(d.pnl)}</div>
+                      </div>
+                    )
+                  }} />
+                  <Scatter data={stats.scatterData}>
+                    {stats.scatterData.map((d, i) => <Cell key={i} fill={d.color} fillOpacity={0.75} stroke={d.color} />)}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
             </ChartCard>
 
-            {/* ── F4: Sector + Día + Win/Loss ── */}
+            {/* ── F4: Sector + Duración + Win/Loss ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-              <ChartCard title="PnL por sector" sub="Suma de PnL realizado" mb={0}>
-                <ResponsiveContainer width="100%" height={190}>
-                  <PieChart>
-                    <Pie data={charts.sectorData.filter(s => s.value !== 0)}
-                      cx="50%" cy="50%" innerRadius={46} outerRadius={72}
-                      paddingAngle={4} dataKey="value">
-                      {charts.sectorData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="none" />)}
-                    </Pie>
+              <ChartCard title="PnL por sector" sub="Suma de PnL realizado (verde = ganancia, rojo = pérdida)" mb={0}>
+                <ResponsiveContainer width="100%" height={Math.max(190, Math.min(stats.sectorData.length * 30, 320))}>
+                  <BarChart data={stats.sectorData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <YAxis type="category" dataKey="name" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={80} />
                     <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px', marginTop: 6 }}>
-                  {charts.sectorData.slice(0, 6).map((s, i) => (
-                    <span key={s.name} style={{ fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length], display: 'inline-block' }} />
-                      {s.name}
-                    </span>
-                  ))}
-                </div>
-              </ChartCard>
-
-              <ChartCard title="Duración de trades" sub="Histograma por rango de días en posición" mb={0}>
-                <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={charts.durationData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="bucket" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
-                    <Bar dataKey="count" name="Trades" radius={[6,6,0,0]}>
-                      {charts.durationData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />)}
+                    <ReferenceLine x={0} stroke="#333" />
+                    <Bar dataKey="value" name="PnL" radius={[0, 4, 4, 0]}>
+                      {stats.sectorData.map((e, i) => <Cell key={i} fill={e.value >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Win vs Loss" sub={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos`} mb={0}>
+              <ChartCard title="Duración de trades" sub="Histograma por rango de días en posición" mb={0}>
+                <ResponsiveContainer width="100%" height={210}>
+                  <BarChart data={stats.durationData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="bucket" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
+                    <Bar dataKey="count" name="Trades" radius={[6,6,0,0]}>
+                      {stats.durationData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Win vs Loss" sub={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos${stats.breakEvenCount ? ` · ${stats.breakEvenCount} BE` : ''}`} mb={0}>
                 <ResponsiveContainer width="100%" height={190}>
                   <PieChart>
                     <Pie
-                      data={[{ name: 'Ganados', value: stats.winsCount }, { name: 'Perdidos', value: stats.lossesCount }]}
+                      data={[
+                        { name: 'Ganados',  value: stats.winsCount,      color: C.gain },
+                        { name: 'Perdidos', value: stats.lossesCount,    color: C.loss },
+                        { name: 'BE',       value: stats.breakEvenCount, color: '#666' },
+                      ].filter(d => d.value > 0)}
                       cx="50%" cy="50%" innerRadius={46} outerRadius={72}
                       paddingAngle={6} dataKey="value" startAngle={90} endAngle={-270}>
-                      <Cell fill={C.gain} stroke="none" />
-                      <Cell fill={C.loss} stroke="none" />
+                      {[C.gain, C.loss, '#666'].map((c, i) => <Cell key={i} fill={c} stroke="none" />)}
                     </Pie>
                     <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
                   </PieChart>
@@ -801,11 +724,11 @@ const recoveryFactor =
               </ChartCard>
             </div>
 
-            {/* ── F5: Drawdown % + Portafolio vs S&P 500 ── */}
+            {/* ── F5: Drawdown + Portafolio vs S&P 500 + tabla por período ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-              <ChartCard title="Drawdown" sub="Caída máxima desde el pico de equity" mb={0} extra={<PeriodSelector />}>
+              <ChartCard title="Drawdown" sub="Caída en $ desde el pico del PnL acumulado del período" mb={0} extra={periodSelector}>
                 <ResponsiveContainer width="100%" height={210}>
-                  <AreaChart data={drawdownFiltered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <AreaChart data={curves.drawdown} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <defs>
                       <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%"  stopColor={C.loss} stopOpacity={0.3} />
@@ -813,30 +736,31 @@ const recoveryFactor =
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => `${v}%`} />} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
                     <ReferenceLine y={0} stroke="#333" />
                     <Area type="monotone" dataKey="drawdown" name="Drawdown" stroke={C.loss} fill="url(#ddGrad)" strokeWidth={2} dot={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Portafolio vs S&P 500" sub="PnL acumulado real vs benchmark estimado" mb={0} extra={<PeriodSelector />}>
+              <ChartCard title="Portafolio vs S&P 500" sub={`PnL acumulado real vs. los mismos importes y fechas en el S&P 500${benchNote}`} mb={0} extra={periodSelector}>
+                {!hasSp && <div style={{ fontSize: 9, color: C.warning, marginBottom: 6 }}>Sin datos del S&P 500 en caché — abre Inicio una vez para cargarlos</div>}
                 <ResponsiveContainer width="100%" height={210}>
-                  <LineChart data={sp500Filtered} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <LineChart data={curves.vs} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
                     <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
-                    <Line type="monotone" dataKey="S&P 500" stroke={C.sp500} strokeWidth={1.5} dot={false} strokeDasharray="5 5" />
+                    <Line type="monotone" dataKey="S&P 500" stroke={C.sp500} strokeWidth={1.5} dot={false} strokeDasharray="5 5" connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               </ChartCard>
 
-              <ChartCard title="Rendimiento por período vs S&P 500" sub="Comparativo de tu portafolio contra el índice en distintos horizontes" mb={0}>
+              <ChartCard title="Rendimiento por período vs S&P 500" sub="Trades cerrados en cada período (con la billetera elegida, sin filtro de año) vs. los mismos importes y fechas en el S&P 500" mb={0}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: '#050505' }}>
@@ -850,7 +774,7 @@ const recoveryFactor =
                     </tr>
                   </thead>
                   <tbody>
-                    {(charts.periodRows || []).map(row => (
+                    {periodRows.map(row => (
                       <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
                         <td style={{ padding: '10px 14px', color: '#aaa', fontWeight: 600 }}>{row.label}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
@@ -874,23 +798,21 @@ const recoveryFactor =
                   </tbody>
                 </table>
               </ChartCard>
-
             </div>
 
-
-
-            {/* ── F6: Rendimiento por período + Razones de cierre ── */}
+            {/* ── F6: Razones de cierre + Resumen por mes ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr', gap: 14 }}>
-              
+
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={charts.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 60, bottom: 4 }}>
+                <ResponsiveContainer width="100%" height={Math.max(200, Math.min(stats.closeReasonData.length * 34, 340))}>
+                  <BarChart data={stats.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={55} />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={90} />
                     <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
+                    <ReferenceLine x={0} stroke="#333" />
                     <Bar dataKey="pnl" name="PnL" radius={[0,4,4,0]}>
-                      {charts.closeReasonData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
+                      {stats.closeReasonData.map((e, i) => <Cell key={i} fill={e.pnl >= 0 ? C.gain : C.loss} fillOpacity={0.8} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -898,80 +820,71 @@ const recoveryFactor =
 
               <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={0}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div>
-                    <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>MEJORES MESES</div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ background: '#050505' }}>
-                          {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
-                            <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {charts.monthlyTable.filter(m => m.pnl >= 0).slice(0, 6).map(m => (
-                          <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                            <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                  {[
+                    { title: 'MEJORES MESES', color: C.gain, list: stats.monthlyTable.filter(m => m.pnl >= 0).sort((a, b) => b.pnl - a.pnl).slice(0, 6) },
+                    { title: 'PEORES MESES',  color: C.loss, list: stats.monthlyTable.filter(m => m.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 6) },
+                  ].map(block => (
+                    <div key={block.title}>
+                      <div style={{ fontSize: 9, color: block.color, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>{block.title}</div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: '#050505' }}>
+                            {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
+                              <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>PEORES MESES</div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ background: '#050505' }}>
-                          {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
-                            <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                        </thead>
+                        <tbody>
+                          {block.list.map(m => (
+                            <tr key={m.key} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                              <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                              <td style={{ padding: '5px 8px', textAlign: 'right', color: block.color, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                              <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                              <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                              <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                              <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                            </tr>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {charts.monthlyTable.filter(m => m.pnl < 0).slice(-6).reverse().map(m => (
-                          <tr key={m.month} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                            <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                          {block.list.length === 0 && (
+                            <tr><td colSpan={6} style={{ padding: '8px', color: '#555', fontSize: 10 }}>—</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
                 </div>
               </ChartCard>
-
             </div>
 
-            {/* ── F7: Distribución PnL % + Duración ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr ', gap: 14 }}>
-
-              <ChartCard title="Acumulado mensual de PnL" sub="Construcción progresiva del PnL — verde sube, rojo baja" mb={0}>
+            {/* ── F7: Acumulado mensual ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+              <ChartCard title="Acumulado mensual de PnL" sub="Cada barra flota entre el acumulado anterior y el nuevo — verde sube, rojo baja" mb={0}>
                 <ResponsiveContainer width="100%" height={220}>
-                  <ComposedChart data={charts.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={stats.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <Tooltip content={({ active, payload, label }: any) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0].payload
+                      return (
+                        <div style={{ background: '#0a0a0a', border: '1px solid #333', borderRadius: 8, padding: '10px 14px', fontSize: 11 }}>
+                          <div style={{ color: '#aaa', marginBottom: 6, fontWeight: 600, textTransform: 'capitalize' }}>{label}</div>
+                          <div><span style={{ color: '#888' }}>PnL mes: </span><span style={{ color: d.value >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{fmtMoney(d.value)}</span></div>
+                          <div><span style={{ color: '#888' }}>Acumulado: </span><span style={{ color: C.accent, fontWeight: 700 }}>{fmtMoney(d.cumPnl)}</span></div>
+                        </div>
+                      )
+                    }} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
-                    <Bar dataKey="base" stackId="a" fill="transparent" stroke="none" />
-                    <Bar dataKey="value" stackId="a" name="PnL mes" radius={[3,3,0,0]}>
-                      {charts.monthlyWaterfall.map((e, i) => <Cell key={i} fill={e.fill} fillOpacity={0.85} />)}
+                    <Bar dataKey="range" name="PnL mes" radius={[3,3,3,3]}>
+                      {stats.monthlyWaterfall.map((e, i) => <Cell key={i} fill={e.fill} fillOpacity={0.85} />)}
                     </Bar>
                     <Line type="monotone" dataKey="cumPnl" name="Acumulado" stroke={C.accent} strokeWidth={2} dot={{ fill: C.accent, r: 3 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </ChartCard>
-
             </div>
+
           </div>
         )}
       </div>
@@ -1012,7 +925,7 @@ function Row({ label, value, color = '#ccc' }: any) {
 function ChartCard({ title, sub, children, mb = 14, extra }: any) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', marginBottom: mb }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
         <div>
           <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase' as const, display: 'flex', alignItems: 'center', gap: 7 }}>
             <Paw size={10} color="#666" opacity={0.5} />
