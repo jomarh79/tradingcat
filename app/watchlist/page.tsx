@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
 import {
-  FaBell, FaPlus, FaTrash, FaSpinner,
-  FaSort, FaSortUp, FaSortDown, FaSearch, FaSync, FaBrain,
+  FaPlus, FaTrash, FaSpinner,
+  FaSort, FaSortUp, FaSortDown, FaSearch, FaSync,
 } from 'react-icons/fa'
 
 import { AlertTriangle, BarChart2, FileText } from 'lucide-react'
@@ -27,11 +26,6 @@ const SINGLE_TRIGGER_MIN_GAP_SEC = 10
 const isStale = (lastUpdated: string | null, minutes = 15) => {
   if (!lastUpdated) return true
   return (Date.now() - new Date(lastUpdated).getTime()) / 60000 > minutes
-}
-
-const fmtTime = (iso: string | null) => {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
 }
 
 // ── Cat decorators ─────────────────────────────────────────────────────────
@@ -63,7 +57,6 @@ type SortField =
   | 'price_change'
   | 'current_price'
   | 'buy_target'
-  | 'distancia'
   | 'analyst_target'
   | 'sma200_weekly'
   | 'ema200_day'
@@ -102,15 +95,6 @@ interface EnrichedItem extends WatchItem {
   stale:     boolean
 }
 
-const signalMeta = (prob: number | null) => {
-  if (prob === null || prob === undefined)
-    return { color: '#444', bg: '#111', label: 'SIN DATOS' }
-  if (prob >= 80) return { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  label: '🔥 STRONG BUY' }
-  if (prob >= 65) return { color: '#eab308', bg: 'rgba(234,179,8,0.08)', label: '⚡ BUY' }
-  if (prob >= 50) return { color: '#00bfff', bg: 'rgba(0,191,255,0.08)', label: '👀 WATCH' }
-  return { color: '#555', bg: 'transparent', label: 'NO TRADE' }
-}
-
 const rsiColor = (rsi: number | null) => {
   if (rsi === null || rsi === undefined) return '#888'
   if (rsi < 30) return '#22c55e'
@@ -129,42 +113,44 @@ async function fetchAnalystTarget(ticker: string): Promise<number | null> {
   }
 }
 
-// Dispara el análisis IA en tu API de Render (todos los tickers, o uno solo si se pasa)
-async function triggerIA(
-    ticker?: string,
-    force = false
-): Promise<void> {
+// Dispara el análisis IA en tu API de Render (todos los tickers, o uno solo si se pasa).
+// Devuelve si el servidor aceptó la petición (antes se ignoraba la respuesta y un error pasaba como éxito).
+async function triggerIA(ticker?: string, force = false): Promise<boolean> {
+  try {
+    const res = await fetch('/api/trigger-ia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(ticker ? { ticker } : {}), force }),
+    })
+    if (!res.ok) console.error('trigger-ia respondió', res.status)
+    return res.ok
+  } catch (error) {
+    console.error('Error al disparar la IA:', error)
+    return false
+  }
+}
 
-    try {
-
-        await fetch('/api/trigger-ia', {
-
-            method: 'POST',
-
-            headers: {
-                'Content-Type': 'application/json',
-            },
-
-            body: JSON.stringify({
-                ...(ticker ? { ticker } : {}),
-                force,
-            }),
-
-        })
-
-    } catch (error) {
-
-        console.error("Error al disparar la IA:", error)
-
-    }
-
+// Valor de ordenamiento por columna; null = sin dato (siempre al final)
+function sortValue(item: EnrichedItem, field: SortField): number | string | null {
+  const cur = item.current_price
+  const pctVsPrice = (v: number | null) => (cur && v && v > 0 ? ((v - cur) / cur) * 100 : null)
+  switch (field) {
+    case 'ticker':         return item.ticker.toLowerCase()
+    case 'notes':          return (item.notes || '').toLowerCase() || null
+    case 'buy_target':     return cur ? item.distancia : null
+    case 'analyst_target': return cur && item.analyst_target > 0 ? item.vsAnalyst : null
+    case 'sma200_weekly':  return pctVsPrice(item.sma200_weekly)
+    case 'ema200_day':     return pctVsPrice(item.ema200_day)
+    case 'rsi':            return item.rsi === null || item.rsi === undefined ? null : Number(item.rsi)
+    case 'price_change':   return item.price_change ?? null
+    case 'current_price':  return item.current_price ?? null
+  }
 }
 
 export default function WatchlistIAPage() {
-  const { money } = usePrivacy()
-
   const [list,        setList]        = useState<WatchItem[]>([])
   const [loading,     setLoading]     = useState(false)
+  const [loadError,   setLoadError]   = useState('')
   const [addingNew,   setAddingNew]   = useState(false)  // spinner solo para ticker nuevo
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
@@ -178,9 +164,18 @@ export default function WatchlistIAPage() {
   const [sortDir,   setSortDir]   = useState<'desc' | 'asc'>('desc')
   const [filterText,  setFilterText] = useState('')
 
+  const alive = useRef(true)
+  const pollTimers = useRef<Set<ReturnType<typeof setInterval>>>(new Set())
+  useEffect(() => {
+    alive.current = true
+    const timers = pollTimers.current
+    return () => { alive.current = false; timers.forEach(t => clearInterval(t)); timers.clear() }
+  }, [])
+
   // ── Edición inline unificada — un solo estado para las 3 celdas editables ──
   const [editingCell, setEditingCell] = useState<{ id: number; field: EditableField } | null>(null)
   const [tempValue,   setTempValue]   = useState('')
+  const savingRef = useRef(false)
 
   const startEdit = (id: number, field: EditableField, currentValue: string) => {
     setEditingCell({ id, field })
@@ -190,19 +185,30 @@ export default function WatchlistIAPage() {
   const cancelEdit = () => setEditingCell(null)
 
   const saveEdit = async () => {
-    if (!editingCell) return
+    // Enter + blur disparaban dos guardados seguidos: el candado evita el segundo
+    if (!editingCell || savingRef.current) return
+    savingRef.current = true
     const { id, field } = editingCell
-
-    if (field === 'notes') {
-      await supabase.from('watchlist').update({ notes: tempValue }).eq('id', id)
-      setList(prev => prev.map(i => i.id === id ? { ...i, notes: tempValue } : i))
-    } else {
-      const parsed = parseFloat(parseFloat(tempValue || '0').toFixed(2))
-      const value = isNaN(parsed) ? 0 : parsed
-      await supabase.from('watchlist').update({ [field]: value }).eq('id', id)
-      setList(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
-    }
+    const raw = tempValue
     setEditingCell(null)
+    try {
+      const item = list.find(i => i.id === id)
+      let value: string | number
+      if (field === 'notes') {
+        value = raw
+      } else {
+        const parsed = parseFloat(parseFloat(raw || '0').toFixed(2))
+        value = isNaN(parsed) ? 0 : parsed
+        // La lista solo muestra objetivos > 0: guardar 0 haría desaparecer el ticker
+        if (field === 'buy_target' && value <= 0) { alert('Tu precio objetivo debe ser mayor a 0'); return }
+      }
+      if (item && item[field] === value) return // sin cambios
+      const { error } = await supabase.from('watchlist').update({ [field]: value }).eq('id', id)
+      if (error) { alert('No se pudo guardar: ' + error.message); return }
+      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
+    } finally {
+      savingRef.current = false
+    }
   }
 
   // ── Cooldown del botón "Actualizar" (todos los tickers) ──
@@ -210,8 +216,10 @@ export default function WatchlistIAPage() {
   const [nowTick, setNowTick] = useState(Date.now())
 
   useEffect(() => {
-    const stored = localStorage.getItem(GLOBAL_COOLDOWN_KEY)
-    if (stored) setLastGlobalTrigger(Number(stored))
+    try {
+      const stored = localStorage.getItem(GLOBAL_COOLDOWN_KEY)
+      if (stored) setLastGlobalTrigger(Number(stored))
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -240,7 +248,8 @@ export default function WatchlistIAPage() {
     return Math.max(0, SINGLE_TRIGGER_MIN_GAP_SEC - elapsedSec)
   }, [lastSingleTrigger, nowTick])
 
-  const fetchList = useCallback(async (): Promise<WatchItem[]> => {
+  // Devuelve null si falla (antes un error devolvía [] y la lista aparecía vacía sin avisar)
+  const fetchList = useCallback(async (): Promise<WatchItem[] | null> => {
     const { data, error } = await supabase
       .from('watchlist')
       .select('*')
@@ -249,46 +258,30 @@ export default function WatchlistIAPage() {
 
     if (error) {
       console.error(error)
-      return []
+      if (alive.current) setLoadError(error.message)
+      return null
     }
+    if (alive.current) setLoadError('')
     return (data as WatchItem[]) || []
   }, [])
 
-const isMarketOpen = () => {
-  const mexico = new Date(
-    new Date().toLocaleString("en-US", {
-      timeZone: "America/Mexico_City",
-    })
-  )
+  const applyList = useCallback((items: WatchItem[] | null) => {
+    if (!items || !alive.current) return
+    setList(items)
+    setLastRefresh(new Date())
+  }, [])
 
-  const day = mexico.getDay()
-  const hour = mexico.getHours() + mexico.getMinutes() / 60
-
-  return (
-    day >= 1 &&
-    day <= 5 &&
-    hour >= 7 &&
-    hour < 15
-  )
-}
-  
   const init = useCallback(async () => {
     setLoading(true)
-    const items = await fetchList()
-    setList(items)
-    setLoading(false)
-    setLastRefresh(new Date())
-  }, [fetchList])
+    applyList(await fetchList())
+    if (alive.current) setLoading(false)
+  }, [fetchList, applyList])
 
-    useEffect(() => {
+  useEffect(() => {
     init()
-    const interval = setInterval(async () => {
-      const updated = await fetchList()
-      setList(updated)
-      setLastRefresh(new Date())
-    }, 120000)
+    const interval = setInterval(async () => { applyList(await fetchList()) }, 120000)
     return () => clearInterval(interval)
-  }, [init, fetchList])
+  }, [init, fetchList, applyList])
 
   // ── Espera a que un ticker específico tenga datos frescos, refrescando la lista mientras tanto ──
   const pollTicker = useCallback((ticker: string, onDone?: () => void) => {
@@ -296,15 +289,18 @@ const isMarketOpen = () => {
     const maxAttempts = 10
     const interval = setInterval(async () => {
       const updated = await fetchList()
-      const found = updated.find(i => i.ticker === ticker && i.current_price !== null)
-      setList(updated)
       attempts++
+      if (!alive.current) { clearInterval(interval); pollTimers.current.delete(interval); return }
+      if (updated) applyList(updated)
+      const found = updated?.find(i => i.ticker === ticker && i.current_price !== null)
       if (found || attempts >= maxAttempts) {
         clearInterval(interval)
+        pollTimers.current.delete(interval)
         onDone?.()
       }
     }, 3000)
-  }, [fetchList])
+    pollTimers.current.add(interval)
+  }, [fetchList, applyList])
 
   // ── Botón Actualizar (todos) — dispara IA y sondea varias veces en vez de esperar a ciegas ──
   const handleUpdate = async () => {
@@ -312,40 +308,52 @@ const isMarketOpen = () => {
     setLoading(true)
     const triggeredAt = Date.now()
     setLastGlobalTrigger(triggeredAt)
-    localStorage.setItem(GLOBAL_COOLDOWN_KEY, String(triggeredAt))
-    await triggerIA(undefined, true)
+    try { localStorage.setItem(GLOBAL_COOLDOWN_KEY, String(triggeredAt)) } catch {}
+    const ok = await triggerIA(undefined, true)
+    if (!ok) {
+      // Si el servidor rechazó la petición no se gasta la cuota: se quita el enfriamiento
+      alert('No se pudo iniciar el análisis. Intenta de nuevo en un momento.')
+      setLastGlobalTrigger(null)
+      try { localStorage.removeItem(GLOBAL_COOLDOWN_KEY) } catch {}
+      if (alive.current) setLoading(false)
+      return
+    }
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 5000))
-      const updated = await fetchList()
-      setList(updated)
+      if (!alive.current) return
+      applyList(await fetchList())
     }
-    setLoading(false)
-    setLastRefresh(new Date())
+    if (alive.current) setLoading(false)
   }
 
   // ── Reanalizar un solo ticker desde la fila ──
-    const refreshTicker = async (ticker: string, lastUpdated: string | null) => {
+  const refreshTicker = async (ticker: string, lastUpdated: string | null) => {
     if (tickerCooldownRemaining(lastUpdated) > 0) return
     if (singleTriggerGapRemaining() > 0) return
     setLastSingleTrigger(Date.now())
     setRefreshingTickers(prev => new Set(prev).add(ticker))
-    fetchAnalystTarget(ticker).then(async (auto) => {
-      if (auto) await supabase.from('watchlist').update({ analyst_target: auto }).eq('ticker', ticker)
-    })
-    await triggerIA(ticker)
-    pollTicker(ticker, () => {
+    const stopSpinner = () => {
+      if (!alive.current) return
       setRefreshingTickers(prev => {
         const next = new Set(prev)
         next.delete(ticker)
         return next
       })
-    })
+    }
+    fetchAnalystTarget(ticker).then(async (auto) => {
+      if (auto) await supabase.from('watchlist').update({ analyst_target: auto }).eq('ticker', ticker)
+    }).catch(() => {})
+    const ok = await triggerIA(ticker)
+    if (!ok) { alert(`No se pudo reanalizar ${ticker}.`); stopSpinner(); return }
+    pollTicker(ticker, stopSpinner)
   }
 
   // ── Agregar ticker — inserta en DB y dispara IA solo para ese ticker ───────
-    const agregarEmpresa = async () => {
+  const agregarEmpresa = async () => {
     const ticker = newTicker.trim().toUpperCase()
-    if (!ticker || !newTarget) return alert('Ticker y precio objetivo son obligatorios')
+    const target = parseFloat(newTarget)
+    if (!ticker || !(target > 0)) return alert('Ticker y precio objetivo (mayor a 0) son obligatorios')
+    if (list.some(i => i.ticker === ticker)) return alert(`${ticker} ya está en la watchlist`)
     if (singleTriggerGapRemaining() > 0) return alert(`Espera ${Math.ceil(singleTriggerGapRemaining())}s antes de otro análisis individual`)
 
     let analystTarget = parseFloat(newAnalyst) || 0
@@ -354,9 +362,9 @@ const isMarketOpen = () => {
       if (auto) analystTarget = auto
     }
 
-       const { data: newItem, error } = await supabase.from('watchlist').insert({
+    const { data: newItem, error } = await supabase.from('watchlist').insert({
       ticker,
-      buy_target:     parseFloat(parseFloat(newTarget).toFixed(2)),
+      buy_target:     parseFloat(target.toFixed(2)),
       analyst_target: analystTarget,
       notes:          newNotes.trim(),
     }).select().single()
@@ -370,17 +378,19 @@ const isMarketOpen = () => {
 
     setAddingNew(true)
     setLastSingleTrigger(Date.now())
-    triggerIA(ticker)
-      .then(() => pollTicker(ticker, () => setAddingNew(false)))
-      .catch((err) => {
-        console.error("Error al procesar ticker nuevo:", err)
-        setAddingNew(false)
-      })
+    const ok = await triggerIA(ticker)
+    if (!ok) {
+      alert(`${ticker} se agregó, pero no se pudo iniciar su análisis. Usa el botón de reanalizar de la fila.`)
+      if (alive.current) setAddingNew(false)
+      return
+    }
+    pollTicker(ticker, () => { if (alive.current) setAddingNew(false) })
   }
 
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
-    await supabase.from('watchlist').delete().eq('id', id)
+    const { error } = await supabase.from('watchlist').delete().eq('id', id)
+    if (error) { alert('No se pudo eliminar: ' + error.message); return }
     setList(prev => prev.filter(i => i.id !== id))
   }
 
@@ -404,7 +414,7 @@ const isMarketOpen = () => {
       const cur  = item.current_price || 0
       const dist = cur > 0 ? ((item.buy_target - cur) / cur) * 100 : 0
       const vs   = cur > 0 && item.analyst_target > 0 ? ((item.analyst_target - cur) / cur) * 100 : 0
-      const zone = cur > 0 && Math.abs((cur - item.buy_target) / item.buy_target) <= 0.02
+      const zone = cur > 0 && item.buy_target > 0 && Math.abs((cur - item.buy_target) / item.buy_target) <= 0.02
       return { ...item, distancia: dist, vsAnalyst: vs, inZone: zone, stale: isStale(item.last_updated, 5) }
     })
   , [list])
@@ -424,24 +434,19 @@ const isMarketOpen = () => {
         (i.notes || '').toLowerCase().includes(q)
       )
     }
+    const dir = sortDir === 'asc' ? 1 : -1
     return [...filtered].sort((a, b) => {
-      let av: any = a[sortField] ?? 0
-      let bv: any = b[sortField] ?? 0
-      if (sortField === 'analyst_target') { av = a.vsAnalyst; bv = b.vsAnalyst }
-      if (sortField === 'sma200_weekly') { av = a.current_price ? ((a.sma200_weekly! - a.current_price) / a.current_price) * 100 : 0; bv = b.current_price ? ((b.sma200_weekly! - b.current_price) / b.current_price) * 100 : 0 }
-      if (sortField === 'ema200_day') { av = a.current_price ? ((a.ema200_day! - a.current_price) / a.current_price) * 100 : 0; bv = b.current_price ? ((b.ema200_day! - b.current_price) / b.current_price) * 100 : 0 }
-      if (sortField === 'buy_target') { av = a.distancia; bv = b.distancia }
-      if (typeof av === 'string') av = av.toLowerCase()
-      if (typeof bv === 'string') bv = bv.toLowerCase()
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      const av = sortValue(a, sortField)
+      const bv = sortValue(b, sortField)
+      // Los que no tienen dato quedan siempre al final (antes se mezclaban con valores falsos)
+      if (av === null && bv === null) return 0
+      if (av === null) return 1
+      if (bv === null) return -1
+      if (av < bv) return -1 * dir
+      if (av > bv) return 1 * dir
       return 0
     })
   }, [enrichedList, filterText, sortField, sortDir])
-
-  const strongSignals = useMemo(() =>
-    enrichedList.filter(i => (i.ai_probability || 0) >= 65).slice(0, 6)
-  , [enrichedList])
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <FaSort style={{ opacity: 0.3, marginLeft: 3 }} />
@@ -450,9 +455,8 @@ const isMarketOpen = () => {
       : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
 
-  const staleTickers = list.filter(i => isStale(i.last_updated, 5)).length
-  const inZoneCount   = enrichedList.filter(i => i.inZone).length
-  const strongCount   = enrichedList.filter(i => (i.ai_probability || 0) >= 65).length
+  const staleTickers = enrichedList.filter(i => i.stale).length
+  const inZoneCount  = enrichedList.filter(i => i.inZone).length
 
   return (
     <AppShell>
@@ -479,7 +483,6 @@ const isMarketOpen = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.65rem', color: '#666' }}>{list.length} tickers</span>
             <span style={{ fontSize: '0.65rem', color: '#22c55e' }}>{inZoneCount} en zona</span>
-            <span style={{ fontSize: '0.65rem', color: '#eab308' }}>{strongCount} señales fuertes</span>
 
             {staleTickers > 0 && (
               <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -511,6 +514,12 @@ const isMarketOpen = () => {
             </button>
           </div>
         </div>
+
+        {loadError && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12, background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: '#f43f5e' }}>
+            No se pudo actualizar la lista ({loadError}). Se muestran los últimos datos cargados.
+          </div>
+        )}
 
         {/* ── FORMULARIO ── */}
         <div style={{ display: 'flex', gap: 8, background: '#0a0a0a', padding: 12, borderRadius: 10, marginBottom: 16, border: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
@@ -585,7 +594,7 @@ const isMarketOpen = () => {
               )}
               {displayList.map(item => {
                 const rsiValue = Number(item.rsi)
-                const rsiOk    = isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+                const rsiOk    = item.rsi !== null && isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
                 const refreshingThis = refreshingTickers.has(item.ticker)
                 const cooldownLeft   = tickerCooldownRemaining(item.last_updated)
                 const sharedGapLeft  = singleTriggerGapRemaining()
@@ -702,7 +711,6 @@ const isMarketOpen = () => {
                       ) : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-
                     {/* SMA 200 semanal — % arriba / precio abajo (solo lectura, viene del cron) */}
                     <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
                       {item.sma200_weekly && item.sma200_weekly > 0 ? (
@@ -740,7 +748,7 @@ const isMarketOpen = () => {
                       )}
                     </td>
 
-                    {/* Gráfico + Reanalizar + Estrella + Eliminar */}
+                    {/* Gráfico + Fundamentales + Reanalizar + Estrella + Eliminar */}
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
                         <a
@@ -754,15 +762,15 @@ const isMarketOpen = () => {
                           <BarChart2 size={14} />
                         </a>
                         <a
-                        href={`/fundamentals?ticker=${item.ticker}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Ver fundamentales"
-                        style={{ color: '#333', padding: 4, display: 'flex', transition: 'color 0.2s' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
-                        onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
-                        <FileText size={14} />
-                      </a>
+                          href={`/fundamentals?ticker=${item.ticker}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Ver fundamentales"
+                          style={{ color: '#333', padding: 4, display: 'flex', transition: 'color 0.2s' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
+                          <FileText size={14} />
+                        </a>
                         <button
                           onClick={() => refreshTicker(item.ticker, item.last_updated)}
                           disabled={!canRefresh}
@@ -788,7 +796,7 @@ const isMarketOpen = () => {
                           ★
                         </button>
                         <button onClick={() => eliminarEmpresa(item.id, item.ticker)}
-                        title="Eliminar"
+                          title="Eliminar"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: 4, transition: 'color 0.2s' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
@@ -802,62 +810,6 @@ const isMarketOpen = () => {
             </tbody>
           </table>
         </div>
-
-        {/* ── SEÑALES FUERTES ── */}
-        {strongSignals.length > 0 && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 1, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 }}>
-              <FaBrain style={{ color: '#00bfff', fontSize: 10 }} />
-              SEÑALES IA ACTIVAS — TICKERS CON MAYOR PROBABILIDAD
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(strongSignals.length, 6)}, 1fr)`, gap: 10 }}>
-              {strongSignals.map(item => {
-                const sig = signalMeta(item.ai_probability)
-                const rsiVal = Number(item.rsi)
-                const rsiOk  = isFinite(rsiVal) && rsiVal >= 0 && rsiVal <= 100
-                return (
-                  <div key={item.id} style={{
-                    background: sig.bg, border: `1px solid ${sig.color}44`,
-                    borderRadius: 10, padding: '12px 14px', position: 'relative', overflow: 'hidden',
-                  }}>
-                    <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                      <Paw size={44} color={sig.color} opacity={0.07} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ fontWeight: 900, color: '#fff', fontSize: 16 }}>{item.ticker}</div>
-                      <div style={{ fontSize: 18, fontWeight: 900, color: sig.color }}>{item.ai_probability?.toFixed(0)}%</div>
-                    </div>
-                    <div style={{ fontSize: 10, color: sig.color, fontWeight: 700, marginBottom: 6 }}>{item.ai_signal}</div>
-                    <div style={{ background: '#111', height: 3, borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
-                      <div style={{ width: `${item.ai_probability || 0}%`, background: sig.color, height: '100%', borderRadius: 2 }} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, fontSize: 9 }}>
-                      <div>
-                        <div style={{ color: '#666' }}>Precio</div>
-                        <div style={{ color: '#fff', fontWeight: 700 }}>{item.current_price ? `$${item.current_price.toFixed(2)}` : '—'}</div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#666' }}>RSI</div>
-                        <div style={{ color: rsiColor(rsiOk ? rsiVal : null), fontWeight: 700 }}>
-                          {rsiOk ? rsiVal.toFixed(1) : '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ color: '#666' }}>Dist.</div>
-                        <div style={{ color: '#aaa', fontWeight: 700 }}>
-                          {item.current_price
-                            ? `${((item.buy_target - item.current_price) / item.current_price * 100).toFixed(1)}%`
-                            : '—'}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 8, color: '#444', marginTop: 6 }}>Análisis: {fmtTime(item.last_updated)}</div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         <div style={{ marginTop: 10, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Paw size={9} color="#333" opacity={0.5} />

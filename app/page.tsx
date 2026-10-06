@@ -4,7 +4,6 @@ import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from './AppShell'
-import { Target } from 'lucide-react'
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -283,7 +282,6 @@ export default function HomePage() {
   const [allTrades,  setAllTrades]  = useState<any[]>([])
   const [portfolios, setPortfolios] = useState<any[]>([])
   const [movements,  setMovements]  = useState<any[]>([])
-  const [watchlist,  setWatchlist]  = useState<any[]>([])
   const [loading,    setLoading]    = useState(true)
   const [loadError,  setLoadError]  = useState('')
   const [period,     setPeriod]     = useState<Period>('YTD')
@@ -296,14 +294,13 @@ export default function HomePage() {
     let cancelled = false
     ;(async () => {
       try {
-        const [t, p, m, w] = await Promise.all([
+        const [t, p, m] = await Promise.all([
           fetchAll(() => supabase.from('trades').select('*, trade_executions(quantity, price, commission, execution_type)').order('id')),
           fetchAll(() => supabase.from('portfolios').select('*').order('id')),
           fetchAll(() => supabase.from('wallet_movements').select('id, amount, date, wallet_id, is_dividend, movement_type').order('date').order('id')),
-          fetchAll(() => supabase.from('watchlist').select('*').order('id')),
         ])
         if (cancelled) return
-        setAllTrades(t); setPortfolios(p); setMovements(m); setWatchlist(w)
+        setAllTrades(t); setPortfolios(p); setMovements(m)
       } catch (e: any) {
         // Antes un error de Supabase se ignoraba y la página mostraba todo en ceros como si no hubiera datos
         if (!cancelled) setLoadError(e?.message || 'No se pudieron cargar los datos')
@@ -590,18 +587,6 @@ export default function HomePage() {
     portfolios.forEach(p => { result[p.name] = last[p.name] ?? 0 })
     return result
   }, [compChart, portfolios])
-
-  // ── Watchlist en zona (±2% del precio objetivo) ───────────────────────────
-  const inZone = useMemo(() =>
-    watchlist
-      .filter(i => Number(i.current_price) > 0 && Number(i.buy_target) > 0 &&
-        Math.abs((i.current_price - i.buy_target) / i.buy_target) <= 0.02)
-      .map(i => ({
-        ...i,
-        dist: r2(((i.buy_target - i.current_price) / i.current_price) * 100),
-      }))
-      .sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist))
-  , [watchlist])
 
   const tt = { background: '#0a0a0a', border: '1px solid #1a1a1a', fontSize: 11, borderRadius: 8 }
 
@@ -890,85 +875,6 @@ export default function HomePage() {
             </div>
           </div>
 
-        </div>
-
-        {/* ═══ FILA 4 — WATCHLIST EN ZONA ══════════════════════════════════ */}
-        <div style={{ ...card, position: 'relative', overflow: 'hidden', zIndex: 1 }}>
-          <div style={{ position: 'absolute', bottom: -10, right: -8, pointerEvents: 'none' }}>
-            <CatFull size={68} color="#22c55e" opacity={0.04} />
-          </div>
-
-          <div style={{ ...cardHeader, marginBottom: inZone.length ? 14 : 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Paw size={13} color="#22c55e" opacity={0.8} />
-              <Paw size={9}  color="#22c55e" opacity={0.4} />
-              <Target size={13} color="#22c55e" />
-              <span style={cardLabel}>WATCHLIST EN ZONA ±2%</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 10, color: '#444' }}>
-                {watchlist.length} activos monitoreados
-              </span>
-              {inZone.length > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 700, color: GREEN,
-                  background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: 4,
-                  border: '1px solid rgba(34,197,94,0.2)',
-                }}>
-                  {inZone.length} en zona 🐱
-                </span>
-              )}
-            </div>
-          </div>
-
-          {inZone.length === 0 ? (
-            <div style={{ padding: '16px 0 6px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Paw size={20} color="#333" opacity={0.5} />
-              <span style={{ color: '#333', fontSize: 12 }}>
-                Ningún activo está cerca de tu precio objetivo ahora mismo.
-              </span>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-              {inZone.map(item => {
-                const veryClose = Math.abs(item.dist) <= 0.5
-                return (
-                  <div key={item.id ?? item.ticker} style={{
-                    background: '#050505',
-                    border: `1px solid ${veryClose ? 'rgba(34,197,94,0.3)' : 'rgba(34,197,94,0.12)'}`,
-                    borderRadius: 12, padding: '12px 16px',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    position: 'relative', overflow: 'hidden',
-                  }}>
-                    <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
-                      <Paw size={34} color="#22c55e" opacity={0.04} />
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 900, color: GREEN, fontSize: 15, marginBottom: 2 }}>{item.ticker}</div>
-                      {item.price_name && <div style={{ fontSize: 9, color: '#444' }}>{item.price_name}</div>}
-                      {item.ai_signal && (
-                        <div style={{ fontSize: 9, color: '#888', marginTop: 3 }}>{item.ai_signal}</div>
-                      )}
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>${Number(item.current_price).toFixed(2)}</div>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <span style={{ fontSize: 9, color: '#444' }}>obj ${Number(item.buy_target).toFixed(2)}</span>
-                        <span style={{
-                          fontSize: 10, fontWeight: 800,
-                          color: veryClose ? GREEN : '#eab308',
-                          background: veryClose ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
-                          padding: '1px 6px', borderRadius: 4,
-                        }}>
-                          {item.dist > 0 ? '+' : ''}{item.dist.toFixed(2)}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
         </div>
 
         {/* Rastro de huellas decorativo al fondo de la página */}
