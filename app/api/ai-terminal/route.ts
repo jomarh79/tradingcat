@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { isOwnerRequest } from '@/lib/api-auth'
+
 export const dynamic = 'force-dynamic'
 
 const MODEL = 'openrouter/free'
@@ -128,6 +130,9 @@ async function generate(ticker: string, ctx: Parameters<typeof buildPrompt>[1], 
 }
 
 export async function POST(request: Request) {
+    if (!(await isOwnerRequest(request))) {
+    return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 })
+  }
   try {
     if (!process.env.OPENROUTER_API_KEY) {
       return NextResponse.json({ ok: false, error: 'Falta OPENROUTER_API_KEY' }, { status: 500 })

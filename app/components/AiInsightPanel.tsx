@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { X, Brain, RefreshCw } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
+import { authedFetch } from '@/lib/authed-fetch'
+
 interface Props {
   ticker:       string
   country?:     string
@@ -130,7 +132,7 @@ export default function AiInsightPanel({
 
     ;(async () => {
       try {
-        const res = await fetch('/api/ai-terminal', {
+        const res = await authedFetch('/api/ai-terminal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticker, country, sector, subsector, rsi, entry_price, quantity }),
