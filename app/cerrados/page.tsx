@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import { Trash2, X, History, Pencil, Check, AlertTriangle } from 'lucide-react'
 import { FaSort, FaSortUp, FaSortDown } from 'react-icons/fa'
@@ -29,6 +30,18 @@ const CLOSE_REASONS = [
   'Take Profit', 'Stop loss', 'Decisión manual', 'Sentimiento del mercado',
   'Rompió estructura', 'Cambio de tesis', 'Necesidad de liquidez',
   'Error de análisis', 'Otro',
+]
+
+// Columnas por las que se puede ordenar (en la tabla, tocando el encabezado; en el celular, con el selector)
+const SORT_OPTIONS: { key: string; label: string }[] = [
+  { key: 'close_date', label: 'Cierre' },
+  { key: 'open_date',  label: 'Apertura' },
+  { key: 'ticker',     label: 'Ticker' },
+  { key: 'sector',     label: 'Sector' },
+  { key: 'diffDays',   label: 'Días' },
+  { key: 'pnlCash',    label: 'PnL $' },
+  { key: 'pnlPct',     label: 'PnL %' },
+  { key: 'annualPct',  label: 'Anual %' },
 ]
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -167,8 +180,17 @@ function SortIcon({ col, sort }: { col: string; sort: { key: string; direction: 
     : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
 }
 
+// Dato con etiqueta pequeña encima (tarjetas del celular)
+const Metric = ({ label, children, align = 'left' }: { label: string; children: React.ReactNode; align?: 'left' | 'center' | 'right' }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, textAlign: align }}>
+    <span style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 13, fontWeight: 600 }}>{children}</span>
+  </div>
+)
+
 export default function CerradosPage() {
   const { money, shares } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
@@ -572,41 +594,61 @@ export default function CerradosPage() {
   const editField = (field: 'date' | 'quantity' | 'price' | 'commission') =>
     (e: React.ChangeEvent<HTMLInputElement>) => setEditValues(p => ({ ...p, [field]: e.target.value }))
 
+  // Datos de la fila de historial que se pasa a openEdit (igual en tabla y en tarjeta)
+  const startEdit = (r: HistRow) => openEdit({
+    kind: r.kind as EditRow['kind'], executionId: r.executionId,
+    date: r.date, quantity: r.quantity, price: r.price, commission: r.commission,
+  })
+
+  const isEditingRow = (r: HistRow) => !!editingRow && (r.kind === 'apertura'
+    ? editingRow.kind === 'apertura'
+    : editingRow.executionId === r.executionId)
+
+  const pnlColor = (v: number) => (v >= 0 ? '#22c55e' : '#f43f5e')
+
+  const headerCards = [
+    { label: 'Trades',      value: summary.total,                    color: '#fff' },
+    { label: 'Win rate',    value: `${summary.winRate.toFixed(1)}%`, color: summary.winRate >= 50 ? '#22c55e' : '#f43f5e' },
+    { label: 'Invertido',   value: money(summary.totalInv),          color: '#aaa' },
+    { label: 'Recuperado',  value: money(summary.totalSell),         color: '#aaa' },
+    { label: 'PnL total',   value: money(summary.totalPnl),          color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
+    { label: 'P/T + dividendos', value: money(summary.totalPnlWithDividends), color: summary.totalPnlWithDividends >= 0 ? '#22c55e' : '#f43f5e' },
+    { label: 'Rend. total', value: `${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn.toFixed(2)}%`, color: summary.totalReturn >= 0 ? '#22c55e' : '#f43f5e' },
+  ]
+
   return (
     <AppShell>
-      <div style={{ padding: '0 30px', color: 'white', position: 'relative' }}>
+      <div style={{ padding: isMobile ? '0 2px' : '0 30px', color: 'white', position: 'relative' }}>
 
         {/* ── Decoraciones gato ── */}
-        <div style={{ position: 'absolute', top: -2, right: 60, pointerEvents: 'none' }}>
-          <CatEars color="#22c55e" opacity={0.12} size={44} />
-        </div>
-        <div style={{ position: 'absolute', right: -6, top: '35%', pointerEvents: 'none' }}>
-          <CatTail color="#22c55e" opacity={0.08} />
-        </div>
-        <div style={{ position: 'absolute', top: 16, right: 110, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 18, transform: 'rotate(-12deg)' }}>
-          {[14, 11, 8, 6].map((s, i) => <Paw key={i} size={s} color="#22c55e" opacity={0.06 - i * 0.01} rotate={i * 8} />)}
-        </div>
+        {!isMobile && (
+          <>
+            <div style={{ position: 'absolute', top: -2, right: 60, pointerEvents: 'none' }}>
+              <CatEars color="#22c55e" opacity={0.12} size={44} />
+            </div>
+            <div style={{ position: 'absolute', right: -6, top: '35%', pointerEvents: 'none' }}>
+              <CatTail color="#22c55e" opacity={0.08} />
+            </div>
+            <div style={{ position: 'absolute', top: 16, right: 110, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 18, transform: 'rotate(-12deg)' }}>
+              {[14, 11, 8, 6].map((s, i) => <Paw key={i} size={s} color="#22c55e" opacity={0.06 - i * 0.01} rotate={i * 8} />)}
+            </div>
+          </>
+        )}
 
         {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '20px 0 16px', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-start', margin: isMobile ? '8px 0 12px' : '20px 0 16px', flexWrap: 'wrap', gap: 12 }}>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
             <Paw size={22} color="#22c55e" opacity={0.7} />
-            <Paw size={16} color="#22c55e" opacity={0.4} />
+            {!isMobile && <Paw size={16} color="#22c55e" opacity={0.4} />}
             <History size={22} color="#22c55e" />
             Trades cerrados
           </h1>
 
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {[
-              { label: 'Trades',      value: summary.total,                    color: '#fff' },
-              { label: 'Win rate',    value: `${summary.winRate.toFixed(1)}%`, color: summary.winRate >= 50 ? '#22c55e' : '#f43f5e' },
-              { label: 'Invertido',   value: money(summary.totalInv),          color: '#aaa' },
-              { label: 'Recuperado',  value: money(summary.totalSell),         color: '#aaa' },
-              { label: 'PnL total',   value: money(summary.totalPnl),          color: summary.totalPnl >= 0 ? '#22c55e' : '#f43f5e' },
-              { label: 'P/T + dividendos', value: money(summary.totalPnlWithDividends), color: summary.totalPnlWithDividends >= 0 ? '#22c55e' : '#f43f5e' },
-              { label: 'Rend. total', value: `${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn.toFixed(2)}%`, color: summary.totalReturn >= 0 ? '#22c55e' : '#f43f5e' },
-            ].map(c => (
-              <div key={c.label} style={summaryCard}>
+          <div style={isMobile
+            ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }
+            : { display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {headerCards.map(c => (
+              <div key={c.label} style={{ ...summaryCard, minWidth: 0 }}>
                 <span style={summaryLabel}>{c.label}</span>
                 <span style={{ fontSize: 15, fontWeight: 700, color: c.color }}>{c.value}</span>
               </div>
@@ -626,130 +668,236 @@ export default function CerradosPage() {
         {/* ── TABS PORTAFOLIOS ── */}
         <div style={walletNav}>
           {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={walletTab(selectedPortfolio === p.id)}>
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
+              style={{ ...walletTab(selectedPortfolio === p.id), ...(isMobile ? { padding: '8px 14px', fontSize: 12, flexShrink: 0 } : {}) }}>
               {p.name}
             </button>
           ))}
         </div>
 
         {/* ── FILTROS ── */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={selectedYear} onChange={e => { setSelectedYear(e.target.value); setFilterMonth('all') }} style={selectStyle}>
-            <option value="all">Todos los años</option>
-            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={selectStyle}>
-            <option value="all">Todos los meses</option>
-            {availableMonths.map(mo => (
-              <option key={mo} value={mo}>{MESES[Number(mo) - 1]}</option>
-            ))}
-          </select>
-          <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={selectStyle}>
-            <option value="all">Todas las razones</option>
-            {availableReasons.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={selectStyle}>
-            <option value="all">Todos los sectores</option>
-            {availableSectors.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <input placeholder="Buscar ticker..." value={filterTicker}
-            onChange={e => setFilterTicker(e.target.value.toUpperCase())}
-            style={{ ...selectStyle, minWidth: 140 }} />
-          <span style={{ fontSize: 10, color: '#aaa' }}>{rows.length} resultado(s)</span>
+        <div style={isMobile
+          ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }
+          : { display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          {(() => {
+            const sel: React.CSSProperties = isMobile
+              ? { ...selectStyle, width: '100%', minWidth: 0, padding: '10px 10px', fontSize: 13 }
+              : selectStyle
+            return (
+              <>
+                <select value={selectedYear} onChange={e => { setSelectedYear(e.target.value); setFilterMonth('all') }} style={sel}>
+                  <option value="all">Todos los años</option>
+                  {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={sel}>
+                  <option value="all">Todos los meses</option>
+                  {availableMonths.map(mo => (
+                    <option key={mo} value={mo}>{MESES[Number(mo) - 1]}</option>
+                  ))}
+                </select>
+                <select value={filterReason} onChange={e => setFilterReason(e.target.value)} style={sel}>
+                  <option value="all">Todas las razones</option>
+                  {availableReasons.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={sel}>
+                  <option value="all">Todos los sectores</option>
+                  {availableSectors.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <input placeholder="Buscar ticker..." value={filterTicker}
+                  onChange={e => setFilterTicker(e.target.value.toUpperCase())}
+                  style={isMobile
+                    ? { ...sel, gridColumn: '1 / -1', boxSizing: 'border-box', fontSize: 14, fontWeight: 700 }
+                    : { ...selectStyle, minWidth: 140 }} />
+                <span style={{ fontSize: 10, color: '#aaa', ...(isMobile ? { gridColumn: '1 / -1' } : {}) }}>{rows.length} resultado(s)</span>
+              </>
+            )
+          })()}
         </div>
 
-        {/* ── TABLA ── */}
-        <div style={tableWrapper}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#0a0a0a' }}>
-                {[
-                  { key: 'ticker',     label: 'Ticker' },
-                  { key: 'open_date',  label: 'Apertura' },
-                  { key: 'close_date', label: 'Cierre' },
-                  { key: 'diffDays',   label: 'Días' },
-                  { key: null,         label: 'Razón de cierre' },
-                  { key: 'sector',     label: 'Sector' },
-                  { key: null,         label: 'Invertido' },
-                  { key: null,         label: 'Recuperado' },
-                  { key: null,         label: 'Dividendos' },
-                  { key: 'pnlCash',    label: 'PnL $' },
-                  { key: 'pnlPct',     label: 'PnL %' },
-                  { key: 'annualPct',  label: 'Anual %' },
-                  { key: null,         label: 'Acciones' },
-                ].map(({ key, label }) => (
-                  <th key={label} style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
-                    onClick={key ? () => handleSort(key) : undefined}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                      {label} {key && <SortIcon col={key} sort={sortConfig} />}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
+        {isMobile ? (
+          <>
+            {/* ── ORDENAR (en la tabla se ordena tocando el encabezado de cada columna) ── */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <select
+                value={sortConfig.key}
+                onChange={e => setSortConfig(prev => ({ ...prev, key: e.target.value }))}
+                aria-label="Ordenar por"
+                style={{ ...selectStyle, flex: 1, minWidth: 0, padding: '10px 10px', fontSize: 13 }}>
+                {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>Ordenar: {o.label}</option>)}
+              </select>
+              <button
+                onClick={() => setSortConfig(prev => ({ ...prev, direction: prev.direction === 'asc' ? 'desc' : 'asc' }))}
+                style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #1a1a1a', background: '#0a0a0a', color: '#00bfff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {sortConfig.direction === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+
+            {/* ── TARJETAS ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               {rows.length === 0 && (
-                <tr>
-                  <td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#666' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                      <Paw size={30} color="#444" opacity={0.5} />
-                      No hay trades cerrados para este filtro.
-                    </div>
-                  </td>
-                </tr>
+                <div style={{ padding: 40, textAlign: 'center', color: '#666', background: '#0a0a0a', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                    <Paw size={30} color="#444" opacity={0.5} />
+                    No hay trades cerrados para este filtro.
+                  </div>
+                </div>
               )}
+
               {rows.map(r => {
                 const t = r.t
                 return (
-                  <tr key={t.id} style={trStyle}>
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>{t.ticker}</td>
-                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.open_date ? fmtDay(t.open_date) : '—'}</td>
-                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.close_date ? fmtDay(t.close_date) : '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'center', color: '#aaa' }}>{r.diffDays}</td>
-                    <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
-                      {t.close_reason || <span style={{ color: '#555' }}>—</span>}
-                    </td>
-                    <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
-                      {t.sector || <span style={{ color: '#555' }}>—</span>}
-                    </td>
-                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalInvested)}</td>
-                    <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalSells)}</td>
-                    <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
-                      {r.divTotal > 0 ? money(r.divTotal) : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-                    <td style={{ ...tdStyle, fontWeight: 'bold' }}>
-                      <span style={{ color: r.totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{money(r.totalWithDiv)}</span>
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{ color: r.pctWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>
-                        {`${r.pctWithDiv >= 0 ? '+' : ''}${r.pctWithDiv.toFixed(2)}%`}
+                  <div key={t.id} style={{
+                    background: '#080808', border: '1px solid #1a1a1a', borderRadius: 12, padding: '10px 12px',
+                    opacity: deletingId === t.id ? 0.4 : 1,
+                  }}>
+                    {/* Ticker, razón y resultado */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 900, fontSize: 17, color: '#00bfff' }}>{t.ticker}</div>
+                        <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>
+                          {t.open_date ? fmtDay(t.open_date) : '—'} → {t.close_date ? fmtDay(t.close_date) : '—'} · {r.diffDays} d
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.1, color: pnlColor(r.pctWithDiv) }}>
+                          {`${r.pctWithDiv >= 0 ? '+' : ''}${r.pctWithDiv.toFixed(2)}%`}
+                        </div>
+                        <div style={{ fontSize: 12, color: pnlColor(r.totalWithDiv) }}>{money(r.totalWithDiv)}</div>
+                      </div>
+                    </div>
+
+                    {/* Razón de cierre y sector */}
+                    {(t.close_reason || t.sector) && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        {t.close_reason && <span style={chip}>{t.close_reason}</span>}
+                        {t.sector && <span style={{ ...chip, color: '#888' }}>{t.sector}</span>}
+                      </div>
+                    )}
+
+                    {/* Dinero */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+                      <Metric label="Invertido">{money(r.totalInvested)}</Metric>
+                      <Metric label="Recuperado">{money(r.totalSells)}</Metric>
+                      <Metric label="Dividendos">
+                        {r.divTotal > 0 ? <span style={{ color: '#eab308' }}>{money(r.divTotal)}</span> : <span style={{ color: '#444' }}>—</span>}
+                      </Metric>
+                      <Metric label="Anual %">
+                        <span style={{ color: pnlColor(r.annualPct) }}>
+                          {r.annualPct > 500 ? '>500' : `${r.annualPct >= 0 ? '+' : ''}${r.annualPct.toFixed(1)}`}%
+                        </span>
+                      </Metric>
+                    </div>
+
+                    {/* Acciones */}
+                    <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid #151515' }}>
+                      <button onClick={() => setViewingTrade(t)}
+                        style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid #1f2a33', background: 'rgba(0,191,255,0.06)', color: '#00bfff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                        Historial
+                      </button>
+                      <button onClick={() => handleDelete(t)} disabled={!!deletingId} aria-label="Eliminar" title="Eliminar"
+                        style={{ ...iconBtn, padding: 12, border: '1px solid #1a1a1a', borderRadius: 8, color: '#666', opacity: deletingId === t.id ? 0.4 : 1 }}>
+                        <Trash2 size={17} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          /* ── TABLA ── */
+          <div style={tableWrapper}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#0a0a0a' }}>
+                  {[
+                    { key: 'ticker',     label: 'Ticker' },
+                    { key: 'open_date',  label: 'Apertura' },
+                    { key: 'close_date', label: 'Cierre' },
+                    { key: 'diffDays',   label: 'Días' },
+                    { key: null,         label: 'Razón de cierre' },
+                    { key: 'sector',     label: 'Sector' },
+                    { key: null,         label: 'Invertido' },
+                    { key: null,         label: 'Recuperado' },
+                    { key: null,         label: 'Dividendos' },
+                    { key: 'pnlCash',    label: 'PnL $' },
+                    { key: 'pnlPct',     label: 'PnL %' },
+                    { key: 'annualPct',  label: 'Anual %' },
+                    { key: null,         label: 'Acciones' },
+                  ].map(({ key, label }) => (
+                    <th key={label} style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
+                      onClick={key ? () => handleSort(key) : undefined}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {label} {key && <SortIcon col={key} sort={sortConfig} />}
                       </span>
-                    </td>
-                    <td style={{ ...tdStyle, color: r.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
-                      {r.annualPct > 500 ? '>500' : `${r.annualPct >= 0 ? '+' : ''}${r.annualPct.toFixed(1)}`}%
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        <button onClick={() => setViewingTrade(t)} style={actionBtn('#00bfff')}
-                          title="Historial"
-                          onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#777')}>
-                          Historial
-                        </button>
-                        <button onClick={() => handleDelete(t)} style={{ ...iconBtn, opacity: deletingId === t.id ? 0.4 : 1 }}
-                          title="Eliminar" disabled={!!deletingId}
-                          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-                          onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
-                          <Trash2 size={13} />
-                        </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#666' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <Paw size={30} color="#444" opacity={0.5} />
+                        No hay trades cerrados para este filtro.
                       </div>
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                )}
+                {rows.map(r => {
+                  const t = r.t
+                  return (
+                    <tr key={t.id} style={trStyle}>
+                      <td style={{ ...tdStyle, fontWeight: 'bold', color: '#00bfff' }}>{t.ticker}</td>
+                      <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.open_date ? fmtDay(t.open_date) : '—'}</td>
+                      <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{t.close_date ? fmtDay(t.close_date) : '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'center', color: '#aaa' }}>{r.diffDays}</td>
+                      <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
+                        {t.close_reason || <span style={{ color: '#555' }}>—</span>}
+                      </td>
+                      <td style={{ ...tdStyle, fontSize: 11, color: '#bbb' }}>
+                        {t.sector || <span style={{ color: '#555' }}>—</span>}
+                      </td>
+                      <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalInvested)}</td>
+                      <td style={{ ...tdStyle, color: '#ccc' }}>{money(r.totalSells)}</td>
+                      <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>
+                        {r.divTotal > 0 ? money(r.divTotal) : <span style={{ color: '#333' }}>—</span>}
+                      </td>
+                      <td style={{ ...tdStyle, fontWeight: 'bold' }}>
+                        <span style={{ color: r.totalWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>{money(r.totalWithDiv)}</span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ color: r.pctWithDiv >= 0 ? '#22c55e' : '#f43f5e' }}>
+                          {`${r.pctWithDiv >= 0 ? '+' : ''}${r.pctWithDiv.toFixed(2)}%`}
+                        </span>
+                      </td>
+                      <td style={{ ...tdStyle, color: r.annualPct >= 0 ? '#22c55e' : '#f43f5e' }}>
+                        {r.annualPct > 500 ? '>500' : `${r.annualPct >= 0 ? '+' : ''}${r.annualPct.toFixed(1)}`}%
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                          <button onClick={() => setViewingTrade(t)} style={actionBtn('#00bfff')}
+                            title="Historial"
+                            onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
+                            onMouseLeave={e => (e.currentTarget.style.color = '#777')}>
+                            Historial
+                          </button>
+                          <button onClick={() => handleDelete(t)} style={{ ...iconBtn, opacity: deletingId === t.id ? 0.4 : 1 }}
+                            title="Eliminar" disabled={!!deletingId}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+                            onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div style={{ marginTop: 8, fontSize: 9, color: '#555', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
           <Paw size={9} color="#444" opacity={0.5} />
@@ -761,11 +909,11 @@ export default function CerradosPage() {
         ════════════════════════════════════════════════════════════════════ */}
         {viewingTrade && (
           <div style={overlayStyle} onClick={closeModal}>
-            <div style={modalStyle} onClick={e => e.stopPropagation()}>
+            <div style={isMobile ? modalStyleMobile : modalStyle} onClick={e => e.stopPropagation()}>
 
               {/* Header del modal */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <Paw size={14} color="#00bfff" opacity={0.6} />
                   <h2 style={{ margin: 0, fontSize: 16 }}>
                     Historial: <span style={{ color: '#00bfff' }}>{viewingTrade.ticker}</span>
@@ -775,8 +923,8 @@ export default function CerradosPage() {
                   )}
                 </div>
                 <button onClick={closeModal} aria-label="Cerrar"
-                  style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}>
-                  <X size={18} />
+                  style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: isMobile ? 8 : 0 }}>
+                  <X size={isMobile ? 22 : 18} />
                 </button>
               </div>
 
@@ -786,85 +934,157 @@ export default function CerradosPage() {
                 borderRadius: 8, padding: '8px 12px', marginBottom: 14,
                 display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: '#c8a800',
               }}>
-                <AlertTriangle size={12} />
+                <AlertTriangle size={12} style={{ flexShrink: 0 }} />
                 Haz clic en el lápiz de cualquier fila para corregir un error. Los cambios actualizan automáticamente precio, cantidad, comisión y billetera.
               </div>
 
-              {/* Tabla de ejecuciones */}
-              <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: '#000' }}>
-                      {['Fecha', 'Tipo', 'Cantidad', 'Precio', 'Comisión', 'Neto billetera', 'Editar'].map(h => (
-                        <th key={h} style={modalTh}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyRows.map(r => {
-                      const meta = HIST_LABEL[r.kind]
+              {isMobile ? (
+                /* Historial en tarjetas (celular) */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {historyRows.map(r => {
+                    const meta = HIST_LABEL[r.kind]
 
-                      // Dividendos: solo lectura
-                      if (r.kind === 'div') {
+                    // Dividendos: solo lectura
+                    if (r.kind === 'div') {
+                      return (
+                        <div key={r.key} style={{ ...histCard, background: 'rgba(234,179,8,0.04)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ color: meta.color, fontWeight: 700, fontSize: 13 }}>{meta.label}</div>
+                              <div style={{ fontSize: 11, color: '#777' }}>{fmtDay(r.date, 'numeric')}</div>
+                            </div>
+                            <div style={{ color: '#eab308', fontWeight: 700 }}>+{money(r.net)}</div>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    const isEditing = isEditingRow(r)
+                    const netColor = r.kind === 'apertura' || r.net < 0 ? '#f43f5e' : '#22c55e'
+
+                    return (
+                      <div key={r.key} style={{ ...histCard, background: isEditing ? 'rgba(0,191,255,0.04)' : '#050505' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: meta.color, fontWeight: 700, fontSize: 13 }}>{meta.label}</div>
+                            {!isEditing && <div style={{ fontSize: 11, color: '#777' }}>{fmtDay(r.date, 'numeric')}</div>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ color: netColor, fontWeight: 700, fontSize: 14 }}>
+                              {r.net >= 0 ? '+' : ''}{money(r.net)}
+                            </div>
+                            {!isEditing && <EditPencil big onClick={() => startEdit(r)} />}
+                          </div>
+                        </div>
+
+                        {!isEditing && (
+                          <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>
+                            {shares(r.quantity)} × {money(r.price)}
+                            {r.kind !== 'apertura' && r.commission > 0 && (
+                              <span style={{ color: '#777' }}> · comisión {money(r.commission)}</span>
+                            )}
+                          </div>
+                        )}
+
+                        {isEditing && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                              <label style={editLabel}>Fecha
+                                <input type="date" value={editValues.date} onChange={editField('date')} style={editInpMobile} />
+                              </label>
+                              <label style={editLabel}>Cantidad
+                                <input type="number" inputMode="decimal" min="0" step="any" value={editValues.quantity} onChange={editField('quantity')} style={editInpMobile} />
+                              </label>
+                              <label style={editLabel}>Precio
+                                <input type="number" inputMode="decimal" min="0" step="any" value={editValues.price} onChange={editField('price')} style={editInpMobile} />
+                              </label>
+                              {r.kind !== 'apertura' && (
+                                <label style={editLabel}>Comisión
+                                  <input type="number" inputMode="decimal" min="0" step="any" value={editValues.commission} onChange={editField('commission')} style={editInpMobile} />
+                                </label>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 10 }}>
+                              <EditActions big onSave={saveEdit} onCancel={() => setEditingRow(null)} saving={editSaving} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                /* Tabla de ejecuciones (escritorio) */
+                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#000' }}>
+                        {['Fecha', 'Tipo', 'Cantidad', 'Precio', 'Comisión', 'Neto billetera', 'Editar'].map(h => (
+                          <th key={h} style={modalTh}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyRows.map(r => {
+                        const meta = HIST_LABEL[r.kind]
+
+                        // Dividendos: solo lectura
+                        if (r.kind === 'div') {
+                          return (
+                            <tr key={r.key} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
+                              <td style={modalTd}>{fmtDay(r.date, 'numeric')}</td>
+                              <td style={{ ...modalTd, color: meta.color, fontWeight: 700 }}>{meta.label}</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#555' }}>—</td>
+                              <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>+{money(r.net)}</td>
+                              <td style={modalTd} />
+                            </tr>
+                          )
+                        }
+
+                        const isEditing = isEditingRow(r)
+                        const netColor = r.kind === 'apertura' || r.net < 0 ? '#f43f5e' : '#22c55e'
+
                         return (
-                          <tr key={r.key} style={{ ...trStyle, background: 'rgba(234,179,8,0.04)' }}>
-                            <td style={modalTd}>{fmtDay(r.date, 'numeric')}</td>
+                          <tr key={r.key} style={{ ...trStyle, background: isEditing ? 'rgba(0,191,255,0.04)' : 'transparent' }}>
+                            <td style={modalTd}>{isEditing
+                              ? <input type="date" value={editValues.date} onChange={editField('date')} style={editInp} />
+                              : fmtDay(r.date, 'numeric')
+                            }</td>
                             <td style={{ ...modalTd, color: meta.color, fontWeight: 700 }}>{meta.label}</td>
-                            <td style={{ ...modalTd, color: '#555' }}>—</td>
-                            <td style={{ ...modalTd, color: '#555' }}>—</td>
-                            <td style={{ ...modalTd, color: '#555' }}>—</td>
-                            <td style={{ ...modalTd, color: '#eab308', fontWeight: 600 }}>+{money(r.net)}</td>
-                            <td style={modalTd} />
+                            <td style={modalTd}>{isEditing
+                              ? <input type="number" min="0" step="any" value={editValues.quantity} onChange={editField('quantity')} style={{ ...editInp, width: 80 }} />
+                              : shares(r.quantity)
+                            }</td>
+                            <td style={modalTd}>{isEditing
+                              ? <input type="number" min="0" step="any" value={editValues.price} onChange={editField('price')} style={{ ...editInp, width: 90 }} />
+                              : money(r.price)
+                            }</td>
+                            <td style={{ ...modalTd, color: r.kind === 'apertura' ? '#666' : '#aaa' }}>
+                              {r.kind === 'apertura'
+                                ? '—'
+                                : isEditing
+                                  ? <input type="number" min="0" step="any" value={editValues.commission} onChange={editField('commission')} style={{ ...editInp, width: 80 }} />
+                                  : r.commission > 0 ? money(r.commission) : '—'
+                              }
+                            </td>
+                            <td style={{ ...modalTd, color: netColor, fontWeight: 600 }}>
+                              {r.net >= 0 ? '+' : ''}{money(r.net)}
+                            </td>
+                            <td style={modalTd}>
+                              {isEditing
+                                ? <EditActions onSave={saveEdit} onCancel={() => setEditingRow(null)} saving={editSaving} />
+                                : <EditPencil onClick={() => startEdit(r)} />
+                              }
+                            </td>
                           </tr>
                         )
-                      }
-
-                      const isEditing = !!editingRow && (r.kind === 'apertura'
-                        ? editingRow.kind === 'apertura'
-                        : editingRow.executionId === r.executionId)
-                      const netColor = r.kind === 'apertura' || r.net < 0 ? '#f43f5e' : '#22c55e'
-
-                      return (
-                        <tr key={r.key} style={{ ...trStyle, background: isEditing ? 'rgba(0,191,255,0.04)' : 'transparent' }}>
-                          <td style={modalTd}>{isEditing
-                            ? <input type="date" value={editValues.date} onChange={editField('date')} style={editInp} />
-                            : fmtDay(r.date, 'numeric')
-                          }</td>
-                          <td style={{ ...modalTd, color: meta.color, fontWeight: 700 }}>{meta.label}</td>
-                          <td style={modalTd}>{isEditing
-                            ? <input type="number" min="0" step="any" value={editValues.quantity} onChange={editField('quantity')} style={{ ...editInp, width: 80 }} />
-                            : shares(r.quantity)
-                          }</td>
-                          <td style={modalTd}>{isEditing
-                            ? <input type="number" min="0" step="any" value={editValues.price} onChange={editField('price')} style={{ ...editInp, width: 90 }} />
-                            : money(r.price)
-                          }</td>
-                          <td style={{ ...modalTd, color: r.kind === 'apertura' ? '#666' : '#aaa' }}>
-                            {r.kind === 'apertura'
-                              ? '—'
-                              : isEditing
-                                ? <input type="number" min="0" step="any" value={editValues.commission} onChange={editField('commission')} style={{ ...editInp, width: 80 }} />
-                                : r.commission > 0 ? money(r.commission) : '—'
-                            }
-                          </td>
-                          <td style={{ ...modalTd, color: netColor, fontWeight: 600 }}>
-                            {r.net >= 0 ? '+' : ''}{money(r.net)}
-                          </td>
-                          <td style={modalTd}>
-                            {isEditing
-                              ? <EditActions onSave={saveEdit} onCancel={() => setEditingRow(null)} saving={editSaving} />
-                              : <EditPencil onClick={() => openEdit({
-                                  kind: r.kind as EditRow['kind'], executionId: r.executionId,
-                                  date: r.date, quantity: r.quantity, price: r.price, commission: r.commission,
-                                })} />
-                            }
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Error de edición (antes se guardaba el mensaje pero nunca se mostraba) */}
               {editError && (
@@ -878,7 +1098,7 @@ export default function CerradosPage() {
 
               {/* Resumen del trade */}
               {viewingSummary && (
-                <div style={{ display: 'flex', gap: 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', borderTop: '1px solid #111' }}>
+                <div style={{ display: 'flex', gap: isMobile ? 10 : 14, marginTop: 16, padding: '12px 14px', background: '#000', borderRadius: 10, flexWrap: 'wrap', justifyContent: isMobile ? 'space-between' : 'flex-start', borderTop: '1px solid #111' }}>
                   {[
                     { label: 'Invertido',  value: money(viewingSummary.totalInvested), color: '#aaa' },
                     { label: 'Recuperado', value: money(viewingSummary.totalSells),    color: '#aaa' },
@@ -903,28 +1123,28 @@ export default function CerradosPage() {
 }
 
 // ── Botón lápiz ───────────────────────────────────────────────────────────────
-function EditPencil({ onClick }: { onClick: () => void }) {
+function EditPencil({ onClick, big }: { onClick: () => void; big?: boolean }) {
   return (
     <button onClick={onClick} title="Editar este registro" aria-label="Editar este registro"
-      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#444', padding: 4, transition: 'color 0.2s', display: 'flex', alignItems: 'center' }}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: big ? '#777' : '#444', padding: big ? 10 : 4, transition: 'color 0.2s', display: 'flex', alignItems: 'center' }}
       onMouseEnter={e => (e.currentTarget.style.color = '#eab308')}
-      onMouseLeave={e => (e.currentTarget.style.color = '#444')}>
-      <Pencil size={13} />
+      onMouseLeave={e => (e.currentTarget.style.color = big ? '#777' : '#444')}>
+      <Pencil size={big ? 16 : 13} />
     </button>
   )
 }
 
 // ── Botones guardar / cancelar edición ────────────────────────────────────────
-function EditActions({ onSave, onCancel, saving }: { onSave: () => void; onCancel: () => void; saving: boolean }) {
+function EditActions({ onSave, onCancel, saving, big }: { onSave: () => void; onCancel: () => void; saving: boolean; big?: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: big ? 8 : 6, alignItems: 'center' }}>
       <button onClick={onSave} disabled={saving}
-        style={{ background: saving ? '#111' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', color: '#22c55e', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
-        <Check size={11} /> {saving ? '...' : 'OK'}
+        style={{ flex: big ? 1 : undefined, justifyContent: big ? 'center' : undefined, background: saving ? '#111' : 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', color: '#22c55e', borderRadius: 5, padding: big ? '10px 14px' : '3px 8px', cursor: 'pointer', fontSize: big ? 13 : 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Check size={big ? 14 : 11} /> {saving ? '...' : 'OK'}
       </button>
       <button onClick={onCancel} disabled={saving} aria-label="Cancelar"
-        style={{ background: 'none', border: '1px solid #222', color: '#666', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 10 }}>
-        <X size={11} />
+        style={{ background: 'none', border: '1px solid #222', color: '#666', borderRadius: 5, padding: big ? '10px 14px' : '3px 8px', cursor: 'pointer', fontSize: 10, display: 'flex', alignItems: 'center' }}>
+        <X size={big ? 14 : 11} />
       </button>
     </div>
   )
@@ -944,6 +1164,12 @@ const actionBtn = (_hoverColor: string): React.CSSProperties => ({ background: '
 const iconBtn: React.CSSProperties      = { background: 'none', border: 'none', color: '#444', cursor: 'pointer', transition: 'color 0.2s', padding: 4, display: 'flex', alignItems: 'center' }
 const overlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modalStyle: React.CSSProperties   = { background: '#0a0a0a', padding: 24, borderRadius: 16, width: '92%', maxWidth: 720, border: '1px solid #1a1a1a', maxHeight: '90vh', overflowY: 'auto' }
+// En el celular el modal ocupa casi toda la pantalla y se desplaza por dentro
+const modalStyleMobile: React.CSSProperties = { background: '#0a0a0a', padding: 14, borderRadius: 14, width: '96%', maxWidth: 720, border: '1px solid #1a1a1a', maxHeight: '92dvh', overflowY: 'auto', boxSizing: 'border-box' }
 const modalTh: React.CSSProperties      = { padding: '8px 10px', textAlign: 'left', fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #1a1a1a' }
 const modalTd: React.CSSProperties      = { padding: '9px 10px', fontSize: 12, color: '#ccc' }
 const editInp: React.CSSProperties      = { background: '#050505', border: '1px solid #333', color: '#fff', padding: '3px 7px', borderRadius: 5, outline: 'none', fontSize: 11, width: 110 }
+const editInpMobile: React.CSSProperties = { background: '#050505', border: '1px solid #333', color: '#fff', padding: '9px 10px', borderRadius: 8, outline: 'none', fontSize: 14, width: '100%', boxSizing: 'border-box' }
+const editLabel: React.CSSProperties    = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, color: '#777', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
+const histCard: React.CSSProperties     = { border: '1px solid #1a1a1a', borderRadius: 10, padding: '10px 12px' }
+const chip: React.CSSProperties         = { fontSize: 10, color: '#bbb', background: '#101010', border: '1px solid #1a1a1a', borderRadius: 999, padding: '2px 8px' }
