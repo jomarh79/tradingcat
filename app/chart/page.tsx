@@ -15,6 +15,8 @@ import DividendsChart from '../components/DividendsChart'
 import DividendYieldChart from '../components/DividendYieldChart'
 import { RibbonSeries } from '@/lib/ribbonSeriesPlugin'
 
+import { authedFetch } from "@/lib/authed-fetch";
+
 type Interval = '45min' | '1day' | '1week' | '1month'
 
 const C = {
@@ -505,7 +507,7 @@ function ChartPageInner() {
     setLiveQuote(null)
     if (!ticker) return
     let cancelled = false
-    fetch(`/api/webull/quote?symbol=${encodeURIComponent(ticker)}`)
+    authedFetch(`/api/webull/quote?symbol=${encodeURIComponent(ticker)}`)
       .then(r => r.json())
       .then(data => { if (!cancelled && data.success) setLiveQuote({ price: data.price, change: data.change }) })
       .catch(() => {})

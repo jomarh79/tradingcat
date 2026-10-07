@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Calculator, RotateCcw } from 'lucide-react'
 
+import { authedFetch } from "@/lib/authed-fetch";
+
 const C = {
   accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308',
   card: '#080808', border: '#1a1a1a',
@@ -86,8 +88,7 @@ function findNearestClose(dailyCloses: DailyClose[], targetDate: string): number
 
 // Una respuesta con error HTTP se trata como "sin datos"
 const getJson = <T,>(url: string, init?: RequestInit): Promise<T | null> =>
-  fetch(url, init).then((r) => (r.ok ? (r.json() as Promise<T>) : null)).catch(() => null)
-
+  authedFetch(url, init).then((r) => (r.ok ? (r.json() as Promise<T>) : null)).catch(() => null)
 interface ValuationModelsCardProps {
   ticker: string
   currentPrice?: number | null // opcional — si no se pasa (o es 0), usa el último cierre diario como aproximación

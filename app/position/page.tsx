@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import ValuationModelsCard from '../components/ValuationModelsCard'
 
+import { authedFetch } from "@/lib/authed-fetch";
+
 const C = {
   accent: '#00bfff',
   success: '#22c55e',
@@ -339,7 +341,7 @@ function PositionPageInner() {
     let cancelled = false
     setLoading(true)
 
-    fetch(`/api/webull/position-detail?symbol=${encodeURIComponent(ticker)}`)
+    authedFetch(`/api/webull/position-detail?symbol=${encodeURIComponent(ticker)}`)
       .then((r) => r.json())
       .then((json: PositionDetail) => {
         if (cancelled) return

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWebullAccessToken } from "@/lib/webull-auth";
 import { generateNonce, generateTimestamp, signWebullRequest } from "@/lib/webull-signature";
+import { isOwnerRequest } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -367,6 +368,9 @@ const hasUsefulData = (r: Result) =>
   !!(r.body.profile || r.body.nextEarnings || r.body.nextDividend || r.body.analystTarget);
 
 export async function GET(request: NextRequest) {
+    if (!(await isOwnerRequest(request))) {
+    return NextResponse.json({ success: false, error: "No autorizado" }, { status: 401 });
+  }
   try {
     const symbol = (request.nextUrl.searchParams.get("symbol") || "").toUpperCase().trim();
 

@@ -10,6 +10,8 @@ import {
 
 import { AlertTriangle, BarChart2, FileText } from 'lucide-react'
 
+import { authedFetch } from "@/lib/authed-fetch";
+
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
 // ── Protección de cuota de la API externa (ajusta estos números cuando confirmes tu límite real) ──
@@ -105,7 +107,7 @@ const rsiColor = (rsi: number | null) => {
 // Trae el precio objetivo consenso de analistas desde Webull (promedio)
 async function fetchAnalystTarget(ticker: string): Promise<number | null> {
   try {
-    const res = await fetch(`/api/webull/analyst-target?symbol=${encodeURIComponent(ticker)}`)
+    const res = await authedFetch(`/api/webull/analyst-target?symbol=${encodeURIComponent(ticker)}`)
     const data = await res.json()
     return data?.success && data.mean != null ? data.mean : null
   } catch {

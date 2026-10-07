@@ -263,62 +263,78 @@ export async function generateAndStoreWebullToken() {
   return tokenData;
 }
 
+type WebullAccess = {
+  token: string;
+  status: WebullTokenStatus;
+  expires: number;
+  requires2FA: boolean;
+};
+
+// Caché en memoria: evita comprobar el token contra Webull en cada petición
+const TOKEN_CACHE_MS = 60_000;
+// Separación mínima entre creaciones automáticas (cada una manda un 2FA a tu teléfono)
+const AUTO_CREATE_MIN_GAP_MS = 5 * 60_000;
+let cachedAccess: { value: WebullAccess; at: number } | null = null;
+let lastAutoCreate = 0;
+
 /**
  * Obtiene un token válido.
  *
- * 1. Busca token en Supabase.
- * 2. Si existe, comprueba estado.
- * 3. Si NORMAL, lo devuelve.
- * 4. Si PENDING, lo devuelve indicando que falta aprobar 2FA.
- * 5. Si no existe o está INVALID/EXPIRED, crea uno nuevo.
+ * 1. Si hay uno NORMAL comprobado hace menos de 60 s, lo devuelve sin llamar a Webull.
+ * 2. Si hay token guardado, lo comprueba. NORMAL/PENDING se devuelven tal cual.
+ * 3. Si la comprobación FALLA (red, Webull caído) se lanza error: NO se crea otro
+ *    token, porque se pisaría uno bueno por un fallo pasajero.
+ * 4. Solo si no hay token, o Webull dice INVALID/EXPIRED, se crea uno nuevo
+ *    (máximo uno cada 5 minutos).
  */
-export async function getWebullAccessToken() {
+export async function getWebullAccessToken(): Promise<WebullAccess> {
+  if (cachedAccess && Date.now() - cachedAccess.at < TOKEN_CACHE_MS) {
+    return cachedAccess.value;
+  }
+
   const stored = await getStoredWebullToken();
 
   if (stored?.access_token) {
+    let checked: WebullTokenResponse;
     try {
-      const checked = await checkWebullToken(
-        stored.access_token
-      );
-
-      await updateTokenStatus(
-        checked.status,
-        checked.expires
-      );
-
-      if (checked.status === "NORMAL") {
-        return {
-          token: checked.token,
-          status: checked.status,
-          expires: checked.expires,
-          requires2FA: false,
-        };
-      }
-
-      if (checked.status === "PENDING") {
-        return {
-          token: checked.token,
-          status: checked.status,
-          expires: checked.expires,
-          requires2FA: true,
-        };
-      }
+      checked = await checkWebullToken(stored.access_token);
     } catch (error) {
-      console.error(
-        "Error comprobando token existente de Webull:",
-        error
+      console.error("Error comprobando token existente de Webull:", error);
+      throw new Error(
+        "No se pudo comprobar el token de Webull; intenta de nuevo en un momento"
       );
+    }
+
+    await updateTokenStatus(checked.status, checked.expires);
+
+    if (checked.status === "NORMAL" || checked.status === "PENDING") {
+      const value: WebullAccess = {
+        token: checked.token || stored.access_token,
+        status: checked.status,
+        expires: checked.expires,
+        requires2FA: checked.status === "PENDING",
+      };
+      // Solo se guarda en caché el token ya aprobado; PENDING se vuelve a comprobar
+      cachedAccess = checked.status === "NORMAL" ? { value, at: Date.now() } : null;
+      return value;
     }
   }
 
-  const newToken =
-    await generateAndStoreWebullToken();
+  // No hay token, o Webull lo marcó INVALID/EXPIRED
+  if (Date.now() - lastAutoCreate < AUTO_CREATE_MIN_GAP_MS) {
+    throw new Error(
+      "El token de Webull no está disponible; ya se pidió uno hace pocos minutos. Aprueba el 2FA en la app de Webull o espera."
+    );
+  }
+  lastAutoCreate = Date.now();
+  cachedAccess = null;
+
+  const newToken = await generateAndStoreWebullToken();
 
   return {
     token: newToken.token,
     status: newToken.status,
     expires: newToken.expires,
-    requires2FA:
-      newToken.status === "PENDING",
+    requires2FA: newToken.status === "PENDING",
   };
 }

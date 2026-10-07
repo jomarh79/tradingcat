@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
+import { authedFetch } from "@/lib/authed-fetch";
+
 interface IncomeEntry {
   fiscalYear: number
   fiscalPeriod: number
@@ -202,7 +204,7 @@ function FundamentalsPageInner() {
     setDaLoading(true)
 
     // El estado de resultados se muestra en cuanto llega; el D&A (más lento) solo completa el EBITDA después
-    fetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`)
+    authedFetch(`/api/webull/income-statement?symbol=${encodeURIComponent(ticker)}`)
       .then((r) => r.json())
       .then((income: IncomeApiResponse) => {
         if (cancelled) return
