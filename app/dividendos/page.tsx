@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import { FaTrash, FaPencilAlt, FaSort, FaSortUp, FaSortDown, FaSearch, FaPlus } from 'react-icons/fa'
 import { DollarSign } from 'lucide-react'
@@ -22,6 +23,12 @@ const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MESES_CORTO = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+
+const SORT_OPTIONS = [
+  { key: 'date',   label: 'Fecha' },
+  { key: 'ticker', label: 'Activo' },
+  { key: 'amount', label: 'Monto' },
+]
 
 // Máximo 1000 filas por consulta en Supabase: se pide por páginas
 const PAGE = 1000
@@ -49,6 +56,7 @@ const Paw = ({ size = 14, color = '#666', opacity = 1 }: any) => (
 
 export default function DividendosPage() {
   const { money } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [movements,  setMovements]  = useState<any[]>([])
   const [trades,     setTrades]     = useState<any[]>([])
@@ -90,7 +98,6 @@ export default function DividendosPage() {
 
       const [mData, pData, tData] = await Promise.all([
         // Mismo criterio de dividendo que el resto de la app (is_dividend o movement_type = 'dividend').
-        // Antes se traía además un join a portafolios que nunca se usaba.
         fetchAll(() => supabase.from('wallet_movements')
           .select('id, wallet_id, ticker, amount, date, notes, is_dividend, movement_type')
           .eq('user_id', u.id)
@@ -111,7 +118,7 @@ export default function DividendosPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Billetera del modal: la elegida o, por defecto, la primera (antes era un efecto que la copiaba al abrir)
+  // Billetera del modal: la elegida o, por defecto, la primera
   const effectiveAddPortfolio = addPortfolio || portfolios[0]?.id || ''
 
   // Tickers con posición abierta en la billetera del modal
@@ -151,8 +158,6 @@ export default function DividendosPage() {
   const totalPeriod = useMemo(() => r2(filtered.reduce((acc, m) => acc + m.amountNum, 0)), [filtered])
 
   // Top 9 tickers por total de dividendos — todos los movimientos, sin filtrar por período.
-  // El porcentaje es lo cobrado en total entre lo invertido HOY en ese ticker: antes se tomaba solo la primera
-  // posición abierta que se encontrara, aunque tuvieras el ticker en dos portafolios.
   const tickerSummary = useMemo(() => {
     const totals: Record<string, number> = {}
     rows.forEach(m => { if (m.ticker) totals[m.ticker] = (totals[m.ticker] || 0) + m.amountNum })
@@ -271,27 +276,52 @@ export default function DividendosPage() {
     }
   }
 
+  const fmtDate = (key: string) => DAY_RE.test(key)
+    ? parseDate(key).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—'
+
+  const box: React.CSSProperties = isMobile ? modalBoxMobile : modalBox
+  const selMobile: React.CSSProperties = { ...selectStyle, width: '100%', minWidth: 0, padding: '10px 10px', fontSize: 13 }
+
   return (
     <AppShell>
-      <div style={{ padding: '0 30px', color: 'white' }}>
+      <div style={{ padding: isMobile ? '0 2px' : '0 30px', color: 'white' }}>
 
         {/* HEADER */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0 10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <DollarSign size={22} color="#eab308" />
-            <h1 style={{ fontSize: 20, fontWeight: 900, color: '#eab308', margin: 0 }}>Flujo de dividendos</h1>
-            <Paw size={14} color="#eab308" opacity={0.5} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: 9, color: '#888', fontWeight: 'bold', display: 'block', marginBottom: 4 }}>Total período</span>
-              <span style={{ fontSize: 22, fontWeight: 900, color: '#eab308' }}>{money(totalPeriod)}</span>
+        {isMobile ? (
+          <div style={{ margin: '8px 0 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <DollarSign size={20} color="#eab308" />
+                <h1 style={{ fontSize: 18, fontWeight: 900, color: '#eab308', margin: 0 }}>Dividendos</h1>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: 9, color: '#888', fontWeight: 'bold', display: 'block' }}>Total período</span>
+                <span style={{ fontSize: 20, fontWeight: 900, color: '#eab308' }}>{money(totalPeriod)}</span>
+              </div>
             </div>
-            <button onClick={() => setShowAdd(true)} style={addBtn}>
+            <button onClick={() => setShowAdd(true)} style={{ ...addBtn, justifyContent: 'center', padding: '12px 14px', fontSize: 13 }}>
               <FaPlus size={11} /> Agregar dividendo
             </button>
           </div>
-        </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <DollarSign size={22} color="#eab308" />
+              <h1 style={{ fontSize: 20, fontWeight: 900, color: '#eab308', margin: 0 }}>Flujo de dividendos</h1>
+              <Paw size={14} color="#eab308" opacity={0.5} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: 9, color: '#888', fontWeight: 'bold', display: 'block', marginBottom: 4 }}>Total período</span>
+                <span style={{ fontSize: 22, fontWeight: 900, color: '#eab308' }}>{money(totalPeriod)}</span>
+              </div>
+              <button onClick={() => setShowAdd(true)} style={addBtn}>
+                <FaPlus size={11} /> Agregar dividendo
+              </button>
+            </div>
+          </div>
+        )}
 
         {loadError && (
           <div style={{
@@ -305,46 +335,49 @@ export default function DividendosPage() {
         {/* TABS PORTAFOLIOS */}
         <div style={walletNav}>
           {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={walletTab(selectedPortfolio === p.id)}>
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
+              style={{ ...walletTab(selectedPortfolio === p.id), ...(isMobile ? { padding: '8px 14px', fontSize: 12 } : {}) }}>
               {p.name}
             </button>
           ))}
         </div>
 
         {/* FILTROS */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
+        <div style={isMobile
+          ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }
+          : { display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={isMobile ? selMobile : selectStyle}>
             <option value="all">Todos los años</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={selectStyle}>
-            <option value="all">Todos los meses (vista mensual)</option>
+          <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={isMobile ? selMobile : selectStyle}>
+            <option value="all">{isMobile ? 'Todos los meses' : 'Todos los meses (vista mensual)'}</option>
             {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 6, padding: '6px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 6, padding: isMobile ? '10px 10px' : '6px 10px', ...(isMobile ? { gridColumn: '1 / -1' } : {}) }}>
             <FaSearch style={{ color: '#888', fontSize: 10 }} />
             <input
               placeholder="Buscar ticker..."
               value={filterTicker}
               onChange={e => setFilterTicker(e.target.value.toUpperCase())}
-              style={{ background: 'none', border: 'none', color: 'white', outline: 'none', fontSize: 11, width: 120 }}
+              style={{ background: 'none', border: 'none', color: 'white', outline: 'none', fontSize: isMobile ? 14 : 11, width: isMobile ? '100%' : 120, minWidth: 0 }}
             />
           </div>
           {(filterTicker || selectedPortfolio !== 'all' || selectedMonth !== 'all') && (
-            <span style={{ fontSize: 10, color: '#888' }}>{filtered.length} resultado(s)</span>
+            <span style={{ fontSize: 10, color: '#888', ...(isMobile ? { gridColumn: '1 / -1' } : {}) }}>{filtered.length} resultado(s)</span>
           )}
         </div>
 
         {/* GRÁFICA */}
-        <div style={chartContainer}>
-          <div style={{ fontSize: 9, color: '#888', fontWeight: 800, letterSpacing: 1, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ ...chartContainer, ...(isMobile ? { padding: '12px 4px 4px', marginBottom: 14 } : {}) }}>
+          <div style={{ fontSize: 9, color: '#888', fontWeight: 800, letterSpacing: 1, marginBottom: 8, paddingLeft: isMobile ? 8 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Paw size={10} color="#888" opacity={0.6} />
             {selectedMonth === 'all' ? 'Vista mensual' : `Vista semanal · ${MESES[Number(selectedMonth) - 1]}`}
           </div>
-          <ResponsiveContainer width="100%" height={140}>
+          <ResponsiveContainer width="100%" height={isMobile ? 130 : 140}>
             <BarChart data={dynamicChartData}>
               <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#888' }} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#888' }} interval={isMobile ? 'preserveStartEnd' : 0} />
               <YAxis hide />
               <Tooltip
                 contentStyle={{ background: '#000', border: '1px solid #333', borderRadius: 8 }}
@@ -367,13 +400,13 @@ export default function DividendosPage() {
               <Paw size={10} color="#eab308" opacity={0.6} />
               TOP 9 PAGADORES DE DIVIDENDOS · HISTÓRICO TOTAL
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, minmax(0, 1fr))' : 'repeat(9, 1fr)', gap: 8 }}>
               {tickerSummary.map((item, idx) => (
                 <div key={item.ticker} style={{
                   background: '#0a0a0a',
                   border: `1px solid ${idx === 0 ? 'rgba(234,179,8,0.4)' : 'rgba(234,179,8,0.12)'}`,
-                  borderRadius: 10, padding: '10px 12px',
-                  position: 'relative', overflow: 'hidden',
+                  borderRadius: 10, padding: isMobile ? '8px 8px' : '10px 12px',
+                  position: 'relative', overflow: 'hidden', minWidth: 0,
                 }}>
                   {/* Huella decorativa de fondo */}
                   <div style={{ position: 'absolute', bottom: -6, right: -6 }}>
@@ -383,7 +416,7 @@ export default function DividendosPage() {
                     <div style={{ fontSize: 8, color: '#eab308', fontWeight: 800, letterSpacing: 0.5, marginBottom: 4 }}>TOP 1</div>
                   )}
                   <div style={{ fontWeight: 800, color: '#eab308', fontSize: 13, marginBottom: 4 }}>{item.ticker}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{money(item.total)}</div>
+                  <div style={{ fontSize: isMobile ? 12 : 13, fontWeight: 700, color: '#fff' }}>{money(item.total)}</div>
                   {item.yoc !== null && (
                     <div style={{ fontSize: 9, color: '#888', marginTop: 4 }} title="Total cobrado entre lo invertido hoy en este ticker">
                       Acum. s/costo <span style={{ color: item.yoc >= 3 ? '#22c55e' : '#aaa', fontWeight: 700 }}>{item.yoc.toFixed(2)}%</span>
@@ -395,70 +428,117 @@ export default function DividendosPage() {
           </div>
         )}
 
-        {/* TABLA */}
-        <div style={tableWrapper}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#0a0a0a' }}>
-                {[
-                  { key: 'date',   label: 'Fecha' },
-                  { key: 'ticker', label: 'Activo' },
-                  { key: 'amount', label: 'Monto' },
-                ].map(col => (
-                  <th key={col.key} style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                      {col.label} {renderSortIcon(col.key)}
-                    </span>
-                  </th>
-                ))}
-                <th style={thStyle}>Notas</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
+        {isMobile ? (
+          <>
+            {/* ORDENAR */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <select
+                value={sortConfig.key}
+                onChange={e => setSortConfig(prev => ({ ...prev, key: e.target.value }))}
+                aria-label="Ordenar por"
+                style={{ ...selMobile, flex: 1 }}>
+                {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>Ordenar: {o.label}</option>)}
+              </select>
+              <button
+                onClick={() => setSortConfig(prev => ({ ...prev, direction: prev.direction === 'asc' ? 'desc' : 'asc' }))}
+                style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #1a1a1a', background: '#0a0a0a', color: '#eab308', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {sortConfig.direction === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+
+            {/* TARJETAS */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
               {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#888' }}>
-                    No hay dividendos para el período seleccionado.
-                  </td>
-                </tr>
+                <div style={{ padding: 36, textAlign: 'center', color: '#888', background: '#0a0a0a', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+                  No hay dividendos para el período seleccionado.
+                </div>
               )}
               {filtered.map(m => (
-                <tr key={m.id} style={trStyle}>
-                  <td style={tdStyle}>
-                    {DAY_RE.test(m.key)
-                      ? parseDate(m.key).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : '—'}
-                  </td>
-                  <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>{m.ticker || '—'}</td>
-                  <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    {money(m.amountNum)}
-                  </td>
-                  <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{m.notes || '—'}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', gap: 12 }}>
-                      <button onClick={() => handleEditOpen(m)} title="Editar" aria-label="Editar" style={actionBtn}
-                        onMouseEnter={e => (e.currentTarget.style.color = '#eab308')}
-                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
-                        <FaPencilAlt size={12} />
-                      </button>
-                      <button onClick={() => handleDelete(m.id)} title="Eliminar" aria-label="Eliminar" style={actionBtn}
-                        onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-                        onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
-                        <FaTrash size={12} />
-                      </button>
+                <div key={m.id} style={{ background: '#080808', border: '1px solid #1a1a1a', borderRadius: 12, padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: '#eab308', fontWeight: 900, fontSize: 16 }}>{m.ticker || '—'}</div>
+                      <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>{fmtDate(m.key)}</div>
                     </div>
-                  </td>
-                </tr>
+                    <div style={{ color: '#eab308', fontWeight: 900, fontSize: 18, fontFamily: 'monospace' }}>{money(m.amountNum)}</div>
+                  </div>
+                  {m.notes && <div style={{ fontSize: 12, color: '#aaa', marginTop: 6, wordBreak: 'break-word' }}>{m.notes}</div>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, paddingTop: 8, borderTop: '1px solid #151515' }}>
+                    <button onClick={() => handleEditOpen(m)} aria-label="Editar"
+                      style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid #2a2410', background: 'rgba(234,179,8,0.06)', color: '#eab308', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <FaPencilAlt size={12} /> Editar
+                    </button>
+                    <button onClick={() => handleDelete(m.id)} aria-label="Eliminar"
+                      style={{ ...actionBtn, padding: 12, border: '1px solid #1a1a1a', borderRadius: 8, color: '#777' }}>
+                      <FaTrash size={14} />
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </>
+        ) : (
+          /* TABLA */
+          <div style={tableWrapper}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#0a0a0a' }}>
+                  {[
+                    { key: 'date',   label: 'Fecha' },
+                    { key: 'ticker', label: 'Activo' },
+                    { key: 'amount', label: 'Monto' },
+                  ].map(col => (
+                    <th key={col.key} style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {col.label} {renderSortIcon(col.key)}
+                      </span>
+                    </th>
+                  ))}
+                  <th style={thStyle}>Notas</th>
+                  <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#888' }}>
+                      No hay dividendos para el período seleccionado.
+                    </td>
+                  </tr>
+                )}
+                {filtered.map(m => (
+                  <tr key={m.id} style={trStyle}>
+                    <td style={tdStyle}>{fmtDate(m.key)}</td>
+                    <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold' }}>{m.ticker || '—'}</td>
+                    <td style={{ ...tdStyle, color: '#eab308', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                      {money(m.amountNum)}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#aaa', fontSize: 11 }}>{m.notes || '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', gap: 12 }}>
+                        <button onClick={() => handleEditOpen(m)} title="Editar" aria-label="Editar" style={actionBtn}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#eab308')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                          <FaPencilAlt size={12} />
+                        </button>
+                        <button onClick={() => handleDelete(m.id)} title="Eliminar" aria-label="Eliminar" style={actionBtn}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+                          <FaTrash size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* ════ MODAL AGREGAR DIVIDENDO ════ */}
         {showAdd && (
           <div style={modalOverlay}>
-            <div style={modalBox}>
+            <div style={box}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                 <Paw size={16} color="#eab308" opacity={0.7} />
                 <h3 style={{ margin: 0, fontSize: 16 }}>Registrar dividendo</h3>
@@ -472,7 +552,7 @@ export default function DividendosPage() {
               <label style={modalLabel}>Ticker</label>
               <div style={{ display: 'flex', gap: 6, marginBottom: 15 }}>
                 <select value={portfolioTickers.includes(addTicker) ? addTicker : ''} onChange={e => setAddTicker(e.target.value)}
-                  style={{ ...modalInput, marginBottom: 0, flex: 1 }}>
+                  style={{ ...modalInput, marginBottom: 0, flex: 1, minWidth: 0 }}>
                   <option value="">Selecciona...</option>
                   {portfolioTickers.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -480,7 +560,7 @@ export default function DividendosPage() {
                   placeholder="O escribe"
                   value={addTicker}
                   onChange={e => setAddTicker(e.target.value.toUpperCase())}
-                  style={{ ...modalInput, marginBottom: 0, flex: 1 }}
+                  style={{ ...modalInput, marginBottom: 0, flex: 1, minWidth: 0 }}
                 />
               </div>
 
@@ -511,7 +591,7 @@ export default function DividendosPage() {
         {/* ════ MODAL EDITAR ════ */}
         {editingMovement && (
           <div style={modalOverlay}>
-            <div style={modalBox}>
+            <div style={box}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
                 <Paw size={16} color="#eab308" opacity={0.6} />
                 <h3 style={{ margin: 0, fontSize: 16 }}>Editar dividendo</h3>
@@ -542,7 +622,7 @@ export default function DividendosPage() {
 const walletNav: React.CSSProperties = { display: 'flex', gap: 8, marginBottom: 14, borderBottom: '1px solid #222', paddingBottom: 10, marginTop: 10, overflowX: 'auto' }
 const walletTab = (active: boolean): React.CSSProperties => ({
   background: active ? '#eab308' : 'transparent', color: active ? '#000' : '#888',
-  border: 'none', padding: '5px 15px', borderRadius: 4, fontSize: 11, fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap',
+  border: 'none', padding: '5px 15px', borderRadius: 4, fontSize: 11, fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
 })
 const selectStyle: React.CSSProperties     = { background: '#0a0a0a', color: 'white', border: '1px solid #1a1a1a', padding: '6px 10px', borderRadius: 6, fontSize: 11, outline: 'none' }
 const chartContainer: React.CSSProperties  = { background: '#050505', padding: '16px 10px 8px', marginBottom: 20, border: '1px solid #111', borderRadius: 12 }
@@ -554,6 +634,8 @@ const actionBtn: React.CSSProperties       = { background: 'none', border: 'none
 const addBtn: React.CSSProperties          = { background: '#1a1200', border: '1px solid #eab308', color: '#eab308', padding: '7px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }
 const modalOverlay: React.CSSProperties    = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modalBox: React.CSSProperties        = { background: '#0a0a0a', padding: 28, borderRadius: 14, border: '1px solid #1a1a1a', width: 420 }
+// En el celular el modal usa casi todo el ancho y se desplaza por dentro si no cabe
+const modalBoxMobile: React.CSSProperties  = { background: '#0a0a0a', padding: 18, borderRadius: 14, border: '1px solid #1a1a1a', width: '94%', maxWidth: 420, maxHeight: '92dvh', overflowY: 'auto', boxSizing: 'border-box' }
 const modalLabel: React.CSSProperties      = { display: 'block', fontSize: 10, color: '#888', marginBottom: 5, fontWeight: 'bold', letterSpacing: 0.5 }
 const modalInput: React.CSSProperties      = { width: '100%', background: '#000', border: '1px solid #333', padding: 11, borderRadius: 8, color: '#fff', marginBottom: 14, outline: 'none', boxSizing: 'border-box', fontSize: 13 }
 const confirmBtn: React.CSSProperties      = { flex: 1, background: '#eab308', color: '#000', border: 'none', padding: 12, borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }
