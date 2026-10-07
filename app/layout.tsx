@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import { PrivacyProvider } from '../lib/PrivacyContext'
 import './globals.css'
 
+import type { Metadata, Viewport } from 'next'
+
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
@@ -27,4 +29,10 @@ export default function RootLayout({
       </body>
     </html>
   )
+}
+
+export const viewport: Viewport = {
+  themeColor: '#050505',
+  width: 'device-width',
+  initialScale: 1,
 }

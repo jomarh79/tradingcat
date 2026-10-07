@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { usePrivacy } from '../lib/PrivacyContext'
+import { useIsMobile } from '../lib/useIsMobile'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
-  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode
+  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode, Menu, X
 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -76,7 +77,8 @@ const Whiskers = ({ color = '#00bfff', opacity = 0.1, w = 80 }: any) => (
 
 // ═══════════════════════════════════════════════════════════════════════════
 
-function MenuLink({ href, icon, label, active, isSubItem }: any) {
+// `touch` agranda el área de toque en el celular (≈44px, el mínimo cómodo para el dedo)
+function MenuLink({ href, icon, label, active, isSubItem, touch }: any) {
   return (
     <Link href={href} style={{
       display: 'flex', alignItems: 'center', gap: 10,
@@ -86,14 +88,14 @@ function MenuLink({ href, icon, label, active, isSubItem }: any) {
       borderLeft: active ? '2px solid #00bfff' : '2px solid transparent',
       paddingRight: 14,
       paddingLeft: isSubItem ? 38 : 14,
-      height: isSubItem ? 28 : 38,
+      height: touch ? (isSubItem ? 40 : 46) : (isSubItem ? 28 : 38),
     }}>
       {icon && <span style={{ opacity: active ? 1 : 0.6 }}>{icon}</span>}
       {/* Huella mini solo en items activos */}
       {active && !isSubItem && (
         <Paw size={7} color="#00bfff" opacity={0.5} style={{ marginLeft: -4 }} />
       )}
-      <span style={{ fontSize: isSubItem ? 11 : 12.5, fontWeight: active ? 700 : 400 }}>{label}</span>
+      <span style={{ fontSize: touch ? (isSubItem ? 13 : 14) : (isSubItem ? 11 : 12.5), fontWeight: active ? 700 : 400 }}>{label}</span>
     </Link>
   )
 }
@@ -101,6 +103,8 @@ function MenuLink({ href, icon, label, active, isSubItem }: any) {
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { visible, toggle } = usePrivacy()
+  const isMobile = useIsMobile()
+  const [menuOpen,   setMenuOpen]   = useState(false)
   const [user,       setUser]       = useState<any>(null)
   const [email,      setEmail]      = useState('')
   const [password,   setPassword]   = useState('')
@@ -118,6 +122,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
   }, [])
+
+  // El menú lateral del celular se cierra al cambiar de página y al volver a una pantalla ancha
+  useEffect(() => { setMenuOpen(false) }, [pathname])
+  useEffect(() => { if (!isMobile) setMenuOpen(false) }, [isMobile])
 
   useEffect(() => {
     if (!user) return
@@ -175,7 +183,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ))}
 
-        <div style={loginCard}>
+        <div style={{ ...loginCard, margin: '0 16px' }}>
           {/* Header del login */}
           <div style={{ textAlign: 'center', marginBottom: 28, position: 'relative' }}>
             {/* Orejas sobre el logo */}
@@ -201,8 +209,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <input placeholder="Email" onChange={e => setEmail(e.target.value)} style={inputStyle} />
-          <input type="password" placeholder="Contraseña" onChange={e => setPassword(e.target.value)}
+          <input type="email" autoComplete="email" placeholder="Email" onChange={e => setEmail(e.target.value)} style={inputStyle} />
+          <input type="password" autoComplete="current-password" placeholder="Contraseña" onChange={e => setPassword(e.target.value)}
             style={inputStyle} onKeyDown={e => e.key === 'Enter' && handleLogin()} />
           <button onClick={handleLogin} style={buttonStyle}>
             <Paw size={13} color="#000" opacity={0.7} />
@@ -218,43 +226,93 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     )
   }
 
+  // En el celular el sidebar es un panel deslizable sobre la página
+  const sidebarStyle: React.CSSProperties = isMobile
+    ? {
+        ...sidebar,
+        position: 'fixed', top: 40, left: 0, bottom: 0, height: 'auto',
+        width: 250, zIndex: 300,
+        transform: menuOpen ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform 0.22s ease',
+        boxShadow: menuOpen ? '4px 0 24px rgba(0,0,0,0.6)' : 'none',
+      }
+    : sidebar
+
   return (
-    <div style={{ background: '#050505', color: 'white', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: '#050505', color: 'white', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
 
       {/* ── TopBar ── */}
-      <div style={topBar}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ ...topBar, padding: isMobile ? '0 6px' : '0 14px', gap: isMobile ? 6 : 0 }}>
+        <div style={{ display: 'flex', gap: isMobile ? 6 : 8, alignItems: 'center', minWidth: 0, flex: 1 }}>
+          {isMobile && (
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              style={{ ...logoutBtn, color: menuOpen ? '#00bfff' : '#aaa', padding: 8 }}
+              title={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}>
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          )}
           {/* Huellas mini en el topbar */}
-          <div style={{ display: 'flex', gap: 3, marginRight: 6, opacity: 0.15 }}>
-            {[8, 6, 5].map((s, i) => <Paw key={i} size={s} color="#00bfff" opacity={1} rotate={i * 10} />)}
+          {!isMobile && (
+            <div style={{ display: 'flex', gap: 3, marginRight: 6, opacity: 0.15 }}>
+              {[8, 6, 5].map((s, i) => <Paw key={i} size={s} color="#00bfff" opacity={1} rotate={i * 10} />)}
+            </div>
+          )}
+          {/* En el celular los índices se desplazan de lado si no caben */}
+          <div style={{
+            display: 'flex', gap: isMobile ? 6 : 8, alignItems: 'center',
+            minWidth: 0, overflowX: isMobile ? 'auto' : 'visible',
+            scrollbarWidth: 'none',
+          }}>
+            {symbols.map(({ api, label }) => {
+              const data = marketData[api]
+              if (!data) return null
+              const isUp = data.dp >= 0
+              return (
+                <div key={api} style={{ ...tickerItem, flexShrink: 0, padding: isMobile ? '3px 7px' : '3px 10px', gap: isMobile ? 5 : 7 }}>
+                  <span style={{ fontWeight: 800, fontSize: 10, color: '#aaa' }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${data.c?.toFixed(2)}</span>
+                  <span style={{ fontSize: 10, color: isUp ? '#22c55e' : '#f43f5e' }}>
+                    {isUp ? '▲' : '▼'} {Math.abs(data.dp)?.toFixed(2)}%
+                  </span>
+                </div>
+              )
+            })}
           </div>
-          {symbols.map(({ api, label }) => {
-            const data = marketData[api]
-            if (!data) return null
-            const isUp = data.dp >= 0
-            return (
-              <div key={api} style={tickerItem}>
-                <span style={{ fontWeight: 800, fontSize: 10, color: '#aaa' }}>{label}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${data.c?.toFixed(2)}</span>
-                <span style={{ fontSize: 10, color: isUp ? '#22c55e' : '#f43f5e' }}>
-                  {isUp ? '▲' : '▼'} {Math.abs(data.dp)?.toFixed(2)}%
-                </span>
-              </div>
-            )
-          })}
         </div>
-        <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={logoutBtn}
-          title="Cerrar sesión"
-          onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
-          <LogOut size={15} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {/* Acceso rápido a ocultar/mostrar valores en el celular (en escritorio vive en el sidebar) */}
+          {isMobile && (
+            <button onClick={toggle} style={{ ...logoutBtn, padding: 8 }}
+              title={visible ? 'Ocultar valores' : 'Mostrar valores'}
+              aria-label={visible ? 'Ocultar valores' : 'Mostrar valores'}>
+              {visible ? <Eye size={18} color="#888" /> : <EyeOff size={18} color="#00bfff" />}
+            </button>
+          )}
+          <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())}
+            style={{ ...logoutBtn, padding: isMobile ? 8 : 5 }}
+            title="Cerrar sesión"
+            aria-label="Cerrar sesión"
+            onMouseEnter={e => (e.currentTarget.style.color = '#f43f5e')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#555')}>
+            <LogOut size={isMobile ? 18 : 15} />
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1 }}>
+      {/* Fondo oscuro detrás del menú del celular: tocarlo lo cierra */}
+      {isMobile && menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          style={{ position: 'fixed', top: 40, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 250 }}
+        />
+      )}
+
+      <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
 
         {/* ── Sidebar con gatos al máximo ── */}
-        <aside style={sidebar}>
+        <aside style={sidebarStyle} aria-hidden={isMobile && !menuOpen}>
 
           {/* Logo */}
           <div style={{ ...logoSection, position: 'relative', overflow: 'hidden' }}>
@@ -289,39 +347,38 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div style={{ position: 'relative', zIndex: 1 }}>
-              <MenuLink href="/" icon={<LayoutDashboard size={15} />} label="Home" active={pathname === '/'} />
+              <MenuLink touch={isMobile} href="/" icon={<LayoutDashboard size={15} />} label="Home" active={pathname === '/'} />
 
               <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 TRADING
               </div>
-              <MenuLink href="/trades"   icon={<BarChart3   size={15} />} label="Nuevo Trade" active={pathname === '/trades'} />
-              <MenuLink href="/abiertos" icon={<TrendingUp  size={15} />} label="Abiertos"    active={pathname === '/abiertos'} />
-              <MenuLink href="/cerrados" icon={<History     size={15} />} label="Cerrados"    active={pathname === '/cerrados'} />
-              <MenuLink href="/watchlist" icon={<SearchCode size={15} />} label="Seguimiento" active={pathname === '/watchlist'} />
+              <MenuLink touch={isMobile} href="/trades"   icon={<BarChart3   size={15} />} label="Nuevo Trade" active={pathname === '/trades'} />
+              <MenuLink touch={isMobile} href="/abiertos" icon={<TrendingUp  size={15} />} label="Abiertos"    active={pathname === '/abiertos'} />
+              <MenuLink touch={isMobile} href="/cerrados" icon={<History     size={15} />} label="Cerrados"    active={pathname === '/cerrados'} />
+              <MenuLink touch={isMobile} href="/watchlist" icon={<SearchCode size={15} />} label="Seguimiento" active={pathname === '/watchlist'} />
 
               <div style={groupHeader}>
                 <Activity size={13} color="#555" />
                 <span>Estadísticas</span>
               </div>
-              <MenuLink href="/estadisticas"  label="Abiertos"  active={pathname === '/estadisticas'}  isSubItem />
-              <MenuLink href="/estadisticas2" label="Cerrados"  active={pathname === '/estadisticas2'} isSubItem />
-
-             <div style={sectionLabel}>
+              <MenuLink touch={isMobile} href="/estadisticas"  label="Abiertos"  active={pathname === '/estadisticas'}  isSubItem />
+              <MenuLink touch={isMobile} href="/estadisticas2" label="Cerrados"  active={pathname === '/estadisticas2'} isSubItem />
+              <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 WALLET
               </div>
-              <MenuLink href="/portafolios" icon={<Wallet size={15} />} label="Billeteras" active={pathname === '/portafolios'} />
-              <MenuLink href="/dividendos"  icon={<Coins  size={15} />} label="Dividendos" active={pathname === '/dividendos'} isSubItem />
+              <MenuLink touch={isMobile} href="/portafolios" icon={<Wallet size={15} />} label="Billeteras" active={pathname === '/portafolios'} />
+              <MenuLink touch={isMobile} href="/dividendos"  icon={<Coins  size={15} />} label="Dividendos" active={pathname === '/dividendos'} isSubItem />
 
               <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 INFORMES
               </div>
-              <MenuLink href="/informe-abiertos"   icon={<Coins size={15} />} label="Trades Abiertos"  active={pathname === '/informe-abiertos'}  isSubItem />
-              <MenuLink href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados"  active={pathname === '/informe-trades'}    isSubItem />
-              <MenuLink href="/informe-dinero"     icon={<Coins size={15} />} label="Dinero"           active={pathname === '/informe-dinero'} isSubItem />
-              <MenuLink href="/dividendos-informe" icon={<Coins size={15} />} label="Dividendos"       active={pathname === '/dividendos-informe'} isSubItem />
+              <MenuLink touch={isMobile} href="/informe-abiertos"   icon={<Coins size={15} />} label="Trades Abiertos"  active={pathname === '/informe-abiertos'}  isSubItem />
+              <MenuLink touch={isMobile} href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados"  active={pathname === '/informe-trades'}    isSubItem />
+              <MenuLink touch={isMobile} href="/informe-dinero"     icon={<Coins size={15} />} label="Dinero"           active={pathname === '/informe-dinero'} isSubItem />
+              <MenuLink touch={isMobile} href="/dividendos-informe" icon={<Coins size={15} />} label="Dividendos"       active={pathname === '/dividendos-informe'} isSubItem />
             </div>
 
             {/* ── Botón privacidad + huellas al fondo ── */}
@@ -330,7 +387,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', marginBottom: 8, opacity: 0.12 }}>
                 {[9, 7, 6].map((s, i) => <Paw key={i} size={s} color="#00bfff" opacity={1} rotate={i * 12} />)}
               </div>
-              <button onClick={toggle} style={privacyBtn}
+              <button onClick={toggle} style={{ ...privacyBtn, padding: isMobile ? '11px 10px' : '7px 10px' }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = '#00bfff33')}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = '#1a1a1a')}>
                 {visible
@@ -348,7 +405,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </aside>
 
-        <main style={{ flex: 1, padding: '15px', overflowY: 'auto' }}>
+        {/* minWidth: 0 evita que una tabla ancha estire la página entera; el scroll queda dentro de cada tabla */}
+        <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '10px 8px' : '15px', overflowY: 'auto' }}>
           {children}
         </main>
       </div>
@@ -362,12 +420,13 @@ const sidebar: React.CSSProperties = {
   width: 182,
   background: '#080808',
   borderRight: '1px solid #141414',
-  height: 'calc(100vh - 40px)',
+  height: 'calc(100dvh - 40px)',
   position: 'sticky',
   top: 40,
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
+  flexShrink: 0,
 }
 
 const topBar: React.CSSProperties = {
