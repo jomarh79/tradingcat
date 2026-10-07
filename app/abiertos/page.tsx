@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react"
 import { supabase } from "@/lib/supabase"
 import { usePrivacy } from "@/lib/PrivacyContext"
+import { useIsMobile } from "@/lib/useIsMobile"
 import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
@@ -64,6 +65,16 @@ type HitField = 'tp1_hit' | 'tp2_hit' | 'tp3_hit' | 'stop_hit'
 const distPct = (cur: number, target: any) =>
   target && cur > 0 ? Math.abs((cur - Number(target)) / cur * 100) : null
 
+// Color de fondo de la fila / tarjeta según prioridad y cercanía al stop o a un objetivo
+const rowBackground = (t: any) =>
+  t.priority
+    ? 'rgba(255,215,0,0.08)'
+    : t.nearStop
+      ? 'rgba(255,17,0,0.10)'
+      : t.nearTP
+        ? 'rgba(0,255,8,0.06)'
+        : 'transparent'
+
 const COLUMNS: { key: string | null, label: string }[] = [
   { key: 'open_date',       label: 'Fecha' },
   { key: 'ticker',          label: 'Ticker' },
@@ -100,36 +111,47 @@ const SortIcon = ({ active, direction }: { active: boolean; direction: 'asc' | '
     : <FaSortDown style={{ marginLeft: 4, color: '#00bfff' }} />
 }
 
-// Botón / enlace de icono con color al pasar el mouse
-const iconBase: React.CSSProperties = { background: 'none', border: 'none', padding: 4, display: 'flex', transition: 'color 0.2s' }
+// Botón / enlace de icono con color al pasar el mouse. `big` agranda el área de toque (celular)
+const iconBase: React.CSSProperties = { background: 'none', border: 'none', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.2s' }
 
-const IconButton = ({ onClick, title, color, hover = '#00bfff', disabled, children }: any) => (
+const IconButton = ({ onClick, title, color, hover = '#00bfff', disabled, big, children }: any) => (
   <button
     onClick={onClick}
     title={title}
+    aria-label={title}
     disabled={disabled}
-    style={{ ...iconBase, color, cursor: disabled ? 'default' : 'pointer' }}
+    style={{ ...iconBase, padding: big ? 10 : 4, color, cursor: disabled ? 'default' : 'pointer' }}
     onMouseEnter={e => { if (!disabled) e.currentTarget.style.color = hover }}
     onMouseLeave={e => { e.currentTarget.style.color = color }}>
     {children}
   </button>
 )
 
-const IconLink = ({ href, title, color = '#555', children }: any) => (
+const IconLink = ({ href, title, color = '#555', big, children }: any) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
     title={title}
-    style={{ ...iconBase, color }}
+    aria-label={title}
+    style={{ ...iconBase, padding: big ? 10 : 4, color }}
     onMouseEnter={e => (e.currentTarget.style.color = '#00bfff')}
     onMouseLeave={e => (e.currentTarget.style.color = color)}>
     {children}
   </a>
 )
 
+// Dato con etiqueta pequeña encima (tarjetas del celular)
+const Metric = ({ label, children, align = 'left' }: { label: string; children: React.ReactNode; align?: 'left' | 'center' | 'right' }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, textAlign: align }}>
+    <span style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 13, fontWeight: 600 }}>{children}</span>
+  </div>
+)
+
 export default function TradesAbiertosPage() {
   const { money, shares } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [selectedTrade,     setSelectedTrade]     = useState<any | null>(null)
   const [trades,            setTrades]            = useState<any[]>([])
@@ -361,6 +383,12 @@ export default function TradesAbiertosPage() {
     textDecoration: checked ? 'line-through' : 'none', fontSize: '0.7rem',
   })
 
+  // En el celular el botón del objetivo es más grande para poder tocarlo con el dedo
+  const targetBtnTouch = (checked: boolean, color: string, disabled: boolean): React.CSSProperties => ({
+    ...targetBtn(checked, color, disabled),
+    fontSize: 13, padding: '6px 0', textAlign: 'left',
+  })
+
   const marketOpen = isMarketOpen()
   const busy = isRefreshing || isUpdatingAll
 
@@ -381,28 +409,87 @@ export default function TradesAbiertosPage() {
     return { refreshing, disabled: refreshing || cooldownActive, color, title }
   }
 
+  const renderStar = (trade: any, size: number, pad: number) => (
+    <button onClick={() => handleTogglePriority(trade)} title="Seleccionar trade" aria-label="Seleccionar trade"
+      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: pad, display: 'flex' }}>
+      <Star size={size} fill={trade.priority ? '#ffd700' : 'none'} color={trade.priority ? '#ffd700' : '#333'} />
+    </button>
+  )
+
+  // Botones de acción: los mismos en la tabla (compactos) y en la tarjeta (grandes, para el dedo)
+  const renderActions = (trade: any, big: boolean) => {
+    const fresh = freshness(trade)
+    const ticker = encodeURIComponent(trade.ticker)
+    const sz = big ? 18 : 14
+    return (
+      <div style={{ display: 'flex', gap: big ? 0 : 8, justifyContent: big ? 'space-between' : 'center', alignItems: 'center' }}>
+        <IconButton
+          big={big}
+          onClick={() => refreshSingleTrade(trade)}
+          title={fresh.title}
+          color={fresh.color}
+          disabled={fresh.disabled}>
+          <FaSync style={{ animation: fresh.refreshing ? 'spin 1s linear infinite' : 'none', fontSize: big ? 15 : 12 }} />
+        </IconButton>
+
+        <IconButton big={big} onClick={() => setSelectedTrade(trade)} title="Editar trade" color="#555">
+          <Settings size={sz} />
+        </IconButton>
+
+        <IconLink big={big} href={`/chart?ticker=${ticker}`} title="Ver gráficos">
+          <BarChart2 size={sz} />
+        </IconLink>
+
+        <IconLink big={big} href={`/position?ticker=${ticker}&tradeId=${encodeURIComponent(trade.id)}`} title="Ver radiografía de la posición">
+          <Activity size={sz} />
+        </IconLink>
+
+        <IconLink big={big} href={`/fundamentals?ticker=${ticker}`} title="Ver fundamentales" color={big ? '#555' : '#333'}>
+          <FileText size={sz} />
+        </IconLink>
+
+        <IconButton
+          big={big}
+          onClick={() => handleDelete(trade)}
+          title="Eliminar trade"
+          color={big ? '#555' : '#2a2a2a'}
+          hover="#f43f5e"
+          disabled={deletingId !== null}>
+          <Trash2 size={sz} />
+        </IconButton>
+
+        {/* En la tarjeta la estrella va en el encabezado */}
+        {!big && renderStar(trade, 13, 4)}
+      </div>
+    )
+  }
+
+  const PnlColor = (v: number) => (v >= 0 ? '#4caf50' : '#f44336')
+
   return (
     <AppShell>
-      <div style={{ padding: '15px 25px', color: 'white', position: 'relative' }}>
+      <div style={{ padding: isMobile ? '6px 2px' : '15px 25px', color: 'white', position: 'relative' }}>
 
         {/* Huella decorativa de fondo */}
-        <div style={{ position: 'absolute', top: 8, right: 30, pointerEvents: 'none', display: 'flex', gap: 6, transform: 'rotate(-12deg)' }}>
-          <Paw size={16} color="#22c55e" opacity={0.07} />
-          <Paw size={12} color="#22c55e" opacity={0.05} />
-          <Paw size={8}  color="#22c55e" opacity={0.03} />
-        </div>
+        {!isMobile && (
+          <div style={{ position: 'absolute', top: 8, right: 30, pointerEvents: 'none', display: 'flex', gap: 6, transform: 'rotate(-12deg)' }}>
+            <Paw size={16} color="#22c55e" opacity={0.07} />
+            <Paw size={12} color="#22c55e" opacity={0.05} />
+            <Paw size={8}  color="#22c55e" opacity={0.03} />
+          </div>
+        )}
 
         {/* ── HEADER ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
           <h1 style={{ fontSize: '1.2rem', fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
             <TrendingUp size={20} color="#4caf50" />
             Trades abiertos
             <span style={{ fontSize: 11, color: '#666', fontWeight: 400 }}>({enrichedTrades.length})</span>
           </h1>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {/* Estado mercado */}
-            <div style={{ fontSize: '0.65rem', fontWeight: 'bold', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: '0.65rem', fontWeight: 'bold', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: marketOpen ? '#22c55e' : '#f43f5e', display: 'inline-block' }} />
                 <span style={{ color: marketOpen ? '#22c55e' : '#f43f5e' }}>
@@ -420,7 +507,9 @@ export default function TradesAbiertosPage() {
             </div>
 
             {/* KPIs + botón */}
-            <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+            <div style={isMobile
+              ? { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, alignItems: 'start' }
+              : { display: 'flex', gap: 18, alignItems: 'center' }}>
               <div style={summaryCard}>
                 <span style={summaryLabel}>Invertido</span>
                 <span style={{ color: '#fff', fontWeight: 700 }}>{money(totals.totalInvested)}</span>
@@ -435,7 +524,8 @@ export default function TradesAbiertosPage() {
                   {money(totals.totalPnl)} ({totals.totalPnlPct >= 0 ? '+' : ''}{totals.totalPnlPct.toFixed(2)}%)
                 </span>
               </div>
-              <button onClick={refreshAll} disabled={busy} style={refreshBtn(busy)}>
+              <button onClick={refreshAll} disabled={busy}
+                style={{ ...refreshBtn(busy), ...(isMobile ? { gridColumn: '1 / -1', justifyContent: 'center', padding: '11px 12px', fontSize: 12 } : {}) }}>
                 <FaSync style={{ animation: busy ? 'spin 1s linear infinite' : 'none' }} />
                 {isUpdatingAll ? 'Actualizando...' : 'Actualizar'}
               </button>
@@ -452,194 +542,293 @@ export default function TradesAbiertosPage() {
           </div>
         )}
 
-        {/* ── TABS PORTAFOLIOS ── */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto', alignItems: 'center' }}>
-          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={portfolioTab(selectedPortfolio === p.id)}>
-              {p.name}
-            </button>
-          ))}
+        {/* ── BUSCADOR (celular: arriba, a todo lo ancho) ── */}
+        {isMobile && (
           <input
             type="text"
             placeholder="🔍 Buscar ticker..."
             value={tickerSearch}
             onChange={e => setTickerSearch(e.target.value.toUpperCase())}
             style={{
-              marginLeft: 'auto', padding: '4px 10px', borderRadius: 6, border: '1px solid #222',
-              background: '#0a0a0a', color: '#fff', fontSize: 11, fontWeight: 700, width: 160, outline: 'none',
+              width: '100%', boxSizing: 'border-box', marginBottom: 10, padding: '10px 12px', borderRadius: 8,
+              border: '1px solid #222', background: '#0a0a0a', color: '#fff', fontSize: 14, fontWeight: 700, outline: 'none',
             }}
           />
+        )}
+
+        {/* ── TABS PORTAFOLIOS ── */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid #1a1a1a', paddingBottom: 10, overflowX: 'auto', alignItems: 'center' }}>
+          {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
+              style={{ ...portfolioTab(selectedPortfolio === p.id), ...(isMobile ? { padding: '8px 14px', fontSize: 12, flexShrink: 0 } : {}) }}>
+              {p.name}
+            </button>
+          ))}
+          {!isMobile && (
+            <input
+              type="text"
+              placeholder="🔍 Buscar ticker..."
+              value={tickerSearch}
+              onChange={e => setTickerSearch(e.target.value.toUpperCase())}
+              style={{
+                marginLeft: 'auto', padding: '4px 10px', borderRadius: 6, border: '1px solid #222',
+                background: '#0a0a0a', color: '#fff', fontSize: 11, fontWeight: 700, width: 160, outline: 'none',
+              }}
+            />
+          )}
         </div>
 
-        {/* ── TABLA ── */}
-        <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#0a0a0a' }}>
-                {COLUMNS.map(({ key, label }) => (
-                  <th key={label} style={{ ...tableTh, cursor: key ? 'pointer' : 'default' }}
-                    onClick={key ? () => requestSort(key) : undefined}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                      {label} {key && <SortIcon active={sortConfig.key === key} direction={sortConfig.direction} />}
-                    </span>
-                  </th>
+        {isMobile ? (
+          <>
+            {/* ── ORDENAR (en la tabla se ordena tocando el encabezado de cada columna) ── */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <select
+                value={sortConfig.key}
+                onChange={e => setSortConfig(prev => ({ ...prev, key: e.target.value }))}
+                aria-label="Ordenar por"
+                style={{ flex: 1, minWidth: 0, padding: '9px 10px', borderRadius: 8, border: '1px solid #222', background: '#0a0a0a', color: '#ddd', fontSize: 13 }}>
+                {COLUMNS.filter(c => c.key).map(c => (
+                  <option key={c.key as string} value={c.key as string}>Ordenar: {c.label}</option>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </select>
+              <button
+                onClick={() => setSortConfig(prev => ({ ...prev, direction: prev.direction === 'asc' ? 'desc' : 'asc' }))}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #222', background: '#0a0a0a', color: '#00bfff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {sortConfig.direction === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+
+            {/* ── TARJETAS ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {sortedTrades.length === 0 && (
-                <tr>
-                  <td colSpan={COLUMNS.length} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                      <Paw size={28} color="#333" opacity={0.5} />
-                      {loaded ? 'No hay trades abiertos.' : 'Cargando trades...'}
-                    </div>
-                  </td>
-                </tr>
+                <div style={{ padding: 40, textAlign: 'center', color: '#555', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <Paw size={28} color="#333" opacity={0.5} />
+                    {loaded ? 'No hay trades abiertos.' : 'Cargando trades...'}
+                  </div>
+                </div>
               )}
+
               {sortedTrades.map(trade => {
-                const rowBg = trade.priority
-                  ? 'rgba(255,215,0,0.08)'
-                  : trade.nearStop
-                    ? 'rgba(255,17,0,0.10)'
-                    : trade.nearTP
-                      ? 'rgba(0,255,8,0.06)'
-                      : 'transparent'
-                const fresh = freshness(trade)
+                const bg = rowBackground(trade)
                 const ticker = encodeURIComponent(trade.ticker)
-
                 return (
-                  <tr key={trade.id} style={{ background: rowBg, borderBottom: '1px solid #0a0a0a', opacity: deletingId === trade.id ? 0.4 : 1 }}>
+                  <div key={trade.id} style={{
+                    background: bg === 'transparent' ? '#080808' : bg,
+                    border: `1px solid ${trade.nearStop ? 'rgba(244,63,94,0.35)' : '#1a1a1a'}`,
+                    borderRadius: 12, padding: '10px 12px',
+                    opacity: deletingId === trade.id ? 0.4 : 1,
+                  }}>
 
-                    {/* Fecha */}
-                    <td style={{ ...tdStyle, color: '#555', fontSize: '0.65rem' }}>
-                      {trade.open_date
-                        ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })
-                        : '—'}
-                    </td>
+                    {/* Encabezado: ticker, fecha, PnL % y estrella */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <a
+                          href={`https://es.tradingview.com/chart/?symbol=${ticker}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#00bfff', textDecoration: 'none', fontWeight: 900, fontSize: 17 }}>
+                          {trade.ticker}
+                        </a>
+                        <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
+                          {trade.open_date
+                            ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })
+                            : '—'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 19, fontWeight: 900, color: PnlColor(trade.pnlPct), lineHeight: 1.1 }}>
+                            {trade.pnlPct >= 0 ? '+' : ''}{trade.pnlPct.toFixed(2)}%
+                          </div>
+                          <div style={{ fontSize: 12, color: PnlColor(trade.pnl) }}>{money(trade.pnl)}</div>
+                        </div>
+                        {renderStar(trade, 20, 8)}
+                      </div>
+                    </div>
 
-                    {/* Ticker */}
-                    <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold' }}>
-                      <a
-                        href={`https://es.tradingview.com/chart/?symbol=${ticker}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#00bfff', textDecoration: 'none', cursor: 'pointer' }}
-                        onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline' }}
-                        onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}>
-                        {trade.ticker}
-                      </a>
-                    </td>
+                    {/* Precio y variación */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+                      <Metric label="Actual"><span style={{ color: '#fbbf24', fontWeight: 800 }}>{money(trade.curPrice)}</span></Metric>
+                      <Metric label="Var día">
+                        <span style={{ color: trade.dayChange >= 0 ? '#4caf50' : '#f43f5e' }}>
+                          {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
+                        </span>
+                      </Metric>
+                      <Metric label="Inv/Act %">
+                        <span style={{ color: '#888' }}>{trade.portfolioWeightOriginal.toFixed(1)}</span>
+                        <span style={{ color: '#555', margin: '0 2px' }}>/</span>
+                        <span style={{ color: trade.portfolioWeight > trade.portfolioWeightOriginal ? '#4caf50' : trade.portfolioWeight < trade.portfolioWeightOriginal ? '#f43f5e' : '#666' }}>
+                          {trade.portfolioWeight.toFixed(1)}
+                        </span>
+                      </Metric>
+                    </div>
 
-                    {/* Var día */}
-                    <td style={{ ...tdStyle, color: trade.dayChange >= 0 ? '#4caf50' : '#f43f5e' }}>
-                      {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
-                    </td>
+                    {/* Posición */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+                      <Metric label="Cant.">{shares(trade.quantity)}</Metric>
+                      <Metric label="AVG"><span style={{ color: '#fbbf24' }}>{money(trade.avgPrice)}</span></Metric>
+                      <Metric label="Invertido">{money(trade.invested)}</Metric>
+                    </div>
 
-                    {/* PnL % */}
-                    <td style={{ ...tdStyle, fontWeight: 'bold', color: trade.pnlPct >= 0 ? '#4caf50' : '#f44336' }}>
-                      {trade.pnlPct >= 0 ? '+' : ''}{trade.pnlPct.toFixed(2)}%
-                    </td>
-
-                    {/* PnL $ */}
-                    <td style={{ ...tdStyle, color: trade.pnl >= 0 ? '#4caf50' : '#f44336' }}>
-                      {money(trade.pnl)}
-                    </td>
-
-                    {/* % Cartera */}
-                    <td style={{ ...tdStyle, color: '#666' }}>
-                      <span style={{ color: '#888' }}>{trade.portfolioWeightOriginal.toFixed(1)}</span>
-                      <span style={{ color: '#555', margin: '0 2px' }}>/</span>
-                      <span style={{ color: trade.portfolioWeight > trade.portfolioWeightOriginal ? '#4caf50' : trade.portfolioWeight < trade.portfolioWeightOriginal ? '#f43f5e' : '#666' }}>
-                        {trade.portfolioWeight.toFixed(1)}
-                      </span>
-                      <span style={{ color: '#444', fontSize: '0.6rem' }}>%</span>
-                    </td>
-
-                    {/* Cantidad */}
-                    <td style={tdStyle}>{shares(trade.quantity)}</td>
-
-                    {/* Avg */}
-                    <td style={{ ...tdStyle, color: '#fbbf24' }}>{money(trade.avgPrice)}</td>
-
-                    {/* Invertido */}
-                    <td style={{ ...tdStyle, fontWeight: 'bold' }}>{money(trade.invested)}</td>
-
-                    {/* Stop */}
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => toggleTarget(trade, 'stop_hit')}
-                        disabled={!trade.stop_loss}
-                        style={targetBtn(trade.stop_hit, '#f44336', !trade.stop_loss)}>
-                        {trade.stop_loss ? money(trade.stop_loss) : '—'}
-                      </button>
-                    </td>
-
-                    {/* Precio actual */}
-                    <td style={{ ...tdStyle, color: '#fbbf24', fontWeight: 'bold' }}>
-                      {money(trade.curPrice)}
-                    </td>
-
-                    {/* TPs */}
-                    {TARGETS.map(tp => (
-                      <td key={tp.field} style={tdStyle}>
+                    {/* Stop y objetivos (se tocan para marcarlos como cumplidos) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, paddingTop: 8, borderTop: '1px solid #151515' }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5 }}>STOP</div>
                         <button
-                          onClick={() => toggleTarget(trade, tp.hit)}
-                          disabled={!trade[tp.field]}
-                          style={targetBtn(trade[tp.hit], '#4caf50', !trade[tp.field])}>
-                          {trade[tp.field] ? money(trade[tp.field]) : '—'}
+                          onClick={() => toggleTarget(trade, 'stop_hit')}
+                          disabled={!trade.stop_loss}
+                          style={targetBtnTouch(trade.stop_hit, '#f44336', !trade.stop_loss)}>
+                          {trade.stop_loss ? money(trade.stop_loss) : '—'}
                         </button>
-                      </td>
-                    ))}
+                      </div>
+                      {TARGETS.map((tp, i) => (
+                        <div key={tp.field}>
+                          <div style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5 }}>TP {i + 1}</div>
+                          <button
+                            onClick={() => toggleTarget(trade, tp.hit)}
+                            disabled={!trade[tp.field]}
+                            style={targetBtnTouch(trade[tp.hit], '#4caf50', !trade[tp.field])}>
+                            {trade[tp.field] ? money(trade[tp.field]) : '—'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
 
                     {/* Acciones */}
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
-                        <IconButton
-                          onClick={() => refreshSingleTrade(trade)}
-                          title={fresh.title}
-                          color={fresh.color}
-                          disabled={fresh.disabled}>
-                          <FaSync style={{ animation: fresh.refreshing ? 'spin 1s linear infinite' : 'none', fontSize: 12 }} />
-                        </IconButton>
-
-                        <IconButton onClick={() => setSelectedTrade(trade)} title="Editar trade" color="#555">
-                          <Settings size={14} />
-                        </IconButton>
-
-                        <IconLink href={`/chart?ticker=${ticker}`} title="Ver gráficos">
-                          <BarChart2 size={14} />
-                        </IconLink>
-
-                        <IconLink href={`/position?ticker=${ticker}&tradeId=${encodeURIComponent(trade.id)}`} title="Ver radiografía de la posición">
-                          <Activity size={14} />
-                        </IconLink>
-
-                        <IconLink href={`/fundamentals?ticker=${ticker}`} title="Ver fundamentales" color="#333">
-                          <FileText size={14} />
-                        </IconLink>
-
-                        <IconButton
-                          onClick={() => handleDelete(trade)}
-                          title="Eliminar trade"
-                          color="#2a2a2a"
-                          hover="#f43f5e"
-                          disabled={deletingId !== null}>
-                          <Trash2 size={14} />
-                        </IconButton>
-
-                        <button onClick={() => handleTogglePriority(trade)} title="Seleccionar trade"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
-                          <Star size={13} fill={trade.priority ? '#ffd700' : 'none'} color={trade.priority ? '#ffd700' : '#333'} />
-                        </button>
+                    <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #151515' }}>
+                      {renderActions(trade, true)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          /* ── TABLA ── */
+          <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#0a0a0a' }}>
+                  {COLUMNS.map(({ key, label }) => (
+                    <th key={label} style={{ ...tableTh, cursor: key ? 'pointer' : 'default' }}
+                      onClick={key ? () => requestSort(key) : undefined}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {label} {key && <SortIcon active={sortConfig.key === key} direction={sortConfig.direction} />}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTrades.length === 0 && (
+                  <tr>
+                    <td colSpan={COLUMNS.length} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                        <Paw size={28} color="#333" opacity={0.5} />
+                        {loaded ? 'No hay trades abiertos.' : 'Cargando trades...'}
                       </div>
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                )}
+                {sortedTrades.map(trade => {
+                  const ticker = encodeURIComponent(trade.ticker)
+
+                  return (
+                    <tr key={trade.id} style={{ background: rowBackground(trade), borderBottom: '1px solid #0a0a0a', opacity: deletingId === trade.id ? 0.4 : 1 }}>
+
+                      {/* Fecha */}
+                      <td style={{ ...tdStyle, color: '#555', fontSize: '0.65rem' }}>
+                        {trade.open_date
+                          ? parseDate(trade.open_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })
+                          : '—'}
+                      </td>
+
+                      {/* Ticker */}
+                      <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 'bold' }}>
+                        <a
+                          href={`https://es.tradingview.com/chart/?symbol=${ticker}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#00bfff', textDecoration: 'none', cursor: 'pointer' }}
+                          onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline' }}
+                          onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}>
+                          {trade.ticker}
+                        </a>
+                      </td>
+
+                      {/* Var día */}
+                      <td style={{ ...tdStyle, color: trade.dayChange >= 0 ? '#4caf50' : '#f43f5e' }}>
+                        {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
+                      </td>
+
+                      {/* PnL % */}
+                      <td style={{ ...tdStyle, fontWeight: 'bold', color: trade.pnlPct >= 0 ? '#4caf50' : '#f44336' }}>
+                        {trade.pnlPct >= 0 ? '+' : ''}{trade.pnlPct.toFixed(2)}%
+                      </td>
+
+                      {/* PnL $ */}
+                      <td style={{ ...tdStyle, color: trade.pnl >= 0 ? '#4caf50' : '#f44336' }}>
+                        {money(trade.pnl)}
+                      </td>
+
+                      {/* % Cartera */}
+                      <td style={{ ...tdStyle, color: '#666' }}>
+                        <span style={{ color: '#888' }}>{trade.portfolioWeightOriginal.toFixed(1)}</span>
+                        <span style={{ color: '#555', margin: '0 2px' }}>/</span>
+                        <span style={{ color: trade.portfolioWeight > trade.portfolioWeightOriginal ? '#4caf50' : trade.portfolioWeight < trade.portfolioWeightOriginal ? '#f43f5e' : '#666' }}>
+                          {trade.portfolioWeight.toFixed(1)}
+                        </span>
+                        <span style={{ color: '#444', fontSize: '0.6rem' }}>%</span>
+                      </td>
+
+                      {/* Cantidad */}
+                      <td style={tdStyle}>{shares(trade.quantity)}</td>
+
+                      {/* Avg */}
+                      <td style={{ ...tdStyle, color: '#fbbf24' }}>{money(trade.avgPrice)}</td>
+
+                      {/* Invertido */}
+                      <td style={{ ...tdStyle, fontWeight: 'bold' }}>{money(trade.invested)}</td>
+
+                      {/* Stop */}
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => toggleTarget(trade, 'stop_hit')}
+                          disabled={!trade.stop_loss}
+                          style={targetBtn(trade.stop_hit, '#f44336', !trade.stop_loss)}>
+                          {trade.stop_loss ? money(trade.stop_loss) : '—'}
+                        </button>
+                      </td>
+
+                      {/* Precio actual */}
+                      <td style={{ ...tdStyle, color: '#fbbf24', fontWeight: 'bold' }}>
+                        {money(trade.curPrice)}
+                      </td>
+
+                      {/* TPs */}
+                      {TARGETS.map(tp => (
+                        <td key={tp.field} style={tdStyle}>
+                          <button
+                            onClick={() => toggleTarget(trade, tp.hit)}
+                            disabled={!trade[tp.field]}
+                            style={targetBtn(trade[tp.hit], '#4caf50', !trade[tp.field])}>
+                            {trade[tp.field] ? money(trade[tp.field]) : '—'}
+                          </button>
+                        </td>
+                      ))}
+
+                      {/* Acciones */}
+                      <td style={tdStyle}>
+                        {renderActions(trade, false)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div style={{ marginTop: 8, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
           <Paw size={9} color="#333" opacity={0.4} />
@@ -663,7 +852,7 @@ export default function TradesAbiertosPage() {
 // ── Estilos ──────────────────────────────────────────────────────────────────
 const tableTh: React.CSSProperties = { textAlign: 'center', padding: '8px 6px', color: '#888', fontSize: '0.6rem', borderBottom: '1px solid #1a1a1a', textTransform: 'uppercase', userSelect: 'none', letterSpacing: 0.5, whiteSpace: 'nowrap' }
 const tdStyle: React.CSSProperties = { padding: '5px 8px', fontSize: '0.72rem', borderBottom: '1px solid #0a0a0a', textAlign: 'center', whiteSpace: 'nowrap' }
-const summaryCard: React.CSSProperties = { display: 'flex', flexDirection: 'column', fontSize: 11, gap: 2 }
+const summaryCard: React.CSSProperties = { display: 'flex', flexDirection: 'column', fontSize: 11, gap: 2, minWidth: 0 }
 const summaryLabel: React.CSSProperties = { fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }
 const refreshBtn = (loading: boolean): React.CSSProperties => ({
   background: '#0a0a0a', border: '1px solid #222',
