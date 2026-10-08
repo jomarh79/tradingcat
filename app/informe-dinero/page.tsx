@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts'
 import AppShell from '../AppShell'
 
@@ -67,6 +68,7 @@ function openInvested(t: any): number {
 
 export default function InformeDinero() {
   const { money, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [movements,    setMovements]    = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
@@ -283,20 +285,33 @@ export default function InformeDinero() {
   const tooltipMoney = (v: any, name: any) => [money(Number(v) || 0), name || '']
   const tooltipStyle = { background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }
 
+  // Espaciados y rejillas que cambian en el celular (en escritorio quedan como antes)
+  const pagePad = isMobile ? '12px 6px' : '20px 24px'
+  const cardPad = isMobile ? '12px 12px' : '16px 18px'
+  const grid = (mobileCols: number, desktop: string, gap = 14): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: isMobile ? `repeat(${mobileCols}, minmax(0, 1fr))` : desktop,
+    gap: isMobile ? 10 : gap,
+    marginBottom: 16,
+  })
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: cardPad, minWidth: 0 }
+  const legendRow: React.CSSProperties = { display: 'flex', gap: isMobile ? 10 : 16, marginTop: 8, justifyContent: 'center', flexWrap: 'wrap' }
+
   const chipStyle = (active: boolean): React.CSSProperties => ({
-    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    padding: isMobile ? '8px 14px' : '6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700, cursor: 'pointer',
     background: active ? C.accent : C.dim,
     color: active ? '#000' : C.muted,
     border: `1px solid ${active ? C.accent : C.border}`,
+    whiteSpace: 'nowrap', flexShrink: 0,
   })
 
   // (Era un componente definido dentro de la página: se recreaba en cada render)
   const filterBar = (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-      <div style={{ position: 'relative' }}>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center' }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
           background: C.dim, border: `1px solid ${C.border}`, color: C.text,
-          padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          padding: isMobile ? '8px 32px 8px 14px' : '6px 32px 6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700,
           cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
         }}>
           <option value="all">Todos los años</option>
@@ -304,7 +319,7 @@ export default function InformeDinero() {
         </select>
         <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
       </div>
-      <div style={{ width: 1, background: C.border, height: 28 }} />
+      <div style={{ width: 1, background: C.border, height: 28, flexShrink: 0 }} />
       <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
         <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
@@ -331,14 +346,14 @@ export default function InformeDinero() {
 
   if (!stats) return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>💵 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gain }}>Dinero</h1>
         </div>
         {errorBanner}
         {filterBar}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13, textAlign: 'center' }}>
           Sin movimientos de dinero registrados.
         </div>
       </div>
@@ -349,20 +364,20 @@ export default function InformeDinero() {
 
   return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>💵 Informe ejecutivo</div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gain, letterSpacing: -0.5 }}>Dinero</h1>
+            <h1 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 900, color: C.gain, letterSpacing: -0.5 }}>Dinero</h1>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
               {filterYear === 'all' ? 'Histórico completo' : filterYear} · {portfolios.length} billeteras
             </div>
           </div>
-          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 24px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>MONEY SCORE</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: scoreColor(stats.moneyScore), lineHeight: 1 }}>{stats.moneyScore}</div>
+          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? '10px 14px' : '14px 24px', flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{isMobile ? 'SCORE' : 'MONEY SCORE'}</div>
+            <div style={{ fontSize: isMobile ? 30 : 36, fontWeight: 900, color: scoreColor(stats.moneyScore), lineHeight: 1 }}>{stats.moneyScore}</div>
             <div style={{ fontSize: 9, color: scoreColor(stats.moneyScore), marginTop: 4 }}>/ 100 · {scoreLabel(stats.moneyScore)}</div>
           </div>
         </div>
@@ -371,7 +386,7 @@ export default function InformeDinero() {
         {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={grid(2, 'repeat(6, 1fr)', 10)}>
           {[
             { label: 'CAPITAL DEPOSITADO',  value: money(stats.totalDeposited), color: C.accent, sub: 'dinero de tu bolsillo' },
             { label: 'RETIRADO',            value: money(stats.totalWithdrawn), color: C.muted,  sub: 'dinero sacado' },
@@ -380,37 +395,37 @@ export default function InformeDinero() {
             { label: 'PnL REALIZADO',       value: money(stats.totalPnlReal),   color: stats.totalPnlReal >= 0 ? C.gain : C.loss, sub: 'trades cerrados' },
             { label: 'DIVIDENDOS COBRADOS', value: money(stats.totalDividends), color: C.gold,   sub: 'ingreso pasivo' },
           ].map(k => (
-            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0 }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ fontSize: 17, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
+              <div style={{ fontSize: isMobile ? 16 : 17, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
               <div style={{ fontSize: 9, color: '#555' }}>{k.sub}</div>
             </div>
           ))}
         </div>
 
         {/* ── Banner patrimonio ── */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: isMobile ? '12px 14px' : '14px 20px', marginBottom: 16, display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 14 : 0 }}>
           <div>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>PATRIMONIO TOTAL ESTIMADO</div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: stats.patrimonio >= 0 ? C.gain : C.loss }}>{money(stats.patrimonio)}</div>
+            <div style={{ fontSize: isMobile ? 24 : 26, fontWeight: 900, color: stats.patrimonio >= 0 ? C.gain : C.loss }}>{money(stats.patrimonio)}</div>
             <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>Capital neto + PnL realizado + Dividendos</div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>RENDIMIENTO SOBRE CAPITAL</div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: stats.rendimiento >= 0 ? C.gain : C.loss }}>{fmtPct(stats.rendimiento)}</div>
+            <div style={{ fontSize: isMobile ? 24 : 26, fontWeight: 900, color: stats.rendimiento >= 0 ? C.gain : C.loss }}>{fmtPct(stats.rendimiento)}</div>
             <div style={{ fontSize: 9, color: '#555', marginTop: 3 }}>(PnL realizado + Dividendos) / Capital neto</div>
           </div>
         </div>
 
         {/* ── Fila 2: Flujo mensual + Crecimiento ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+        <div style={grid(1, '1fr 1fr')}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>FLUJO MENSUAL DE DINERO REAL</div>
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={isMobile ? 190 : 200}>
               <ComposedChart data={stats.monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={44} />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 36 : 44} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.accent, fontWeight: 700 }} formatter={tooltipMoney} />
                 <Bar dataKey="depositos"  name="Depósitos"  fill={C.gain}   fillOpacity={0.8} radius={[3,3,0,0]} />
                 <Bar dataKey="retiros"    name="Retiros"    fill={C.loss}   fillOpacity={0.7} radius={[3,3,0,0]} />
@@ -419,7 +434,7 @@ export default function InformeDinero() {
                 <Line type="monotone" dataKey="neto" name="Neto" stroke={C.accent} strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
-            <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
+            <div style={legendRow}>
               {[{c:C.gain,l:'Depósitos'},{c:C.loss,l:'Retiros'},{c:C.gold,l:'Dividendos'},{c:C.purple,l:'PnL trades'},{c:C.accent,l:'Neto'}].map(x => (
                 <span key={x.l} style={{ fontSize: 9, color: x.c, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: x.c, display: 'inline-block' }} />{x.l}
@@ -428,9 +443,9 @@ export default function InformeDinero() {
             </div>
           </div>
 
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>CRECIMIENTO DEL PATRIMONIO</div>
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={isMobile ? 190 : 200}>
               <AreaChart data={stats.growthData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1">
@@ -443,14 +458,14 @@ export default function InformeDinero() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={44} />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 36 : 44} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.accent, fontWeight: 700 }} formatter={tooltipMoney} />
                 <Area type="monotone" dataKey="capital"    name="Capital depositado"  stroke={C.accent} strokeWidth={2} fill="url(#capGrad)" dot={false} />
                 <Area type="monotone" dataKey="patrimonio" name="Patrimonio estimado" stroke={C.gain}   strokeWidth={2} fill="url(#patGrad)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
-            <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
+            <div style={legendRow}>
               {[{c:C.accent,l:'Capital depositado'},{c:C.gain,l:'Patrimonio estimado'}].map(x => (
                 <span key={x.l} style={{ fontSize: 9, color: x.c, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: x.c, display: 'inline-block' }} />{x.l}
@@ -461,34 +476,63 @@ export default function InformeDinero() {
         </div>
 
         {/* ── Fila 3: Por billetera + Flujo anual ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr', gap: 14, marginBottom: 16 }}>
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+        <div style={grid(1, '1.4fr 0.8fr')}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>RESUMEN POR BILLETERA</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead>
-                <tr style={{ background: C.dim }}>
-                  {['Billetera','Depositado','Retirado','Invertido','Dividendos','PnL','Rend.'].map(h => (
-                    <th key={h} style={{ padding: '6px 8px', textAlign: h === 'Billetera' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+
+            {isMobile ? (
+              /* En celular, cada billetera es una tarjeta (la tabla de 7 columnas no cabe) */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {stats.walletStats.map(w => (
-                  <tr key={w.name} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                    <td style={{ padding: '8px 8px', color: C.text, fontWeight: 600 }}>{w.name}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.accent }}>{money(w.depositado)}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.muted }}>{w.retirado > 0 ? money(w.retirado) : '—'}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.purple }}>{money(w.invertido)}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: C.gold }}>{w.dividendos > 0 ? money(w.dividendos) : '—'}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: w.pnl >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{money(w.pnl)}</td>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', color: w.rendimiento >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{fmtPct(w.rendimiento)}</td>
-                  </tr>
+                  <div key={w.name} style={{ background: C.dim, borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.text }}>{w.name}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: w.rendimiento >= 0 ? C.gain : C.loss }}>{fmtPct(w.rendimiento)}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                      {[
+                        { l: 'Depositado', v: money(w.depositado),                     c: C.accent },
+                        { l: 'Retirado',   v: w.retirado > 0 ? money(w.retirado) : '—', c: C.muted },
+                        { l: 'Invertido',  v: money(w.invertido),                      c: C.purple },
+                        { l: 'Dividendos', v: w.dividendos > 0 ? money(w.dividendos) : '—', c: C.gold },
+                        { l: 'PnL',        v: money(w.pnl),                            c: w.pnl >= 0 ? C.gain : C.loss },
+                      ].map(x => (
+                        <div key={x.l} style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 8, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{x.l}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: x.c }}>{x.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ background: C.dim }}>
+                    {['Billetera','Depositado','Retirado','Invertido','Dividendos','PnL','Rend.'].map(h => (
+                      <th key={h} style={{ padding: '6px 8px', textAlign: h === 'Billetera' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.walletStats.map(w => (
+                    <tr key={w.name} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                      <td style={{ padding: '8px 8px', color: C.text, fontWeight: 600 }}>{w.name}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: C.accent }}>{money(w.depositado)}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: C.muted }}>{w.retirado > 0 ? money(w.retirado) : '—'}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: C.purple }}>{money(w.invertido)}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: C.gold }}>{w.dividendos > 0 ? money(w.dividendos) : '—'}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: w.pnl >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{money(w.pnl)}</td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: w.rendimiento >= 0 ? C.gain : C.loss, fontWeight: 700 }}>{fmtPct(w.rendimiento)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>FLUJO ANUAL</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.historialAnual.map(y => {
@@ -516,7 +560,7 @@ export default function InformeDinero() {
         </div>
 
         {/* ── Money Score desglose ── */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+        <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>MONEY SCORE — DESGLOSE</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -524,7 +568,7 @@ export default function InformeDinero() {
               <div style={{ fontSize: 9, color: scoreColor(stats.moneyScore) }}>/ 100</div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, 1fr)', gap: 10 }}>
             {[
               { label: 'Rendimiento',     pct: 30, score: Math.round(stats.scoreRendimiento),  desc: `${fmtPct(stats.rendimiento)} sobre capital` },
               { label: 'Diversificación', pct: 20, score: Math.round(stats.scoreDiversif),     desc: `${stats.walletStats.length} billeteras activas` },
