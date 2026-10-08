@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 import {
@@ -112,6 +113,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: any) => {
 
 export default function EstadisticasPage() {
   const { money } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
@@ -340,20 +342,22 @@ export default function EstadisticasPage() {
 
   return (
     <AppShell>
-      <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white', position: 'relative' }}>
+      <div style={{ maxWidth: 1400, margin: isMobile ? '10px auto' : '20px auto', padding: isMobile ? '0 2px' : '0 28px', color: 'white', position: 'relative' }}>
 
         {/* Cat ears decoration */}
-        <div style={{ position: 'absolute', top: -4, right: 60, pointerEvents: 'none' }}>
-          <CatEars color="#00bfff" opacity={0.12} size={40} />
-        </div>
+        {!isMobile && (
+          <div style={{ position: 'absolute', top: -4, right: 60, pointerEvents: 'none' }}>
+            <CatEars color="#00bfff" opacity={0.12} size={40} />
+          </div>
+        )}
 
         {/* HEADER */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: isMobile ? 14 : 22 }}>
           <Paw size={18} color="#00bfff" opacity={0.6} />
-          <Paw size={13} color="#00bfff" opacity={0.35} />
-          <Paw size={9}  color="#00bfff" opacity={0.18} />
+          {!isMobile && <Paw size={13} color="#00bfff" opacity={0.35} />}
+          {!isMobile && <Paw size={9}  color="#00bfff" opacity={0.18} />}
           <BarChart2 size={20} color="#00bfff" />
-          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Estadísticas — trades abiertos</h1>
+          <h1 style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, margin: 0 }}>{isMobile ? 'Estadísticas · abiertos' : 'Estadísticas — trades abiertos'}</h1>
         </div>
 
         {loadError && (
@@ -363,24 +367,25 @@ export default function EstadisticasPage() {
         )}
 
         {/* FILTRO PORTAFOLIOS */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: isMobile ? 16 : 26, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
           {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={filterBtn(selectedPortfolio === p.id)}>
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
+              style={{ ...filterBtn(selectedPortfolio === p.id), ...(isMobile ? { padding: '9px 14px', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 } : {}) }}>
               {p.name}
             </button>
           ))}
         </div>
 
         {!stats ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ textAlign: 'center', padding: isMobile ? 40 : 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             <Paw size={40} color="#333" opacity={0.4} />
             <span>No hay trades abiertos para este filtro.</span>
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: 16 }}>
+          <div style={{ display: 'grid', gap: isMobile ? 12 : 16 }}>
 
             {/* ══ FILA 1 — KPIs PRINCIPALES (7) ══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(160px,1fr))', gap: isMobile ? 10 : 12 }}>
               <StatCard label="Capital expuesto" value={money(stats.totalInvested)} color="#00bfff" />
               <StatCard label="Capital actual"   value={money(stats.totalCurrent)}
                 color={stats.totalPnL > 0 ? '#22c55e' : stats.totalPnL < 0 ? '#f43f5e' : '#00bfff'} />
@@ -402,17 +407,18 @@ export default function EstadisticasPage() {
               headerRight={
                 <div style={{ display: 'flex', gap: 6 }}>
                   {(['YTD','1Y','5Y','MAX'] as RangeKey[]).map(r => (
-                    <button key={r} onClick={() => setRange(r)} style={rangeBtn(range === r)}>{r}</button>
+                    <button key={r} onClick={() => setRange(r)}
+                      style={{ ...rangeBtn(range === r), ...(isMobile ? { padding: '8px 14px', fontSize: 11 } : {}) }}>{r}</button>
                   ))}
                 </div>
               }
             >
               {stats.vsData.length > 1 ? (
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={isMobile ? 230 : 260}>
                   <ComposedChart data={stats.vsData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={isMobile ? 40 : 24} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} width={isMobile ? 40 : 60} />
                     <Tooltip content={<CustomTooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}%`} />} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="portfolio" name="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
@@ -425,14 +431,14 @@ export default function EstadisticasPage() {
                   message={spSeries.dates.length === 0
                     ? 'Sin datos del S&P 500 en caché — abre Inicio una vez para cargarlos'
                     : 'No hay suficientes trades con fecha en este rango'}
-                  height={260}
+                  height={isMobile ? 200 : 260}
                 />
               )}
             </ChartCard>
 
             {/* ══ FILA 3 — TOP GANANCIAS / TOP PÉRDIDAS / PNL POR SECTOR ══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(3, 1fr)', gap: 12 }}>
+              <div style={{ ...box, ...(isMobile ? { padding: '14px 14px' } : {}), position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={60} color="#22c55e" opacity={0.03} />
                 </div>
@@ -458,7 +464,7 @@ export default function EstadisticasPage() {
                 )}
               </div>
 
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ ...box, ...(isMobile ? { padding: '14px 14px' } : {}), position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={60} color="#f43f5e" opacity={0.03} />
                 </div>
@@ -484,7 +490,7 @@ export default function EstadisticasPage() {
                 )}
               </div>
 
-              <div style={box}>
+              <div style={{ ...box, ...(isMobile ? { padding: '14px 14px' } : {}) }}>
                 <div style={boxTitle}>
                   <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
                   PnL no realizado por sector
@@ -517,7 +523,7 @@ export default function EstadisticasPage() {
             </div>
 
             {/* ══ FILA 4 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR / PAÍS ══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(4, 1fr)', gap: 12 }}>
               <ChartCard title="Tiempo en posición" sub="Días desde apertura">
                 {stats.daysInPosition.length > 0 ? (
                   <ResponsiveContainer width="100%" height={Math.max(180, Math.min(stats.daysInPosition.length * 26, 320))}>
@@ -545,11 +551,11 @@ export default function EstadisticasPage() {
               sub="Tamaño = valor actual en $ · color = % de ganancia/pérdida no realizada (verde = gana, rojo = pierde)"
             >
               {stats.heatmapData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={420}>
+                <ResponsiveContainer width="100%" height={isMobile ? 340 : 420}>
                   <Treemap
                     data={stats.heatmapData}
                     dataKey="size"
-                    aspectRatio={4 / 3}
+                    aspectRatio={isMobile ? 1 : 4 / 3}
                     stroke="#050505"
                     content={<HeatmapCell money={money} />}
                   />
@@ -639,23 +645,25 @@ function HeatmapCell(props: any) {
 }
 
 function StatCard({ label, value, desc, color = 'white' }: any) {
+  const isMobile = useIsMobile()
   return (
-    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: isMobile ? '12px 12px' : '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
       <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
         <Paw size={44} color="#fff" opacity={0.02} />
       </div>
       <div style={{ fontSize: 9, color: '#888', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 900, color }}>{value}</div>
+      <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, color }}>{value}</div>
       {desc && <div style={{ fontSize: 9, color: '#666', marginTop: 5 }}>{desc}</div>}
     </div>
   )
 }
 
 function ChartCard({ title, sub, children, headerRight }: any) {
+  const isMobile = useIsMobile()
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px' }}>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: isMobile ? '14px 12px' : '18px 20px', minWidth: 0 }}>
       <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase' as const, display: 'flex', alignItems: 'center', gap: 7 }}>
             <Paw size={10} color="#666" opacity={0.5} />
             {title}
