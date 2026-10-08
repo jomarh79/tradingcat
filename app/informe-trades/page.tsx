@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import AppShell from '../AppShell'
 
@@ -71,6 +72,7 @@ function readSpCache(): { date: string; close: number }[] {
 
 export default function InformeTrades() {
   const { money, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [trades,       setTrades]       = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
@@ -303,20 +305,31 @@ export default function InformeTrades() {
   // Eje en modo privado: oculto (antes mostraba los importes aunque activaras la privacidad)
   const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
 
+  // Espaciados y rejillas que cambian en el celular (en escritorio quedan como antes)
+  const pagePad = isMobile ? '12px 6px' : '20px 24px'
+  const cardPad = isMobile ? '12px 12px' : '16px 18px'
+  const grid = (mobileCols: number, desktop: string, gap = 14): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: isMobile ? `repeat(${mobileCols}, minmax(0, 1fr))` : desktop,
+    gap: isMobile ? 10 : gap,
+    marginBottom: 16,
+  })
+
   const chipStyle = (active: boolean): React.CSSProperties => ({
-    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    padding: isMobile ? '8px 14px' : '6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700, cursor: 'pointer',
     background: active ? C.accent : C.dim,
     color: active ? '#000' : C.muted,
     border: `1px solid ${active ? C.accent : C.border}`,
+    whiteSpace: 'nowrap', flexShrink: 0,
   })
 
   // Una sola barra de filtros (estaba copiada dos veces: la del estado vacío y la del informe)
   const filterBar = (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-      <div style={{ position: 'relative' }}>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center' }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
           background: C.dim, border: `1px solid ${C.border}`, color: C.text,
-          padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          padding: isMobile ? '8px 32px 8px 14px' : '6px 32px 6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700,
           cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
         }}>
           <option value="all">Todos los años</option>
@@ -324,7 +337,7 @@ export default function InformeTrades() {
         </select>
         <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
       </div>
-      <div style={{ width: 1, background: C.border, height: 28 }} />
+      <div style={{ width: 1, background: C.border, height: 28, flexShrink: 0 }} />
       <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
         <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
@@ -351,14 +364,14 @@ export default function InformeTrades() {
 
   if (!stats) return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📊 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Cerrados</h1>
         </div>
         {errorBanner}
         {filterBar}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13, textAlign: 'center' }}>
           Sin trades cerrados para el período seleccionado.
         </div>
       </div>
@@ -387,21 +400,21 @@ export default function InformeTrades() {
     </div>
   )
 
-  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: cardPad, minWidth: 0 }
   const cardTitle = (color = C.muted): React.CSSProperties => ({ fontSize: 9, color, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 })
-  const rowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }
+  const rowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderBottom: `1px solid ${C.border}`, paddingBottom: 7 }
 
   return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               📊 Informe ejecutivo
             </div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent, letterSpacing: -0.5 }}>
+            <h1 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 900, color: C.accent, letterSpacing: -0.5 }}>
               Trades Cerrados
             </h1>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
@@ -409,9 +422,9 @@ export default function InformeTrades() {
             </div>
           </div>
           {/* Trade Score */}
-          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 24px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>TRADE SCORE</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: scoreColor(stats.tradeScore), lineHeight: 1 }}>
+          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? '10px 14px' : '14px 24px', flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{isMobile ? 'SCORE' : 'TRADE SCORE'}</div>
+            <div style={{ fontSize: isMobile ? 30 : 36, fontWeight: 900, color: scoreColor(stats.tradeScore), lineHeight: 1 }}>
               {stats.tradeScore}
             </div>
             <div style={{ fontSize: 9, color: scoreColor(stats.tradeScore), marginTop: 4 }}>/ 100 · {scoreLabel(stats.tradeScore)}</div>
@@ -422,7 +435,7 @@ export default function InformeTrades() {
         {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={grid(2, 'repeat(7, 1fr)', 10)}>
           {[
             { label: 'PnL TOTAL',      value: money(stats.totalPnl),      color: stats.totalPnl >= 0 ? C.gain : C.loss, sub: `${fmtPct(stats.retorno)} retorno` },
             { label: 'WIN RATE',       value: `${stats.winRate}%`,        color: stats.winRate >= 60 ? C.gain : C.gold, sub: `${stats.wins} de ${stats.total} trades` },
@@ -432,20 +445,20 @@ export default function InformeTrades() {
             { label: 'PEOR TRADE',     value: stats.worstTrade ? money(stats.worstTrade.pnl) : '—', color: C.loss, sub: stats.worstTrade?.ticker || '—' },
             { label: 'DRAWDOWN MÁX',   value: `${stats.maxDD.toFixed(1)}%`, color: stats.maxDD < 10 ? C.gain : stats.maxDD < 20 ? C.gold : C.loss, sub: 'caída del PnL acumulado' },
           ].map(k => (
-            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0 }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ fontSize: 17, fontWeight: 900, color: k.color as string, marginBottom: 3 }}>{k.value}</div>
+              <div style={{ fontSize: isMobile ? 16 : 17, fontWeight: 900, color: k.color as string, marginBottom: 3 }}>{k.value}</div>
               <div style={{ fontSize: 9, color: '#555' }}>{k.sub}</div>
             </div>
           ))}
         </div>
 
         {/* ── Fila 2: Evolución mensual + Período vs SP500 ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '1.6fr 1fr')}>
 
           {/* Evolución mensual */}
           <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 6 : 0, marginBottom: 14 }}>
               <div>
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>EVOLUCIÓN MENSUAL DEL PnL</div>
                 <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>Barras = PnL mes · Línea = acumulado</div>
@@ -454,7 +467,7 @@ export default function InformeTrades() {
                 {money(stats.totalPnl)} acumulado
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={isMobile ? 170 : 180}>
               <ComposedChart data={stats.monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gainGrad" x1="0" y1="0" x2="0" y2="1">
@@ -463,8 +476,8 @@ export default function InformeTrades() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={40} />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 34 : 40} />
                 <Tooltip
                   contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.accent, fontWeight: 700 }}
@@ -485,25 +498,28 @@ export default function InformeTrades() {
               <thead>
                 <tr style={{ background: C.dim }}>
                   {['Período', 'Portafolio', 'S&P 500', 'Alfa'].map(h => (
-                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Período' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, letterSpacing: 0.5, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    <th key={h} style={{ padding: isMobile ? '7px 6px' : '7px 10px', textAlign: h === 'Período' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, letterSpacing: 0.5, borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {stats.periodRows.map(row => (
-                  <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                    <td style={{ padding: '9px 10px', color: C.muted, fontWeight: 600, fontSize: 11 }}>{row.label}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
-                      {row.portRend === null ? '—' : fmtPct(row.portRend)}
-                    </td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.sp500Rend === null ? '#333' : '#60a5fa' }}>
-                      {row.sp500Rend === null ? '—' : fmtPct(row.sp500Rend)}
-                    </td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 800, fontSize: 12, color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
-                      {row.diff === null ? '—' : `${row.diff >= 0 ? '▲' : '▼'} ${Math.abs(row.diff).toFixed(1)}%`}
-                    </td>
-                  </tr>
-                ))}
+                {stats.periodRows.map(row => {
+                  const cp = isMobile ? '9px 6px' : '9px 10px'
+                  return (
+                    <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                      <td style={{ padding: cp, color: C.muted, fontWeight: 600, fontSize: 11 }}>{row.label}</td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
+                        {row.portRend === null ? '—' : fmtPct(row.portRend)}
+                      </td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.sp500Rend === null ? '#333' : '#60a5fa' }}>
+                        {row.sp500Rend === null ? '—' : fmtPct(row.sp500Rend)}
+                      </td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 800, fontSize: 12, color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
+                        {row.diff === null ? '—' : `${row.diff >= 0 ? '▲' : '▼'} ${Math.abs(row.diff).toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             {spSeries.length === 0 && (
@@ -515,7 +531,7 @@ export default function InformeTrades() {
         </div>
 
         {/* ── Fila 3: Las 5 tarjetas estilo uniforme ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '1fr 1fr 1fr 1fr 1fr')}>
 
           <div style={card}>
             <div style={cardTitle(C.gain)}>🏆 TOP 5 MEJORES</div>
@@ -533,11 +549,11 @@ export default function InformeTrades() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.sectorData.slice(0, 5).map(s => (
                 <div key={s.sector} style={rowStyle}>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.sector}</div>
                     <div style={{ fontSize: 8, color: '#555' }}>{s.count} trades · WR {s.winRate}%</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 900, color: s.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(s.pnlPct)}</div>
                     <div style={{ fontSize: 10, color: s.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{money(s.pnl)}</div>
                   </div>
@@ -552,11 +568,11 @@ export default function InformeTrades() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {stats.reasonData.slice(0, 5).map(r => (
                 <div key={r.reason} style={rowStyle}>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{r.reason}</div>
                     <div style={{ fontSize: 8, color: '#555' }}>{r.count} trades</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 900, color: r.pnl >= 0 ? C.gain : C.loss }}>{fmtPct(r.pnlPct)}</div>
                     <div style={{ fontSize: 10, color: r.pnl >= 0 ? C.gain : C.loss, opacity: 0.7 }}>{money(r.pnl)}</div>
                   </div>
@@ -597,7 +613,7 @@ export default function InformeTrades() {
               <div style={{ fontSize: 9, color: scoreColor(stats.tradeScore) }}>/ 100</div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, 1fr)', gap: 10 }}>
             {[
               { label: 'Win Rate',     pct: 30, score: Math.round(stats.scoreWR) },
               { label: 'Prof. Factor', pct: 25, score: Math.round(stats.scorePF) },
