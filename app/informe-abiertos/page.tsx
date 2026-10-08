@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts'
 import AppShell from '../AppShell'
 
@@ -76,6 +77,7 @@ function readSpCache(): { date: string; close: number }[] {
 
 export default function InformeAbiertos() {
   const { money, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [trades,       setTrades]       = useState<any[]>([])
   const [portfolios,   setPortfolios]   = useState<any[]>([])
@@ -269,16 +271,27 @@ export default function InformeAbiertos() {
   // Eje en modo privado: oculto (antes mostraba los importes aunque activaras la privacidad)
   const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
 
+  // Espaciados y rejillas que cambian en el celular (en escritorio quedan como antes)
+  const pagePad = isMobile ? '12px 6px' : '20px 24px'
+  const cardPad = isMobile ? '12px 12px' : '16px 18px'
+  const grid = (mobileCols: number, desktop: string, gap = 14): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: isMobile ? `repeat(${mobileCols}, minmax(0, 1fr))` : desktop,
+    gap: isMobile ? 10 : gap,
+    marginBottom: 16,
+  })
+
   const chipStyle = (active: boolean): React.CSSProperties => ({
-    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    padding: isMobile ? '8px 14px' : '6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700, cursor: 'pointer',
     background: active ? C.accent : C.dim,
     color: active ? '#000' : C.muted,
     border: `1px solid ${active ? C.accent : C.border}`,
+    whiteSpace: 'nowrap', flexShrink: 0,
   })
 
   // (Era un componente definido dentro de la página: se recreaba en cada render)
   const filterBar = (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center' }}>
       <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
         <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
@@ -305,14 +318,14 @@ export default function InformeAbiertos() {
 
   if (!stats) return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>📈 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent }}>Trades Abiertos</h1>
         </div>
         {errorBanner}
         {filterBar}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13, textAlign: 'center' }}>
           Sin trades abiertos para el portafolio seleccionado.
         </div>
       </div>
@@ -341,26 +354,28 @@ export default function InformeAbiertos() {
     </div>
   )
 
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: cardPad, minWidth: 0 }
+
   return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               📈 Informe ejecutivo
             </div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.accent, letterSpacing: -0.5 }}>
+            <h1 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 900, color: C.accent, letterSpacing: -0.5 }}>
               Trades Abiertos
             </h1>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-              {stats.total} posiciones · {new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}
+              {stats.total} posiciones · {new Date().toLocaleDateString('es-MX', isMobile ? { day: '2-digit', month: 'short', year: 'numeric' } : { day: '2-digit', month: 'long', year: 'numeric' })}
             </div>
           </div>
-          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 24px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>PORTFOLIO SCORE</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: scoreColor(stats.portfolioScore), lineHeight: 1 }}>
+          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? '10px 14px' : '14px 24px', flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{isMobile ? 'SCORE' : 'PORTFOLIO SCORE'}</div>
+            <div style={{ fontSize: isMobile ? 30 : 36, fontWeight: 900, color: scoreColor(stats.portfolioScore), lineHeight: 1 }}>
               {stats.portfolioScore}
             </div>
             <div style={{ fontSize: 9, color: scoreColor(stats.portfolioScore), marginTop: 4 }}>/ 100 · {scoreLabel(stats.portfolioScore)}</div>
@@ -371,7 +386,7 @@ export default function InformeAbiertos() {
         {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={grid(2, 'repeat(7, 1fr)', 10)}>
           {[
             { label: 'CAPITAL INVERTIDO', value: money(stats.totalInv),    color: C.text,   sub: `${stats.total} posiciones` },
             { label: 'VALOR ACTUAL',      value: money(stats.totalCurVal), color: C.accent, sub: fmtPct(stats.totalPnlPct) },
@@ -381,20 +396,20 @@ export default function InformeAbiertos() {
             { label: 'MEJOR POSICIÓN',    value: stats.bestTrade ? money(stats.bestTrade.pnl) : '—', color: C.gain, sub: stats.bestTrade?.ticker || '—' },
             { label: 'PEOR POSICIÓN',     value: stats.worstTrade ? money(stats.worstTrade.pnl) : '—', color: C.loss, sub: stats.worstTrade?.ticker || '—' },
           ].map(k => (
-            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0 }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ fontSize: 17, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
+              <div style={{ fontSize: isMobile ? 16 : 17, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
               <div style={{ fontSize: 9, color: '#555' }}>{k.sub}</div>
             </div>
           ))}
         </div>
 
         {/* ── Fila 2: Evolución mensual + Rendimiento vs SP500 ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '1.6fr 1fr')}>
 
           {/* Evolución mensual PnL latente */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 6 : 0, marginBottom: 14 }}>
               <div>
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>PnL LATENTE POR MES DE APERTURA</div>
                 <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>Barras = PnL no realizado · Línea = acumulado</div>
@@ -403,7 +418,7 @@ export default function InformeAbiertos() {
                 {money(stats.totalPnl)} latente total
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={isMobile ? 170 : 180}>
               <ComposedChart data={stats.monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gainGradA" x1="0" y1="0" x2="0" y2="1">
@@ -412,8 +427,8 @@ export default function InformeAbiertos() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#111" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={40} />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                <YAxis tick={{ fill: C.muted, fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 34 : 40} />
                 <Tooltip
                   contentStyle={{ background: C.dim, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.accent, fontWeight: 700 }}
@@ -428,31 +443,34 @@ export default function InformeAbiertos() {
           </div>
 
           {/* Rendimiento vs SP500 */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }}>RENDIMIENTO VS S&P 500</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: C.dim }}>
                   {['Período', 'Portafolio', 'S&P 500', 'Alfa'].map(h => (
-                    <th key={h} style={{ padding: '7px 10px', textAlign: h === 'Período' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, letterSpacing: 0.5, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    <th key={h} style={{ padding: isMobile ? '7px 6px' : '7px 10px', textAlign: h === 'Período' ? 'left' : 'right', color: '#555', fontSize: 8, fontWeight: 700, letterSpacing: 0.5, borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {stats.periodRows.map(row => (
-                  <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                    <td style={{ padding: '9px 10px', color: C.muted, fontWeight: 600, fontSize: 11 }}>{row.label}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
-                      {row.portRend === null ? '—' : fmtPct(row.portRend)}
-                    </td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.sp500Rend === null ? '#333' : '#60a5fa' }}>
-                      {row.sp500Rend === null ? '—' : fmtPct(row.sp500Rend)}
-                    </td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 800, fontSize: 12, color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
-                      {row.diff === null ? '—' : `${row.diff >= 0 ? '▲' : '▼'} ${Math.abs(row.diff).toFixed(1)}%`}
-                    </td>
-                  </tr>
-                ))}
+                {stats.periodRows.map(row => {
+                  const cp = isMobile ? '9px 6px' : '9px 10px'
+                  return (
+                    <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
+                      <td style={{ padding: cp, color: C.muted, fontWeight: 600, fontSize: 11 }}>{row.label}</td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
+                        {row.portRend === null ? '—' : fmtPct(row.portRend)}
+                      </td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 700, fontSize: 11, color: row.sp500Rend === null ? '#333' : '#60a5fa' }}>
+                        {row.sp500Rend === null ? '—' : fmtPct(row.sp500Rend)}
+                      </td>
+                      <td style={{ padding: cp, textAlign: 'right', fontWeight: 800, fontSize: 12, color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
+                        {row.diff === null ? '—' : `${row.diff >= 0 ? '▲' : '▼'} ${Math.abs(row.diff).toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             {spSeries.length === 0 && (
@@ -464,27 +482,27 @@ export default function InformeAbiertos() {
         </div>
 
         {/* ── Fila 3: Top posiciones + Sectores + Tiempo ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 0.7fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '1fr 1fr 1fr 0.7fr')}>
 
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.gain, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>🏆 TOP 5 GANANCIAS LATENTES</div>
             {rankList(stats.top5Best, C.gain)}
           </div>
 
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.loss, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>⚠️ TOP 5 PÉRDIDAS LATENTES</div>
             {rankList(stats.top5Worst, C.loss)}
           </div>
 
           {/* Sectores */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>DISTRIBUCIÓN POR SECTOR</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {stats.sectorData.slice(0, 7).map((s, i) => (
                 <div key={s.sector}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span style={{ fontSize: 10, color: C.muted }}>{s.sector} <span style={{ color: '#444', fontSize: 8 }}>({s.count})</span></span>
-                    <div style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, gap: 8 }}>
+                    <span style={{ fontSize: 10, color: C.muted, minWidth: 0 }}>{s.sector} <span style={{ color: '#444', fontSize: 8 }}>({s.count})</span></span>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <span style={{ fontSize: 10, color: SECTOR_COLORS[i % SECTOR_COLORS.length], fontWeight: 700 }}>{s.weight}%</span>
                       <span style={{ fontSize: 9, color: s.pnl >= 0 ? C.gain : C.loss, marginLeft: 6 }}>{money(s.pnl)}</span>
                     </div>
@@ -498,7 +516,7 @@ export default function InformeAbiertos() {
           </div>
 
           {/* Tiempo en posición */}
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+          <div style={card}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 12 }}>TIEMPO EN POSICIÓN</div>
             <div style={{ textAlign: 'center', marginBottom: 12 }}>
               <div style={{ fontSize: 9, color: '#555', marginBottom: 4 }}>Promedio</div>
@@ -520,7 +538,7 @@ export default function InformeAbiertos() {
         </div>
 
         {/* ── Fila 4: Portfolio Score desglose (tarjetas) ── */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }}>
+        <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>PORTFOLIO SCORE — DESGLOSE</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -528,7 +546,7 @@ export default function InformeAbiertos() {
               <div style={{ fontSize: 9, color: scoreColor(stats.portfolioScore) }}>/ 100</div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, 1fr)', gap: 10 }}>
             {[
               { label: 'En ganancia',     pct: 30, score: Math.round(stats.scoreGainRate) },
               { label: 'Retorno',         pct: 25, score: Math.min(Math.round(stats.scoreRetorno), 100) },
