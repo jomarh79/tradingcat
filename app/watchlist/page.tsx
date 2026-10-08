@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import {
   FaPlus, FaTrash, FaSpinner,
@@ -66,6 +67,18 @@ type SortField =
   | 'notes'
 
 type EditableField = 'buy_target' | 'analyst_target' | 'notes'
+
+const SORT_OPTIONS: { key: SortField; label: string }[] = [
+  { key: 'buy_target',     label: 'Mi objetivo (distancia)' },
+  { key: 'ticker',         label: 'Ticker' },
+  { key: 'price_change',   label: 'Var. día %' },
+  { key: 'current_price',  label: 'Precio' },
+  { key: 'analyst_target', label: 'Analistas' },
+  { key: 'ema200_day',     label: 'EMA 200 Diaria' },
+  { key: 'sma200_weekly',  label: 'SMA 200 Semanal' },
+  { key: 'rsi',            label: 'RSI' },
+  { key: 'notes',          label: 'Notas' },
+]
 
 interface WatchItem {
   id:                 number
@@ -154,7 +167,17 @@ function sortValue(item: EnrichedItem, field: SortField): number | string | null
   }
 }
 
+// Dato con etiqueta pequeña encima (tarjetas del celular)
+const Metric = ({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) => (
+  <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, cursor: onClick ? 'pointer' : 'default' }}>
+    <span style={{ fontSize: 9, color: '#666', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>{label}</span>
+    <div>{children}</div>
+  </div>
+)
+
 export default function WatchlistIAPage() {
+  const isMobile = useIsMobile()
+
   const [list,        setList]        = useState<WatchItem[]>([])
   const [loading,     setLoading]     = useState(false)
   const [loadError,   setLoadError]   = useState('')
@@ -465,62 +488,228 @@ export default function WatchlistIAPage() {
   const staleTickers = enrichedList.filter(i => i.stale).length
   const inZoneCount  = enrichedList.filter(i => i.inZone).length
 
-  return (
-    <AppShell>
-      <div style={{ padding: '22px 28px', color: 'white', maxWidth: 1500, margin: '0 auto', position: 'relative' }}>
+  // Botón "Actualizar" (igual en escritorio y celular)
+  const updateBtn = (
+    <button
+      onClick={handleUpdate}
+      disabled={loading || globalCooldownRemaining() > 0}
+      title={globalCooldownRemaining() > 0 ? `Protección de cuota: espera ${Math.ceil(globalCooldownRemaining())} min` : 'Reanalizar todos los tickers'}
+      style={{ ...btnStyle, ...(isMobile ? { padding: '10px 14px', fontSize: '0.8rem' } : {}), opacity: globalCooldownRemaining() > 0 ? 0.5 : 1, cursor: globalCooldownRemaining() > 0 ? 'default' : 'pointer' }}>
+      <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+      {globalCooldownRemaining() > 0 ? `Espera ${Math.ceil(globalCooldownRemaining())} min` : 'Actualizar'}
+    </button>
+  )
 
-        <div style={{ position: 'absolute', top: -2, right: 55, pointerEvents: 'none' }}>
-          <CatEars color="#ffd700" opacity={0.12} size={42} />
-        </div>
-        <div style={{ position: 'absolute', right: -6, top: '40%', pointerEvents: 'none' }}>
-          <CatTail color="#ffd700" opacity={0.08} />
-        </div>
+  // Estadísticas de cabecera
+  const statSpans = (
+    <>
+      <span style={{ fontSize: '0.65rem', color: '#666' }}>{list.length} tickers</span>
+      <span style={{ fontSize: '0.65rem', color: '#22c55e' }}>{inZoneCount} en zona</span>
 
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Paw size={20} color="#ffd700" opacity={0.6} />
-              <Paw size={14} color="#ffd700" opacity={0.35} />
-              <Paw size={9}  color="#ffd700" opacity={0.18} />
-              <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Seguimientos</h1>
-            </div>
+      {staleTickers > 0 && (
+        <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <AlertTriangle size={10} />
+          {staleTickers} dato{staleTickers !== 1 ? 's' : ''} desact.
+        </span>
+      )}
+
+      {addingNew && (
+        <span style={{ fontSize: '0.65rem', color: '#00bfff', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+          Analizando nuevo ticker...
+        </span>
+      )}
+
+      {lastRefresh && (
+        <span style={{ fontSize: '0.65rem', color: '#444' }}>
+          {lastRefresh.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      )}
+    </>
+  )
+
+  // ── Tarjeta del celular ──
+  const renderCard = (item: EnrichedItem) => {
+    const rsiValue = Number(item.rsi)
+    const rsiOk    = item.rsi !== null && isFinite(rsiValue) && rsiValue >= 0 && rsiValue <= 100
+    const refreshingThis = refreshingTickers.has(item.ticker)
+    const cooldownLeft   = tickerCooldownRemaining(item.last_updated)
+    const sharedGapLeft  = singleTriggerGapRemaining()
+    const canRefresh     = !refreshingThis && cooldownLeft <= 0 && sharedGapLeft <= 0
+
+    const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
+    const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
+    const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
+
+    const editInputProps = {
+      autoFocus: true,
+      onBlur: saveEdit,
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') saveEdit()
+        if (e.key === 'Escape') cancelEdit()
+      },
+    }
+    const mobInp: React.CSSProperties = { ...inpStyle, width: '100%', boxSizing: 'border-box', padding: '8px 8px', fontSize: 14, flex: 'unset', minWidth: 0 }
+
+    const pctCell = (target: number | null, color?: string) => {
+      if (!target || target <= 0) return <span style={{ color: '#333' }}>—</span>
+      const cur = item.current_price
+      const pct = cur ? ((target - cur) / cur) * 100 : null
+      return (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 700, color: pct !== null && pct >= 0 ? '#22c55e' : '#f43f5e' }}>
+            {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}
           </div>
+          <div style={{ fontSize: 11, marginTop: 1, color: color || '#aaa' }}>${Number(target).toFixed(2)}</div>
+        </>
+      )
+    }
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.65rem', color: '#666' }}>{list.length} tickers</span>
-            <span style={{ fontSize: '0.65rem', color: '#22c55e' }}>{inZoneCount} en zona</span>
+    const actionBase: React.CSSProperties = {
+      flex: 1, minHeight: 42, borderRadius: 8, border: '1px solid #1a1a1a', background: '#0a0a0a',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textDecoration: 'none',
+    }
 
-            {staleTickers > 0 && (
-              <span style={{ fontSize: '0.65rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <AlertTriangle size={10} />
-                {staleTickers} dato{staleTickers !== 1 ? 's' : ''} desact.
+    return (
+      <div key={item.id} style={{
+        background: item.favorite ? 'rgba(234,179,8,0.10)' : item.inZone ? 'rgba(34,197,94,0.06)' : '#080808',
+        border: `1px solid ${item.inZone ? 'rgba(34,197,94,0.3)' : '#1a1a1a'}`,
+        borderRadius: 12, padding: '10px 12px',
+      }}>
+        {/* Ticker, precio, variación, estrella */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <a href={`https://es.tradingview.com/chart/?symbol=${item.ticker}`} target="_blank" rel="noopener noreferrer"
+              style={{ fontWeight: 900, color: item.inZone ? '#22c55e' : '#00bfff', fontSize: 18, textDecoration: 'none' }}>
+              {item.ticker}
+            </a>
+            {item.price_change !== null && item.price_change !== undefined && (
+              <span style={{
+                color: item.price_change >= 0 ? '#22c55e' : '#f43f5e', fontWeight: 600, fontSize: 12,
+                background: item.price_change >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(244,63,94,0.08)',
+                padding: '2px 6px', borderRadius: 3,
+              }}>
+                {item.price_change >= 0 ? '+' : ''}{item.price_change.toFixed(2)}%
               </span>
             )}
-
-            {addingNew && (
-              <span style={{ fontSize: '0.65rem', color: '#00bfff', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                Analizando nuevo ticker...
-              </span>
-            )}
-
-            {lastRefresh && (
-              <span style={{ fontSize: '0.65rem', color: '#444' }}>
-                {lastRefresh.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-
-            <button
-              onClick={handleUpdate}
-              disabled={loading || globalCooldownRemaining() > 0}
-              title={globalCooldownRemaining() > 0 ? `Protección de cuota: espera ${Math.ceil(globalCooldownRemaining())} min` : 'Reanalizar todos los tickers'}
-              style={{ ...btnStyle, opacity: globalCooldownRemaining() > 0 ? 0.5 : 1, cursor: globalCooldownRemaining() > 0 ? 'default' : 'pointer' }}>
-              <FaSync style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              {globalCooldownRemaining() > 0 ? `Espera ${Math.ceil(globalCooldownRemaining())} min` : 'Actualizar'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>
+              {item.current_price ? `$${item.current_price.toFixed(2)}` : <span style={{ color: '#333' }}>—</span>}
+            </span>
+            <button onClick={() => toggleFavorite(item.id, item.favorite)} aria-label="Seleccionar"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: item.favorite ? '#ffd700' : '#444', fontSize: 20, lineHeight: 1 }}>
+              ★
             </button>
           </div>
         </div>
+
+        {/* Datos (toca Mi objetivo, Analistas o Notas para editar) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
+          <Metric label="Mi objetivo ✎" onClick={editingTarget ? undefined : () => startEdit(item.id, 'buy_target', item.buy_target.toString())}>
+            {editingTarget
+              ? <input type="number" inputMode="decimal" min="0" step="0.01" value={tempValue}
+                  onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
+              : pctCell(item.buy_target, '#ffd700')}
+          </Metric>
+          <Metric label="Analistas ✎" onClick={editingAnalyst ? undefined : () => startEdit(item.id, 'analyst_target', item.analyst_target ? item.analyst_target.toString() : '')}>
+            {editingAnalyst
+              ? <input type="number" inputMode="decimal" min="0" step="0.01" value={tempValue}
+                  onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
+              : pctCell(item.analyst_target > 0 ? item.analyst_target : null)}
+          </Metric>
+          <Metric label="EMA 200 Diaria">{pctCell(item.ema200_day && item.ema200_day > 0 ? item.ema200_day : null)}</Metric>
+          <Metric label="SMA 200 Semanal">{pctCell(item.sma200_weekly && item.sma200_weekly > 0 ? item.sma200_weekly : null)}</Metric>
+          <Metric label="RSI">
+            {rsiOk
+              ? <span style={{ color: rsiColor(rsiValue), fontWeight: 700, fontSize: 14 }}>{rsiValue.toFixed(1)}</span>
+              : <span style={{ color: '#333' }}>—</span>}
+          </Metric>
+        </div>
+
+        {/* Notas */}
+        <div style={{ marginBottom: 10 }}>
+          <Metric label="Notas ✎" onClick={editingNotes ? undefined : () => startEdit(item.id, 'notes', item.notes || '')}>
+            {editingNotes
+              ? <input type="text" value={tempValue} onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
+              : item.notes
+                ? <span style={{ color: '#999', fontSize: 12, wordBreak: 'break-word' }}>{item.notes}</span>
+                : <span style={{ color: '#333' }}>—</span>}
+          </Metric>
+        </div>
+
+        {/* Acciones */}
+        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #151515' }}>
+          <a href={`/chart?ticker=${item.ticker}`} target="_blank" rel="noopener noreferrer" aria-label="Ver gráfico"
+            style={{ ...actionBase, color: '#00bfff' }}>
+            <BarChart2 size={18} />
+          </a>
+          <a href={`/fundamentals?ticker=${item.ticker}`} target="_blank" rel="noopener noreferrer" aria-label="Ver fundamentales"
+            style={{ ...actionBase, color: '#00bfff' }}>
+            <FileText size={18} />
+          </a>
+          <button onClick={() => refreshTicker(item.ticker, item.last_updated)} disabled={!canRefresh} aria-label="Reanalizar"
+            title={
+              refreshingThis ? 'Analizando...' :
+              cooldownLeft > 0 ? `Espera ${Math.ceil(cooldownLeft)} min` :
+              sharedGapLeft > 0 ? `Espera ${Math.ceil(sharedGapLeft)}s` : 'Reanalizar este ticker'
+            }
+            style={{ ...actionBase, cursor: canRefresh ? 'pointer' : 'default', color: refreshingThis ? '#00bfff' : canRefresh ? '#22c55e' : '#333' }}>
+            <FaSync size={15} style={{ animation: refreshingThis ? 'spin 1s linear infinite' : 'none' }} />
+          </button>
+          <button onClick={() => eliminarEmpresa(item.id, item.ticker)} aria-label="Eliminar"
+            style={{ ...actionBase, color: '#777' }}>
+            <FaTrash size={14} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <AppShell>
+      <div style={{ padding: isMobile ? '12px 2px' : '22px 28px', color: 'white', maxWidth: 1500, margin: '0 auto', position: 'relative' }}>
+
+        {!isMobile && (
+          <>
+            <div style={{ position: 'absolute', top: -2, right: 55, pointerEvents: 'none' }}>
+              <CatEars color="#ffd700" opacity={0.12} size={42} />
+            </div>
+            <div style={{ position: 'absolute', right: -6, top: '40%', pointerEvents: 'none' }}>
+              <CatTail color="#ffd700" opacity={0.08} />
+            </div>
+          </>
+        )}
+
+        {/* ── HEADER ── */}
+        {isMobile ? (
+          <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Paw size={18} color="#ffd700" opacity={0.6} />
+                <h1 style={{ fontSize: 19, fontWeight: 900, margin: 0 }}>Seguimientos</h1>
+              </div>
+              {updateBtn}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>{statSpans}</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Paw size={20} color="#ffd700" opacity={0.6} />
+                <Paw size={14} color="#ffd700" opacity={0.35} />
+                <Paw size={9}  color="#ffd700" opacity={0.18} />
+                <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Seguimientos</h1>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {statSpans}
+              {updateBtn}
+            </div>
+          </div>
+        )}
 
         {loadError && (
           <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 12, background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.25)', color: '#f43f5e' }}>
@@ -529,17 +718,20 @@ export default function WatchlistIAPage() {
         )}
 
         {/* ── FORMULARIO ── */}
-        <div style={{ display: 'flex', gap: 8, background: '#0a0a0a', padding: 12, borderRadius: 10, marginBottom: 16, border: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
-          <input style={inpStyle} placeholder="TICKER" value={newTicker}
+        <div style={isMobile
+          ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, background: '#0a0a0a', padding: 10, borderRadius: 10, marginBottom: 14, border: '1px solid #1a1a1a' }
+          : { display: 'flex', gap: 8, background: '#0a0a0a', padding: 12, borderRadius: 10, marginBottom: 16, border: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
+          <input style={isMobile ? mobileInp : inpStyle} placeholder="TICKER" value={newTicker}
             onChange={e => setNewTicker(e.target.value.toUpperCase().replace(/\s/g, ''))}
             onKeyDown={e => e.key === 'Enter' && agregarEmpresa()} />
-          <input style={inpStyle} type="number" min="0" placeholder="Mi precio objetivo" value={newTarget}
+          <input style={isMobile ? mobileInp : inpStyle} type="number" inputMode="decimal" min="0" placeholder="Mi objetivo" value={newTarget}
             onChange={e => setNewTarget(posAmount(e.target.value))} />
-          <input style={inpStyle} type="number" min="0" placeholder="Precio analistas (opc.)" value={newAnalyst}
+          <input style={isMobile ? mobileInp : inpStyle} type="number" inputMode="decimal" min="0" placeholder="Analistas (opc.)" value={newAnalyst}
             onChange={e => setNewAnalyst(posAmount(e.target.value))} />
-          <input style={{ ...inpStyle, flex: 2, minWidth: 160 }} placeholder="Notas (opc.)" value={newNotes}
+          <input style={isMobile ? mobileInp : { ...inpStyle, flex: 2, minWidth: 160 }} placeholder="Notas (opc.)" value={newNotes}
             onChange={e => setNewNotes(e.target.value)} />
-          <button onClick={agregarEmpresa} disabled={addingNew} style={btnStyle}>
+          <button onClick={agregarEmpresa} disabled={addingNew}
+            style={isMobile ? { ...btnStyle, gridColumn: '1 / -1', justifyContent: 'center', padding: '12px 14px', fontSize: '0.9rem' } : btnStyle}>
             {addingNew ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaPlus />}
             {addingNew ? 'Analizando...' : 'Agregar'}
           </button>
@@ -547,22 +739,55 @@ export default function WatchlistIAPage() {
 
         {/* ── FILTRO ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : {}) }}>
             <FaSearch style={{ color: '#666', fontSize: 12 }} />
-            <input style={{ ...inpStyle, width: 220, fontSize: '0.8rem' }} placeholder="Filtrar ticker, nombre o nota..."
+            <input style={isMobile ? { ...mobileInp, flex: 1 } : { ...inpStyle, width: 220, fontSize: '0.8rem' }} placeholder="Filtrar ticker, nombre o nota..."
               value={filterText} onChange={e => setFilterText(e.target.value)} />
             {filterText && <span style={{ fontSize: 10, color: '#666' }}>{displayList.length} resultado(s)</span>}
           </div>
-          <div style={{ fontSize: 9, color: '#555', display: 'flex', gap: 16 }}>
-            <span>
-              <span style={{ display: 'inline-block', width: 8, height: 8, background: 'rgba(34,197,94,0.3)', borderRadius: 1, marginRight: 4 }} />
-              ±2% de tu objetivo
-            </span>
-            <span>Dist (+) = falta bajar · (−) = ya pasó</span>
-          </div>
+          {!isMobile && (
+            <div style={{ fontSize: 9, color: '#555', display: 'flex', gap: 16 }}>
+              <span>
+                <span style={{ display: 'inline-block', width: 8, height: 8, background: 'rgba(34,197,94,0.3)', borderRadius: 1, marginRight: 4 }} />
+                ±2% de tu objetivo
+              </span>
+              <span>Dist (+) = falta bajar · (−) = ya pasó</span>
+            </div>
+          )}
         </div>
 
-        {/* ── TABLA ── */}
+        {isMobile ? (
+          <>
+            {/* ── ORDENAR ── */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <select value={sortField} onChange={e => setSortField(e.target.value as SortField)} aria-label="Ordenar por"
+                style={{ ...mobileInp, flex: 1 }}>
+                {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>Ordenar: {o.label}</option>)}
+              </select>
+              <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #1a1a1a', background: '#0a0a0a', color: '#00bfff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
+            <div style={{ fontSize: 9, color: '#555', marginBottom: 10 }}>
+              Verde = ±2% de tu objetivo · Dist (+) = falta bajar · (−) = ya pasó · toca Mi objetivo, Analistas o Notas para editar
+            </div>
+
+            {/* ── TARJETAS ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {displayList.length === 0 && (
+                <div style={{ padding: 36, textAlign: 'center', color: '#555', background: '#0a0a0a', borderRadius: 12, border: '1px solid #1a1a1a' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <Paw size={28} color="#333" opacity={0.5} />
+                    No hay activos. Agrega uno arriba.
+                  </div>
+                </div>
+              )}
+              {displayList.map(renderCard)}
+            </div>
+          </>
+        ) : (
+        /* ── TABLA ── */
         <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
             <thead>
@@ -817,6 +1042,7 @@ export default function WatchlistIAPage() {
             </tbody>
           </table>
         </div>
+        )}
 
         <div style={{ marginTop: 10, fontSize: 9, color: '#333', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <Paw size={9} color="#333" opacity={0.5} />
@@ -837,4 +1063,6 @@ export default function WatchlistIAPage() {
 const thStyle: React.CSSProperties = { padding: '10px 12px', textAlign: 'center', color: '#888', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.07em', userSelect: 'none', whiteSpace: 'nowrap' }
 const tdStyle: React.CSSProperties = { padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: '0.82rem' }
 const inpStyle: React.CSSProperties = { background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, flex: 1, minWidth: 100, outline: 'none', fontSize: '0.85rem' }
+// Campos del celular: ocupan su columna completa y tienen altura cómoda para el dedo
+const mobileInp: React.CSSProperties = { background: '#000', border: '1px solid #222', color: 'white', padding: '10px 10px', borderRadius: 8, width: '100%', minWidth: 0, boxSizing: 'border-box', outline: 'none', fontSize: 14 }
 const btnStyle: React.CSSProperties = { background: '#1b2a1b', color: '#22c55e', border: '1px solid #2d4a2d', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', whiteSpace: 'nowrap' }
