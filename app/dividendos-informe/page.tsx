@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -58,6 +59,7 @@ const monthKey = (year: number, monthIdx: number) => `${year}-${String(monthIdx 
 
 export default function DividendosInforme() {
   const { money, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [dividends,    setDividends]    = useState<any[]>([])
   const [trades,       setTrades]       = useState<any[]>([])
@@ -277,20 +279,31 @@ export default function DividendosInforme() {
   // Eje en modo privado: oculto (antes mostraba los importes aunque activaras la privacidad)
   const axisMoney = (v: number) => !visible ? '' : Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
 
+  // Espaciados y rejillas que cambian en el celular (en escritorio quedan como antes)
+  const pagePad = isMobile ? '12px 6px' : '20px 24px'
+  const cardPad = isMobile ? '12px 12px' : '16px 18px'
+  const grid = (mobileCols: number, desktop: string, gap = 14): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: isMobile ? `repeat(${mobileCols}, minmax(0, 1fr))` : desktop,
+    gap: isMobile ? 10 : gap,
+    marginBottom: 16,
+  })
+
   const chipStyle = (active: boolean): React.CSSProperties => ({
-    padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+    padding: isMobile ? '8px 14px' : '6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700, cursor: 'pointer',
     background: active ? C.gold : C.dim,
     color: active ? '#000' : C.muted,
     border: `1px solid ${active ? C.gold : C.border}`,
+    whiteSpace: 'nowrap', flexShrink: 0,
   })
 
   // Una sola barra de filtros (estaba copiada dos veces: la del estado vacío y la del informe)
   const filterBar = (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-      <div style={{ position: 'relative' }}>
+    <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center' }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{
           background: C.dim, border: `1px solid ${C.border}`, color: C.text,
-          padding: '6px 32px 6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          padding: isMobile ? '8px 32px 8px 14px' : '6px 32px 6px 14px', borderRadius: 8, fontSize: isMobile ? 12 : 11, fontWeight: 700,
           cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none', outline: 'none',
         }}>
           <option value="all">Todos los años</option>
@@ -298,7 +311,7 @@ export default function DividendosInforme() {
         </select>
         <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: C.muted, fontSize: 10 }}>▼</span>
       </div>
-      <div style={{ width: 1, background: C.border, height: 28 }} />
+      <div style={{ width: 1, background: C.border, height: 28, flexShrink: 0 }} />
       <button onClick={() => setFilterWallet('all')} style={chipStyle(filterWallet === 'all')}>Todas</button>
       {portfolios.map(p => (
         <button key={p.id} onClick={() => setFilterWallet(p.id)} style={chipStyle(filterWallet === p.id)}>{p.name}</button>
@@ -325,14 +338,14 @@ export default function DividendosInforme() {
 
   if (!stats) return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>💰 Informe ejecutivo</div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gold }}>Dividendos</h1>
         </div>
         {errorBanner}
         {filterBar}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', color: C.muted, fontSize: 13, textAlign: 'center' }}>
           Sin dividendos registrados para el período seleccionado.
         </div>
       </div>
@@ -340,21 +353,21 @@ export default function DividendosInforme() {
   )
 
   const maxAnnual = Math.max(...stats.crecimientoAnual.map(x => x.total), 1)
-  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 18px' }
+  const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: cardPad, minWidth: 0 }
   const cardTitle: React.CSSProperties = { fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 14 }
-  const lineRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }
+  const lineRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }
 
   return (
     <AppShell>
-      <div style={{ padding: '20px 24px', background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ padding: pagePad, background: C.bg, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               💰 Informe ejecutivo
             </div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: C.gold, letterSpacing: -0.5 }}>
+            <h1 style={{ margin: 0, fontSize: isMobile ? 19 : 22, fontWeight: 900, color: C.gold, letterSpacing: -0.5 }}>
               Dividendos
             </h1>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
@@ -362,12 +375,12 @@ export default function DividendosInforme() {
             </div>
           </div>
           {/* Dividend Score */}
-          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: '14px 24px' }}>
-            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>DIVIDEND SCORE</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: scoreColor(stats.dividendScore), lineHeight: 1 }}>
+          <div style={{ textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: isMobile ? '10px 14px' : '14px 24px', flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>{isMobile ? 'SCORE' : 'DIVIDEND SCORE'}</div>
+            <div style={{ fontSize: isMobile ? 30 : 36, fontWeight: 900, color: scoreColor(stats.dividendScore), lineHeight: 1 }}>
               {stats.dividendScore}
             </div>
-            <div style={{ fontSize: 9, color: scoreColor(stats.dividendScore), marginTop: 4 }}>/ 100 · {scoreLabel(stats.dividendScore)}</div>
+            <div style={{ fontSize: 9, color: scoreColor(stats.dividendScore), marginTop: 4 }}>/ 100 · {isMobile && stats.dividendScore < 50 ? 'Atención' : scoreLabel(stats.dividendScore)}</div>
           </div>
         </div>
 
@@ -375,7 +388,7 @@ export default function DividendosInforme() {
         {filterBar}
 
         {/* ── Fila 1: KPIs ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={grid(2, 'repeat(6, 1fr)', 10)}>
           {[
             { label: 'COBRADOS YTD',   value: money(stats.ytdTotal),   color: C.gold,   sub: `vs ${money(stats.prevYtd)} año anterior` },
             { label: 'DIVIDENDO MES',  value: money(stats.monthTotal), color: C.text,   sub: MESES_FULL[stats.refMonth] },
@@ -384,17 +397,17 @@ export default function DividendosInforme() {
             { label: 'PROYECCIÓN AÑO', value: money(stats.proyeccion), color: C.gain,   sub: `${money(stats.promMensual)}/mes promedio` },
             { label: 'META ANUAL',     value: money(stats.meta),       color: C.muted,  sub: 'media de años anteriores' },
           ].map(k => (
-            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div key={k.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', minWidth: 0 }}>
               <div style={{ fontSize: 8, color: C.muted, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
+              <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, color: k.color, marginBottom: 3 }}>{k.value}</div>
               <div style={{ fontSize: 9, color: '#3a3a4a' }}>{k.sub}</div>
             </div>
           ))}
         </div>
 
         {/* ── Progreso meta ── */}
-        <div style={{ ...card, padding: '14px 18px', marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ ...card, padding: isMobile ? '12px 12px' : '14px 18px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 4 : 0, marginBottom: 10 }}>
             <div>
               <span style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>PROGRESO HACIA META ANUAL</span>
               <span style={{ fontSize: 11, color: C.gold, fontWeight: 700, marginLeft: 12 }}>{stats.metaPct}%</span>
@@ -413,7 +426,7 @@ export default function DividendosInforme() {
               borderRadius: 4, transition: 'width 0.8s ease',
             }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
             <span style={{ fontSize: 9, color: '#666' }}>$0</span>
             <span style={{ fontSize: 9, color: C.muted }}>{money(stats.ytdTotal)} cobrados</span>
             <span style={{ fontSize: 9, color: '#666' }}>{money(stats.meta)}</span>
@@ -421,11 +434,11 @@ export default function DividendosInforme() {
         </div>
 
         {/* ── Fila 2: Evolución mensual + Top pagadores + Ingreso anual ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.5fr 0.5fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '2fr 0.5fr 0.5fr')}>
 
           {/* Evolución mensual */}
           <div style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 6 : 0, marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: 0.8 }}>EVOLUCIÓN MENSUAL</div>
                 <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>{filterYear === 'all' ? 'Histórico completo' : `Año ${stats.year}`}</div>
@@ -434,7 +447,7 @@ export default function DividendosInforme() {
                 Mejor: <span style={{ color: C.gold, fontWeight: 700 }}>{stats.mejorMes.label} {money(stats.mejorMes.total)}</span>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={160}>
+            <ResponsiveContainer width="100%" height={isMobile ? 170 : 160}>
               <ComposedChart data={stats.monthlyData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
@@ -443,8 +456,8 @@ export default function DividendosInforme() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#1a1a1a" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={40} />
+                <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                <YAxis tick={{ fill: C.muted, fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 34 : 40} />
                 <Tooltip
                   contentStyle={{ background: '#0f0f12', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: C.gold, fontWeight: 700 }}
@@ -509,7 +522,7 @@ export default function DividendosInforme() {
         </div>
 
         {/* ── Fila 3: Indicadores + Proyección + Recuperación ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+        <div style={grid(1, '1fr 1fr 1fr')}>
 
           {/* Indicadores */}
           <div style={card}>
@@ -528,9 +541,9 @@ export default function DividendosInforme() {
                 </div>
               ))}
               {/* Semáforo */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 11, color: C.muted }}>Tendencia vs año anterior</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: semColorMap[stats.semaforo] }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: semColorMap[stats.semaforo], textAlign: 'right' }}>
                   {semLabelMap[stats.semaforo]}
                   {stats.crecimiento !== null && (
                     <span style={{ fontSize: 9, marginLeft: 4, opacity: 0.7 }}>
@@ -603,7 +616,7 @@ export default function DividendosInforme() {
               <div style={{ fontSize: 9, color: scoreColor(stats.dividendScore) }}>/ 100</div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, 1fr)', gap: 10 }}>
             {stats.scoreParts.map(k => (
               <div key={k.label} style={{ background: C.dim, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: 9, color: C.muted, marginBottom: 6 }}>{k.label}</div>
