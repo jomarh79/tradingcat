@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
 import AppShell from '../AppShell'
+import { useIsMobile } from '@/lib/useIsMobile'
 import SpinoffModal from '../components/SpinoffModal'
 import Link from 'next/link'
 import {
@@ -134,6 +135,7 @@ function PnLCell({ pnl, money }: { pnl: number, money: (v: number) => string }) 
 
 export default function PortafoliosPage() {
   const { money, shares, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   // Precio con 4 decimales que respeta el modo privado
   const px = (v: number) => (visible ? `$${v}` : '$***')
@@ -526,7 +528,62 @@ export default function PortafoliosPage() {
   )
 
   // Tabla de billeteras (la usan los 3 grupos y "sin grupo")
-  const renderWalletTable = (ps: any[], color: string) => (
+  const renderWalletCards = (ps: any[], color: string) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {ps.map(p => {
+        const saldo    = walletSaldos[p.id]    || 0
+        const deposito = walletDepositos[p.id] || 0
+        const pnl      = walletPnL[p.id]       ?? 0
+        const pct      = deposito !== 0 ? (pnl / Math.abs(deposito)) * 100 : null
+        return (
+          <div key={p.id} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 12, padding: 14, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Paw size={12} color={color} opacity={0.6} />
+              <span style={{ fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 10px', marginBottom: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={mLbl}>SALDO DISPONIBLE</div>
+                <div style={{ fontWeight: 800, color: saldo >= 0 ? '#22c55e' : '#f43f5e', fontSize: 16 }}>{money(saldo)}</div>
+                <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>para operar</div>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={mLbl}>CAPITAL DEPOSITADO</div>
+                <div style={{ fontWeight: 800, color: '#00bfff', fontSize: 16 }}>{money(deposito)}</div>
+                <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>de tu bolsillo</div>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={mLbl}>GANANCIA / PÉRDIDA</div>
+                <PnLCell pnl={pnl} money={money} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={mLbl}>RENDIMIENTO</div>
+                {pct === null
+                  ? <span style={{ color: '#333' }}>—</span>
+                  : <span style={{ fontWeight: 700, color: pnlColor(pct), fontSize: 14 }}>
+                      {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                    </span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
+              Último movimiento: <span style={{ color: '#aaa' }}>{walletLastMove[p.id] ? fmtDate(walletLastMove[p.id]) : '—'}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: 8 }}>
+              <button onClick={() => setMovementWallet(p)} style={mBtn('#1b4d20', '#22c55e')}>Movimientos</button>
+              <Link href={`/billeteras/${p.id}/historial`} style={{ display: 'block' }}>
+                <button style={{ ...mBtn('#0d1a2e', '#00bfff'), width: '100%' }}>
+                  <History size={12} style={{ marginRight: 4 }} />Historial
+                </button>
+              </Link>
+              <button onClick={() => setDeleteId(p.id)} style={mBtn('#2d1010', '#f43f5e')}>Eliminar</button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  const renderWalletTable = (ps: any[], color: string) => isMobile ? renderWalletCards(ps, color) : (
     <div style={tableWrap}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
@@ -596,37 +653,37 @@ export default function PortafoliosPage() {
 
   return (
     <AppShell>
-      <div style={{ color: 'white', padding: '28px 36px', maxWidth: 1280, margin: '0 auto' }}>
+      <div style={{ color: 'white', padding: isMobile ? '16px 12px 28px' : '28px 36px', maxWidth: 1280, margin: '0 auto' }}>
 
         {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-start', gap: isMobile ? 14 : 0, marginBottom: isMobile ? 20 : 28 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
               <Wallet size={20} color="#00bfff" />
               <h1 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>Gestión de billeteras</h1>
               <Paw size={14} color="#00bfff" opacity={0.4} />
             </div>
-            <div style={{ display: 'flex', gap: 24, marginTop: 4 }}>
+            <div style={isMobile ? { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 10px', marginTop: 8 } : { display: 'flex', gap: 24, marginTop: 4 }}>
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>SALDO DISPONIBLE TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: totalSaldo >= 0 ? '#22c55e' : '#f43f5e' }}>{money(totalSaldo)}</div>
+                <div style={{ fontSize: isMobile ? 18 : 20, fontWeight: 900, color: totalSaldo >= 0 ? '#22c55e' : '#f43f5e' }}>{money(totalSaldo)}</div>
               </div>
-              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              {!isMobile && <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />}
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>CAPITAL DEPOSITADO TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: '#00bfff' }}>{money(totalDeposito)}</div>
+                <div style={{ fontSize: isMobile ? 18 : 20, fontWeight: 900, color: '#00bfff' }}>{money(totalDeposito)}</div>
               </div>
-              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              {!isMobile && <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />}
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>GANANCIA / PÉRDIDA TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnL) }}>
+                <div style={{ fontSize: isMobile ? 18 : 20, fontWeight: 900, color: pnlColor(totalPnL) }}>
                   {money(totalPnL)}
                 </div>
               </div>
-              <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />
+              {!isMobile && <div style={{ width: 1, background: '#1a1a1a', margin: '0 4px' }} />}
               <div>
                 <div style={{ fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 2 }}>RENDIMIENTO TOTAL</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: pnlColor(totalPnLPct) }}>
+                <div style={{ fontSize: isMobile ? 18 : 20, fontWeight: 900, color: pnlColor(totalPnLPct) }}>
                   {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
                 </div>
               </div>
@@ -634,44 +691,44 @@ export default function PortafoliosPage() {
           </div>
 
           <div ref={actionsRef} style={{ display: 'flex', gap: 8, position: 'relative' }}>
-            <button onClick={() => setShowActions(!showActions)} style={actionsBtn}>
+            <button onClick={() => setShowActions(!showActions)} style={isMobile ? { ...actionsBtn, flex: 1, justifyContent: 'center', minHeight: 44 } : actionsBtn}>
               <Briefcase size={13} />
               Acciones
               <ChevronDown size={12} />
             </button>
 
             {showActions && (
-              <div style={actionsMenu}>
-                <button onClick={() => { setShowActions(false); setShowSplit(true) }} style={menuBtn}>
+              <div style={isMobile ? { ...actionsMenu, left: 0, right: 0, minWidth: 0 } : actionsMenu}>
+                <button onClick={() => { setShowActions(false); setShowSplit(true) }} style={isMobile ? { ...menuBtn, padding: '12px 16px', fontSize: 13 } : menuBtn}>
                   <GitBranch size={13} />
                   Split
                 </button>
 
-                <button onClick={() => { setShowActions(false); setShowTransfer(true) }} style={menuBtn}>
+                <button onClick={() => { setShowActions(false); setShowTransfer(true) }} style={isMobile ? { ...menuBtn, padding: '12px 16px', fontSize: 13 } : menuBtn}>
                   <ArrowLeftRight size={13} />
                   Transferir
                 </button>
 
                 <hr style={{ borderColor: '#222', margin: '6px 0' }} />
 
-                <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={menuBtn}>
+                <button onClick={() => { setShowActions(false); setShowSpinoff(true) }} style={isMobile ? { ...menuBtn, padding: '12px 16px', fontSize: 13 } : menuBtn}>
                   <GitBranch size={13} />
                   Spin-off
                 </button>
 
-                <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={menuBtn}>
+                <button onClick={() => { setShowActions(false); setShowTickerChange(true) }} style={isMobile ? { ...menuBtn, padding: '12px 16px', fontSize: 13 } : menuBtn}>
                   <ArrowLeftRight size={13} />
                   Cambio de ticker
                 </button>
 
-                <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={menuBtn}>
+                <button onClick={() => { setShowActions(false); setShowMerger(true) }} style={isMobile ? { ...menuBtn, padding: '12px 16px', fontSize: 13 } : menuBtn}>
                   <ArrowLeftRight size={13} />
                   Fusión / Adquisición
                 </button>
               </div>
             )}
 
-            <button onClick={() => setShowModal(true)} style={createBtn}>
+            <button onClick={() => setShowModal(true)} style={isMobile ? { ...createBtn, flex: 1, justifyContent: 'center', minHeight: 44 } : createBtn}>
               <Plus size={14} />
               Nueva billetera
             </button>
@@ -685,20 +742,20 @@ export default function PortafoliosPage() {
           const gt = groupTotals[grupoKey] || { saldo: 0, deposito: 0 }
           return (
             <div key={grupoKey} style={{ marginBottom: 32 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${grupoInfo.color}22` }}>
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 8 : 0, marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${grupoInfo.color}22` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Paw size={13} color={grupoInfo.color} opacity={0.7} />
                   <span style={{ fontSize: 11, fontWeight: 800, color: grupoInfo.color, letterSpacing: 0.8, textTransform: 'uppercase' as const }}>
                     {grupoInfo.label}
                   </span>
-                  <span style={{ fontSize: 10, color: '#888' }}>· {ps.length} billetera{ps.length !== 1 ? 's' : ''}</span>
+                  <span style={{ fontSize: 10, color: '#888', whiteSpace: 'nowrap' }}>· {ps.length} billetera{ps.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 20 }}>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
                     <div style={{ fontSize: 8, color: '#888', letterSpacing: 0.5 }}>SALDO GRUPO</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: gt.saldo >= 0 ? '#22c55e' : '#f43f5e' }}>{money(gt.saldo)}</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
                     <div style={{ fontSize: 8, color: '#888', letterSpacing: 0.5 }}>DEPOSITADO GRUPO</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#00bfff' }}>{money(gt.deposito)}</div>
                   </div>
@@ -1076,6 +1133,12 @@ export default function PortafoliosPage() {
   )
 }
 
+const mLbl: React.CSSProperties = { fontSize: 9, color: '#888', fontWeight: 700, letterSpacing: 0.5, marginBottom: 3 }
+const mBtn = (bg: string, color: string): React.CSSProperties => ({
+  background: bg, border: 'none', color, padding: '0 8px', minHeight: 42, width: '100%',
+  cursor: 'pointer', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+})
 const tableWrap: React.CSSProperties = { background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }
 const th: React.CSSProperties        = { padding: '10px 14px', textAlign: 'left', color: '#888', fontSize: '0.68rem', textTransform: 'uppercase', borderBottom: '1px solid #1a1a1a', letterSpacing: 0.5, whiteSpace: 'nowrap' }
 const td: React.CSSProperties        = { padding: '13px 14px', borderBottom: '1px solid #0f0f0f', fontSize: 13, color: '#ccc', verticalAlign: 'middle' }
@@ -1083,7 +1146,7 @@ const trStyle: React.CSSProperties   = { transition: '0.15s' }
 const lbl: React.CSSProperties       = { display: 'block', fontSize: 10, color: '#888', marginBottom: 5, fontWeight: 700, letterSpacing: 0.5 }
 const inp: React.CSSProperties       = { width: '100%', padding: '10px', marginBottom: 14, background: '#000', color: 'white', border: '1px solid #333', borderRadius: 6, outline: 'none', boxSizing: 'border-box', fontSize: 13 }
 const overlay: React.CSSProperties   = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.88)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
-const modalBox: React.CSSProperties  = { background: '#111', padding: 26, borderRadius: 14, width: 420, border: '1px solid #222' }
+const modalBox: React.CSSProperties  = { background: '#111', padding: 'clamp(16px, 5vw, 26px)', borderRadius: 14, width: 420, maxWidth: '94vw', maxHeight: '92dvh', overflowY: 'auto', boxSizing: 'border-box', border: '1px solid #222' }
 const saveBtn: React.CSSProperties   = { width: '100%', padding: '11px', background: '#2e7d32', color: 'white', border: 'none', cursor: 'pointer', borderRadius: 6, fontWeight: 'bold', fontSize: 12 }
 const cancelBtn: React.CSSProperties = { width: '100%', marginTop: 10, background: 'transparent', color: '#888', border: 'none', cursor: 'pointer', fontSize: 13 }
 const actionBtn = (bg: string, color: string): React.CSSProperties => ({
