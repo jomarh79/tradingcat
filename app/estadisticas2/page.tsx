@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePrivacy } from '@/lib/PrivacyContext'
+import { useIsMobile } from '@/lib/useIsMobile'
 import AppShell from '../AppShell'
 import { TrendingUp } from 'lucide-react'
 import {
@@ -126,6 +127,7 @@ const CatTooltip = ({ active, payload, label, formatter, labelFormatter }: any) 
 
 export default function EstadisticasCerradosPage() {
   const { money, visible } = usePrivacy()
+  const isMobile = useIsMobile()
 
   const [trades,            setTrades]            = useState<any[]>([])
   const [portfolios,        setPortfolios]        = useState<any[]>([])
@@ -399,9 +401,9 @@ export default function EstadisticasCerradosPage() {
         <button key={p} onClick={() => setEquityPeriod(p)} style={{
           background: equityPeriod === p ? '#1a1a1a' : 'transparent',
           border: equityPeriod === p ? '1px solid #2a2a2a' : '1px solid transparent',
-          color: equityPeriod === p ? '#fff' : '#444',
-          padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-          fontSize: 11, fontWeight: equityPeriod === p ? 700 : 400,
+          color: equityPeriod === p ? '#fff' : '#666',
+          padding: isMobile ? '7px 12px' : '4px 10px', borderRadius: 6, cursor: 'pointer',
+          fontSize: isMobile ? 12 : 11, fontWeight: equityPeriod === p ? 700 : 400,
         }}>{p}</button>
       ))}
     </div>
@@ -417,28 +419,42 @@ export default function EstadisticasCerradosPage() {
 
   const benchNote = curves.skipped > 0 ? ` · ${curves.skipped} trade(s) sin precio del S&P omitidos` : ''
 
+  // Rejillas que cambian en el celular (en escritorio quedan como antes)
+  const grid = (mobileCols: number, desktop: string, gap = 14): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: isMobile ? `repeat(${mobileCols}, minmax(0, 1fr))` : desktop,
+    gap: isMobile ? 10 : gap,
+  })
+  const boxM: React.CSSProperties = isMobile ? { padding: '14px 14px', minWidth: 0 } : {}
+  const full: React.CSSProperties = isMobile ? { gridColumn: '1 / -1' } : {}
+  const cellPad = isMobile ? '9px 6px' : '10px 14px'
+
   return (
     <AppShell>
-      <div style={{ maxWidth: 1400, margin: '20px auto', padding: '0 28px', color: 'white', position: 'relative' }}>
+      <div style={{ maxWidth: 1400, margin: isMobile ? '10px auto' : '20px auto', padding: isMobile ? '0 2px' : '0 28px', color: 'white', position: 'relative' }}>
 
         {/* ── Gatos decorativos ── */}
-        <div style={{ position: 'absolute', top: -4, right: 50, pointerEvents: 'none' }}>
-          <CatEars color="#00bfff" opacity={0.14} size={46} />
-        </div>
-        <div style={{ position: 'absolute', right: -8, top: '20%', pointerEvents: 'none' }}>
-          <CatTail color="#22c55e" opacity={0.09} />
-        </div>
-        <div style={{ position: 'absolute', left: 0, top: '60%', pointerEvents: 'none' }}>
-          <CatSitting size={70} color="#00bfff" opacity={0.05} />
-        </div>
+        {!isMobile && (
+          <>
+            <div style={{ position: 'absolute', top: -4, right: 50, pointerEvents: 'none' }}>
+              <CatEars color="#00bfff" opacity={0.14} size={46} />
+            </div>
+            <div style={{ position: 'absolute', right: -8, top: '20%', pointerEvents: 'none' }}>
+              <CatTail color="#22c55e" opacity={0.09} />
+            </div>
+            <div style={{ position: 'absolute', left: 0, top: '60%', pointerEvents: 'none' }}>
+              <CatSitting size={70} color="#00bfff" opacity={0.05} />
+            </div>
+          </>
+        )}
 
         {/* ── HEADER ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isMobile ? 14 : 22 }}>
           <Paw size={22} color="#22c55e" opacity={0.7} />
-          <Paw size={16} color="#22c55e" opacity={0.4} />
-          <Paw size={10} color="#22c55e" opacity={0.2} />
+          {!isMobile && <Paw size={16} color="#22c55e" opacity={0.4} />}
+          {!isMobile && <Paw size={10} color="#22c55e" opacity={0.2} />}
           <TrendingUp size={20} color="#00bfff" />
-          <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Performance histórico — trades cerrados</h1>
+          <h1 style={{ fontSize: isMobile ? 16 : 18, fontWeight: 900, margin: 0 }}>{isMobile ? 'Performance · cerrados' : 'Performance histórico — trades cerrados'}</h1>
         </div>
 
         {loadError && (
@@ -448,34 +464,37 @@ export default function EstadisticasCerradosPage() {
         )}
 
         {/* ── FILTROS ── */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 26, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
-          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={selectStyle}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: isMobile ? 16 : 26, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', alignItems: 'center', borderBottom: '1px solid #1a1a1a', paddingBottom: 14 }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+            style={{ ...selectStyle, ...(isMobile ? { padding: '9px 10px', fontSize: 12, flexShrink: 0 } : {}) }}>
             <option value="all">Todos los años</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           {[{ id: 'all', name: 'Todos' }, ...portfolios].map(p => (
-            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)} style={filterBtn(selectedPortfolio === p.id)}>
+            <button key={p.id} onClick={() => setSelectedPortfolio(p.id)}
+              style={{ ...filterBtn(selectedPortfolio === p.id), ...(isMobile ? { padding: '9px 14px', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 } : {}) }}>
               {p.name}
             </button>
           ))}
         </div>
 
         {!stats ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+          <div style={{ textAlign: 'center', padding: isMobile ? 40 : 80, color: '#666', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <CatSitting size={60} color="#444" opacity={0.4} />
             <Paw size={24} color="#333" opacity={0.5} />
             <span>No hay trades cerrados para este filtro.</span>
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gap: isMobile ? 12 : 14 }}>
 
             {/* ── F1: KPIs principales ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12 }}>
+            <div style={grid(2, 'repeat(7, 1fr)', 12)}>
               <StatCard
                 label="PnL total acumulado / %"
                 value={`${money(stats.totalPnL)} / ${stats.totalPnLPct.toFixed(1)}%`}
                 color={stats.totalPnL > 0 ? '#22c55e' : stats.totalPnL < 0 ? '#f43f5e' : '#00bfff'}
                 pawColor={stats.totalPnL > 0 ? '#22c55e' : stats.totalPnL < 0 ? '#f43f5e' : '#00bfff'}
+                wide
               />
               <StatCard label="Win rate" value={`${stats.winRate}%`}
                 desc={`${stats.winsCount} ganados · ${stats.lossesCount} perdidos${stats.breakEvenCount ? ` · ${stats.breakEvenCount} BE` : ''}`}
@@ -510,9 +529,9 @@ export default function EstadisticasCerradosPage() {
             </div>
 
             {/* ── F2: Eficiencia + Drawdown máx + Rachas ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12 }}>
+            <div style={grid(2, 'repeat(6, 1fr)', 12)}>
 
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ ...box, ...boxM, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={56} color="#00bfff" opacity={0.04} />
                 </div>
@@ -529,7 +548,7 @@ export default function EstadisticasCerradosPage() {
                 </div>
               </div>
 
-              <div style={{ ...box, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ ...box, ...boxM, position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={56} color="#f43f5e" opacity={0.04} />
                 </div>
@@ -555,10 +574,12 @@ export default function EstadisticasCerradosPage() {
                 </div>
               </div>
 
-              <div style={{ ...box, borderColor: 'rgba(34,197,94,0.2)', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 8, right: 8, pointerEvents: 'none' }}>
-                  <Whiskers color="#22c55e" opacity={0.12} width={70} />
-                </div>
+              <div style={{ ...box, ...boxM, borderColor: 'rgba(34,197,94,0.2)', position: 'relative', overflow: 'hidden' }}>
+                {!isMobile && (
+                  <div style={{ position: 'absolute', top: 8, right: 8, pointerEvents: 'none' }}>
+                    <Whiskers color="#22c55e" opacity={0.12} width={70} />
+                  </div>
+                )}
                 <div style={{ ...boxTitle, color: '#22c55e' }}>
                   <Paw size={10} color="#22c55e" opacity={0.7} style={{ marginRight: 6 }} />
                   Racha ganadora máx.
@@ -572,10 +593,12 @@ export default function EstadisticasCerradosPage() {
                 </div>
               </div>
 
-              <div style={{ ...box, borderColor: 'rgba(244,63,94,0.2)', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 8, right: 8, pointerEvents: 'none' }}>
-                  <Whiskers color="#f43f5e" opacity={0.12} width={70} />
-                </div>
+              <div style={{ ...box, ...boxM, borderColor: 'rgba(244,63,94,0.2)', position: 'relative', overflow: 'hidden' }}>
+                {!isMobile && (
+                  <div style={{ position: 'absolute', top: 8, right: 8, pointerEvents: 'none' }}>
+                    <Whiskers color="#f43f5e" opacity={0.12} width={70} />
+                  </div>
+                )}
                 <div style={{ ...boxTitle, color: '#f43f5e' }}>
                   <Paw size={10} color="#f43f5e" opacity={0.7} style={{ marginRight: 6 }} />
                   Racha perdedora máx.
@@ -589,7 +612,7 @@ export default function EstadisticasCerradosPage() {
                 </div>
               </div>
 
-              <div style={{ ...box, borderColor: 'rgba(34,197,94,0.18)', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ ...box, ...boxM, ...full, borderColor: 'rgba(34,197,94,0.18)', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={56} color="#22c55e" opacity={0.04} />
                 </div>
@@ -614,7 +637,7 @@ export default function EstadisticasCerradosPage() {
                 ))}
               </div>
 
-              <div style={{ ...box, borderColor: 'rgba(244,63,94,0.18)', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ ...box, ...boxM, ...full, borderColor: 'rgba(244,63,94,0.18)', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={56} color="#f43f5e" opacity={0.04} />
                 </div>
@@ -639,13 +662,13 @@ export default function EstadisticasCerradosPage() {
 
             {/* ── F3: Scatter días vs PnL % ── */}
             <ChartCard title="Scatter: días en posición vs PnL %" sub="Cada punto = un trade · izquierda = rápido · derecha = lento" mb={0}>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={isMobile ? 220 : 240}>
                 <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
                   <CartesianGrid stroke="#151515" strokeDasharray="3 3" />
                   <XAxis type="number" dataKey="days" name="Días" domain={[0, 'dataMax']} tick={{ fill: '#888', fontSize: 9 }}
                     axisLine={false} tickLine={false} tickFormatter={v => `${v}d`} />
                   <YAxis type="number" dataKey="pnlPct" name="PnL %" tick={{ fill: '#888', fontSize: 9 }}
-                    axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} width={44} />
+                    axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} width={isMobile ? 38 : 44} />
                   <ZAxis range={[70, 70]} />
                   <ReferenceLine y={0} stroke="#333" strokeDasharray="4 4" />
                   <Tooltip cursor={{ stroke: '#333', strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
@@ -667,13 +690,13 @@ export default function EstadisticasCerradosPage() {
             </ChartCard>
 
             {/* ── F4: Sector + Duración + Win/Loss ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div style={grid(1, '1fr 1fr 1fr')}>
               <ChartCard title="PnL por sector" sub="Suma de PnL realizado (verde = ganancia, rojo = pérdida)" mb={0}>
                 <ResponsiveContainer width="100%" height={Math.max(190, Math.min(stats.sectorData.length * 30, 320))}>
                   <BarChart data={stats.sectorData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
                     <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
-                    <YAxis type="category" dataKey="name" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={80} />
+                    <YAxis type="category" dataKey="name" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={isMobile ? 70 : 80} />
                     <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
                     <ReferenceLine x={0} stroke="#333" />
                     <Bar dataKey="value" name="PnL" radius={[0, 4, 4, 0]}>
@@ -688,7 +711,7 @@ export default function EstadisticasCerradosPage() {
                   <BarChart data={stats.durationData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="bucket" tick={{ fill: '#aaa', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} width={isMobile ? 28 : 60} />
                     <Tooltip content={<CatTooltip formatter={(v: number) => `${v} trades`} />} />
                     <Bar dataKey="count" name="Trades" radius={[6,6,0,0]}>
                       {stats.durationData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />)}
@@ -725,7 +748,7 @@ export default function EstadisticasCerradosPage() {
             </div>
 
             {/* ── F5: Drawdown + Portafolio vs S&P 500 + tabla por período ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div style={grid(1, '1fr 1fr 1fr')}>
               <ChartCard title="Drawdown" sub="Caída en $ desde el pico del PnL acumulado del período" mb={0} extra={periodSelector}>
                 <ResponsiveContainer width="100%" height={210}>
                   <AreaChart data={curves.drawdown} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
@@ -736,8 +759,8 @@ export default function EstadisticasCerradosPage() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={isMobile ? 40 : 24} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 38 : 60} />
                     <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
                     <ReferenceLine y={0} stroke="#333" />
                     <Area type="monotone" dataKey="drawdown" name="Drawdown" stroke={C.loss} fill="url(#ddGrad)" strokeWidth={2} dot={false} />
@@ -750,8 +773,8 @@ export default function EstadisticasCerradosPage() {
                 <ResponsiveContainer width="100%" height={210}>
                   <LineChart data={curves.vs} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={24} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <XAxis dataKey="date" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={isMobile ? 40 : 24} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 38 : 60} />
                     <Tooltip content={<CatTooltip formatter={fmtMoney} />} />
                     <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="Portafolio" stroke={C.accent} strokeWidth={2.5} dot={false} />
@@ -764,9 +787,9 @@ export default function EstadisticasCerradosPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: '#050505' }}>
-                      {['Período', 'Tu portafolio', 'S&P 500', 'Diferencia'].map(h => (
+                      {(isMobile ? ['Período', 'Tú', 'S&P 500', 'Dif.'] : ['Período', 'Tu portafolio', 'S&P 500', 'Diferencia']).map((h, hi) => (
                         <th key={h} style={{
-                          padding: '8px 14px', textAlign: h === 'Período' ? 'left' : 'right',
+                          padding: isMobile ? '8px 6px' : '8px 14px', textAlign: hi === 0 ? 'left' : 'right',
                           color: '#555', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
                           borderBottom: '1px solid #111'
                         }}>{h}</th>
@@ -776,16 +799,16 @@ export default function EstadisticasCerradosPage() {
                   <tbody>
                     {periodRows.map(row => (
                       <tr key={row.label} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                        <td style={{ padding: '10px 14px', color: '#aaa', fontWeight: 600 }}>{row.label}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
+                        <td style={{ padding: cellPad, color: '#aaa', fontWeight: 600 }}>{row.label}</td>
+                        <td style={{ padding: cellPad, textAlign: 'right', fontWeight: 700,
                           color: row.portRend === null ? '#333' : row.portRend >= 0 ? C.gain : C.loss }}>
                           {row.portRend === null ? '—' : `${row.portRend >= 0 ? '+' : ''}${row.portRend.toFixed(2)}%`}
                         </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700,
+                        <td style={{ padding: cellPad, textAlign: 'right', fontWeight: 700,
                           color: row.sp500Rend === null ? '#333' : row.sp500Rend >= 0 ? '#60a5fa' : C.loss }}>
                           {row.sp500Rend === null ? '—' : `${row.sp500Rend >= 0 ? '+' : ''}${row.sp500Rend.toFixed(2)}%`}
                         </td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13,
+                        <td style={{ padding: cellPad, textAlign: 'right', fontWeight: 800, fontSize: 13,
                           color: row.diff === null ? '#333' : row.diff >= 0 ? C.gain : C.loss }}>
                           {row.diff === null ? '—' : (
                             <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
@@ -801,14 +824,14 @@ export default function EstadisticasCerradosPage() {
             </div>
 
             {/* ── F6: Razones de cierre + Resumen por mes ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr', gap: 14 }}>
+            <div style={grid(1, '0.5fr 1fr')}>
 
               <ChartCard title="PnL por razón de cierre" sub="Suma de PnL agrupado por cómo cerraste" mb={0}>
                 <ResponsiveContainer width="100%" height={Math.max(200, Math.min(stats.closeReasonData.length * 34, 340))}>
                   <BarChart data={stats.closeReasonData} layout="vertical" margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" horizontal={false} strokeDasharray="3 3" />
                     <XAxis type="number" tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
-                    <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={90} />
+                    <YAxis type="category" dataKey="reason" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} width={isMobile ? 80 : 90} />
                     <Tooltip content={<CatTooltip formatter={(v: number) => fmtMoney(v)} />} />
                     <ReferenceLine x={0} stroke="#333" />
                     <Bar dataKey="pnl" name="PnL" radius={[0,4,4,0]}>
@@ -819,30 +842,30 @@ export default function EstadisticasCerradosPage() {
               </ChartCard>
 
               <ChartCard title="Resumen por mes" sub="Mejores y peores meses ordenados por PnL" mb={0}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : '1fr 1fr', gap: 14 }}>
                   {[
                     { title: 'MEJORES MESES', color: C.gain, list: stats.monthlyTable.filter(m => m.pnl >= 0).sort((a, b) => b.pnl - a.pnl).slice(0, 6) },
                     { title: 'PEORES MESES',  color: C.loss, list: stats.monthlyTable.filter(m => m.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 6) },
                   ].map(block => (
-                    <div key={block.title}>
+                    <div key={block.title} style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 9, color: block.color, fontWeight: 700, letterSpacing: 0.5, marginBottom: 8 }}>{block.title}</div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                         <thead>
                           <tr style={{ background: '#050505' }}>
                             {['Mes', 'PnL', 'Trades', 'Gan.', 'Perd.', 'WR%'].map(h => (
-                              <th key={h} style={{ padding: '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
+                              <th key={h} style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: h === 'Mes' ? 'left' : 'right', color: '#555', fontSize: 9, fontWeight: 700, borderBottom: '1px solid #111' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {block.list.map(m => (
                             <tr key={m.key} style={{ borderBottom: '1px solid #0a0a0a' }}>
-                              <td style={{ padding: '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: block.color, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', color: '#aaa', textTransform: 'capitalize' }}>{m.month}</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: 'right', color: block.color, fontWeight: 700 }}>{fmtMoney(m.pnl)}</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: 'right', color: '#666' }}>{m.trades}</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: 'right', color: C.gain }}>{m.wins}</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: 'right', color: C.loss }}>{m.losses}</td>
+                              <td style={{ padding: isMobile ? '5px 4px' : '5px 8px', textAlign: 'right', color: m.winRate >= 50 ? C.gain : C.loss, fontWeight: 700 }}>{m.winRate}%</td>
                             </tr>
                           ))}
                           {block.list.length === 0 && (
@@ -857,13 +880,13 @@ export default function EstadisticasCerradosPage() {
             </div>
 
             {/* ── F7: Acumulado mensual ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 14 }}>
               <ChartCard title="Acumulado mensual de PnL" sub="Cada barra flota entre el acumulado anterior y el nuevo — verde sube, rojo baja" mb={0}>
                 <ResponsiveContainer width="100%" height={220}>
                   <ComposedChart data={stats.monthlyWaterfall} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid stroke="#151515" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} />
+                    <XAxis dataKey="month" tick={{ fill: '#aaa', fontSize: 9 }} axisLine={false} tickLine={false} interval={isMobile ? 'preserveStartEnd' : 0} />
+                    <YAxis tick={{ fill: '#888', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={axisMoney} width={isMobile ? 38 : 60} />
                     <Tooltip content={({ active, payload, label }: any) => {
                       if (!active || !payload?.length) return null
                       const d = payload[0].payload
@@ -892,9 +915,10 @@ export default function EstadisticasCerradosPage() {
   )
 }
 
-function StatCard({ label, value, desc, color = 'white', bar, pawColor = '#666' }: any) {
+function StatCard({ label, value, desc, color = 'white', bar, pawColor = '#666', wide }: any) {
+  const isMobile = useIsMobile()
   return (
-    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ background: '#080808', border: '1px solid #1a1a1a', padding: isMobile ? '12px 12px' : '16px 18px', borderRadius: 10, position: 'relative', overflow: 'hidden', minWidth: 0, ...(isMobile && wide ? { gridColumn: '1 / -1' } : {}) }}>
       <div style={{ position: 'absolute', bottom: -10, right: -10, pointerEvents: 'none' }}>
         <Paw size={50} color={pawColor} opacity={0.04} />
       </div>
@@ -902,7 +926,7 @@ function StatCard({ label, value, desc, color = 'white', bar, pawColor = '#666' 
         <Paw size={9} color={pawColor} opacity={0.5} />
         {label}
       </div>
-      <div style={{ fontSize: 21, fontWeight: 900, color }}>{value}</div>
+      <div style={{ fontSize: isMobile ? 18 : 21, fontWeight: 900, color }}>{value}</div>
       {desc && <div style={{ fontSize: 10, color: '#888', marginTop: 5 }}>{desc}</div>}
       {bar !== undefined && (
         <div style={{ height: 3, background: '#111', borderRadius: 2, marginTop: 10 }}>
@@ -915,7 +939,7 @@ function StatCard({ label, value, desc, color = 'white', bar, pawColor = '#666' 
 
 function Row({ label, value, color = '#ccc' }: any) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #111', fontSize: 11 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid #111', fontSize: 11 }}>
       <span style={{ color: '#aaa' }}>{label}</span>
       <span style={{ fontWeight: 700, color }}>{value}</span>
     </div>
@@ -923,10 +947,11 @@ function Row({ label, value, color = '#ccc' }: any) {
 }
 
 function ChartCard({ title, sub, children, mb = 14, extra }: any) {
+  const isMobile = useIsMobile()
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '18px 20px', marginBottom: mb }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
-        <div>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: isMobile ? '14px 12px' : '18px 20px', marginBottom: mb, minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 14, gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 800, color: '#888', letterSpacing: 0.8, textTransform: 'uppercase' as const, display: 'flex', alignItems: 'center', gap: 7 }}>
             <Paw size={10} color="#666" opacity={0.5} />
             {title}
