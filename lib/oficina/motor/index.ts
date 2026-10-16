@@ -1,0 +1,11 @@
+export * from './tipos';
+export * from './vocabulario';
+export { decidir, normalizarVeredicto } from './motor';
+export { calcularEstadoFinal } from './estado-corrida';
+export { transicionAutorizacion } from './autorizacion';
+export type { Actor, ResultadoTransicion } from './autorizacion';
+export { evaluarExpiracion, calcularVencimiento, siguienteDiaHabil, ZONA_CALENDARIO, ZONA_OFICINA } from './expiracion';
+export type { CalendarioHabil, ResultadoExpiracion } from './expiracion';
+export { evaluarSalidaPCP } from './salida-pcp';
+export type { EntradaSalidaPCP, CompraPCP } from './salida-pcp';
+export { verificarInvariantes } from './invariantes';
