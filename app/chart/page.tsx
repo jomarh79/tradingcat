@@ -572,7 +572,7 @@ function ChartPageInner() {
       width: el.clientWidth,
       height: CHART_HEIGHT,
       rightPriceScale: { borderColor: '#222' },
-      timeScale: { borderColor: '#222', timeVisible: interval === '45min', rightOffset: interval === '1day' ? 6 : 0 },
+      timeScale: { borderColor: '#222', timeVisible: interval === '45min', rightOffset: 6 },
     })
     chartRef.current = chart
     // El chart es nuevo: se invalidan las referencias a series/líneas del anterior
@@ -865,7 +865,7 @@ function ChartPageInner() {
     }
   }, [chartData, interval, showMogalef])
 
-  // EFECTO 5b — Proyección lineal de 5 días hábiles (solo velas diarias)
+  // EFECTO 5b — Proyección lineal de 5 velas (todas las temporalidades)
 useEffect(() => {
   const chart = chartRef.current
   if (!chart) return
@@ -874,15 +874,15 @@ useEffect(() => {
     try { chart.removeSeries(projectionSeriesRef.current) } catch { /* ya no existe */ }
     projectionSeriesRef.current = null
   }
-  if (!showProjection || !chartData || interval !== '1day') return
+  if (!showProjection || !chartData) return
 
-  const points = projectionPoints(chartData.candles)
+  const points = projectionPoints(chartData.candles, interval)
   if (points.length < 2) return
 
   const line = chart.addSeries(LineSeries, {
     color: C.accent, lineWidth: 2, lineStyle: 2, // 2 = punteada
     lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false,
-    title: 'Proy. 5D',
+    title: 'Proy. 5V',
   })
   line.setData(points as any)
   projectionSeriesRef.current = line
@@ -1155,9 +1155,7 @@ useEffect(() => {
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowPatterns(v => !v)} style={filterBtn(showPatterns)}>Patrones</button>
           <button onClick={() => setShowMogalef(v => !v)} style={filterBtn(showMogalef)}>Mogalef</button>
-          {interval === '1day' && (
-            <button onClick={() => setShowProjection(v => !v)} style={filterBtn(showProjection)}>Proyección 5D</button>
-          )}
+          <button onClick={() => setShowProjection(v => !v)} style={filterBtn(showProjection)}>Proyección 5V</button>
         </div>
 
         {!ticker && (
@@ -1199,8 +1197,8 @@ useEffect(() => {
           {maKeysFor(interval).map(key => (
             <span key={key}><span style={{ color: MA_COLORS[key] }}>▬</span> {MA_LABELS[key]}</span>
           ))}
-          {interval === '1day' && showProjection && (
-            <span><span style={{ color: C.accent }}>╌╌</span> Proyección 5 días (tendencia lineal de los últimos 15 cierres)</span>
+          {showProjection && (
+            <span><span style={{ color: C.accent }}>╌╌</span> Proyección 5 velas (tendencia lineal de las últimas 30)</span>
           )}
         </div>
 
