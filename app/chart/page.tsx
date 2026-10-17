@@ -881,8 +881,7 @@ useEffect(() => {
 
   const line = chart.addSeries(LineSeries, {
     color: C.accent, lineWidth: 2, lineStyle: 2, // 2 = punteada
-    lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false,
-    title: 'Proy. 5V',
+    lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
   })
   line.setData(points as any)
   projectionSeriesRef.current = line
