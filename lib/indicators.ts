@@ -1,6 +1,6 @@
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number }
 
-function emaArr(values: number[], period: number): (number | null)[] {
+export function emaArr(values: number[], period: number): (number | null)[] {
   const out: (number | null)[] = []
   let prev: number | null = null
   const k = 2 / (period + 1)
@@ -577,5 +577,18 @@ export function mogalefBandsSeries(
     })
   }
 
+  return out
+}
+
+// SMA (suma deslizante)
+// Misma funcion que usa app/api/chart-data/route.ts para las SMA semanales/mensuales.
+export function smaArr(values: number[], period: number): (number | null)[] {
+  const out: (number | null)[] = []
+  let sum = 0
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i]
+    if (i >= period) sum -= values[i - period]
+    out.push(i < period - 1 ? null : sum / period)
+  }
   return out
 }
