@@ -11,6 +11,8 @@ import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns,
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
+import { projectionPoints } from '@/lib/projection'
+
 import DividendsChart from '../components/DividendsChart'
 import DividendYieldChart from '../components/DividendYieldChart'
 import { RibbonSeries } from '@/lib/ribbonSeriesPlugin'
@@ -396,6 +398,7 @@ function ChartPageInner() {
   const [showKoncorde, setShowKoncorde] = useState(true)
   const [showPatterns, setShowPatterns] = useState(true)
   const [showMogalef, setShowMogalef] = useState(true)
+  const [showProjection, setShowProjection] = useState(true)
 
   const [allTickerTrades, setAllTickerTrades] = useState<any[]>([])
   const [allExecutions, setAllExecutions] = useState<any[]>([])
@@ -424,6 +427,7 @@ function ChartPageInner() {
   const mogalefSeriesRef = useRef<any[]>([])
   const panelSeriesRef = useRef<any[]>([])
   const markersPluginRef = useRef<any>(null)
+  const projectionSeriesRef = useRef<any>(null)
 
   const getChartData = useCallback((sym: string, iv: Interval): Promise<ChartData> => {
     const key = `${sym}-${iv}`
@@ -568,7 +572,7 @@ function ChartPageInner() {
       width: el.clientWidth,
       height: CHART_HEIGHT,
       rightPriceScale: { borderColor: '#222' },
-      timeScale: { borderColor: '#222', timeVisible: interval === '45min' },
+      timeScale: { borderColor: '#222', timeVisible: interval === '45min', rightOffset: interval === '1day' ? 6 : 0 },
     })
     chartRef.current = chart
     // El chart es nuevo: se invalidan las referencias a series/líneas del anterior
@@ -578,6 +582,7 @@ function ChartPageInner() {
     mogalefSeriesRef.current = []
     panelSeriesRef.current = []
     markersPluginRef.current = null
+    projectionSeriesRef.current = null
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       visibleRangeRef.current = { key: rangeKey, range }
@@ -860,6 +865,29 @@ function ChartPageInner() {
     }
   }, [chartData, interval, showMogalef])
 
+  // EFECTO 5b — Proyección lineal de 5 días hábiles (solo velas diarias)
+useEffect(() => {
+  const chart = chartRef.current
+  if (!chart) return
+
+  if (projectionSeriesRef.current) {
+    try { chart.removeSeries(projectionSeriesRef.current) } catch { /* ya no existe */ }
+    projectionSeriesRef.current = null
+  }
+  if (!showProjection || !chartData || interval !== '1day') return
+
+  const points = projectionPoints(chartData.candles)
+  if (points.length < 2) return
+
+  const line = chart.addSeries(LineSeries, {
+    color: C.accent, lineWidth: 2, lineStyle: 2, // 2 = punteada
+    lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false,
+    title: 'Proy. 5D',
+  })
+  line.setData(points as any)
+  projectionSeriesRef.current = line
+}, [chartData, interval, showProjection])
+
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 6 — Paneles de indicadores (RSI, MACD, Koncorde, ADX).
   // ══════════════════════════════════════════════════════════════════════
@@ -1127,6 +1155,9 @@ function ChartPageInner() {
           <button onClick={() => setShowADX(v => !v)} style={filterBtn(showADX)}>ADX</button>
           <button onClick={() => setShowPatterns(v => !v)} style={filterBtn(showPatterns)}>Patrones</button>
           <button onClick={() => setShowMogalef(v => !v)} style={filterBtn(showMogalef)}>Mogalef</button>
+          {interval === '1day' && (
+            <button onClick={() => setShowProjection(v => !v)} style={filterBtn(showProjection)}>Proyección 5D</button>
+          )}
         </div>
 
         {!ticker && (
@@ -1168,6 +1199,9 @@ function ChartPageInner() {
           {maKeysFor(interval).map(key => (
             <span key={key}><span style={{ color: MA_COLORS[key] }}>▬</span> {MA_LABELS[key]}</span>
           ))}
+          {interval === '1day' && showProjection && (
+            <span><span style={{ color: C.accent }}>╌╌</span> Proyección 5 días (tendencia lineal de los últimos 15 cierres)</span>
+          )}
         </div>
 
         {/* ── Historial de dividendos ── */}
