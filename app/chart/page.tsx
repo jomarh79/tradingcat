@@ -12,6 +12,7 @@ import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
 import { projectionPoints } from '@/lib/projection'
+import { buildProjection } from '@/lib/projection'
 
 import DividendsChart from '../components/DividendsChart'
 import DividendYieldChart from '../components/DividendYieldChart'
@@ -427,7 +428,7 @@ function ChartPageInner() {
   const mogalefSeriesRef = useRef<any[]>([])
   const panelSeriesRef = useRef<any[]>([])
   const markersPluginRef = useRef<any>(null)
-  const projectionSeriesRef = useRef<any>(null)
+  const projectionSeriesRef = useRef<any[]>([])
 
   const getChartData = useCallback((sym: string, iv: Interval): Promise<ChartData> => {
     const key = `${sym}-${iv}`
@@ -556,6 +557,11 @@ function ChartPageInner() {
   const emaTableRows = useMemo(() => buildMaRows(EMA_KEYS, emaDailyData, currentDailyPrice), [emaDailyData, currentDailyPrice])
   const smaTableRows = useMemo(() => buildMaRows(SMA_KEYS, smaWeeklyData, currentDailyPrice), [smaWeeklyData, currentDailyPrice])
 
+const projection = useMemo(
+  () => (showProjection && chartData ? buildProjection(chartData.candles, interval) : null),
+  [showProjection, chartData, interval]
+)
+
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 1 — Gráfico base: velas, volumen, medias móviles, soportes/resistencias.
   // El único que crea/destruye el objeto `chart`.
@@ -582,7 +588,7 @@ function ChartPageInner() {
     mogalefSeriesRef.current = []
     panelSeriesRef.current = []
     markersPluginRef.current = null
-    projectionSeriesRef.current = null
+    projectionSeriesRef.current = []
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       visibleRangeRef.current = { key: rangeKey, range }
@@ -865,27 +871,28 @@ function ChartPageInner() {
     }
   }, [chartData, interval, showMogalef])
 
-  // EFECTO 5b — Proyección lineal de 5 velas (todas las temporalidades)
+  // EFECTO 5b — Proyección: línea central + cono de volatilidad (±1σ y ±2σ)
 useEffect(() => {
   const chart = chartRef.current
   if (!chart) return
 
-  if (projectionSeriesRef.current) {
-    try { chart.removeSeries(projectionSeriesRef.current) } catch { /* ya no existe */ }
-    projectionSeriesRef.current = null
+  projectionSeriesRef.current.forEach(s => { try { chart.removeSeries(s) } catch { /* ya no existe */ } })
+  projectionSeriesRef.current = []
+  if (!projection) return
+
+  const add = (data: any[], opts: any) => {
+    const s = chart.addSeries(LineSeries, {
+      priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false, ...opts,
+    })
+    s.setData(data as any)
+    projectionSeriesRef.current.push(s)
   }
-  if (!showProjection || !chartData) return
-
-  const points = projectionPoints(chartData.candles, interval)
-  if (points.length < 2) return
-
-  const line = chart.addSeries(LineSeries, {
-    color: C.accent, lineWidth: 2, lineStyle: 2, // 2 = punteada
-    lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
-  })
-  line.setData(points as any)
-  projectionSeriesRef.current = line
-}, [chartData, interval, showProjection])
+  add(projection.upper2, { color: 'rgba(251,191,36,0.45)', lineWidth: 1, lineStyle: 2 })
+  add(projection.lower2, { color: 'rgba(251,191,36,0.45)', lineWidth: 1, lineStyle: 2 })
+  add(projection.upper1, { color: '#fbbf24', lineWidth: 1, lineStyle: 2 })
+  add(projection.lower1, { color: '#fbbf24', lineWidth: 1, lineStyle: 2 })
+  add(projection.center, { color: C.accent, lineWidth: 2, lineStyle: 2, lastValueVisible: true, title: 'Proy. 5V' })
+}, [projection])
 
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 6 — Paneles de indicadores (RSI, MACD, Koncorde, ADX).
@@ -1196,9 +1203,13 @@ useEffect(() => {
           {maKeysFor(interval).map(key => (
             <span key={key}><span style={{ color: MA_COLORS[key] }}>▬</span> {MA_LABELS[key]}</span>
           ))}
-          {showProjection && (
-            <span><span style={{ color: C.accent }}>╌╌</span> Proyección 5 velas (tendencia lineal de las últimas 30)</span>
-          )}
+          {projection && (
+  <span>
+    <span style={{ color: C.accent }}>╌╌</span> Proyección 5 velas <span style={{ color: '#fbbf24' }}>╌╌</span> ±1σ / ±2σ
+    {' '}· ADX {projection.info.adx != null ? projection.info.adx.toFixed(0) : '—'}
+    {projection.info.factor < 1 ? ` → ${projection.info.factor === 0 ? 'rango lateral, línea plana' : 'tendencia débil, pendiente atenuada'}` : ' → tendencia clara'}
+  </span>
+)}
         </div>
 
         {/* ── Historial de dividendos ── */}

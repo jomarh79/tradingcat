@@ -1,26 +1,50 @@
-// Proyección lineal a corto plazo para el gráfico (todas las temporalidades).
-// Es una extrapolación de la tendencia reciente, NO una predicción.
+// Proyección a corto plazo para el gráfico (todas las temporalidades).
+// Tendencia (regresión ponderada) + cono de volatilidad + filtro de régimen (ADX).
+// Es una extrapolación estadística, NO una predicción.
+
+import { adxSeries, type Candle } from './indicators'
 
 export type ProjectionInterval = '45min' | '1day' | '1week' | '1month'
 
 export const PROJECTION_BARS = 5      // velas hacia adelante
 export const PROJECTION_SAMPLE = 30   // cierres reales usados en la regresión
+export const HALF_LIFE = 10           // velas: el peso de una vela se reduce a la mitad cada 10 velas atrás
+export const ADX_FLAT = 18            // ADX <= 18  → sin tendencia: pendiente = 0
+export const ADX_FULL = 25            // ADX >= 25  → tendencia clara: pendiente completa (entre 18 y 25 se atenúa gradualmente)
 
 const DAY = 86400
 
-// Regresión lineal por mínimos cuadrados sobre los últimos `sample` cierres.
-// Devuelve la pendiente (precio por vela) o null si no hay datos suficientes.
-export function trendSlope(closes: number[], sample = PROJECTION_SAMPLE): number | null {
+// Regresión lineal PONDERADA (WLS) sobre los últimos `sample` cierres: las velas recientes pesan más.
+// Peso de la vela i = 0.5^(antigüedad / HALF_LIFE). Devuelve la pendiente (precio por vela) o null.
+export function trendSlope(closes: number[], sample = PROJECTION_SAMPLE, halfLife = HALF_LIFE): number | null {
   const ys = closes.slice(-sample).filter(v => Number.isFinite(v))
   const n = ys.length
   if (n < Math.min(sample, 5)) return null
 
-  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0
+  let sw = 0, swx = 0, swy = 0, swxy = 0, swxx = 0
   for (let i = 0; i < n; i++) {
-    sumX += i; sumY += ys[i]; sumXY += i * ys[i]; sumXX += i * i
+    const w = Math.pow(0.5, (n - 1 - i) / halfLife)
+    sw += w; swx += w * i; swy += w * ys[i]; swxy += w * i * ys[i]; swxx += w * i * i
   }
-  const den = n * sumXX - sumX * sumX
-  return den === 0 ? null : (n * sumXY - sumX * sumY) / den
+  const den = sw * swxx - swx * swx
+  return den === 0 ? null : (sw * swxy - swx * swy) / den
+}
+
+// Desviación estándar de los cambios de cierre a cierre (precio por vela) en la muestra.
+export function stepSigma(closes: number[], sample = PROJECTION_SAMPLE): number | null {
+  const ys = closes.slice(-sample).filter(v => Number.isFinite(v))
+  if (ys.length < 6) return null
+  const d: number[] = []
+  for (let i = 1; i < ys.length; i++) d.push(ys[i] - ys[i - 1])
+  const mean = d.reduce((a, b) => a + b, 0) / d.length
+  const variance = d.reduce((a, b) => a + (b - mean) ** 2, 0) / (d.length - 1)
+  return Math.sqrt(variance)
+}
+
+// Factor 0..1 según la fuerza de tendencia (ADX): rango lateral → 0, tendencia clara → 1.
+export function regimeFactor(adx: number | null): number {
+  if (adx == null || !Number.isFinite(adx)) return 1
+  return Math.min(1, Math.max(0, (adx - ADX_FLAT) / (ADX_FULL - ADX_FLAT)))
 }
 
 // `time` de la API es Unix en segundos con la fecha/hora del exchange tomada como UTC,
@@ -105,23 +129,50 @@ export function nextTimes(
   }
 }
 
-// Puntos para una LineSeries: arranca en el último cierre real (sin hueco) y sigue la pendiente.
-// Anclar al último cierre evita un salto artificial entre la última vela y el inicio de la línea.
-export function projectionPoints(
-  candles: { time: number; close: number }[],
+export type ProjPoint = { time: number; value: number }
+export interface Projection {
+  center: ProjPoint[]   // línea central (tendencia atenuada por el régimen)
+  upper1: ProjPoint[]   // +1σ
+  lower1: ProjPoint[]   // -1σ
+  upper2: ProjPoint[]   // +2σ
+  lower2: ProjPoint[]   // -2σ
+  info: { adx: number | null; factor: number; sigma: number; slope: number }
+}
+
+// Arma la proyección. Todas las líneas arrancan en el último cierre real (sin hueco ni salto).
+// Cono: ±z·σ·√k  (σ = desviación de los cambios por vela; la incertidumbre crece con la raíz de k).
+export function buildProjection(
+  candles: Candle[],
   interval: ProjectionInterval,
   bars = PROJECTION_BARS,
   sample = PROJECTION_SAMPLE,
-): { time: number; value: number }[] {
-  if (!candles.length) return []
-  const slope = trendSlope(candles.map(c => c.close), sample)
-  if (slope === null) return []
+): Projection | null {
+  if (candles.length < 10) return null
+  const closes = candles.map(c => c.close)
+  const slope = trendSlope(closes, sample)
+  const sigma = stepSigma(closes, sample)
+  if (slope === null || sigma === null) return null
+
+  const times = nextTimes(candles, interval, bars)
+  if (times.length < bars) return null
+
+  // ADX sobre las últimas 300 velas (suficiente para que el suavizado de Wilder converja)
+  const adxLast = adxSeries(candles.slice(-300)).at(-1)?.adx ?? null
+  const factor = regimeFactor(adxLast)
+  const effSlope = slope * factor
 
   const last = candles[candles.length - 1]
-  const times = nextTimes(candles, interval, bars)
-  if (times.length < bars) return []
-  return [
+  const make = (f: (k: number) => number): ProjPoint[] => [
     { time: last.time, value: last.close },
-    ...times.map((time, i) => ({ time, value: last.close + slope * (i + 1) })),
+    ...times.map((time, i) => ({ time, value: f(i + 1) })),
   ]
+
+  return {
+    center: make(k => last.close + effSlope * k),
+    upper1: make(k => last.close + effSlope * k + sigma * Math.sqrt(k)),
+    lower1: make(k => last.close + effSlope * k - sigma * Math.sqrt(k)),
+    upper2: make(k => last.close + effSlope * k + 2 * sigma * Math.sqrt(k)),
+    lower2: make(k => last.close + effSlope * k - 2 * sigma * Math.sqrt(k)),
+    info: { adx: adxLast, factor, sigma, slope },
+  }
 }
