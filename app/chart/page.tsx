@@ -11,7 +11,6 @@ import { rsiSeries, macdSeries, adxSeries, koncordeSeries, detectCandlePatterns,
 import AppShell from '../AppShell'
 import { BarChart2 } from 'lucide-react'
 
-import { projectionPoints } from '@/lib/projection'
 import { buildProjection } from '@/lib/projection'
 
 import DividendsChart from '../components/DividendsChart'
