@@ -1,8 +1,10 @@
 import { adxSeries, emaArr, koncordeSeries, macdSeries, mogalefBandsSeries, rsiSeries, smaArr } from '../../indicators';
 import type { Candle } from '../../indicators';
+import { construirTraza } from './trazabilidad';
+import type { ResultadoIndicador } from './trazabilidad';
 import { atrSeries, evaluarBanana, fechaDeVela, finito, fmt, pivotes, validarVelas } from './calculos';
 import type {
-  EntradaTecnico, Indicadores, NivelCalculado, Senal, SnapshotTecnico, TipoNivel,
+  BananaExperimental, EntradaTecnico, Indicadores, NivelCalculado, Senal, SnapshotTecnico, TipoNivel,
 } from './tipos';
 
 /** Parámetros fijos del Técnico. Los de PCP vienen del contrato (v0.4, sección 4.3); el resto son [PROPUESTA]. */
@@ -25,6 +27,9 @@ export const PARAMETROS_TECNICO = {
 } as const;
 
 const P = PARAMETROS_TECNICO;
+export const AVISO_SENALES =
+  'Las señales técnicas no son una recomendación ni una decisión: no anulan reglas obligatorias, el veto del Auditor ni tu autorización.';
+const EXPERIMENTAL = { experimental: true, genera_venta_automatica: false } as const;
 const VACIOS: Indicadores = {
   ema8: null, ema21: null, ema200_diaria: null, sma200_semanal: null, rsi14: null, adx14: null, mas_di14: null,
   menos_di14: null, macd: null, macd_senal: null, macd_hist: null, volatilidad_atr14_pct: null,
@@ -39,8 +44,13 @@ function noEvaluable(e: EntradaTecnico, motivo: string, dia: number, sem: number
     estado: 'NO_EVALUABLE', motivos: [motivo], ticker: e.ticker, fecha_evaluacion: e.fecha_evaluacion, fuente: e.fuente,
     ultima_vela_diaria: null, ultima_vela_semanal: null, velas_usadas: { diarias: dia, semanales: sem },
     indicadores: { ...VACIOS }, cierre_sobre_ema200_diaria: null, cierre_sobre_sma200_semanal: null,
-    senales: [], banana: { cumplida: null, detalle: 'No evaluable' }, niveles_calculados: [],
+    senales: [], banana: { cumplida: null, detalle: 'No evaluable', ...EXPERIMENTAL }, niveles_calculados: [],
     parametros: { ...P },
+    trazabilidad: construirTraza({
+      minimoGeneralDiarias: P.minimo_velas_diarias, diarias: dia, semanales: sem, fecha_calculo: e.fecha_evaluacion,
+      ultima_vela_diaria: null, ultima_vela_semanal: null, resultado: {}, causaGlobal: motivo,
+    }),
+    aviso: AVISO_SENALES,
   };
 }
 
@@ -90,17 +100,19 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
   const atr = finito(atrSeries(diarias, 14)[n - 1]);
   ind.volatilidad_atr14_pct = atr !== null && cierre !== 0 ? (atr / cierre) * 100 : null;
 
-  // Koncorde: necesita historial y volumen real (TradingCat guarda 0 si la fuente no manda volumen)
+  // Koncorde: necesita 120 velas y volumen real y positivo en todas ellas (TradingCat guarda 0 si la fuente no manda volumen).
+  // Un volumen cero, faltante o inválido en esa ventana lo deja NO_EVALUABLE; nunca se sustituye el volumen.
   const ventanaVol = diarias.slice(-P.minimo_velas_koncorde);
-  const hayVolumen = n >= P.minimo_velas_koncorde && ventanaVol.some(c => c.volume > 0);
-  if (hayVolumen) {
+  const sinVolumen = ventanaVol.filter(c => !(c.volume > 0)).length;
+  const koncordeOk = n >= P.minimo_velas_koncorde && sinVolumen === 0;
+  if (koncordeOk) {
     const k = ultimo(koncordeSeries(diarias));
     ind.koncorde_verde = finito(k?.verde); ind.koncorde_marron = finito(k?.marron);
     ind.koncorde_azul = finito(k?.azul); ind.koncorde_media = finito(k?.media);
   } else {
     motivos.push(n < P.minimo_velas_koncorde
       ? `koncorde: se necesitan ${P.minimo_velas_koncorde} velas diarias y hay ${n}`
-      : 'koncorde: la fuente no trae volumen en las últimas velas');
+      : `koncorde: volumen cero o inválido en ${sinVolumen} de las últimas ${P.minimo_velas_koncorde} velas`);
   }
 
   const mog = mogalefBandsSeries(diarias, P.mogalef_reg, P.mogalef_std, P.mogalef_mult);
@@ -142,8 +154,8 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
     senales.push({ id: 'MOGALEF_BANDA_INFERIOR', cumplida: null, detalle: 'Mogalef no disponible' });
   } else {
     senales.push({
-      id: 'MOGALEF_BANDA_INFERIOR', cumplida: cierre <= mogAyer.inf,
-      detalle: `Cierre ${fmt(cierre)} vs banda inferior vigente de la vela anterior ${fmt(mogAyer.inf)} (Mogalef ${P.mogalef_reg}, ${P.mogalef_std}, ${P.mogalef_mult})`,
+      id: 'MOGALEF_BANDA_INFERIOR', cumplida: cierre < mogAyer.inf,
+      detalle: `Cierre ${fmt(cierre)} vs banda inferior vigente de la vela anterior ${fmt(mogAyer.inf)}: ruptura = cierre < banda (Mogalef ${P.mogalef_reg}, ${P.mogalef_std}, ${P.mogalef_mult})`,
     });
   }
 
@@ -160,9 +172,12 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
         },
   );
 
-  const banana = semanales.length > 0
-    ? evaluarBanana(semanales, P.banana_multiplo, P.banana_ventana_semanas, P.banana_velas_bajistas)
-    : { cumplida: null, detalle: 'No evaluable: sin velas semanales válidas' };
+  const banana: BananaExperimental = {
+    ...(semanales.length > 0
+      ? evaluarBanana(semanales, P.banana_multiplo, P.banana_ventana_semanas, P.banana_velas_bajistas)
+      : { cumplida: null, detalle: 'No evaluable: sin velas semanales válidas' }),
+    ...EXPERIMENTAL,
+  };
 
   // --- Lista cerrada de niveles
   const crudos: { tipo: TipoNivel; precio: number; fecha: string | null }[] = [];
@@ -194,6 +209,20 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
   const niveles: NivelCalculado[] = crudos.map((c, i) => ({ id: `n${i + 1}`, tipo: c.tipo, precio: fmt(c.precio), fecha_origen: c.fecha }));
 
   const ultSem = ultimo(semanales);
+  const huboExtremos = diarias[0]!.time <= corte;
+  const resultado: Record<string, ResultadoIndicador> = {
+    EMA8: { ok: ind.ema8 !== null }, EMA21: { ok: ind.ema21 !== null }, EMA200: { ok: ind.ema200_diaria !== null },
+    SMA200_SEMANAL: { ok: ind.sma200_semanal !== null, causa: errSem ? `velas semanales inválidas: ${errSem}` : undefined },
+    RSI14: { ok: ind.rsi14 !== null },
+    MACD: { ok: ind.macd !== null && ind.macd_senal !== null && ind.macd_hist !== null },
+    ADX14: { ok: ind.adx14 !== null && ind.mas_di14 !== null && ind.menos_di14 !== null },
+    ATR14: { ok: ind.volatilidad_atr14_pct !== null },
+    KONCORDE: { ok: koncordeOk, causa: n >= P.minimo_velas_koncorde && !koncordeOk ? `volumen cero o inválido en ${sinVolumen} de las últimas ${P.minimo_velas_koncorde} velas` : undefined },
+    MOGALEF: { ok: ind.mogalef_inferior !== null && mogAyer?.inf != null },
+    PIVOTES: { ok: ventana.length >= 2 * P.pivote_velas_por_lado + 1 },
+    EXTREMOS_52_SEMANAS: { ok: huboExtremos, causa: huboExtremos ? undefined : 'el historial diario no cubre 52 semanas' },
+    BANANA_SEM07: { ok: banana.cumplida !== null, causa: errSem ? `velas semanales inválidas: ${errSem}` : banana.detalle },
+  };
   return {
     estado: motivos.length === 0 ? 'completo' : 'parcial',
     motivos, ticker: e.ticker, fecha_evaluacion: e.fecha_evaluacion, fuente: e.fuente,
@@ -204,5 +233,11 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
     cierre_sobre_ema200_diaria: ind.ema200_diaria === null ? null : cierre > ind.ema200_diaria,
     cierre_sobre_sma200_semanal: ind.sma200_semanal === null ? null : cierre > ind.sma200_semanal,
     senales, banana, niveles_calculados: niveles, parametros: { ...P },
+    trazabilidad: construirTraza({
+      minimoGeneralDiarias: P.minimo_velas_diarias, diarias: n, semanales: semanales.length,
+      fecha_calculo: e.fecha_evaluacion, ultima_vela_diaria: fechaDeVela(ult.time),
+      ultima_vela_semanal: ultSem ? fechaDeVela(ultSem.time) : null, resultado,
+    }),
+    aviso: AVISO_SENALES,
   };
 }

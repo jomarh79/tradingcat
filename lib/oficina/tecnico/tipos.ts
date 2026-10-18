@@ -84,6 +84,23 @@ export interface Indicadores {
   mogalef_centro: Valor;
 }
 
+/** Registro por indicador (contrato Técnico, sección 9). */
+export interface TrazaIndicador {
+  indicador: string;
+  temporalidad: 'diaria' | 'semanal';
+  parametros: Record<string, number>;
+  velas_disponibles: number;
+  velas_requeridas: number | null;
+  estado: 'calculado' | 'NO_EVALUABLE';
+  /** null si se calculó; si no, la causa del NO_EVALUABLE. */
+  causa: string | null;
+  fecha_calculo: string;
+  ultima_vela: string | null;
+}
+
+/** Banana siempre experimental: el factor 2x espera Backtesting y nunca genera una venta automática. */
+export type BananaExperimental = Banana & { experimental: true; genera_venta_automatica: false };
+
 export interface SnapshotTecnico {
   estado: 'completo' | 'parcial' | 'NO_EVALUABLE';
   /** Si es NO_EVALUABLE: la causa. Si es parcial: lo que no se pudo calcular. */
@@ -98,10 +115,13 @@ export interface SnapshotTecnico {
   cierre_sobre_ema200_diaria: boolean | null;
   cierre_sobre_sma200_semanal: boolean | null;
   senales: Senal[];
-  banana: Banana;
+  banana: BananaExperimental;
   niveles_calculados: NivelCalculado[];
   /** Parámetros usados, para trazabilidad. */
   parametros: Record<string, number>;
+  trazabilidad: TrazaIndicador[];
+  /** Las señales técnicas no son recomendaciones del agente ni decisiones del Motor. */
+  aviso: string;
 }
 
 /** Salida del agente (modelo): los precios solo pueden ser niveles de `niveles_calculados`. */

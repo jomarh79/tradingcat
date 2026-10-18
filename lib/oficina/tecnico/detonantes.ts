@@ -15,6 +15,7 @@ export interface Detonante {
   senales_cumplidas: IdSenal[];
   senales_no_evaluables: IdSenal[];    // no se cuentan como cumplidas ni como incumplidas
   discrecionales_pendientes: string[]; // las confirmas tú
+  aviso: string;
 }
 
 export function detonantePara(snapshot: SnapshotTecnico, uso: UsoSenales): Detonante {
@@ -30,5 +31,8 @@ export function detonantePara(snapshot: SnapshotTecnico, uso: UsoSenales): Deton
     senales_cumplidas: cumplidas,
     senales_no_evaluables: noEval,
     discrecionales_pendientes: uso === 'dca_plp' ? ['figura chartista'] : ['MACD', 'figura chartista'],
+    aviso: uso === 'dca_plp'
+      ? 'La sobreventa (RSI ≤ 30) es una condición técnica, no una orden de compra: siguen aplicando calidad, tesis, valoración, riesgo, capital y tu autorización.'
+      : 'Señal técnica: no autoriza por sí sola una operación ni anula reglas obligatorias, el veto del Auditor o tu autorización.',
   };
 }

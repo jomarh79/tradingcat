@@ -333,3 +333,101 @@ describe('validación de la salida del modelo', () => {
     expect(validarSalidaTecnico(buena, []).ok).toBe(false);
   });
 });
+
+describe('especificación técnica de indicadores (17-oct)', () => {
+  const traza = (r: SnapshotTecnico, id: string) => r.trazabilidad.find(t => t.indicador === id)!;
+
+  it('Koncorde: un solo volumen cero dentro de las últimas 120 velas lo deja NO_EVALUABLE; RSI, ATR y demás siguen', () => {
+    const d = caminata(300).map((c, i) => (i === 250 ? { ...c, volume: 0 } : c));
+    const r = calcularTecnico(entrada(d));
+    expect(r.indicadores.koncorde_verde).toBeNull();
+    expect(sen(r, 'KONCORDE_BAJO_CERO').cumplida).toBeNull();
+    expect(traza(r, 'KONCORDE').estado).toBe('NO_EVALUABLE');
+    expect(traza(r, 'KONCORDE').causa).toContain('volumen cero');
+    expect(r.indicadores.rsi14).not.toBeNull();
+    expect(r.indicadores.volatilidad_atr14_pct).not.toBeNull();
+    expect(traza(r, 'RSI14').estado).toBe('calculado');
+  });
+  it('Koncorde: un volumen cero anterior a las últimas 120 velas no lo invalida', () => {
+    const d = caminata(300).map((c, i) => (i === 10 ? { ...c, volume: 0 } : c));
+    expect(calcularTecnico(entrada(d)).indicadores.koncorde_verde).not.toBeNull();
+  });
+
+  it('Mogalef: la ruptura es estricta; un cierre igual a la banda anterior no es ruptura, uno apenas debajo sí', () => {
+    const base = caminata(60);
+    const infAyer = mogalefBandsSeries(base, 10, 30, 1.5)[base.length - 1]!.inf!;
+    const con = (close: number) => {
+      const ultima: Candle = { time: T0 + 60 * DIA, open: infAyer + 0.3, high: infAyer + 0.5, low: Math.min(close, infAyer) - 0.5, close, volume: 1000 };
+      return sen(calcularTecnico(entrada([...base, ultima])), 'MOGALEF_BANDA_INFERIOR').cumplida;
+    };
+    expect(con(infAyer)).toBe(false);
+    expect(con(infAyer - 0.0001)).toBe(true);
+  });
+
+  it('pivotes: con máximos iguales dentro de las 5 velas no hay pivote (empate = sin pivote)', () => {
+    const v = Array.from({ length: 21 }, (_, i) => vela(i, 100));
+    v[10] = { ...v[10]!, high: 110 };
+    v[12] = { ...v[12]!, high: 110 };
+    expect(pivotes(v, 5).altos.length).toBe(0);
+    v[12] = { ...v[12]!, high: 105 };
+    expect(pivotes(v, 5).altos.map(p => p.precio)).toEqual([110]);
+  });
+
+  it('trazabilidad: una fila por indicador con parámetros, temporalidad, fecha de cálculo, datos y estado', () => {
+    const r = calcularTecnico(entrada(caminata(300), caminata(300)));
+    expect(r.trazabilidad.map(t => t.indicador)).toEqual([
+      'EMA8', 'EMA21', 'EMA200', 'SMA200_SEMANAL', 'RSI14', 'MACD', 'ADX14', 'ATR14', 'KONCORDE', 'MOGALEF', 'PIVOTES', 'EXTREMOS_52_SEMANAS', 'BANANA_SEM07',
+    ]);
+    const m = traza(r, 'MOGALEF');
+    expect(m.parametros).toEqual({ regresion: 10, desviacion: 30, multiplicador: 1.5 });
+    expect(m.temporalidad).toBe('diaria');
+    expect(m.fecha_calculo).toBe('2026-10-14');
+    expect(m.velas_disponibles).toBe(300);
+    expect(m.causa).toBeNull();
+    expect(traza(r, 'SMA200_SEMANAL').temporalidad).toBe('semanal');
+    expect(traza(r, 'SMA200_SEMANAL').velas_disponibles).toBe(300);
+  });
+  it('trazabilidad: lo que no alcanza queda NO_EVALUABLE con su causa; el mínimo general de 35 velas aplica a lo diario', () => {
+    const r = calcularTecnico(entrada(caminata(100), caminata(40)));
+    expect(traza(r, 'EMA200').estado).toBe('NO_EVALUABLE');
+    expect(traza(r, 'EMA200').causa).toContain('200');
+    expect(traza(r, 'EMA8').velas_requeridas).toBe(35);
+    expect(traza(r, 'SMA200_SEMANAL').estado).toBe('NO_EVALUABLE');
+    expect(traza(r, 'BANANA_SEM07').estado).toBe('NO_EVALUABLE');
+    expect(traza(r, 'RSI14').estado).toBe('calculado');
+  });
+  it('con menos de 35 velas diarias cada indicador queda NO_EVALUABLE con la causa global', () => {
+    const r = calcularTecnico(entrada(caminata(20)));
+    expect(r.trazabilidad.length).toBe(13);
+    expect(r.trazabilidad.every(t => t.estado === 'NO_EVALUABLE' && (t.causa ?? '').includes('historial_diario_insuficiente'))).toBe(true);
+  });
+
+  it('banana: siempre experimental y sin venta automática, también cuando no se evalúa', () => {
+    const a = calcularTecnico(entrada(caminata(100)));
+    expect(a.banana.experimental).toBe(true);
+    expect(a.banana.genera_venta_automatica).toBe(false);
+    const b = calcularTecnico(entrada(caminata(10)));
+    expect(b.banana.experimental).toBe(true);
+    expect(b.banana.genera_venta_automatica).toBe(false);
+  });
+  it('banana: no entra en ningún detonante de decisión', () => {
+    const r = calcularTecnico(entrada(caminata(300), caminata(80)));
+    for (const uso of ['apertura_pcp', 'recompra_pcp', 'dca_plp'] as const) {
+      expect(JSON.stringify(detonantePara(r, uso))).not.toContain('BANANA');
+    }
+  });
+
+  it('una vela semanal en formación se descarta igual que la diaria', () => {
+    const s = caminata(60);
+    const r = calcularTecnico(entrada(caminata(100), s, { ultima_vela_semanal_cerrada: false }));
+    expect(r.velas_usadas.semanales).toBe(59);
+    expect(traza(r, 'BANANA_SEM07').velas_disponibles).toBe(59);
+  });
+
+  it('la sobreventa del PLP se declara como condición técnica, no como orden de compra; toda señal lleva el aviso', () => {
+    const r = calcularTecnico(entrada(caminata(300)));
+    expect(detonantePara(r, 'dca_plp').aviso).toContain('no una orden de compra');
+    expect(detonantePara(r, 'apertura_pcp').aviso).toContain('no autoriza');
+    expect(r.aviso).toContain('no son una recomendación ni una decisión');
+  });
+});
