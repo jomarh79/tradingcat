@@ -129,23 +129,25 @@ export function nextTimes(
   }
 }
 
-export type ProjPoint = { time: number; value: number }
+export const PROJECTION_Z = 1   // alto/bajo de cada vela = tendencia ± Z desviaciones (1 ≈ 68 % de probabilidad)
+
+export type ProjCandle = { time: number; open: number; high: number; low: number; close: number }
 export interface Projection {
-  center: ProjPoint[]   // línea central (tendencia atenuada por el régimen)
-  upper1: ProjPoint[]   // +1σ
-  lower1: ProjPoint[]   // -1σ
-  upper2: ProjPoint[]   // +2σ
-  lower2: ProjPoint[]   // -2σ
+  candles: ProjCandle[]   // 5 velas proyectadas
   info: { adx: number | null; factor: number; sigma: number; slope: number }
 }
 
-// Arma la proyección. Todas las líneas arrancan en el último cierre real (sin hueco ni salto).
-// Cono: ±z·σ·√k  (σ = desviación de los cambios por vela; la incertidumbre crece con la raíz de k).
+// Arma las velas proyectadas.
+//  · Cuerpo: de la tendencia (atenuada por el régimen ADX) de la vela anterior a la de esta vela.
+//  · Mecha superior = escenario optimista, mecha inferior = escenario pesimista:
+//    tendencia ± Z·σ·√k  (σ = desviación de los cambios por vela; la incertidumbre crece con √k).
+// La primera vela abre en el último cierre real, así no hay hueco con las velas reales.
 export function buildProjection(
   candles: Candle[],
   interval: ProjectionInterval,
   bars = PROJECTION_BARS,
   sample = PROJECTION_SAMPLE,
+  z = PROJECTION_Z,
 ): Projection | null {
   if (candles.length < 10) return null
   const closes = candles.map(c => c.close)
@@ -161,18 +163,18 @@ export function buildProjection(
   const factor = regimeFactor(adxLast)
   const effSlope = slope * factor
 
-  const last = candles[candles.length - 1]
-  const make = (f: (k: number) => number): ProjPoint[] => [
-    { time: last.time, value: last.close },
-    ...times.map((time, i) => ({ time, value: f(i + 1) })),
-  ]
+  const base = candles[candles.length - 1].close
+  const out: ProjCandle[] = times.map((time, i) => {
+    const k = i + 1
+    const open = base + effSlope * (k - 1)
+    const close = base + effSlope * k
+    const reach = z * sigma * Math.sqrt(k)
+    return {
+      time, open, close,
+      high: Math.max(open, close + reach),
+      low: Math.min(open, close - reach),
+    }
+  })
 
-  return {
-    center: make(k => last.close + effSlope * k),
-    upper1: make(k => last.close + effSlope * k + sigma * Math.sqrt(k)),
-    lower1: make(k => last.close + effSlope * k - sigma * Math.sqrt(k)),
-    upper2: make(k => last.close + effSlope * k + 2 * sigma * Math.sqrt(k)),
-    lower2: make(k => last.close + effSlope * k - 2 * sigma * Math.sqrt(k)),
-    info: { adx: adxLast, factor, sigma, slope },
-  }
+  return { candles: out, info: { adx: adxLast, factor, sigma, slope } }
 }

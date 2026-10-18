@@ -870,7 +870,7 @@ const projection = useMemo(
     }
   }, [chartData, interval, showMogalef])
 
-  // EFECTO 5b — Proyección: línea central + cono de volatilidad (±1σ y ±2σ)
+  // EFECTO 5b — Proyección: 5 velas amarillas (mecha alta = optimista, baja = pesimista)
 useEffect(() => {
   const chart = chartRef.current
   if (!chart) return
@@ -879,18 +879,14 @@ useEffect(() => {
   projectionSeriesRef.current = []
   if (!projection) return
 
-  const add = (data: any[], opts: any) => {
-    const s = chart.addSeries(LineSeries, {
-      priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false, ...opts,
-    })
-    s.setData(data as any)
-    projectionSeriesRef.current.push(s)
-  }
-  add(projection.upper2, { color: 'rgba(251,191,36,0.45)', lineWidth: 1, lineStyle: 2 })
-  add(projection.lower2, { color: 'rgba(251,191,36,0.45)', lineWidth: 1, lineStyle: 2 })
-  add(projection.upper1, { color: '#fbbf24', lineWidth: 1, lineStyle: 2 })
-  add(projection.lower1, { color: '#fbbf24', lineWidth: 1, lineStyle: 2 })
-  add(projection.center, { color: C.accent, lineWidth: 2, lineStyle: 2, lastValueVisible: true, title: 'Proy. 5V' })
+  const series = chart.addSeries(CandlestickSeries, {
+    upColor: '#fbbf24', downColor: 'rgba(251,191,36,0.3)',
+    borderUpColor: '#fbbf24', borderDownColor: '#fbbf24',
+    wickUpColor: '#fbbf24', wickDownColor: '#fbbf24',
+    borderVisible: true, priceLineVisible: false, lastValueVisible: false,
+  })
+  series.setData(projection.candles as any)
+  projectionSeriesRef.current = [series]
 }, [projection])
 
   // ══════════════════════════════════════════════════════════════════════
@@ -1204,9 +1200,9 @@ useEffect(() => {
           ))}
           {projection && (
   <span>
-    <span style={{ color: C.accent }}>╌╌</span> Proyección 5 velas <span style={{ color: '#fbbf24' }}>╌╌</span> ±1σ / ±2σ
+    <span style={{ color: '#fbbf24' }}>▮</span> Proyección 5 velas (mecha alta = optimista, baja = pesimista, ±1σ)
     {' '}· ADX {projection.info.adx != null ? projection.info.adx.toFixed(0) : '—'}
-    {projection.info.factor < 1 ? ` → ${projection.info.factor === 0 ? 'rango lateral, línea plana' : 'tendencia débil, pendiente atenuada'}` : ' → tendencia clara'}
+    {projection.info.factor < 1 ? ` → ${projection.info.factor === 0 ? 'rango lateral, tendencia plana' : 'tendencia débil, pendiente atenuada'}` : ' → tendencia clara'}
   </span>
 )}
         </div>
