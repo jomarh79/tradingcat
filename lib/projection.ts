@@ -10,6 +10,13 @@ export const PROJECTION_BARS = 5      // velas hacia adelante
 export const PROJECTION_SAMPLE = 30   // cierres reales usados en la regresión
 export const HALF_LIFE = 10           // velas: el peso de una vela se reduce a la mitad cada 10 velas atrás
 export const ADX_FLAT = 18            // ADX <= 18  → sin tendencia: pendiente = 0
+export const EWMA_LAMBDA = 0.94       // volatilidad condicional (RiskMetrics): reacciona rápido a rachas de volatilidad
+export const ATR_PERIOD = 14
+export const ATR_TO_SIGMA = 1.6       // en un movimiento browniano el rango esperado de una vela ≈ 1.6σ
+export const SKEW_BLEND = 0.5         // qué tanto se confía en la asimetría medida (0 = simétrico, 1 = completa)
+export const SKEW_MIN = 0.8           // límites del sesgo para no distorsionar el cono con muestras chicas
+export const SKEW_MAX = 1.25
+export const LEVEL_PASS = 0.35        // de lo que la mecha se pasaría de un soporte/resistencia, solo se conserva el 35 %
 export const ADX_FULL = 25            // ADX >= 25  → tendencia clara: pendiente completa (entre 18 y 25 se atenúa gradualmente)
 
 const DAY = 86400
@@ -30,15 +37,71 @@ export function trendSlope(closes: number[], sample = PROJECTION_SAMPLE, halfLif
   return den === 0 ? null : (sw * swxy - swx * swy) / den
 }
 
-// Desviación estándar de los cambios de cierre a cierre (precio por vela) en la muestra.
-export function stepSigma(closes: number[], sample = PROJECTION_SAMPLE): number | null {
-  const ys = closes.slice(-sample).filter(v => Number.isFinite(v))
-  if (ys.length < 6) return null
+export interface Volatility {
+  sigma: number      // σ por vela que se usa en el cono = el mayor entre EWMA y ATR equivalente
+  ewma: number       // σ condicional (EWMA) de los cambios de cierre
+  atrSigma: number   // ATR(14) convertido a σ; incluye gaps y mechas reales
+  upMul: number      // multiplicador de la mecha superior (asimetría)
+  downMul: number    // multiplicador de la mecha inferior (asimetría)
+}
+
+// Volatilidad por vela a partir de las últimas velas.
+//  · EWMA de los cambios de cierre (pondera más lo reciente → reacciona a cambios de volatilidad).
+//  · ATR de Wilder (rango verdadero: incluye gaps y mechas) / 1.6.
+//  · σ final = el mayor de los dos, para que las mechas no subestimen el rango real.
+//  · Asimetría: semidesviaciones de los cambios SIN la tendencia (media removida), mezcladas
+//    con 1 y acotadas, porque con ~30 datos la medición es ruidosa.
+export function volatility(candles: Candle[], sample = PROJECTION_SAMPLE): Volatility | null {
+  const recent = candles.slice(-sample).filter(c => Number.isFinite(c.close))
+  if (recent.length < 6) return null
+
   const d: number[] = []
-  for (let i = 1; i < ys.length; i++) d.push(ys[i] - ys[i - 1])
-  const mean = d.reduce((a, b) => a + b, 0) / d.length
-  const variance = d.reduce((a, b) => a + (b - mean) ** 2, 0) / (d.length - 1)
-  return Math.sqrt(variance)
+  for (let i = 1; i < recent.length; i++) d.push(recent[i].close - recent[i - 1].close)
+
+  // EWMA
+  const seedN = Math.min(10, d.length)
+  let v = d.slice(0, seedN).reduce((a, x) => a + x * x, 0) / seedN
+  for (let i = 0; i < d.length; i++) v = EWMA_LAMBDA * v + (1 - EWMA_LAMBDA) * d[i] * d[i]
+  const ewma = Math.sqrt(v)
+
+  // ATR de Wilder sobre las últimas 100 velas
+  const tail = candles.slice(-100)
+  const tr: number[] = []
+  for (let i = 1; i < tail.length; i++) {
+    const c = tail[i], pc = tail[i - 1].close
+    tr.push(Math.max(c.high - c.low, Math.abs(c.high - pc), Math.abs(c.low - pc)))
+  }
+  let atr = 0
+  if (tr.length >= ATR_PERIOD) {
+    atr = tr.slice(0, ATR_PERIOD).reduce((a, x) => a + x, 0) / ATR_PERIOD
+    for (let i = ATR_PERIOD; i < tr.length; i++) atr = (atr * (ATR_PERIOD - 1) + tr[i]) / ATR_PERIOD
+  }
+  const atrSigma = atr / ATR_TO_SIGMA
+
+  const sigma = Math.max(ewma, atrSigma)
+  if (!(sigma > 0)) return null
+
+  // Asimetría
+  const mean = d.reduce((a, x) => a + x, 0) / d.length
+  let up2 = 0, dn2 = 0
+  for (const x of d) { const e = x - mean; if (e > 0) up2 += e * e; else dn2 += e * e }
+  const avg = Math.sqrt((up2 + dn2) / (2 * d.length))
+  const raw = (x: number) => (avg > 0 ? Math.sqrt(x / d.length) / avg : 1)
+  const mix = (r: number) => Math.min(SKEW_MAX, Math.max(SKEW_MIN, 1 + SKEW_BLEND * (r - 1)))
+
+  return { sigma, ewma, atrSigma, upMul: mix(raw(up2)), downMul: mix(raw(dn2)) }
+}
+
+// Acota una mecha contra los niveles clave: lo que se pase de un nivel se comprime (no es un muro duro,
+// porque los soportes/resistencias se rompen; solo se "desacelera" el cruce).
+function softClamp(value: number, anchor: number, levels: number[], dir: 1 | -1): number {
+  const level = dir === 1
+    ? levels.filter(l => l > anchor).sort((a, b) => a - b)[0]
+    : levels.filter(l => l < anchor).sort((a, b) => b - a)[0]
+  if (level === undefined) return value
+  const past = dir === 1 ? value - level : level - value
+  if (past <= 0) return value
+  return level + dir * past * LEVEL_PASS
 }
 
 // Factor 0..1 según la fuerza de tendencia (ADX): rango lateral → 0, tendencia clara → 1.
@@ -134,13 +197,14 @@ export const PROJECTION_Z = 1   // alto/bajo de cada vela = tendencia ± Z desvi
 export type ProjCandle = { time: number; open: number; high: number; low: number; close: number }
 export interface Projection {
   candles: ProjCandle[]   // 5 velas proyectadas
-  info: { adx: number | null; factor: number; sigma: number; slope: number }
+  info: { adx: number | null; factor: number; slope: number } & Volatility
 }
 
 // Arma las velas proyectadas.
 //  · Cuerpo: de la tendencia (atenuada por el régimen ADX) de la vela anterior a la de esta vela.
 //  · Mecha superior = escenario optimista, mecha inferior = escenario pesimista:
-//    tendencia ± Z·σ·√k  (σ = desviación de los cambios por vela; la incertidumbre crece con √k).
+//    tendencia ± Z·σ·√k, con σ = max(EWMA, ATR) y un sesgo según la asimetría de los cambios.
+//  · Si se pasan `levels` (soportes/resistencias), las mechas se comprimen al cruzarlos.
 // La primera vela abre en el último cierre real, así no hay hueco con las velas reales.
 export function buildProjection(
   candles: Candle[],
@@ -148,12 +212,13 @@ export function buildProjection(
   bars = PROJECTION_BARS,
   sample = PROJECTION_SAMPLE,
   z = PROJECTION_Z,
+  levels: number[] = [],     // soportes/resistencias (opcional) para acotar las mechas
 ): Projection | null {
   if (candles.length < 10) return null
   const closes = candles.map(c => c.close)
   const slope = trendSlope(closes, sample)
-  const sigma = stepSigma(closes, sample)
-  if (slope === null || sigma === null) return null
+  const vol = volatility(candles, sample)
+  if (slope === null || vol === null) return null
 
   const times = nextTimes(candles, interval, bars)
   if (times.length < bars) return null
@@ -168,13 +233,15 @@ export function buildProjection(
     const k = i + 1
     const open = base + effSlope * (k - 1)
     const close = base + effSlope * k
-    const reach = z * sigma * Math.sqrt(k)
+    const reach = z * vol.sigma * Math.sqrt(k)
+    const rawHigh = close + reach * vol.upMul
+    const rawLow  = close - reach * vol.downMul
     return {
       time, open, close,
-      high: Math.max(open, close + reach),
-      low: Math.min(open, close - reach),
+      high: Math.max(open, close, softClamp(rawHigh, close, levels, 1)),
+      low:  Math.min(open, close, softClamp(rawLow,  close, levels, -1)),
     }
   })
 
-  return { candles: out, info: { adx: adxLast, factor, sigma, slope } }
+  return { candles: out, info: { adx: adxLast, factor, slope, ...vol } }
 }

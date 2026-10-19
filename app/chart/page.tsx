@@ -556,10 +556,11 @@ function ChartPageInner() {
   const emaTableRows = useMemo(() => buildMaRows(EMA_KEYS, emaDailyData, currentDailyPrice), [emaDailyData, currentDailyPrice])
   const smaTableRows = useMemo(() => buildMaRows(SMA_KEYS, smaWeeklyData, currentDailyPrice), [smaWeeklyData, currentDailyPrice])
 
-const projection = useMemo(
-  () => (showProjection && chartData ? buildProjection(chartData.candles, interval) : null),
-  [showProjection, chartData, interval]
-)
+const projection = useMemo(() => {
+  if (!showProjection || !chartData) return null
+  const { resistances, supports } = computePivots(chartData.candles)
+  return buildProjection(chartData.candles, interval, 5, 30, 1, [...resistances, ...supports])
+}, [showProjection, chartData, interval])
 
   // ══════════════════════════════════════════════════════════════════════
   // EFECTO 1 — Gráfico base: velas, volumen, medias móviles, soportes/resistencias.
