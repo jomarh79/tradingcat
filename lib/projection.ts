@@ -7,7 +7,7 @@ import { adxSeries, type Candle } from './indicators'
 export type ProjectionInterval = '45min' | '1day' | '1week' | '1month'
 
 export const PROJECTION_BARS = 5      // velas hacia adelante
-export const PROJECTION_SAMPLE = 30   // cierres reales usados en la regresión
+export const PROJECTION_SAMPLE = 21   // cierres reales usados en la regresión
 export const HALF_LIFE = 10           // velas: el peso de una vela se reduce a la mitad cada 10 velas atrás
 export const ADX_FLAT = 18            // ADX <= 18  → sin tendencia: pendiente = 0
 export const EWMA_LAMBDA = 0.94       // volatilidad condicional (RiskMetrics): reacciona rápido a rachas de volatilidad
