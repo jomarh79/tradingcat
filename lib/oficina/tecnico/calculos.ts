@@ -73,6 +73,29 @@ export function pivotes(velas: Candle[], n = 5): { altos: Pivote[]; bajos: Pivot
   return { altos, bajos };
 }
 
+/** Sobrecompra técnica de la salida del PCP: RSI(14) diario >= umbral (el 70 cuenta). null si no hay RSI: nunca se rellena con false. */
+export function rsiSobrecompra(rsi: number | null, umbral: number): boolean | null {
+  return rsi === null ? null : rsi >= umbral;
+}
+
+/** Margen para el error de coma flotante al comparar contra el borde de la tolerancia (por ejemplo 20.3 - 20 = 0.3000000000000007).
+ *  Es mucho menor que cualquier diferencia real entre precios; solo evita que un cierre exactamente en el 1.5% quede fuera. */
+const EPS_BORDE = 1e-9;
+
+/** Pivote más cercano al cierre dentro de ±tolerancia (fracción del precio del pivote, 0.015 = 1.5%; el borde cuenta: ≤). null si ninguno entra.
+ *  Con dos a igual distancia gana el más antiguo. Se evalúa contra la lista completa que se le pasa, no solo contra los 3 de la lista cerrada. */
+export function pivoteCercano(cierre: number, lista: Pivote[], tolerancia: number): Pivote | null {
+  let mejor: Pivote | null = null;
+  let mejorDist = Infinity;
+  for (const p of lista) {
+    const dif = Math.abs(cierre - p.precio);
+    if (dif > p.precio * tolerancia + EPS_BORDE) continue;
+    const dist = p.precio === 0 ? 0 : dif / p.precio;
+    if (dist < mejorDist) { mejor = p; mejorDist = dist; }
+  }
+  return mejor;
+}
+
 /** Banana de Semilla (SEM-07). [PROPUESTA de lectura; el umbral 2x está pendiente de Backtesting.]
  *  Ventana = las 52 semanas anteriores a las 3 últimas velas semanales.
  *  Pico = máximo (high) de la ventana. Mínimo previo = mínimo (low) de la ventana ANTES del pico.

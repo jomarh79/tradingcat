@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { adxSeries, macdSeries, rsiSeries, mogalefBandsSeries, koncordeSeries } from '../../indicators';
 import type { Candle } from '../../indicators';
 import {
-  atrSeries, calcularTecnico, detonantePara, evaluarBanana, pivotes, validarSalidaTecnico, validarVelas,
+  PARAMETROS_TECNICO, SENALES_POR_USO, atrSeries, calcularTecnico, detonantePara, evaluarBanana, pivotes, rsiSobrecompra, validarSalidaTecnico, validarVelas,
 } from './index';
 import type { EntradaTecnico, SalidaTecnicoModelo, SnapshotTecnico } from './index';
 
@@ -167,19 +167,173 @@ describe('señales de PCP-10 / PCP-04', () => {
     const bajo = [i.koncorde_verde, i.koncorde_marron, i.koncorde_azul].some(v => (v as number) < 0);
     expect(sen(r, 'KONCORDE_BAJO_CERO').cumplida).toBe(bajo);
   });
-  it('Soporte pasado: el cierre vuelve a ±1.5% de un pivote de soporte; a 5% no', () => {
+  it('Nivel pasado (soporte): el cierre vuelve a ±1.5% de un pivote de mínimo; a 5% no', () => {
     const tramo = (desde: number, hasta: number, pasos: number, i0: number) =>
       Array.from({ length: pasos }, (_, k) => vela(i0 + k, desde + ((hasta - desde) * k) / (pasos - 1)));
-    const base = [...tramo(110, 90, 40, 0), ...tramo(90.5, 110, 40, 40)];           // suelo ~90 (low 89.5)
+    const base = [...tramo(110, 90, 40, 0), ...tramo(90.5, 110, 40, 40)];           // suelo ~90 (low 89.5); techo ~110 (high 110.5)
     const cerca = [...base, ...tramo(108, 90.8, 20, 80)];
     const lejos = [...base, ...tramo(108, 95, 20, 80)];
     const rc = calcularTecnico(entrada(cerca)), rl = calcularTecnico(entrada(lejos));
-    expect(sen(rc, 'SOPORTE_PASADO').cumplida).toBe(true);
-    expect(sen(rl, 'SOPORTE_PASADO').cumplida).toBe(false);
+    expect(sen(rc, 'NIVEL_PASADO').cumplida).toBe(true);
+    expect(sen(rl, 'NIVEL_PASADO').cumplida).toBe(false);
+    expect(sen(rc, 'NIVEL_PASADO').detalle).toContain('mínimo');
   });
-  it('sin pivotes confirmados, la señal de soporte queda sin evaluar (null)', () => {
+  it('Nivel pasado (resistencia): el cierre a ±1.5% de un pivote de máximo también cuenta; a 5% no', () => {
+    const tramo = (desde: number, hasta: number, pasos: number, i0: number) =>
+      Array.from({ length: pasos }, (_, k) => vela(i0 + k, desde + ((hasta - desde) * k) / (pasos - 1)));
+    const base = [...tramo(110, 90, 40, 0), ...tramo(90.5, 110, 40, 40)];           // techo en la vela 79 (high 110.5)
+    const cerca = [...base, ...tramo(108, 109.5, 20, 80)];                          // cierre 109.5: a 0.9% del techo
+    const lejos = [...base, ...tramo(108, 100, 20, 80)];                            // cierre 100: a 9.5% del techo y a 11% del suelo
+    expect(sen(calcularTecnico(entrada(cerca)), 'NIVEL_PASADO').cumplida).toBe(true);
+    expect(sen(calcularTecnico(entrada(cerca)), 'NIVEL_PASADO').detalle).toContain('máximo');
+    expect(sen(calcularTecnico(entrada(lejos)), 'NIVEL_PASADO').cumplida).toBe(false);
+  });
+  it('SOPORTE_PASADO ya no existe: NIVEL_PASADO lo reemplaza', () => {
+    const ids = calcularTecnico(entrada(caminata(300))).senales.map(s => s.id);
+    expect(ids).not.toContain('SOPORTE_PASADO');
+    expect(ids).toEqual([
+      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO',
+      'RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA',
+    ]);
+  });
+  it('sin pivotes confirmados, NIVEL_PASADO y RESISTENCIA_PASADA quedan sin evaluar (null)', () => {
     const sube = Array.from({ length: 60 }, (_, i) => vela(i, 100 + i));
-    expect(sen(calcularTecnico(entrada(sube)), 'SOPORTE_PASADO').cumplida).toBeNull();
+    const r = calcularTecnico(entrada(sube));
+    expect(sen(r, 'NIVEL_PASADO').cumplida).toBeNull();
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBeNull();
+  });
+});
+
+describe('nivel pasado y resistencia pasada: tolerancia ±1.5% y alcance', () => {
+  /** 40 velas planas en `base` (todas con el mismo máximo y mínimo: los empates no son pivote) con un único pivote en la vela 20
+   *  (un pico de máximo `alto` o un foso de mínimo `bajo`) y una vela final con el cierre dado. */
+  const planas = (base: number) => Array.from({ length: 40 }, (_, i) => vela(i, base));
+  const conPico = (base: number, alto: number, cierreFinal: number): Candle[] => {
+    const v = planas(base);
+    v[20] = { ...v[20]!, high: alto };
+    v.push({ time: T0 + 40 * DIA, open: base, high: Math.max(cierreFinal, base) + 0.5, low: base - 0.5, close: cierreFinal, volume: 1000 });
+    return v;
+  };
+  const conFoso = (base: number, bajo: number, cierreFinal: number): Candle[] => {
+    const v = planas(base);
+    v[20] = { ...v[20]!, low: bajo };
+    v.push({ time: T0 + 40 * DIA, open: cierreFinal, high: cierreFinal + 0.5, low: cierreFinal - 0.5, close: cierreFinal, volume: 1000 });
+    return v;
+  };
+  const nivel = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'NIVEL_PASADO').cumplida;
+  const resistencia = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'RESISTENCIA_PASADA').cumplida;
+
+  it('el borde del 1.5% cuenta (≤) por ambos lados del pivote de máximo y justo fuera no', () => {
+    for (const [cierre, esperado] of [[203, true], [197, true], [203.01, false], [196.99, false]] as const) {
+      expect(nivel(conPico(10, 200, cierre))).toBe(esperado);
+      expect(resistencia(conPico(10, 200, cierre))).toBe(esperado);
+    }
+  });
+  it('el borde cuenta también cuando la resta en coma flotante se pasa por un error mínimo (20 → 20.3 y 19.7)', () => {
+    for (const [cierre, esperado] of [[20.3, true], [19.7, true], [20.31, false], [19.69, false]] as const) {
+      expect(nivel(conPico(10, 20, cierre))).toBe(esperado);
+      expect(resistencia(conPico(10, 20, cierre))).toBe(esperado);
+    }
+  });
+  it('el borde del 1.5% cuenta también con un pivote de mínimo', () => {
+    for (const [cierre, esperado] of [[50.75, true], [49.25, true], [50.76, false], [49.24, false]] as const) {
+      expect(nivel(conFoso(100, 50, cierre))).toBe(esperado);
+    }
+  });
+  it('con solo pivotes de mínimo, NIVEL_PASADO se evalúa y RESISTENCIA_PASADA queda sin evaluar (null), no false', () => {
+    const d = conFoso(100, 50, 50.5);
+    expect(nivel(d)).toBe(true);
+    expect(resistencia(d)).toBeNull();
+  });
+  it('con solo pivotes de máximo, NIVEL_PASADO se evalúa con ellos', () => {
+    expect(nivel(conPico(10, 200, 199))).toBe(true);
+    expect(nivel(conPico(10, 200, 150))).toBe(false);
+  });
+  it('RESISTENCIA_PASADA no cuenta soportes: cerca de un pivote de mínimo es false, aunque NIVEL_PASADO sea true', () => {
+    // techo (pivote de máximo, 120) y suelo (pivote de mínimo, 80); el cierre final (80.6) queda sobre el suelo, lejos del techo
+    const v = planas(100);
+    v[10] = { ...v[10]!, high: 120 };
+    v[25] = { ...v[25]!, low: 80 };
+    v.push({ time: T0 + 40 * DIA, open: 80.5, high: 81, low: 80.2, close: 80.6, volume: 1000 });
+    const r = calcularTecnico(entrada(v));
+    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(false);
+  });
+  it('se evalúa contra todos los pivotes de la ventana, no solo contra los de la lista cerrada: una resistencia recién superada por 1% sigue contando', () => {
+    // picos de máximo en 110, 120, 130 y 140; el cierre (141.4) quedó 1% sobre el último. La lista cerrada solo trae resistencias
+    // por encima del cierre, así que el pico de 140 no está en ella.
+    const v = planas(10);
+    [110, 120, 130, 140].forEach((alto, k) => { v[5 + k * 7] = { ...v[5 + k * 7]!, high: alto }; });
+    v.push({ time: T0 + 40 * DIA, open: 10, high: 142, low: 9.5, close: 141.4, volume: 1000 });
+    const r = calcularTecnico(entrada(v));
+    expect(r.niveles_calculados.some(n => n.tipo === 'pivote_resistencia')).toBe(false);
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(true);
+    expect(sen(r, 'RESISTENCIA_PASADA').detalle).toContain('140');
+    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
+  });
+});
+
+describe('señales de salida del PCP (19-oct)', () => {
+  it('RSI_SOBRECOMPRA: sube sostenidamente → cumplida; cae → no', () => {
+    const baja = Array.from({ length: 60 }, (_, i) => vela(i, 100 - i));
+    const sube = Array.from({ length: 60 }, (_, i) => vela(i, 100 + i));
+    expect(sen(calcularTecnico(entrada(sube)), 'RSI_SOBRECOMPRA').cumplida).toBe(true);
+    expect(sen(calcularTecnico(entrada(baja)), 'RSI_SOBRECOMPRA').cumplida).toBe(false);
+  });
+  it('RSI_SOBRECOMPRA coincide con RSI(14) >= 70 en distintas series', () => {
+    for (const semilla of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const r = calcularTecnico(entrada(caminata(200, semilla)));
+      expect(sen(r, 'RSI_SOBRECOMPRA').cumplida).toBe(r.indicadores.rsi14! >= 70);
+    }
+  });
+  it('parámetros aprobados: RSI de sobrecompra 70 y tolerancia de nivel pasado 1.5%', () => {
+    expect(PARAMETROS_TECNICO.rsi_sobrecompra).toBe(70);
+    expect(PARAMETROS_TECNICO.rsi_sobreventa).toBe(30);
+    expect(PARAMETROS_TECNICO.nivel_tolerancia_pct).toBe(1.5);
+  });
+  it('rsiSobrecompra: el 70 cuenta (>=), 69.9999 no, y sin RSI es null', () => {
+    expect(rsiSobrecompra(70, 70)).toBe(true);
+    expect(rsiSobrecompra(70.0001, 70)).toBe(true);
+    expect(rsiSobrecompra(69.9999, 70)).toBe(false);
+    expect(rsiSobrecompra(null, 70)).toBeNull();
+  });
+  it('Mogalef superior: la ruptura es estricta; un cierre igual a la banda anterior no es ruptura, uno apenas encima sí', () => {
+    const base = caminata(60);
+    const supAyer = mogalefBandsSeries(base, 10, 30, 1.5)[base.length - 1]!.sup!;
+    const con = (close: number) => {
+      const ultima: Candle = { time: T0 + 60 * DIA, open: supAyer - 0.3, high: Math.max(close, supAyer) + 0.5, low: supAyer - 0.5, close, volume: 1000 };
+      return sen(calcularTecnico(entrada([...base, ultima])), 'MOGALEF_BANDA_SUPERIOR').cumplida;
+    };
+    expect(con(supAyer)).toBe(false);
+    expect(con(supAyer + 0.0001)).toBe(true);
+  });
+  it('Mogalef superior: la banda salta en la vela de la ruptura; la vela siguiente se compara con la banda nueva, no con la rota', () => {
+    const plano = Array.from({ length: 60 }, (_, i) => vela(i, 100 + (i % 2 ? 0.1 : -0.1)));
+    const rompe: Candle = { time: T0 + 60 * DIA, open: 100, high: 121, low: 99.9, close: 120, volume: 1000 };
+    const serie = (d: Candle[]) => mogalefBandsSeries(d, 10, 30, 1.5);
+    const supAntes = serie(plano)[59]!.sup!;
+    const supNueva = serie([...plano, rompe])[60]!.sup!;
+    expect(sen(calcularTecnico(entrada([...plano, rompe])), 'MOGALEF_BANDA_SUPERIOR').cumplida).toBe(true);
+    expect(supNueva).toBeGreaterThan(supAntes);                                   // la banda saltó en la vela de la ruptura
+    const siguiente = (close: number): Candle => ({ time: T0 + 61 * DIA, open: close, high: close + 0.5, low: close - 0.5, close, volume: 1000 });
+    const dia2 = (close: number) => sen(calcularTecnico(entrada([...plano, rompe, siguiente(close)])), 'MOGALEF_BANDA_SUPERIOR').cumplida;
+    expect(dia2(supNueva - 1)).toBe(false);                                       // sigue por encima de la banda vieja, pero no rompe la nueva
+    expect(dia2(supNueva)).toBe(false);                                           // estricta
+    expect(dia2(supNueva + 1)).toBe(true);                                        // rompe la banda nueva: es otra ruptura
+  });
+  it('las señales de salida no dependen de Koncorde: con volumen cero siguen evaluándose', () => {
+    const d = caminata(200).map(c => ({ ...c, volume: 0 }));
+    const r = calcularTecnico(entrada(d));
+    expect(sen(r, 'KONCORDE_BAJO_CERO').cumplida).toBeNull();
+    expect(sen(r, 'RSI_SOBRECOMPRA').cumplida).not.toBeNull();
+    expect(sen(r, 'MOGALEF_BANDA_SUPERIOR').cumplida).not.toBeNull();
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).not.toBeNull();
+  });
+  it('cada señal de salida se reporta por separado, con su propio detalle', () => {
+    const r = calcularTecnico(entrada(caminata(300, 3)));
+    const detalles = ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'].map(id => sen(r, id).detalle);
+    expect(new Set(detalles).size).toBe(3);
+    expect(detalles.every(t => t.length > 0)).toBe(true);
   });
 });
 
@@ -281,13 +435,47 @@ describe('detonantes por uso', () => {
     const base = calcularTecnico(entrada(caminata(300)));
     return { ...base, senales: base.senales.map(s => ({ ...s, cumplida: s.id in cumplidas ? cumplidas[s.id]! : false })) };
   };
-  it('apertura PCP: basta una de RSI, Koncorde, EMA 8>21 o Mogalef; el soporte pasado no cuenta', () => {
+  it('apertura PCP: basta una de RSI, Koncorde, EMA 8>21 o Mogalef; el nivel pasado no cuenta', () => {
     expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'apertura_pcp').detonante_confirmado).toBe(true);
-    expect(detonantePara(sn({ SOPORTE_PASADO: true }), 'apertura_pcp').detonante_confirmado).toBe(false);
+    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'apertura_pcp').detonante_confirmado).toBe(false);
   });
-  it('recompra PCP: el soporte pasado cuenta; EMA 8>21 no', () => {
-    expect(detonantePara(sn({ SOPORTE_PASADO: true }), 'recompra_pcp').detonante_confirmado).toBe(true);
+  it('recompra PCP: el nivel pasado (soporte o resistencia) cuenta; EMA 8>21 y las señales de salida no', () => {
+    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'recompra_pcp').detonante_confirmado).toBe(true);
     expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
+    for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
+      expect(detonantePara(sn({ [id]: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
+    }
+  });
+  it('DCA del PLP: el nivel pasado cuenta [PROPUESTA: por el reemplazo de SOPORTE_PASADO]; las señales de salida no', () => {
+    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(true);
+    for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
+      expect(detonantePara(sn({ [id]: true }), 'dca_plp').detonante_confirmado).toBe(false);
+    }
+  });
+  it('salida PCP: basta una de RSI_SOBRECOMPRA, MOGALEF_BANDA_SUPERIOR o RESISTENCIA_PASADA, cada una por separado', () => {
+    for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
+      const d = detonantePara(sn({ [id]: true }), 'salida_pcp');
+      expect(d.detonante_confirmado).toBe(true);
+      expect(d.senales_cumplidas).toEqual([id]);
+    }
+    expect(detonantePara(sn({}), 'salida_pcp').detonante_confirmado).toBe(false);
+  });
+  it('salida PCP: sin soporte ni señales de entrada; la sobreventa, Koncorde, la banda inferior y el nivel pasado no cuentan', () => {
+    for (const id of ['NIVEL_PASADO', 'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21']) {
+      expect(detonantePara(sn({ [id]: true }), 'salida_pcp').detonante_confirmado).toBe(false);
+    }
+    expect(SENALES_POR_USO.salida_pcp).toEqual(['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']);
+  });
+  it('salida PCP: MACD, Koncorde de salida y figura son visuales tuyos; el aviso dice que no autoriza una venta', () => {
+    const d = detonantePara(sn({}), 'salida_pcp');
+    expect(d.discrecionales_pendientes).toEqual(['MACD', 'Koncorde (visual)', 'figura chartista']);
+    expect(d.aviso).toContain('no autoriza por sí sola una venta');
+  });
+  it('salida PCP: una señal sin evaluar no cuenta como cumplida y se reporta aparte', () => {
+    const d = detonantePara(sn({ RESISTENCIA_PASADA: null, RSI_SOBRECOMPRA: false }), 'salida_pcp');
+    expect(d.detonante_confirmado).toBe(false);
+    expect(d.senales_no_evaluables).toEqual(['RESISTENCIA_PASADA']);
+    expect(detonantePara(sn({ RESISTENCIA_PASADA: null, RSI_SOBRECOMPRA: true }), 'salida_pcp').detonante_confirmado).toBe(true);
   });
   it('una señal sin evaluar no cuenta como cumplida y se reporta aparte', () => {
     const d = detonantePara(sn({ RSI_SOBREVENTA: null }), 'apertura_pcp');
@@ -412,7 +600,7 @@ describe('especificación técnica de indicadores (17-oct)', () => {
   });
   it('banana: no entra en ningún detonante de decisión', () => {
     const r = calcularTecnico(entrada(caminata(300), caminata(80)));
-    for (const uso of ['apertura_pcp', 'recompra_pcp', 'dca_plp'] as const) {
+    for (const uso of ['apertura_pcp', 'recompra_pcp', 'dca_plp', 'salida_pcp'] as const) {
       expect(JSON.stringify(detonantePara(r, uso))).not.toContain('BANANA');
     }
   });

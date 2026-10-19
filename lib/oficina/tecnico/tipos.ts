@@ -24,7 +24,10 @@ export type IdSenal =
   | 'KONCORDE_BAJO_CERO'
   | 'EMA8_SOBRE_EMA21'
   | 'MOGALEF_BANDA_INFERIOR'
-  | 'SOPORTE_PASADO';
+  | 'NIVEL_PASADO'          // reemplaza a SOPORTE_PASADO (19-oct): pivotes de mínimo y de máximo
+  | 'RSI_SOBRECOMPRA'       // salida del PCP
+  | 'MOGALEF_BANDA_SUPERIOR' // salida del PCP
+  | 'RESISTENCIA_PASADA';   // salida del PCP: solo pivotes de máximo
 
 export interface Senal {
   id: IdSenal;

@@ -2,7 +2,8 @@ import { adxSeries, emaArr, koncordeSeries, macdSeries, mogalefBandsSeries, rsiS
 import type { Candle } from '../../indicators';
 import { construirTraza } from './trazabilidad';
 import type { ResultadoIndicador } from './trazabilidad';
-import { atrSeries, evaluarBanana, fechaDeVela, finito, fmt, pivotes, validarVelas } from './calculos';
+import { atrSeries, evaluarBanana, fechaDeVela, finito, fmt, pivoteCercano, pivotes, rsiSobrecompra, validarVelas } from './calculos';
+import type { Pivote } from './calculos';
 import type {
   BananaExperimental, EntradaTecnico, Indicadores, NivelCalculado, Senal, SnapshotTecnico, TipoNivel,
 } from './tipos';
@@ -11,10 +12,11 @@ import type {
 export const PARAMETROS_TECNICO = {
   rsi_periodo: 14,
   rsi_sobreventa: 30,               // PCP-10
+  rsi_sobrecompra: 70,              // salida del PCP (RSI en 30 y 70, aprobado el 11-oct)
   mogalef_reg: 10,                  // PCP-10: Mogalef (10, 30, 1.5), diaria
   mogalef_std: 30,
   mogalef_mult: 1.5,
-  soporte_tolerancia_pct: 1.5,      // PCP-04
+  nivel_tolerancia_pct: 1.5,        // PCP-04 (recompra) y salida del PCP: ±1.5% de un pivote
   minimo_velas_diarias: 35,         // [PROPUESTA] por debajo no se calcula nada
   minimo_velas_koncorde: 120,       // [PROPUESTA] ventanas de 90 + media de 15 + Bollinger de 25
   pivote_velas_por_lado: 5,         // [PROPUESTA]
@@ -159,16 +161,47 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
     });
   }
 
-  const tol = P.soporte_tolerancia_pct / 100;
-  const cercanos = piv.bajos.filter(s => Math.abs(cierre - s.precio) <= s.precio * tol);
+  // Nivel pasado (PCP-04, recompra; matriz v2: «soporte o resistencia pasado»): pivotes de mínimo Y de máximo, contra todos los de la ventana.
+  const tol = P.nivel_tolerancia_pct / 100;
+  const cercaBajo = pivoteCercano(cierre, piv.bajos, tol);
+  const cercaAlto = pivoteCercano(cierre, piv.altos, tol);
+  const distRel = (p: Pivote) => (p.precio === 0 ? 0 : Math.abs(cierre - p.precio) / p.precio);
+  if (piv.bajos.length === 0 && piv.altos.length === 0) {
+    senales.push({ id: 'NIVEL_PASADO', cumplida: null, detalle: 'No hay pivotes confirmados en la ventana' });
+  } else {
+    // Si coinciden uno de mínimo y uno de máximo, el detalle cita el más cercano (en empate, el de mínimo).
+    const cerca = cercaBajo !== null && (cercaAlto === null || distRel(cercaBajo) <= distRel(cercaAlto)) ? cercaBajo : cercaAlto;
+    senales.push({
+      id: 'NIVEL_PASADO', cumplida: cerca !== null,
+      detalle: cerca !== null
+        ? `Cierre ${fmt(cierre)} a ±${P.nivel_tolerancia_pct}% del pivote de ${cerca === cercaBajo ? 'mínimo' : 'máximo'} ${fmt(cerca.precio)} (${cerca.fecha})`
+        : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de mínimo ni de máximo de la ventana`,
+    });
+  }
+
+  // Señales de salida del PCP (aprobadas el 19-oct). Cada una se reporta por separado. MACD, figura y Koncorde de salida son visuales tuyos: no se calculan.
   senales.push(
-    piv.bajos.length === 0
-      ? { id: 'SOPORTE_PASADO', cumplida: null, detalle: 'No hay pivotes de soporte confirmados en la ventana' }
+    ind.rsi14 === null
+      ? { id: 'RSI_SOBRECOMPRA', cumplida: null, detalle: 'RSI(14) no disponible' }
+      : { id: 'RSI_SOBRECOMPRA', cumplida: rsiSobrecompra(ind.rsi14, P.rsi_sobrecompra), detalle: `RSI(14) diario = ${fmt(ind.rsi14)} (umbral ≥ ${P.rsi_sobrecompra})` },
+  );
+  // Igual que la inferior: se compara con la banda vigente de la vela anterior; la señal vale solo para la vela de la ruptura.
+  if (mogAyer?.sup == null) {
+    senales.push({ id: 'MOGALEF_BANDA_SUPERIOR', cumplida: null, detalle: 'Mogalef no disponible' });
+  } else {
+    senales.push({
+      id: 'MOGALEF_BANDA_SUPERIOR', cumplida: cierre > mogAyer.sup,
+      detalle: `Cierre ${fmt(cierre)} vs banda superior vigente de la vela anterior ${fmt(mogAyer.sup)}: ruptura = cierre > banda (Mogalef ${P.mogalef_reg}, ${P.mogalef_std}, ${P.mogalef_mult})`,
+    });
+  }
+  senales.push(
+    piv.altos.length === 0
+      ? { id: 'RESISTENCIA_PASADA', cumplida: null, detalle: 'No hay pivotes de máximo confirmados en la ventana' }
       : {
-          id: 'SOPORTE_PASADO', cumplida: cercanos.length > 0,
-          detalle: cercanos.length > 0
-            ? `Cierre ${fmt(cierre)} a ±${P.soporte_tolerancia_pct}% del soporte ${fmt(cercanos[0]!.precio)} (${cercanos[0]!.fecha})`
-            : `Cierre ${fmt(cierre)} no está a ±${P.soporte_tolerancia_pct}% de ningún soporte pasado`,
+          id: 'RESISTENCIA_PASADA', cumplida: cercaAlto !== null,
+          detalle: cercaAlto !== null
+            ? `Cierre ${fmt(cierre)} a ±${P.nivel_tolerancia_pct}% de la resistencia ${fmt(cercaAlto.precio)} (${cercaAlto.fecha})`
+            : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de máximo de la ventana`,
         },
   );
 
