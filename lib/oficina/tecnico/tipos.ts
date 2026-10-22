@@ -24,16 +24,29 @@ export type IdSenal =
   | 'KONCORDE_BAJO_CERO'
   | 'EMA8_SOBRE_EMA21'
   | 'MOGALEF_BANDA_INFERIOR'
-  | 'NIVEL_PASADO'          // reemplaza a SOPORTE_PASADO (19-oct): pivotes de mínimo y de máximo
+  | 'NIVEL_PASADO'          // recompra del PCP (19-oct): pivotes de mínimo y de máximo
+  | 'SOPORTE_PASADO'        // DCA del PLP (21-oct): solo pivotes de mínimo
   | 'RSI_SOBRECOMPRA'       // salida del PCP
   | 'MOGALEF_BANDA_SUPERIOR' // salida del PCP
   | 'RESISTENCIA_PASADA';   // salida del PCP: solo pivotes de máximo
+
+/** Racha de rupturas de la banda superior de Mogalef (21-oct): la señal se emite una sola vez, en la primera ruptura. */
+export interface RachaMogalef {
+  /** true si el cierre de la última vela rompe la banda (sea la primera ruptura o una repetida). */
+  en_curso: boolean;
+  /** Cierres consecutivos que rompen la banda, terminando en la última vela (0 si no rompe). */
+  dias: number;
+  /** Fecha de la vela de la primera ruptura de la racha; null si no hay racha. */
+  fecha_inicio: string | null;
+}
 
 export interface Senal {
   id: IdSenal;
   /** true / false, o null si no hay datos suficientes para evaluarla (nunca se rellena con false). */
   cumplida: boolean | null;
   detalle: string;
+  /** Solo en MOGALEF_BANDA_SUPERIOR cuando se pudo evaluar. */
+  racha?: RachaMogalef;
 }
 
 export interface Banana {

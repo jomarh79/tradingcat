@@ -2,7 +2,7 @@ import { adxSeries, emaArr, koncordeSeries, macdSeries, mogalefBandsSeries, rsiS
 import type { Candle } from '../../indicators';
 import { construirTraza } from './trazabilidad';
 import type { ResultadoIndicador } from './trazabilidad';
-import { atrSeries, evaluarBanana, fechaDeVela, finito, fmt, pivoteCercano, pivotes, rsiSobrecompra, validarVelas } from './calculos';
+import { atrSeries, evaluarBanana, fechaDeVela, finito, fmt, pivoteCercano, pivotes, rachaRuptura, rsiSobrecompra, validarVelas } from './calculos';
 import type { Pivote } from './calculos';
 import type {
   BananaExperimental, EntradaTecnico, Indicadores, NivelCalculado, Senal, SnapshotTecnico, TipoNivel,
@@ -179,20 +179,44 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
     });
   }
 
+  // Soporte pasado (PLP-03, DCA; 21-oct): solo pivotes de mínimo, ±1.5%, contra todos los de la ventana. Es la parte de NIVEL_PASADO que admite el DCA del PLP.
+  senales.push(
+    piv.bajos.length === 0
+      ? { id: 'SOPORTE_PASADO', cumplida: null, detalle: 'No hay pivotes de mínimo confirmados en la ventana' }
+      : {
+          id: 'SOPORTE_PASADO', cumplida: cercaBajo !== null,
+          detalle: cercaBajo !== null
+            ? `Cierre ${fmt(cierre)} a ±${P.nivel_tolerancia_pct}% del soporte ${fmt(cercaBajo.precio)} (${cercaBajo.fecha})`
+            : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de mínimo de la ventana`,
+        },
+  );
+
   // Señales de salida del PCP (aprobadas el 19-oct). Cada una se reporta por separado. MACD, figura y Koncorde de salida son visuales tuyos: no se calculan.
   senales.push(
     ind.rsi14 === null
       ? { id: 'RSI_SOBRECOMPRA', cumplida: null, detalle: 'RSI(14) no disponible' }
       : { id: 'RSI_SOBRECOMPRA', cumplida: rsiSobrecompra(ind.rsi14, P.rsi_sobrecompra), detalle: `RSI(14) diario = ${fmt(ind.rsi14)} (umbral ≥ ${P.rsi_sobrecompra})` },
   );
-  // Igual que la inferior: se compara con la banda vigente de la vela anterior; la señal vale solo para la vela de la ruptura.
-  if (mogAyer?.sup == null) {
+  // Igual que la inferior: se compara con la banda vigente de la vela anterior. Además (21-oct) la señal se emite una sola vez por racha:
+  // solo en la primera ruptura; mientras los cierres sigan rompiendo la banda (ya recentrada) no se repite, y una vela sin ruptura la rearma.
+  const racha = rachaRuptura(diarias, mog.map(m => m.sup), 'superior');
+  if (mogAyer?.sup == null || racha === null) {
     senales.push({ id: 'MOGALEF_BANDA_SUPERIOR', cumplida: null, detalle: 'Mogalef no disponible' });
   } else {
-    senales.push({
-      id: 'MOGALEF_BANDA_SUPERIOR', cumplida: cierre > mogAyer.sup,
-      detalle: `Cierre ${fmt(cierre)} vs banda superior vigente de la vela anterior ${fmt(mogAyer.sup)}: ruptura = cierre > banda (Mogalef ${P.mogalef_reg}, ${P.mogalef_std}, ${P.mogalef_mult})`,
-    });
+    const baseDetalle = `Cierre ${fmt(cierre)} vs banda superior vigente de la vela anterior ${fmt(mogAyer.sup)}: ruptura = cierre > banda (Mogalef ${P.mogalef_reg}, ${P.mogalef_std}, ${P.mogalef_mult})`;
+    if (racha.dias === 0) {
+      senales.push({ id: 'MOGALEF_BANDA_SUPERIOR', cumplida: false, detalle: `${baseDetalle}; sin ruptura`, racha: { en_curso: false, dias: 0, fecha_inicio: null } });
+    } else if (racha.dias === 1 && !racha.inicio_confirmado) {
+      senales.push({ id: 'MOGALEF_BANDA_SUPERIOR', cumplida: null, detalle: `${baseDetalle}; hay ruptura, pero no se puede saber si la vela anterior ya rompía (faltan bandas): la racha no es determinable` });
+    } else if (racha.dias === 1) {
+      senales.push({ id: 'MOGALEF_BANDA_SUPERIOR', cumplida: true, detalle: `${baseDetalle}; primera ruptura de la racha (la señal vale solo en esta vela)`, racha: { en_curso: true, dias: 1, fecha_inicio: racha.fecha_inicio } });
+    } else {
+      senales.push({
+        id: 'MOGALEF_BANDA_SUPERIOR', cumplida: false,
+        detalle: `${baseDetalle}; ruptura nº ${racha.dias} de una racha iniciada el ${racha.fecha_inicio}${racha.inicio_confirmado ? '' : ' (o antes)'}: la señal ya se emitió en esa vela y no se repite`,
+        racha: { en_curso: true, dias: racha.dias, fecha_inicio: racha.fecha_inicio },
+      });
+    }
   }
   senales.push(
     piv.altos.length === 0

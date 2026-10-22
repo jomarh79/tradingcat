@@ -73,6 +73,42 @@ export function pivotes(velas: Candle[], n = 5): { altos: Pivote[]; bajos: Pivot
   return { altos, bajos };
 }
 
+export type LadoBanda = 'superior' | 'inferior';
+
+export interface RachaRuptura {
+  /** Cierres consecutivos, terminando en la última vela, que rompen la banda de la vela anterior. 0 = la última vela no rompe. */
+  dias: number;
+  /** Fecha de la vela de la primera ruptura de la racha; null si dias = 0. */
+  fecha_inicio: string | null;
+  /** true si la vela anterior al inicio de la racha se pudo evaluar y no rompía (la racha está completa);
+   *  false si las bandas no alcanzan para saberlo (la racha pudo empezar antes). */
+  inicio_confirmado: boolean;
+}
+
+/** Racha de rupturas de una banda de Mogalef. Ruptura en la vela i: cierre[i] > banda[i-1] (superior) o cierre[i] < banda[i-1] (inferior),
+ *  estricta y contra la banda vigente de la vela anterior. La racha termina en la última vela: una vela que no rompe la cierra y la
+ *  siguiente ruptura inicia otra (rearme). null si la última vela no se puede evaluar (no hay banda de la vela anterior). */
+export function rachaRuptura(velas: Candle[], banda: (number | null)[], lado: LadoBanda): RachaRuptura | null {
+  const n = velas.length;
+  const rompe = (i: number): boolean | null => {
+    if (i < 1) return null;
+    const b = banda[i - 1];
+    if (b === null || b === undefined) return null;
+    const c = velas[i]!.close;
+    return lado === 'superior' ? c > b : c < b;
+  };
+  const hoy = rompe(n - 1);
+  if (hoy === null) return null;
+  if (!hoy) return { dias: 0, fecha_inicio: null, inicio_confirmado: true };
+  let inicio = n - 1;
+  let previa = rompe(inicio - 1);
+  while (previa === true) {
+    inicio--;
+    previa = rompe(inicio - 1);
+  }
+  return { dias: n - inicio, fecha_inicio: fechaDeVela(velas[inicio]!.time), inicio_confirmado: previa === false };
+}
+
 /** Sobrecompra técnica de la salida del PCP: RSI(14) diario >= umbral (el 70 cuenta). null si no hay RSI: nunca se rellena con false. */
 export function rsiSobrecompra(rsi: number | null, umbral: number): boolean | null {
   return rsi === null ? null : rsi >= umbral;

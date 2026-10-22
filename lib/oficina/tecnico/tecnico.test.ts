@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { adxSeries, macdSeries, rsiSeries, mogalefBandsSeries, koncordeSeries } from '../../indicators';
 import type { Candle } from '../../indicators';
 import {
-  PARAMETROS_TECNICO, SENALES_POR_USO, atrSeries, calcularTecnico, detonantePara, evaluarBanana, pivotes, rsiSobrecompra, validarSalidaTecnico, validarVelas,
+  PARAMETROS_TECNICO, SENALES_POR_USO, atrSeries, calcularTecnico, detonantePara, evaluarBanana, pivotes, rachaRuptura, rsiSobrecompra, validarSalidaTecnico, validarVelas,
 } from './index';
 import type { EntradaTecnico, SalidaTecnicoModelo, SnapshotTecnico } from './index';
 
@@ -188,18 +188,18 @@ describe('señales de PCP-10 / PCP-04', () => {
     expect(sen(calcularTecnico(entrada(cerca)), 'NIVEL_PASADO').detalle).toContain('máximo');
     expect(sen(calcularTecnico(entrada(lejos)), 'NIVEL_PASADO').cumplida).toBe(false);
   });
-  it('SOPORTE_PASADO ya no existe: NIVEL_PASADO lo reemplaza', () => {
+  it('las señales salen en un orden fijo: NIVEL_PASADO (recompra del PCP) y SOPORTE_PASADO (DCA del PLP) conviven', () => {
     const ids = calcularTecnico(entrada(caminata(300))).senales.map(s => s.id);
-    expect(ids).not.toContain('SOPORTE_PASADO');
     expect(ids).toEqual([
-      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO',
+      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO', 'SOPORTE_PASADO',
       'RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA',
     ]);
   });
-  it('sin pivotes confirmados, NIVEL_PASADO y RESISTENCIA_PASADA quedan sin evaluar (null)', () => {
+  it('sin pivotes confirmados, NIVEL_PASADO, SOPORTE_PASADO y RESISTENCIA_PASADA quedan sin evaluar (null)', () => {
     const sube = Array.from({ length: 60 }, (_, i) => vela(i, 100 + i));
     const r = calcularTecnico(entrada(sube));
     expect(sen(r, 'NIVEL_PASADO').cumplida).toBeNull();
+    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBeNull();
     expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBeNull();
   });
 });
@@ -248,6 +248,49 @@ describe('nivel pasado y resistencia pasada: tolerancia ±1.5% y alcance', () =>
   it('con solo pivotes de máximo, NIVEL_PASADO se evalúa con ellos', () => {
     expect(nivel(conPico(10, 200, 199))).toBe(true);
     expect(nivel(conPico(10, 200, 150))).toBe(false);
+  });
+
+  // --- SOPORTE_PASADO (PLP-03, 21-oct): solo pivotes de mínimo
+  const soporte = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'SOPORTE_PASADO').cumplida;
+  /** Un techo (pivote de máximo, 120) y un suelo (pivote de mínimo, 80); el cierre final lo elige cada prueba. */
+  const conTechoYSuelo = (cierreFinal: number): Candle[] => {
+    const v = planas(100);
+    v[10] = { ...v[10]!, high: 120 };
+    v[25] = { ...v[25]!, low: 80 };
+    v.push({ time: T0 + 40 * DIA, open: cierreFinal, high: cierreFinal + 0.5, low: cierreFinal - 0.5, close: cierreFinal, volume: 1000 });
+    return v;
+  };
+  it('SOPORTE_PASADO: el borde del 1.5% cuenta con un pivote de mínimo y justo fuera no, también con el error de coma flotante (20 → 20.3 y 19.7)', () => {
+    for (const [cierre, esperado] of [[50.75, true], [49.25, true], [50.76, false], [49.24, false]] as const) {
+      expect(soporte(conFoso(100, 50, cierre))).toBe(esperado);
+    }
+    for (const [cierre, esperado] of [[20.3, true], [19.7, true], [20.31, false], [19.69, false]] as const) {
+      expect(soporte(conFoso(100, 20, cierre))).toBe(esperado);
+    }
+  });
+  it('SOPORTE_PASADO no cuenta pivotes de máximo: cerca de un techo es false (hay pivotes de mínimo), aunque NIVEL_PASADO y RESISTENCIA_PASADA sí se cumplen', () => {
+    const r = calcularTecnico(entrada(conTechoYSuelo(119.5)));
+    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(true);
+    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBe(false);
+  });
+  it('SOPORTE_PASADO cerca de un suelo se cumple junto con NIVEL_PASADO, y RESISTENCIA_PASADA no', () => {
+    const r = calcularTecnico(entrada(conTechoYSuelo(80.6)));
+    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBe(true);
+    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
+    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(false);
+    expect(sen(r, 'SOPORTE_PASADO').detalle).toContain('soporte');
+  });
+  it('SOPORTE_PASADO con solo pivotes de máximo queda sin evaluar (null), no false', () => {
+    expect(soporte(conPico(10, 200, 199))).toBeNull();
+  });
+  it('el DCA del PLP no se activa por un techo (solo SOPORTE_PASADO), mientras que la recompra del PCP sí lo cuenta (NIVEL_PASADO)', () => {
+    const techo = calcularTecnico(entrada(conTechoYSuelo(119.5)));
+    expect(detonantePara(techo, 'dca_plp').senales_cumplidas).not.toContain('SOPORTE_PASADO');
+    expect(detonantePara(techo, 'recompra_pcp').senales_cumplidas).toContain('NIVEL_PASADO');
+    const suelo = calcularTecnico(entrada(conTechoYSuelo(80.6)));
+    expect(detonantePara(suelo, 'dca_plp').senales_cumplidas).toContain('SOPORTE_PASADO');
+    expect(detonantePara(suelo, 'recompra_pcp').senales_cumplidas).toContain('NIVEL_PASADO');
   });
   it('RESISTENCIA_PASADA no cuenta soportes: cerca de un pivote de mínimo es false, aunque NIVEL_PASADO sea true', () => {
     // techo (pivote de máximo, 120) y suelo (pivote de mínimo, 80); el cierre final (80.6) queda sobre el suelo, lejos del techo
@@ -307,19 +350,59 @@ describe('señales de salida del PCP (19-oct)', () => {
     expect(con(supAyer)).toBe(false);
     expect(con(supAyer + 0.0001)).toBe(true);
   });
-  it('Mogalef superior: la banda salta en la vela de la ruptura; la vela siguiente se compara con la banda nueva, no con la rota', () => {
-    const plano = Array.from({ length: 60 }, (_, i) => vela(i, 100 + (i % 2 ? 0.1 : -0.1)));
-    const rompe: Candle = { time: T0 + 60 * DIA, open: 100, high: 121, low: 99.9, close: 120, volume: 1000 };
-    const serie = (d: Candle[]) => mogalefBandsSeries(d, 10, 30, 1.5);
-    const supAntes = serie(plano)[59]!.sup!;
-    const supNueva = serie([...plano, rompe])[60]!.sup!;
-    expect(sen(calcularTecnico(entrada([...plano, rompe])), 'MOGALEF_BANDA_SUPERIOR').cumplida).toBe(true);
+  // --- Mogalef superior: una señal por racha (21-oct)
+  const plano60 = () => Array.from({ length: 60 }, (_, i) => vela(i, 100 + (i % 2 ? 0.1 : -0.1)));
+  const rompeArriba: Candle = { time: T0 + 60 * DIA, open: 100, high: 121, low: 99.9, close: 120, volume: 1000 };
+  const serieMog = (d: Candle[]) => mogalefBandsSeries(d, 10, 30, 1.5);
+  const velaCierre = (i: number, close: number): Candle => ({ time: T0 + i * DIA, open: close, high: close + 0.5, low: close - 0.5, close, volume: 1000 });
+  const fechaIdx = (i: number) => new Date((T0 + i * DIA) * 1000).toISOString().slice(0, 10);
+  const supSenal = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'MOGALEF_BANDA_SUPERIOR');
+
+  it('Mogalef superior: la banda salta en la vela de la ruptura; la vela siguiente se compara con la banda nueva y, si también rompe, es la misma racha y no repite la señal', () => {
+    const plano = plano60();
+    const supAntes = serieMog(plano)[59]!.sup!;
+    const supNueva = serieMog([...plano, rompeArriba])[60]!.sup!;
+    expect(supSenal([...plano, rompeArriba]).cumplida).toBe(true);
     expect(supNueva).toBeGreaterThan(supAntes);                                   // la banda saltó en la vela de la ruptura
-    const siguiente = (close: number): Candle => ({ time: T0 + 61 * DIA, open: close, high: close + 0.5, low: close - 0.5, close, volume: 1000 });
-    const dia2 = (close: number) => sen(calcularTecnico(entrada([...plano, rompe, siguiente(close)])), 'MOGALEF_BANDA_SUPERIOR').cumplida;
-    expect(dia2(supNueva - 1)).toBe(false);                                       // sigue por encima de la banda vieja, pero no rompe la nueva
-    expect(dia2(supNueva)).toBe(false);                                           // estricta
-    expect(dia2(supNueva + 1)).toBe(true);                                        // rompe la banda nueva: es otra ruptura
+    const dia2 = (close: number) => supSenal([...plano, rompeArriba, velaCierre(61, close)]);
+    expect(dia2(supNueva - 1).cumplida).toBe(false);                              // no rompe la banda nueva: sin racha
+    expect(dia2(supNueva - 1).racha).toEqual({ en_curso: false, dias: 0, fecha_inicio: null });
+    expect(dia2(supNueva).cumplida).toBe(false);                                  // estricta
+    const sigue = dia2(supNueva + 1);                                             // rompe la banda nueva: continúa la racha
+    expect(sigue.cumplida).toBe(false);
+    expect(sigue.racha).toEqual({ en_curso: true, dias: 2, fecha_inicio: fechaIdx(60) });
+    expect(sigue.detalle).toContain('no se repite');
+  });
+  it('Mogalef superior: en tres días seguidos solo el primero es señal; la racha guarda la fecha de activación', () => {
+    const d1 = [...plano60(), rompeArriba];
+    const d2 = [...d1, velaCierre(61, serieMog(d1)[60]!.sup! + 1)];
+    const d3 = [...d2, velaCierre(62, serieMog(d2)[61]!.sup! + 1)];
+    const r = [d1, d2, d3].map(supSenal);
+    expect(r.map(s => s.cumplida)).toEqual([true, false, false]);
+    expect(r.map(s => s.racha!.dias)).toEqual([1, 2, 3]);
+    expect(r.map(s => s.racha!.fecha_inicio)).toEqual([fechaIdx(60), fechaIdx(60), fechaIdx(60)]);
+    expect(r[0]!.detalle).toContain('primera ruptura de la racha');
+    expect(r[2]!.detalle).toContain(`racha iniciada el ${fechaIdx(60)}`);
+  });
+  it('Mogalef superior: una vela sin ruptura cierra la racha y la siguiente ruptura es una señal nueva (rearme)', () => {
+    const d1 = [...plano60(), rompeArriba];
+    const sup1 = serieMog(d1)[60]!.sup!;
+    const d2 = [...d1, velaCierre(61, sup1 - 1)];                                 // no rompe: la racha termina
+    expect(supSenal(d2).cumplida).toBe(false);
+    const sup2 = serieMog(d2)[61]!.sup!;
+    const d3 = [...d2, velaCierre(62, sup2 + 1)];                                 // vuelve a romper: racha nueva
+    const s = supSenal(d3);
+    expect(s.cumplida).toBe(true);
+    expect(s.racha).toEqual({ en_curso: true, dias: 1, fecha_inicio: fechaIdx(62) });
+  });
+  it('Mogalef inferior no cambia: la regla de una señal por racha es solo de la banda superior (21-oct)', () => {
+    const plano = plano60();
+    const cae = (d: Candle[], i: number) => velaCierre(i, serieMog(d)[d.length - 1]!.inf! - 1);
+    const d1 = [...plano, cae(plano, 60)];
+    const d2 = [...d1, cae(d1, 61)];
+    const inf = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'MOGALEF_BANDA_INFERIOR').cumplida;
+    expect(inf(d1)).toBe(true);
+    expect(inf(d2)).toBe(true);                                                   // segunda ruptura seguida: la inferior sigue señalando
   });
   it('las señales de salida no dependen de Koncorde: con volumen cero siguen evaluándose', () => {
     const d = caminata(200).map(c => ({ ...c, volume: 0 }));
@@ -442,15 +525,18 @@ describe('detonantes por uso', () => {
   it('recompra PCP: el nivel pasado (soporte o resistencia) cuenta; EMA 8>21 y las señales de salida no', () => {
     expect(detonantePara(sn({ NIVEL_PASADO: true }), 'recompra_pcp').detonante_confirmado).toBe(true);
     expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
+    expect(SENALES_POR_USO.recompra_pcp).toEqual(['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO']);
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
       expect(detonantePara(sn({ [id]: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
     }
   });
-  it('DCA del PLP: el nivel pasado cuenta [PROPUESTA: por el reemplazo de SOPORTE_PASADO]; las señales de salida no', () => {
-    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(true);
+  it('DCA del PLP (21-oct): cuenta SOPORTE_PASADO (solo mínimos); NIVEL_PASADO y las señales de salida no', () => {
+    expect(detonantePara(sn({ SOPORTE_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(true);
+    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(false);
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
       expect(detonantePara(sn({ [id]: true }), 'dca_plp').detonante_confirmado).toBe(false);
     }
+    expect(SENALES_POR_USO.dca_plp).toEqual(['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'SOPORTE_PASADO']);
   });
   it('salida PCP: basta una de RSI_SOBRECOMPRA, MOGALEF_BANDA_SUPERIOR o RESISTENCIA_PASADA, cada una por separado', () => {
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
@@ -461,7 +547,7 @@ describe('detonantes por uso', () => {
     expect(detonantePara(sn({}), 'salida_pcp').detonante_confirmado).toBe(false);
   });
   it('salida PCP: sin soporte ni señales de entrada; la sobreventa, Koncorde, la banda inferior y el nivel pasado no cuentan', () => {
-    for (const id of ['NIVEL_PASADO', 'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21']) {
+    for (const id of ['NIVEL_PASADO', 'SOPORTE_PASADO', 'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21']) {
       expect(detonantePara(sn({ [id]: true }), 'salida_pcp').detonante_confirmado).toBe(false);
     }
     expect(SENALES_POR_USO.salida_pcp).toEqual(['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']);
@@ -617,5 +703,47 @@ describe('especificación técnica de indicadores (17-oct)', () => {
     expect(detonantePara(r, 'dca_plp').aviso).toContain('no una orden de compra');
     expect(detonantePara(r, 'apertura_pcp').aviso).toContain('no autoriza');
     expect(r.aviso).toContain('no son una recomendación ni una decisión');
+  });
+});
+
+describe('rachaRuptura: rupturas consecutivas de una banda de Mogalef (21-oct)', () => {
+  const v = (closes: number[]): Candle[] => closes.map((c, i) => vela(i, c));
+  const fechaIdx = (i: number) => new Date((T0 + i * DIA) * 1000).toISOString().slice(0, 10);
+
+  it('sin ruptura hoy: 0 días y sin fecha de inicio', () => {
+    expect(rachaRuptura(v([10, 11, 10.4]), [10.5, 10.5, 11.5], 'superior')).toEqual({ dias: 0, fecha_inicio: null, inicio_confirmado: true });
+  });
+  it('primera ruptura: 1 día, y la vela anterior se evaluó y no rompía', () => {
+    expect(rachaRuptura(v([10, 10.2, 11]), [10.5, 10.5, 10.6], 'superior')).toEqual({ dias: 1, fecha_inicio: fechaIdx(2), inicio_confirmado: true });
+  });
+  it('tres rupturas seguidas: cuenta 3 y da la fecha de la primera', () => {
+    expect(rachaRuptura(v([10, 10.2, 11, 12, 13]), [10.5, 10.5, 10.6, 11.5, 12.5], 'superior'))
+      .toEqual({ dias: 3, fecha_inicio: fechaIdx(2), inicio_confirmado: true });
+  });
+  it('rearme: una vela sin ruptura corta la racha y la siguiente ruptura inicia otra de 1 día', () => {
+    expect(rachaRuptura(v([10, 11, 10.2, 11.5]), [10.5, 10.5, 10.8, 10.8], 'superior'))
+      .toEqual({ dias: 1, fecha_inicio: fechaIdx(3), inicio_confirmado: true });
+  });
+  it('la ruptura es estricta y contra la banda de la vela anterior: un cierre igual a la banda no rompe', () => {
+    expect(rachaRuptura(v([10, 10.5]), [10.5, 10.5], 'superior')!.dias).toBe(0);
+    // contra la banda de la misma vela (10.4) sí rompería; contra la de la vela anterior (10.6) no
+    expect(rachaRuptura(v([10, 10.5]), [10.6, 10.4], 'superior')!.dias).toBe(0);
+  });
+  it('lado inferior: espejo con cierre < banda', () => {
+    expect(rachaRuptura(v([10, 9.8, 9]), [9.5, 9.5, 9.4], 'inferior')).toEqual({ dias: 1, fecha_inicio: fechaIdx(2), inicio_confirmado: true });
+    expect(rachaRuptura(v([10, 9.8, 9]), [9.5, 9.5, 9.4], 'superior')!.dias).toBe(0);
+  });
+  it('sin banda de la vela anterior no se puede evaluar: null, no 0', () => {
+    expect(rachaRuptura(v([10, 11]), [null, 10.5], 'superior')).toBeNull();
+    expect(rachaRuptura(v([10]), [10.5], 'superior')).toBeNull();
+  });
+  it('si la racha llega al principio de lo evaluable, el inicio no está confirmado', () => {
+    expect(rachaRuptura(v([10, 11, 12]), [10.5, 10.6, 11.5], 'superior')).toEqual({ dias: 2, fecha_inicio: fechaIdx(1), inicio_confirmado: false });
+  });
+  it('no modifica las velas ni las bandas que recibe', () => {
+    const velas = v([10, 10.2, 11]), bandas = [10.5, 10.5, 10.6];
+    const copia = JSON.parse(JSON.stringify({ velas, bandas }));
+    rachaRuptura(velas, bandas, 'superior');
+    expect({ velas, bandas }).toEqual(copia);
   });
 });
