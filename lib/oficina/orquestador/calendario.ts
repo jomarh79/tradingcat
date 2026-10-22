@@ -120,12 +120,18 @@ const HORA = /^([01]\d|2[0-3]):([0-5]\d)$/;
 /** Revisa los datos del calendario. Devuelve la lista de problemas (vacía si están bien). */
 export function validarDatosCalendario(datos: DatosCalendarioNYSE): string[] {
   const err: string[] = [];
-  if (datos.anios.length === 0) err.push('anios vacío');
-  if (new Set(datos.anios).size !== datos.anios.length) err.push('anios con repetidos');
+  const aniosLista = datos.cobertura.map(c => c.anio);
+  if (aniosLista.length === 0) err.push('cobertura vacía');
+  if (new Set(aniosLista).size !== aniosLista.length) err.push('cobertura con años repetidos');
+  for (const c of datos.cobertura) {
+    if (!Number.isInteger(c.anio)) err.push(`cobertura: año inválido ${String(c.anio)}`);
+    if (typeof c.fuente !== 'string' || c.fuente.trim() === '') err.push(`cobertura ${String(c.anio)}: falta la fuente`);
+    if (typeof c.url !== 'string' || !/^https:\/\//.test(c.url)) err.push(`cobertura ${String(c.anio)}: url inválida`);
+    if (parseFecha(c.consultado_el) === null) err.push(`cobertura ${String(c.anio)}: consultado_el inválida: ${String(c.consultado_el)}`);
+  }
   if (!HORA.test(datos.hora_cierre_regular)) err.push(`hora_cierre_regular inválida: ${datos.hora_cierre_regular}`);
   if (!HORA.test(datos.hora_cierre_anticipado)) err.push(`hora_cierre_anticipado inválida: ${datos.hora_cierre_anticipado}`);
-  if (parseFecha(datos.obtenido_el) === null) err.push(`obtenido_el inválida: ${datos.obtenido_el}`);
-  const anios = new Set(datos.anios);
+  const anios = new Set(aniosLista);
   const feriados = new Set<string>();
   const revisar = (lista: string[], nombre: string, permiteFinde: boolean) => {
     const vistos = new Set<string>();
@@ -151,7 +157,7 @@ export function validarDatosCalendario(datos: DatosCalendarioNYSE): string[] {
 export function crearCalendarioNYSE(datos: DatosCalendarioNYSE = CALENDARIO_NYSE_DATOS): CalendarioNYSE {
   const problemas = validarDatosCalendario(datos);
   if (problemas.length > 0) throw new Error(`Datos del calendario NYSE inválidos: ${problemas.join('; ')}`);
-  const anios = new Set(datos.anios);
+  const anios = new Set(datos.cobertura.map(c => c.anio));
   const feriados = new Set(datos.feriados);
   const anticipados = new Set(datos.cierres_anticipados);
 

@@ -1,15 +1,20 @@
-// Datos del calendario del NYSE para la Oficina. NO se escriben fechas de memoria: esta lista sale de la página oficial
-// «Holidays & Trading Hours» del NYSE, consultada el 2026-10-21 (https://www.nyse.com/trade/hours-calendars).
-// Mantenimiento: una vez al año, agregar el año nuevo desde esa página (festivos y cierres anticipados) y sumarlo a `anios`.
-// Fuera de `anios` el calendario no responde (ver calendario.ts): nunca se supone que un día sea hábil o esté cerrado.
+// Datos del calendario del NYSE para la Oficina. NO se escriben fechas de memoria: cada año sale de la página oficial
+// «Holidays & Trading Hours» del NYSE y su fuente y fecha de consulta quedan registradas en `cobertura`, año por año.
+// Mantenimiento: una vez al año, agregar el año nuevo desde esa página (festivos y cierres anticipados) y sumarlo a `cobertura`
+// con su propia fecha de consulta. Fuera de los años de `cobertura` el calendario no responde (ver calendario.ts): nunca se
+// supone que un día sea hábil o esté cerrado, y el cierre de velas de ese año queda NO_EVALUABLE.
 
-export interface DatosCalendarioNYSE {
+export interface CoberturaAnio {
+  anio: number;
   fuente: string;
   url: string;
-  /** Fecha (YYYY-MM-DD) en que se copiaron estos datos de la fuente. */
-  obtenido_el: string;
-  /** Años completos cubiertos. Un año solo se agrega con todos sus festivos y cierres anticipados. */
-  anios: number[];
+  /** Fecha (YYYY-MM-DD) en que se copiaron los datos de ESE año desde la fuente. */
+  consultado_el: string;
+}
+
+export interface DatosCalendarioNYSE {
+  /** Años completos cubiertos, cada uno con su fuente y fecha de consulta. Un año solo se agrega con todos sus festivos y cierres anticipados. */
+  cobertura: CoberturaAnio[];
   /** Días en que el NYSE no abre (YYYY-MM-DD, entre semana). Incluye los festivos «observados» que cita la fuente. */
   feriados: string[];
   /** Días con cierre anticipado (YYYY-MM-DD). */
@@ -19,11 +24,15 @@ export interface DatosCalendarioNYSE {
   hora_cierre_anticipado: string;
 }
 
+const FUENTE_NYSE = 'NYSE, Holidays & Trading Hours';
+const URL_NYSE = 'https://www.nyse.com/trade/hours-calendars';
+
 export const CALENDARIO_NYSE_DATOS: DatosCalendarioNYSE = {
-  fuente: 'NYSE, Holidays & Trading Hours',
-  url: 'https://www.nyse.com/trade/hours-calendars',
-  obtenido_el: '2026-10-21',
-  anios: [2026, 2027, 2028],
+  cobertura: [
+    { anio: 2026, fuente: FUENTE_NYSE, url: URL_NYSE, consultado_el: '2026-10-21' },
+    { anio: 2027, fuente: FUENTE_NYSE, url: URL_NYSE, consultado_el: '2026-10-21' },
+    { anio: 2028, fuente: FUENTE_NYSE, url: URL_NYSE, consultado_el: '2026-10-21' },
+  ],
   feriados: [
     // 2026
     '2026-01-01', // New Year's Day

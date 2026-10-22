@@ -5,6 +5,9 @@ import {
 } from './index';
 import type { DatosCalendarioNYSE } from './index';
 
+const aniosDe = (d: DatosCalendarioNYSE): number[] => d.cobertura.map(c => c.anio);
+const soloAnios = (anios: number[]) => CALENDARIO_NYSE_DATOS.cobertura.filter(c => anios.includes(c.anio));
+
 // ---------- Verificación independiente de los datos: festivos del NYSE recalculados por regla ----------
 const iso = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 const dow = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d)).getUTCDay();
@@ -49,18 +52,22 @@ describe('datos del calendario NYSE (fuente oficial, consultada el 2026-10-21)',
     expect(validarDatosCalendario(CALENDARIO_NYSE_DATOS)).toEqual([]);
   });
   it('los festivos de 2026 a 2028 coinciden con un recálculo independiente por regla (incluye Good Friday y festivos observados)', () => {
-    const esperado = CALENDARIO_NYSE_DATOS.anios.flatMap(feriadosPorRegla).sort();
+    const esperado = aniosDe(CALENDARIO_NYSE_DATOS).flatMap(feriadosPorRegla).sort();
     expect([...CALENDARIO_NYSE_DATOS.feriados].sort()).toEqual(esperado);
   });
   it('cada año trae el día siguiente a Thanksgiving como cierre anticipado, y todo cierre anticipado es una sesión entre semana', () => {
-    for (const y of CALENDARIO_NYSE_DATOS.anios) {
+    for (const y of aniosDe(CALENDARIO_NYSE_DATOS)) {
       expect(CALENDARIO_NYSE_DATOS.cierres_anticipados).toContain(sumarDias(nesimo(y, 11, 4, 4), 1));
     }
     for (const f of CALENDARIO_NYSE_DATOS.cierres_anticipados) expect(CALENDARIO_NYSE.consultar(f).estado).toBe('sesion');
   });
-  it('trae la fuente y la fecha de consulta, y los horarios de cierre oficiales (16:00 y 13:00, hora de Nueva York)', () => {
-    expect(CALENDARIO_NYSE_DATOS.url).toBe('https://www.nyse.com/trade/hours-calendars');
-    expect(CALENDARIO_NYSE_DATOS.obtenido_el).toBe('2026-10-21');
+  it('cada año cubierto trae su propia fuente y fecha de consulta, y los horarios de cierre oficiales son 16:00 y 13:00 (hora de Nueva York)', () => {
+    expect(aniosDe(CALENDARIO_NYSE_DATOS)).toEqual([2026, 2027, 2028]);
+    for (const c of CALENDARIO_NYSE_DATOS.cobertura) {
+      expect(c.url).toBe('https://www.nyse.com/trade/hours-calendars');
+      expect(c.fuente).toContain('NYSE');
+      expect(c.consultado_el).toBe('2026-10-21');
+    }
     expect(CALENDARIO_NYSE_DATOS.hora_cierre_regular).toBe('16:00');
     expect(CALENDARIO_NYSE_DATOS.hora_cierre_anticipado).toBe('13:00');
   });
@@ -79,9 +86,14 @@ describe('validarDatosCalendario detecta datos malos', () => {
     expect(con({ cierres_anticipados: [...base.cierres_anticipados, '2026-11-26'] }).join('|')).toContain('es feriado');
     expect(con({ cierres_anticipados: [...base.cierres_anticipados, '2026-11-28'] }).join('|')).toContain('fin de semana');
   });
-  it('años vacíos o repetidos y horas mal escritas', () => {
-    expect(con({ anios: [] }).join('|')).toContain('anios vacío');
-    expect(con({ anios: [2026, 2026, 2027, 2028] }).join('|')).toContain('repetidos');
+  it('cobertura vacía, con años repetidos o sin fuente, url o fecha de consulta válidas, y horas mal escritas', () => {
+    const c0 = base.cobertura[0]!;
+    expect(con({ cobertura: [] }).join('|')).toContain('cobertura vacía');
+    expect(con({ cobertura: [...base.cobertura, c0] }).join('|')).toContain('años repetidos');
+    expect(con({ cobertura: [{ ...c0, fuente: ' ' }, ...base.cobertura.slice(1)] }).join('|')).toContain('falta la fuente');
+    expect(con({ cobertura: [{ ...c0, url: 'http://x' }, ...base.cobertura.slice(1)] }).join('|')).toContain('url inválida');
+    expect(con({ cobertura: [{ ...c0, consultado_el: '2026-02-30' }, ...base.cobertura.slice(1)] }).join('|')).toContain('consultado_el inválida');
+    expect(con({ cobertura: [{ ...c0, anio: 2026.5 }, ...base.cobertura.slice(1)] }).join('|')).toContain('año inválido');
     expect(con({ hora_cierre_regular: '4pm' }).join('|')).toContain('hora_cierre_regular');
     expect(con({ hora_cierre_anticipado: '25:00' }).join('|')).toContain('hora_cierre_anticipado');
   });
@@ -172,7 +184,7 @@ describe('cobertura', () => {
     expect(CALENDARIO_NYSE.cubreRango('2028-12-20', '2029-01-10')).toBe(false);
     expect(CALENDARIO_NYSE.cubreRango('2027-01-10', '2026-12-20')).toBe(false);
     expect(CALENDARIO_NYSE.cubreRango('x', '2027-01-10')).toBe(false);
-    const sinMedio = crearCalendarioNYSE({ ...CALENDARIO_NYSE_DATOS, anios: [2026, 2028], feriados: CALENDARIO_NYSE_DATOS.feriados.filter(f => !f.startsWith('2027')), cierres_anticipados: CALENDARIO_NYSE_DATOS.cierres_anticipados.filter(f => !f.startsWith('2027')) });
+    const sinMedio = crearCalendarioNYSE({ ...CALENDARIO_NYSE_DATOS, cobertura: soloAnios([2026, 2028]), feriados: CALENDARIO_NYSE_DATOS.feriados.filter(f => !f.startsWith('2027')), cierres_anticipados: CALENDARIO_NYSE_DATOS.cierres_anticipados.filter(f => !f.startsWith('2027')) });
     expect(sinMedio.cubreRango('2026-12-01', '2028-01-31')).toBe(false);   // falta 2027 en medio
   });
 });
@@ -218,14 +230,14 @@ describe('última sesión de la semana', () => {
     expect(ult('2028-12-28').estado).toBe('sesion');
   });
   it('semana que empieza en un año cubierto y termina en uno no cubierto: no responde (lun 2026-12-28 a dom 2027-01-03)', () => {
-    const soloAnio2026 = crearCalendarioNYSE({ ...CALENDARIO_NYSE_DATOS, anios: [2026], feriados: CALENDARIO_NYSE_DATOS.feriados.filter(f => f.startsWith('2026')), cierres_anticipados: CALENDARIO_NYSE_DATOS.cierres_anticipados.filter(f => f.startsWith('2026')) });
+    const soloAnio2026 = crearCalendarioNYSE({ ...CALENDARIO_NYSE_DATOS, cobertura: soloAnios([2026]), feriados: CALENDARIO_NYSE_DATOS.feriados.filter(f => f.startsWith('2026')), cierres_anticipados: CALENDARIO_NYSE_DATOS.cierres_anticipados.filter(f => f.startsWith('2026')) });
     expect(soloAnio2026.ultimaSesionDeSemana('2026-12-30')).toEqual({ estado: 'no_cubierta' });
     expect(CALENDARIO_NYSE.ultimaSesionDeSemana('2026-12-30').estado).toBe('sesion');
   });
   it('fecha inválida y semana sin ninguna sesión', () => {
     expect(ult('2026-02-30')).toEqual({ estado: 'fecha_invalida' });
     const sinSesiones = crearCalendarioNYSE({
-      ...CALENDARIO_NYSE_DATOS, anios: [2026], cierres_anticipados: [],
+      ...CALENDARIO_NYSE_DATOS, cobertura: soloAnios([2026]), cierres_anticipados: [],
       feriados: ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'],
     });
     expect(sinSesiones.ultimaSesionDeSemana('2026-10-14')).toEqual({ estado: 'sin_sesiones', lunes: '2026-10-12', domingo: '2026-10-18' });

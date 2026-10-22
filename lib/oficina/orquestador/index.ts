@@ -5,8 +5,8 @@ export {
 export type { CalendarioNYSE, ConsultaFecha, ConsultaSemana, SesionNYSE } from './calendario';
 export { CALENDARIO_NYSE_DATOS } from './calendario-nyse';
 export type { DatosCalendarioNYSE } from './calendario-nyse';
-export { confirmarCierreVelas } from './cierre-velas';
+export { MARGEN_CIERRE_MINUTOS, confirmarCierreVelas } from './cierre-velas';
 export type {
-  CierreEsperado, ConfirmacionFuente, EntradaCierreVelas, EstadoCierre, Mercado, MotivoCierre, ResultadoCierre,
+  CierreEsperado, EntradaCierreVelas, EstadoCierre, Mercado, MotivoCierre, OpcionesCierreVelas, ResultadoCierre,
   ResultadoCierreVelas, VelaFuente,
 } from './cierre-velas';
