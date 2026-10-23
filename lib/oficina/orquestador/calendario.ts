@@ -213,10 +213,13 @@ export function crearCalendarioNYSE(datos: DatosCalendarioNYSE = CALENDARIO_NYSE
 /** Calendario con los datos oficiales vigentes. */
 export const CALENDARIO_NYSE: CalendarioNYSE = crearCalendarioNYSE();
 
+/** Días corridos hacia adelante, desde la emisión, que el Motor puede recorrer al buscar el vencimiento (días hábiles + festivos); el calendario debe cubrirlos. */
+export const MARGEN_COBERTURA_MOTOR_DIAS = 20;
+
 /** Adaptador para el Motor (`CalendarioHabil` de expiracion.ts). Devuelve null si el calendario no cubre el plazo que el Motor
  *  puede recorrer desde la emisión (así el Motor responde `calendario_no_definido` en vez de lanzar un error). */
 export function calendarioParaMotor(
-  cal: CalendarioNYSE, fecha_emision: Date, margen_dias = 20,
+  cal: CalendarioNYSE, fecha_emision: Date, margen_dias = MARGEN_COBERTURA_MOTOR_DIAS,
 ): { esDiaHabil(fechaISO: string): boolean } | null {
   const desde = fechaEnZona(fecha_emision, ZONA_NYSE);
   if (!cal.cubreRango(desde, sumarDias(desde, margen_dias))) return null;

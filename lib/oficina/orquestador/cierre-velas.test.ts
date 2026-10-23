@@ -197,6 +197,15 @@ describe('vela semanal: se decide aparte y contra la última sesión de la seman
     expect(b.ultima_vela_diaria_cerrada).toBe(false);
     expect(b.ultima_vela_semanal_cerrada).toBe(true);
   });
+  it('una vela semanal fechada en sábado o domingo no dice a qué semana pertenece: pendiente, nunca cerrada (aunque esa semana ya haya pasado)', () => {
+    for (const f of ['2026-10-10', '2026-10-11', '2026-10-17', '2026-10-18']) {
+      const r = semanal('2026-10-26T15:00:00Z', f);
+      expect(r.estado).toBe('pendiente');
+      expect(r.cerrada).toBe(false);
+      expect(codigos(r)).toEqual(['fecha_semanal_en_fin_de_semana']);
+    }
+    expect(semanal('2026-10-26T15:00:00Z', '2026-10-09').cerrada).toBe(true);   // viernes: sí es de su semana
+  });
   it('semana futura, sin vela, año no cubierto y fecha inválida', () => {
     expect(codigos(semanal('2026-10-14T15:00:00Z', '2026-10-19'))).toEqual(['vela_futura']);
     expect(codigos(confirmarCierreVelas(entrada('2026-10-14T15:00:00Z', null, null)).semanal)).toEqual(['sin_vela']);

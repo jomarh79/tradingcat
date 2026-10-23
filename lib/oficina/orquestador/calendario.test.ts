@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CALENDARIO_NYSE, CALENDARIO_NYSE_DATOS, ZONA_NYSE, ZONA_OFICINA, calendarioParaMotor, crearCalendarioNYSE, diaSemana,
+  CALENDARIO_NYSE, CALENDARIO_NYSE_DATOS, MARGEN_COBERTURA_MOTOR_DIAS, ZONA_NYSE, ZONA_OFICINA, calendarioParaMotor, crearCalendarioNYSE, diaSemana,
   fechaEnZona, formatoEnZona, parseFecha, sumarDias, validarDatosCalendario,
 } from './index';
 import type { DatosCalendarioNYSE } from './index';
@@ -99,6 +99,16 @@ describe('validarDatosCalendario detecta datos malos', () => {
   });
   it('crearCalendarioNYSE se niega a construirse con datos malos', () => {
     expect(() => crearCalendarioNYSE({ ...base, feriados: [...base.feriados, '2026-10-24'] })).toThrow('inválidos');
+  });
+});
+
+describe('adaptador para el Motor: el margen de cobertura es una constante nombrada', () => {
+  it('MARGEN_COBERTURA_MOTOR_DIAS vale 20 y es el margen por omisión', () => {
+    expect(MARGEN_COBERTURA_MOTOR_DIAS).toBe(20);
+    const emision = new Date('2028-12-11T16:00:00Z');                       // +20 días llega al 31-dic (2028): cubierto
+    expect(calendarioParaMotor(CALENDARIO_NYSE, emision)).not.toBeNull();
+    expect(calendarioParaMotor(CALENDARIO_NYSE, new Date('2028-12-12T16:00:00Z'))).toBeNull();   // +20 días llega al 1-ene-2029: no cubierto
+    expect(calendarioParaMotor(CALENDARIO_NYSE, new Date('2028-12-12T16:00:00Z'), 10)).not.toBeNull();
   });
 });
 

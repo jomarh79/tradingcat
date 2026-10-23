@@ -12,7 +12,7 @@
 //
 // Función pura: no lee el reloj (el instante de evaluación llega como dato) y no lanza errores por datos malos.
 
-import { CALENDARIO_NYSE, ZONA_NYSE, ZONA_OFICINA, fechaEnZona, formatoEnZona } from './calendario';
+import { CALENDARIO_NYSE, ZONA_NYSE, ZONA_OFICINA, diaSemana, fechaEnZona, formatoEnZona } from './calendario';
 import type { CalendarioNYSE, SesionNYSE } from './calendario';
 
 /** Margen, en minutos, que se espera después del cierre del NYSE antes de dar por cerrada una vela del mismo día.
@@ -72,6 +72,15 @@ export interface ResultadoCierreVelas {
 
 const CON_ZONA = /(Z|[+-]\d{2}:?\d{2})$/;
 const MS_POR_MINUTO = 60000;
+const DIA_DOMINGO = 0;
+const DIA_SABADO = 6;
+
+/** Instante de evaluación: ISO 8601 con zona explícita (Z o ±hh:mm). null si falta la zona o el instante es imposible. */
+export function instanteEvaluacion(evaluado_en: unknown): Date | null {
+  if (typeof evaluado_en !== 'string' || !CON_ZONA.test(evaluado_en)) return null;
+  const d = new Date(evaluado_en);
+  return isNaN(d.getTime()) ? null : d;
+}
 
 function describir(s: SesionNYSE, margen_minutos: number): CierreEsperado {
   return {
@@ -112,6 +121,11 @@ function resolver(
   } else {
     const c = cal.ultimaSesionDeSemana(vela.fecha);
     if (c.estado === 'fecha_invalida') return sinConfirmar('pendiente', 'fecha_invalida', `La fecha de la vela semanal no es válida: ${vela.fecha}`);
+    // Una vela semanal fechada en sábado o domingo no dice a qué semana pertenece (según de dónde cuente la fuente): no se adivina.
+    const dia = diaSemana(vela.fecha);
+    if (dia === DIA_DOMINGO || dia === DIA_SABADO) {
+      return sinConfirmar('pendiente', 'fecha_semanal_en_fin_de_semana', `La vela semanal está fechada en fin de semana (${vela.fecha}): no se sabe a qué semana pertenece`);
+    }
     if (c.estado === 'no_cubierta') return sinConfirmar('no_evaluable', 'calendario_no_cubre_fecha', `El calendario del NYSE no cubre la semana de ${vela.fecha}: no se puede evaluar el cierre`);
     if (c.estado === 'sin_sesiones') return sinConfirmar('pendiente', 'semana_sin_sesiones', `La semana ${c.lunes} a ${c.domingo} no tuvo sesiones según el calendario`);
     sesion = c.sesion;
@@ -143,8 +157,8 @@ export function confirmarCierreVelas(
     semanal: { ...r, motivos: r.motivos.map(m => ({ ...m })) },
   });
 
-  const ahora = typeof entrada.evaluado_en === 'string' && CON_ZONA.test(entrada.evaluado_en) ? new Date(entrada.evaluado_en) : null;
-  if (ahora === null || isNaN(ahora.getTime())) {
+  const ahora = instanteEvaluacion(entrada.evaluado_en);
+  if (ahora === null) {
     return ambas(sinConfirmar('pendiente', 'entrada_invalida', `evaluado_en debe ser un instante ISO 8601 con zona (por ejemplo ...Z): ${String(entrada.evaluado_en)}`));
   }
   const margen = opciones.margen_cierre_minutos === undefined ? MARGEN_CIERRE_MINUTOS : opciones.margen_cierre_minutos;
