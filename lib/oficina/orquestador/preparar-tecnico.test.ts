@@ -204,10 +204,9 @@ describe('cableado hacia el Motor', () => {
       expect(r.senal_salida).toBe(r.detonantes![USO_SENAL_SALIDA].detonante_confirmado);
     }
   });
-  it('los usos del detonante son exactamente los del Técnico, y el DCA del PLP usa SOPORTE_PASADO (no NIVEL_PASADO)', () => {
+  it('los usos del detonante son exactamente los del Técnico, y el DCA del PLP usa NIVEL_PASADO (22-oct)', () => {
     expect([...USOS_DETONANTE].sort()).toEqual(Object.keys(SENALES_POR_USO).sort());
-    expect(SENALES_POR_USO.dca_plp).toContain('SOPORTE_PASADO');
-    expect(SENALES_POR_USO.dca_plp).not.toContain('NIVEL_PASADO');
+    expect(SENALES_POR_USO.dca_plp).toContain('NIVEL_PASADO');
     expect(USO_SENAL_SALIDA).toBe('salida_pcp');
   });
 });
@@ -218,18 +217,33 @@ describe('frescura del precio (parámetro frescura.precio)', () => {
   it('sin el parámetro (sin definir) no se evalúa la frescura y no se declara nada vencido', () => {
     const r = corre('2026-10-21', '2026-10-22T14:00:00Z');
     expect(r.frescura!.evaluada).toBe(false);
-    expect(r.datos_vencidos).toEqual([]);
+    expect(r.datos_faltantes).toEqual([]);
+    expect(r.datos_faltantes_detalle).toEqual([]);
   });
-  it('con límite 1: la última vela de ayer está vigente; la de hace tres días hábiles se declara en datos_vencidos', () => {
+  it('con límite 1: la última vela de ayer está vigente; la de hace tres días hábiles se declara en datos_faltantes con su causa', () => {
     const vigente = corre('2026-10-21', '2026-10-22T14:00:00Z', 1);
     expect(vigente.frescura).toMatchObject({ evaluada: true, vencida: false, dias_habiles_de_antiguedad: 1, ultima_vela: '2026-10-21', fecha_evaluacion: '2026-10-22' });
-    expect(vigente.datos_vencidos).toEqual([]);
+    expect(vigente.datos_faltantes).toEqual([]);
     const vencida = corre('2026-10-19', '2026-10-22T14:00:00Z', 1);
     expect(vencida.frescura).toMatchObject({ vencida: true, dias_habiles_de_antiguedad: 3 });
-    expect(vencida.datos_vencidos).toHaveLength(1);
-    expect(vencida.datos_vencidos[0]).toContain('precio_diario');
+    expect(vencida.datos_faltantes).toHaveLength(1);
+    expect(vencida.datos_faltantes[0]).toContain('precio_diario');
+    expect(vencida.datos_faltantes[0]).toContain('precio_desactualizado');
+    expect(vencida.datos_faltantes_detalle).toEqual([expect.objectContaining({
+      dato: 'precio_diario', motivo: 'precio_desactualizado', estado_dato: 'vencido', umbral_frescura: '1 día hábil',
+      ultima_vela: '2026-10-19', fecha_evaluacion: '2026-10-22', dias_habiles_de_antiguedad: 3,
+    })]);
   });
-  it('un precio vencido se declara pero no cambia el estado ni la señal de salida: decide el Motor con datos_vencidos', () => {
+  it('el umbral del faltante sale del parámetro: con límite 2 dice «2 días hábiles»', () => {
+    const r = corre('2026-10-16', '2026-10-22T14:00:00Z', 2);
+    expect(r.datos_faltantes_detalle[0]!.umbral_frescura).toBe('2 días hábiles');
+    expect(r.datos_faltantes[0]).toContain('umbral_frescura: 2 días hábiles');
+  });
+  it('el Motor recibe el precio vencido como datos_faltantes y el Orquestador no usa datos_vencidos', () => {
+    const r = corre('2026-10-19', '2026-10-22T14:00:00Z', 1);
+    expect('datos_vencidos' in r).toBe(false);
+  });
+  it('un precio vencido se declara pero no cambia el estado ni la señal de salida: decide el Motor con datos_faltantes', () => {
     const v = corre('2026-10-19', '2026-10-22T14:00:00Z', 1), ok = corre('2026-10-19', '2026-10-22T14:00:00Z');
     expect(v.estado).toBe(ok.estado);
     expect(v.senal_salida).toBe(ok.senal_salida);
@@ -242,7 +256,7 @@ describe('frescura del precio (parámetro frescura.precio)', () => {
     const r = prepararTecnico(e('2029-03-01T15:00:00Z', diarias('2029-02-28', N_DIA), []), undefined, { frescura_precio_dias_habiles: 1 });
     expect(r.estado).toBe('NO_EVALUABLE');
     expect(r.frescura).toBeNull();
-    expect(r.datos_vencidos).toEqual([]);
+    expect(r.datos_faltantes_detalle).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALENDARIO_NYSE_DATOS, MARGEN_CIERRE_MINUTOS, confirmarCierreVelas, crearCalendarioNYSE } from './index';
+import { CALENDARIO_NYSE_DATOS, MARGEN_CIERRE_MINUTOS, confirmarCierreVelas, crearCalendarioNYSE, diaSemana } from './index';
 import type { EntradaCierreVelas, Mercado, OpcionesCierreVelas, ResultadoCierre, VelaFuente } from './index';
 
 // Regla (21-oct): sin marca de «cerrada» en la fuente. Cerrada si la sesión es anterior a hoy en America/Mexico_City, o si es de hoy
@@ -151,6 +151,43 @@ describe('vela diaria incoherente con el calendario', () => {
 });
 
 describe('vela semanal: se decide aparte y contra la última sesión de la semana', () => {
+  // Muestra real de chart-data (intervalo 1week, AAPL, 25-oct): `time` en segundos Unix, a las 00:00 UTC, etiquetada con el lunes de la semana.
+  const MUESTRA_REAL: [number, string][] = [
+    [1789948800, '2026-09-21'], [1790553600, '2026-09-28'], [1791158400, '2026-10-05'], [1791763200, '2026-10-12'], [1792368000, '2026-10-19'],
+  ];
+  const fechaDeTime = (t: number): string => new Date(t * 1000).toISOString().slice(0, 10);
+  it('muestra real: cada vela semanal viene fechada el lunes y su cierre es el viernes 16:00 de Nueva York + margen, no el lunes', () => {
+    for (const [t, lunes] of MUESTRA_REAL) {
+      const f = fechaDeTime(t);
+      expect(f).toBe(lunes);
+      expect(diaSemana(f)).toBe(1);
+      const viernes = new Date(Date.parse(`${lunes}T00:00:00Z`) + 4 * 86400000).toISOString().slice(0, 10);
+      const antes = semanal(`${viernes}T20:29:59Z`, f);
+      expect(antes.cerrada).toBe(false);
+      const despues = semanal(`${viernes}T20:30:00Z`, f);
+      expect(despues.cerrada).toBe(true);
+      expect(despues.cierre_esperado).toMatchObject({ fecha_sesion: viernes });
+      // el lunes de la propia vela NO la cierra, aunque ya haya pasado la hora de cierre de ese día
+      expect(semanal(`${lunes}T21:00:00Z`, f).cerrada).toBe(false);
+    }
+  });
+  it('muestra real: la semana que está corriendo (19-oct) está en formación el miércoles y cerrada el sábado', () => {
+    expect(semanal('2026-10-21T15:00:00Z', fechaDeTime(1792368000)).estado).toBe('en_formacion');
+    expect(semanal('2026-10-24T15:00:00Z', fechaDeTime(1792368000)).cerrada).toBe(true);
+  });
+  it('semana con viernes festivo etiquetada el lunes (30-mar-2026, Good Friday): cierra el jueves, calculado con el calendario', () => {
+    const f = fechaDeTime(Date.parse('2026-03-30T00:00:00Z') / 1000);
+    const r = semanal('2026-04-02T20:30:00Z', f);
+    expect(r.cerrada).toBe(true);
+    expect(r.cierre_esperado).toMatchObject({ fecha_sesion: '2026-04-02' });
+    expect(semanal('2026-04-03T15:00:00Z', f).cerrada).toBe(true);   // el viernes feriado no mueve el cierre
+  });
+  it('una vela semanal etiquetada el lunes de una semana que el calendario no cubre es NO_EVALUABLE', () => {
+    const r = semanal('2031-01-10T15:00:00Z', '2030-12-30');
+    expect(r.estado).toBe('no_evaluable');
+    expect(r.cerrada).toBe(false);
+  });
+
   it('semana normal: cierra el viernes 16:00 de Nueva York y se confirma 30 min después (20:30 UTC); da igual si la vela viene fechada el lunes o el viernes', () => {
     for (const f of ['2026-10-12', '2026-10-16']) {
       const antes = semanal('2026-10-16T20:29:59Z', f);

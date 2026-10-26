@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, MARGEN_CIERRE_MINUTOS, UNIDAD_DIAS_HABILES, UNIDAD_MINUTOS, leerValorConUnidad,
+  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, CLAVE_VENTANA_ALERTAS, MARGEN_CIERRE_MINUTOS, CAMPO_HORAS, UNIDAD_DIAS_HABILES, UNIDAD_MINUTOS, leerHoras, leerValorConUnidad,
   parametroVigente, resolverParametros,
 } from './index';
 import type { FilaParametro } from './index';
@@ -15,6 +15,8 @@ describe('claves y unidades', () => {
     expect(CLAVE_FRESCURA_PRECIO).toBe('frescura.precio');
     expect(UNIDAD_MINUTOS).toBe('minutos');
     expect(UNIDAD_DIAS_HABILES).toBe('dias_habiles');
+    expect(CLAVE_VENTANA_ALERTAS).toBe('orquestador.ventana_alertas');
+    expect(CAMPO_HORAS).toBe('horas');
   });
 });
 
@@ -57,7 +59,7 @@ describe('leerValorConUnidad', () => {
 describe('resolverParametros', () => {
   it('sin filas: el margen es la constante (origen «constante») y la frescura queda sin definir; no hay versiones ni problemas', () => {
     const p = resolverParametros([], '2026-10-22');
-    expect(p).toEqual({ margen_cierre_minutos: MARGEN_CIERRE_MINUTOS, margen_origen: 'constante', frescura_precio_dias_habiles: null, parametros_versiones: [], problemas: [] });
+    expect(p).toEqual({ margen_cierre_minutos: MARGEN_CIERRE_MINUTOS, margen_origen: 'constante', frescura_precio_dias_habiles: null, ventana_alertas_horas: null, parametros_versiones: [], problemas: [] });
   });
   it('con filas válidas lee margen y frescura y reporta sus versiones para parametros_versiones del Motor', () => {
     const p = resolverParametros([margen({ valor: 45, unidad: 'minutos' }, 2), fresc({ valor: 1, unidad: 'dias_habiles' })], '2026-10-22');
@@ -86,5 +88,33 @@ describe('resolverParametros', () => {
     const filas = [margen({ valor: 30, unidad: 'minutos' }, 1, '2026-10-22'), margen({ valor: 60, unidad: 'minutos' }, 2, '2026-11-01')];
     expect(resolverParametros(filas, '2026-10-31').margen_cierre_minutos).toBe(30);
     expect(resolverParametros(filas, '2026-11-01').margen_cierre_minutos).toBe(60);
+  });
+  it('lee la ventana de alertas (orquestador.ventana_alertas, en horas) y reporta su versión', () => {
+    const p = resolverParametros([{ clave: CLAVE_VENTANA_ALERTAS, valor: { horas: 24 }, version: 1, vigente_desde: '2026-10-14' }], '2026-10-22');
+    expect(p.ventana_alertas_horas).toBe(24);
+    expect(p.parametros_versiones).toEqual([{ clave: CLAVE_VENTANA_ALERTAS, version: 1 }]);
+    expect(p.problemas).toEqual([]);
+  });
+  it('una ventana de alertas inválida queda null (no se sustituye por 24) y se declara', () => {
+    for (const malo of [{ valor: 24, unidad: 'horas' }, { horas: '24' }, { horas: -1 }, { horas: NaN }, { minutos: 24 }, 24, null]) {
+      const p = resolverParametros([{ clave: CLAVE_VENTANA_ALERTAS, valor: malo, version: 3, vigente_desde: '2026-10-14' }], '2026-10-22');
+      expect(p.ventana_alertas_horas).toBeNull();
+      expect(p.parametros_versiones).toEqual([]);
+      expect(p.problemas).toHaveLength(1);
+      expect(p.problemas[0]).toContain(CLAVE_VENTANA_ALERTAS);
+    }
+  });
+  it('sin fila de ventana: queda sin definir y no se declara problema', () => {
+    const p = resolverParametros([], '2026-10-22');
+    expect(p.ventana_alertas_horas).toBeNull();
+    expect(p.problemas).toEqual([]);
+  });
+});
+
+describe('leerHoras', () => {
+  it('acepta { horas: n } con n finito >= 0 y rechaza lo demás', () => {
+    expect(leerHoras({ horas: 24 })).toBe(24);
+    expect(leerHoras({ horas: 0 })).toBe(0);
+    for (const malo of [{ horas: -1 }, { horas: '24' }, { horas: Infinity }, { valor: 24, unidad: 'horas' }, {}, 24, null, undefined]) expect(leerHoras(malo)).toBeNull();
   });
 });

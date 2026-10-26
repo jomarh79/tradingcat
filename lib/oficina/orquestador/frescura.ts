@@ -22,6 +22,45 @@ export interface ResultadoFrescura {
   detalle: string;
 }
 
+/** Motivo, estado y texto del umbral con que se declara un precio demasiado antiguo (decisión del 22-oct: llega al Motor como `datos_faltantes`). */
+export const MOTIVO_PRECIO_DESACTUALIZADO = 'precio_desactualizado';
+export const ESTADO_DATO_VENCIDO = 'vencido';
+
+/** Dato que el Motor recibe como faltante, con la causa explícita: el dato EXISTE pero es demasiado antiguo para esta evaluación. */
+export interface DatoFaltanteVencido {
+  dato: 'precio_diario';
+  motivo: typeof MOTIVO_PRECIO_DESACTUALIZADO;
+  estado_dato: typeof ESTADO_DATO_VENCIDO;
+  /** Texto del límite vigente, tomado del parámetro `frescura.precio` (p. ej. «1 día hábil»). */
+  umbral_frescura: string;
+  ultima_vela: string | null;
+  fecha_evaluacion: string | null;
+  /** null si pasaron más de MAX_DIAS_REVISION_FRESCURA días y no se contaron las sesiones. */
+  dias_habiles_de_antiguedad: number | null;
+  detalle: string;
+}
+
+/** «1 día hábil», «2 días hábiles»: el límite se toma del parámetro, no se escribe a mano. */
+export function textoUmbralFrescura(limite_dias_habiles: number): string {
+  return limite_dias_habiles === 1 ? '1 día hábil' : `${limite_dias_habiles} días hábiles`;
+}
+
+/** null si el precio no está vencido o no se pudo evaluar (en ese caso no se inventa un faltante). */
+export function datoFaltantePorFrescura(f: ResultadoFrescura): DatoFaltanteVencido | null {
+  if (f.vencida !== true || f.limite_dias_habiles === null) return null;
+  return {
+    dato: 'precio_diario', motivo: MOTIVO_PRECIO_DESACTUALIZADO, estado_dato: ESTADO_DATO_VENCIDO,
+    umbral_frescura: textoUmbralFrescura(f.limite_dias_habiles),
+    ultima_vela: f.ultima_vela, fecha_evaluacion: f.fecha_evaluacion, dias_habiles_de_antiguedad: f.dias_habiles_de_antiguedad,
+    detalle: f.detalle,
+  };
+}
+
+/** Texto para `datos_faltantes: string[]` de la entrada del Motor. */
+export function textoDatoFaltante(d: DatoFaltanteVencido): string {
+  return `${d.dato}: motivo ${d.motivo} (estado_dato: ${d.estado_dato}; umbral_frescura: ${d.umbral_frescura}; ${d.detalle})`;
+}
+
 function noEvaluada(detalle: string, ultima_vela: string | null, fecha_evaluacion: string | null, limite: number | null): ResultadoFrescura {
   return { evaluada: false, vencida: null, dias_habiles_de_antiguedad: null, limite_dias_habiles: limite, ultima_vela, fecha_evaluacion, detalle };
 }

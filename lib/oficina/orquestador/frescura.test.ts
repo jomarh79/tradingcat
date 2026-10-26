@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALENDARIO_NYSE, MAX_DIAS_REVISION_FRESCURA, evaluarFrescuraPrecio } from './index';
+import { CALENDARIO_NYSE, MAX_DIAS_REVISION_FRESCURA, datoFaltantePorFrescura, evaluarFrescuraPrecio, textoDatoFaltante, textoUmbralFrescura } from './index';
 
 const f = (ultima_vela_diaria: string | null, fecha_evaluacion: string | null, limite_dias_habiles: number | null = 1) =>
   evaluarFrescuraPrecio({ ultima_vela_diaria, fecha_evaluacion, limite_dias_habiles, calendario: CALENDARIO_NYSE });
@@ -73,5 +73,32 @@ describe(`tope de revisión (MAX_DIAS_REVISION_FRESCURA)`, () => {
     const pasado = f('2026-08-21', '2026-10-21');     // 61 días
     expect(pasado).toMatchObject({ evaluada: true, vencida: true, dias_habiles_de_antiguedad: null });
     expect(pasado.detalle).toContain('más de 60 días');
+  });
+});
+
+describe('precio vencido como dato faltante para el Motor (22-oct)', () => {
+  it('textoUmbralFrescura: singular para 1 y plural en los demás casos, también 0', () => {
+    expect(textoUmbralFrescura(1)).toBe('1 día hábil');
+    expect(textoUmbralFrescura(2)).toBe('2 días hábiles');
+    expect(textoUmbralFrescura(0)).toBe('0 días hábiles');
+  });
+  it('vencido: motivo precio_desactualizado, estado_dato vencido y el umbral del parámetro', () => {
+    const d = datoFaltantePorFrescura(f('2026-10-19', '2026-10-22', 1))!;
+    expect(d).toMatchObject({ dato: 'precio_diario', motivo: 'precio_desactualizado', estado_dato: 'vencido', umbral_frescura: '1 día hábil', ultima_vela: '2026-10-19', dias_habiles_de_antiguedad: 3 });
+    const t = textoDatoFaltante(d);
+    expect(t).toContain('motivo precio_desactualizado');
+    expect(t).toContain('estado_dato: vencido');
+    expect(t).toContain('umbral_frescura: 1 día hábil');
+    expect(t).toContain('VENCIDA');
+  });
+  it('vigente o no evaluada: no se inventa un faltante', () => {
+    expect(datoFaltantePorFrescura(f('2026-10-21', '2026-10-22', 1))).toBeNull();
+    expect(datoFaltantePorFrescura(f('2026-10-21', '2026-10-22', null))).toBeNull();
+    expect(datoFaltantePorFrescura(f(null, '2026-10-22', 1))).toBeNull();
+  });
+  it('más de 60 días: también es faltante, sin antigüedad en días hábiles', () => {
+    const d = datoFaltantePorFrescura(f('2026-08-01', '2026-10-21', 1))!;
+    expect(d.dias_habiles_de_antiguedad).toBeNull();
+    expect(d.motivo).toBe('precio_desactualizado');
   });
 });

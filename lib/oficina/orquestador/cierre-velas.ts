@@ -121,7 +121,9 @@ function resolver(
   } else {
     const c = cal.ultimaSesionDeSemana(vela.fecha);
     if (c.estado === 'fecha_invalida') return sinConfirmar('pendiente', 'fecha_invalida', `La fecha de la vela semanal no es válida: ${vela.fecha}`);
-    // Una vela semanal fechada en sábado o domingo no dice a qué semana pertenece (según de dónde cuente la fuente): no se adivina.
+    // Muestra real (25-oct, chart-data intervalo 1week, AAPL): TwelveData etiqueta la vela semanal con el LUNES de su semana, a las 00:00 (hora del
+    // exchange leída como UTC). Por eso el cierre se calcula con la última sesión NYSE de esa semana lunes-domingo (viernes, jueves si el viernes es
+    // feriado...), nunca con la fecha de la vela. Una vela fechada en sábado o domingo no se ha visto y no dice a qué semana pertenece: no se adivina.
     const dia = diaSemana(vela.fecha);
     if (dia === DIA_DOMINGO || dia === DIA_SABADO) {
       return sinConfirmar('pendiente', 'fecha_semanal_en_fin_de_semana', `La vela semanal está fechada en fin de semana (${vela.fecha}): no se sabe a qué semana pertenece`);

@@ -8,7 +8,10 @@ import { MARGEN_CIERRE_MINUTOS } from './cierre-velas';
 
 export const CLAVE_MARGEN_CIERRE = 'orquestador.margen_cierre_velas';
 export const CLAVE_FRESCURA_PRECIO = 'frescura.precio';
+export const CLAVE_VENTANA_ALERTAS = 'orquestador.ventana_alertas';
 export const UNIDAD_MINUTOS = 'minutos';
+/** Forma real de la fila (verificada el 23-oct): `{ "horas": 24 }`. Distinta de las otras claves, que usan `{ valor, unidad }`. */
+export const CAMPO_HORAS = 'horas';
 export const UNIDAD_DIAS_HABILES = 'dias_habiles';
 
 export interface FilaParametro {
@@ -28,6 +31,8 @@ export interface ParametrosOrquestador {
   margen_origen: OrigenParametro;
   /** null si el parámetro está sin definir (fila ausente) o inválido: entonces no se evalúa la frescura. */
   frescura_precio_dias_habiles: number | null;
+  /** null si el parámetro está sin definir o es inválido: entonces NO se agrupan alertas (cada una se notifica). */
+  ventana_alertas_horas: number | null;
   /** Para `parametros_versiones` de la entrada del Motor: solo los parámetros leídos de la base. */
   parametros_versiones: { clave: string; version: number }[];
   problemas: string[];
@@ -42,6 +47,13 @@ export function parametroVigente(filas: FilaParametro[], clave: string, fecha: s
     if (mejor === null || f.version > mejor.version) mejor = f;
   }
   return mejor;
+}
+
+/** `{ horas: número finito >= 0 }`; si no, null. */
+export function leerHoras(valor: unknown): number | null {
+  if (typeof valor !== 'object' || valor === null) return null;
+  const h = (valor as { horas?: unknown }).horas;
+  return typeof h === 'number' && isFinite(h) && h >= 0 ? h : null;
 }
 
 /** `{ valor: número finito >= 0, unidad }` con la unidad esperada; si no, null. */
@@ -74,5 +86,13 @@ export function resolverParametros(filas: FilaParametro[], fecha_evaluacion: str
     else versiones.push({ clave: CLAVE_FRESCURA_PRECIO, version: ff.version });
   }
 
-  return { margen_cierre_minutos: margen, margen_origen, frescura_precio_dias_habiles: frescura, parametros_versiones: versiones, problemas };
+  let ventana: number | null = null;
+  const fv = parametroVigente(filas, CLAVE_VENTANA_ALERTAS, fecha_evaluacion);
+  if (fv !== null) {
+    ventana = leerHoras(fv.valor);
+    if (ventana === null) problemas.push(`${CLAVE_VENTANA_ALERTAS} v${fv.version}: valor inválido (se espera { "${CAMPO_HORAS}": número >= 0 })`);
+    else versiones.push({ clave: CLAVE_VENTANA_ALERTAS, version: fv.version });
+  }
+
+  return { margen_cierre_minutos: margen, margen_origen, frescura_precio_dias_habiles: frescura, ventana_alertas_horas: ventana, parametros_versiones: versiones, problemas };
 }

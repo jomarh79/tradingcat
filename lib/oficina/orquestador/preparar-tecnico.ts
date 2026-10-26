@@ -23,8 +23,8 @@ import { CALENDARIO_NYSE, ZONA_OFICINA, fechaEnZona } from './calendario';
 import type { CalendarioNYSE } from './calendario';
 import { MARGEN_CIERRE_MINUTOS, confirmarCierreVelas, instanteEvaluacion } from './cierre-velas';
 import type { Mercado, OpcionesCierreVelas, ResultadoCierre, ResultadoCierreVelas } from './cierre-velas';
-import { evaluarFrescuraPrecio } from './frescura';
-import type { ResultadoFrescura } from './frescura';
+import { datoFaltantePorFrescura, evaluarFrescuraPrecio, textoDatoFaltante } from './frescura';
+import type { DatoFaltanteVencido, ResultadoFrescura } from './frescura';
 import { registrarRachaMogalefSuperior } from './racha';
 import type { RachaRegistrada, ResultadoRacha } from './racha';
 
@@ -80,10 +80,11 @@ export interface ResultadoPrepararTecnico {
   momento: Record<UsoMomento, { detonante_confirmado: boolean }> | null;
   /** `senal_salida` de la entrada del Motor para el PCP. null si no se pudo evaluar: nunca se rellena con false. */
   senal_salida: boolean | null;
-  /** Para mezclar con `datos_faltantes` de la entrada del Motor (el Técnico es agente requerido). */
+  /** Para mezclar con `datos_faltantes` de la entrada del Motor (el Técnico es agente requerido). Un precio vencido también va aquí (22-oct):
+   *  el Motor no debe decidir con información vencida. El Orquestador NO llena `datos_vencidos` del Motor. */
   datos_faltantes: string[];
-  /** Para mezclar con `datos_vencidos` de la entrada del Motor: precio diario con más antigüedad que `frescura.precio`. */
-  datos_vencidos: string[];
+  /** Causa estructurada de los faltantes por frescura: motivo `precio_desactualizado`, estado_dato `vencido`, umbral del parámetro. Vacío si no hay. */
+  datos_faltantes_detalle: DatoFaltanteVencido[];
   /** null si no hubo snapshot evaluable. */
   frescura: ResultadoFrescura | null;
   /** Registro de la racha de MOGALEF_BANDA_SUPERIOR (solo la banda superior). null si no hubo snapshot evaluable. */
@@ -126,7 +127,7 @@ function prepararSinReferencias(
     estado, ticker: entrada.ticker, fecha_evaluacion: null, cierre: null,
     descartes: { diaria: null, semanal: null }, snapshot: null, detonantes: null, momento: null, senal_salida: null,
     datos_faltantes: estado === 'completo' || estado === 'parcial' ? [] : [`tecnico: ${motivos.join('; ')}`],
-    datos_vencidos: [], frescura: null, racha_mogalef_superior: null,
+    datos_faltantes_detalle: [], frescura: null, racha_mogalef_superior: null,
     motivos, ...extra,
   });
 
@@ -186,11 +187,12 @@ function prepararSinReferencias(
   });
   const racha = registrarRachaMogalefSuperior(snapshot, opciones.racha_previa ?? null);
 
+  const vencido = datoFaltantePorFrescura(frescura);
   return {
     estado: snapshot.estado, ticker: entrada.ticker, fecha_evaluacion, cierre, descartes, snapshot, detonantes, momento,
     senal_salida: detonantes[USO_SENAL_SALIDA].detonante_confirmado,
-    datos_faltantes: [],
-    datos_vencidos: frescura.vencida === true ? [`precio_diario: ${frescura.detalle}`] : [],
+    datos_faltantes: vencido === null ? [] : [textoDatoFaltante(vencido)],
+    datos_faltantes_detalle: vencido === null ? [] : [vencido],
     frescura, racha_mogalef_superior: racha,
     motivos: [...motivos, ...snapshot.motivos],
   };
