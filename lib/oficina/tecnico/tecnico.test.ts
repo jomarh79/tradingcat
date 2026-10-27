@@ -188,18 +188,17 @@ describe('señales de PCP-10 / PCP-04', () => {
     expect(sen(calcularTecnico(entrada(cerca)), 'NIVEL_PASADO').detalle).toContain('máximo');
     expect(sen(calcularTecnico(entrada(lejos)), 'NIVEL_PASADO').cumplida).toBe(false);
   });
-  it('las señales salen en un orden fijo: NIVEL_PASADO (recompra del PCP) y SOPORTE_PASADO (DCA del PLP) conviven', () => {
+  it('las señales salen en un orden fijo: NIVEL_PASADO (recompra del PCP y DCA del PLP) es una sola señal', () => {
     const ids = calcularTecnico(entrada(caminata(300))).senales.map(s => s.id);
     expect(ids).toEqual([
-      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO', 'SOPORTE_PASADO',
+      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO',
       'RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA',
     ]);
   });
-  it('sin pivotes confirmados, NIVEL_PASADO, SOPORTE_PASADO y RESISTENCIA_PASADA quedan sin evaluar (null)', () => {
+  it('sin pivotes confirmados, NIVEL_PASADO y RESISTENCIA_PASADA quedan sin evaluar (null)', () => {
     const sube = Array.from({ length: 60 }, (_, i) => vela(i, 100 + i));
     const r = calcularTecnico(entrada(sube));
     expect(sen(r, 'NIVEL_PASADO').cumplida).toBeNull();
-    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBeNull();
     expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBeNull();
   });
 });
@@ -250,8 +249,7 @@ describe('nivel pasado y resistencia pasada: tolerancia ±1.5% y alcance', () =>
     expect(nivel(conPico(10, 200, 150))).toBe(false);
   });
 
-  // --- SOPORTE_PASADO (PLP-03, 21-oct): solo pivotes de mínimo
-  const soporte = (d: Candle[]) => sen(calcularTecnico(entrada(d)), 'SOPORTE_PASADO').cumplida;
+  // --- PLP-03 (22-oct): el DCA del PLP usa NIVEL_PASADO (mínimos y máximos), no una señal aparte de soportes
   /** Un techo (pivote de máximo, 120) y un suelo (pivote de mínimo, 80); el cierre final lo elige cada prueba. */
   const conTechoYSuelo = (cierreFinal: number): Candle[] => {
     const v = planas(100);
@@ -260,37 +258,19 @@ describe('nivel pasado y resistencia pasada: tolerancia ±1.5% y alcance', () =>
     v.push({ time: T0 + 40 * DIA, open: cierreFinal, high: cierreFinal + 0.5, low: cierreFinal - 0.5, close: cierreFinal, volume: 1000 });
     return v;
   };
-  it('SOPORTE_PASADO: el borde del 1.5% cuenta con un pivote de mínimo y justo fuera no, también con el error de coma flotante (20 → 20.3 y 19.7)', () => {
-    for (const [cierre, esperado] of [[50.75, true], [49.25, true], [50.76, false], [49.24, false]] as const) {
-      expect(soporte(conFoso(100, 50, cierre))).toBe(esperado);
-    }
-    for (const [cierre, esperado] of [[20.3, true], [19.7, true], [20.31, false], [19.69, false]] as const) {
-      expect(soporte(conFoso(100, 20, cierre))).toBe(esperado);
-    }
+  it('no existe una señal SOPORTE_PASADO: el DCA del PLP usa la definición común NIVEL_PASADO', () => {
+    const ids = calcularTecnico(entrada(conTechoYSuelo(80.6))).senales.map(s => s.id as string);
+    expect(ids).not.toContain('SOPORTE_PASADO');
+    expect(SENALES_POR_USO.dca_plp).toContain('NIVEL_PASADO');
   });
-  it('SOPORTE_PASADO no cuenta pivotes de máximo: cerca de un techo es false (hay pivotes de mínimo), aunque NIVEL_PASADO y RESISTENCIA_PASADA sí se cumplen', () => {
-    const r = calcularTecnico(entrada(conTechoYSuelo(119.5)));
-    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
-    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(true);
-    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBe(false);
-  });
-  it('SOPORTE_PASADO cerca de un suelo se cumple junto con NIVEL_PASADO, y RESISTENCIA_PASADA no', () => {
-    const r = calcularTecnico(entrada(conTechoYSuelo(80.6)));
-    expect(sen(r, 'SOPORTE_PASADO').cumplida).toBe(true);
-    expect(sen(r, 'NIVEL_PASADO').cumplida).toBe(true);
-    expect(sen(r, 'RESISTENCIA_PASADA').cumplida).toBe(false);
-    expect(sen(r, 'SOPORTE_PASADO').detalle).toContain('soporte');
-  });
-  it('SOPORTE_PASADO con solo pivotes de máximo queda sin evaluar (null), no false', () => {
-    expect(soporte(conPico(10, 200, 199))).toBeNull();
-  });
-  it('el DCA del PLP no se activa por un techo (solo SOPORTE_PASADO), mientras que la recompra del PCP sí lo cuenta (NIVEL_PASADO)', () => {
+  it('el DCA del PLP se activa tanto cerca de un suelo como cerca de un techo (NIVEL_PASADO), igual que la recompra del PCP', () => {
     const techo = calcularTecnico(entrada(conTechoYSuelo(119.5)));
-    expect(detonantePara(techo, 'dca_plp').senales_cumplidas).not.toContain('SOPORTE_PASADO');
-    expect(detonantePara(techo, 'recompra_pcp').senales_cumplidas).toContain('NIVEL_PASADO');
     const suelo = calcularTecnico(entrada(conTechoYSuelo(80.6)));
-    expect(detonantePara(suelo, 'dca_plp').senales_cumplidas).toContain('SOPORTE_PASADO');
-    expect(detonantePara(suelo, 'recompra_pcp').senales_cumplidas).toContain('NIVEL_PASADO');
+    for (const r of [techo, suelo]) {
+      expect(detonantePara(r, 'dca_plp').senales_cumplidas).toContain('NIVEL_PASADO');
+      expect(detonantePara(r, 'dca_plp').detonante_confirmado).toBe(true);
+      expect(detonantePara(r, 'recompra_pcp').senales_cumplidas).toContain('NIVEL_PASADO');
+    }
   });
   it('RESISTENCIA_PASADA no cuenta soportes: cerca de un pivote de mínimo es false, aunque NIVEL_PASADO sea true', () => {
     // techo (pivote de máximo, 120) y suelo (pivote de mínimo, 80); el cierre final (80.6) queda sobre el suelo, lejos del techo
@@ -530,13 +510,12 @@ describe('detonantes por uso', () => {
       expect(detonantePara(sn({ [id]: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
     }
   });
-  it('DCA del PLP (21-oct): cuenta SOPORTE_PASADO (solo mínimos); NIVEL_PASADO y las señales de salida no', () => {
-    expect(detonantePara(sn({ SOPORTE_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(true);
-    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(false);
+  it('DCA del PLP (22-oct): cuenta NIVEL_PASADO (mínimos y máximos); las señales de salida no', () => {
+    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'dca_plp').detonante_confirmado).toBe(true);
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
       expect(detonantePara(sn({ [id]: true }), 'dca_plp').detonante_confirmado).toBe(false);
     }
-    expect(SENALES_POR_USO.dca_plp).toEqual(['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'SOPORTE_PASADO']);
+    expect(SENALES_POR_USO.dca_plp).toEqual(['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO']);
   });
   it('salida PCP: basta una de RSI_SOBRECOMPRA, MOGALEF_BANDA_SUPERIOR o RESISTENCIA_PASADA, cada una por separado', () => {
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
@@ -547,7 +526,7 @@ describe('detonantes por uso', () => {
     expect(detonantePara(sn({}), 'salida_pcp').detonante_confirmado).toBe(false);
   });
   it('salida PCP: sin soporte ni señales de entrada; la sobreventa, Koncorde, la banda inferior y el nivel pasado no cuentan', () => {
-    for (const id of ['NIVEL_PASADO', 'SOPORTE_PASADO', 'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21']) {
+    for (const id of ['NIVEL_PASADO', 'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21']) {
       expect(detonantePara(sn({ [id]: true }), 'salida_pcp').detonante_confirmado).toBe(false);
     }
     expect(SENALES_POR_USO.salida_pcp).toEqual(['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']);

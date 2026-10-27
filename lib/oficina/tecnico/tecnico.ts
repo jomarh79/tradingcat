@@ -161,7 +161,7 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
     });
   }
 
-  // Nivel pasado (PCP-04, recompra; matriz v2: «soporte o resistencia pasado»): pivotes de mínimo Y de máximo, contra todos los de la ventana.
+  // Nivel pasado (PCP-04 recompra y PLP-03 DCA; matriz v2: «soporte o resistencia pasado»): pivotes de mínimo Y de máximo, contra todos los de la ventana.
   const tol = P.nivel_tolerancia_pct / 100;
   const cercaBajo = pivoteCercano(cierre, piv.bajos, tol);
   const cercaAlto = pivoteCercano(cierre, piv.altos, tol);
@@ -178,18 +178,6 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
         : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de mínimo ni de máximo de la ventana`,
     });
   }
-
-  // Soporte pasado (PLP-03, DCA; 21-oct): solo pivotes de mínimo, ±1.5%, contra todos los de la ventana. Es la parte de NIVEL_PASADO que admite el DCA del PLP.
-  senales.push(
-    piv.bajos.length === 0
-      ? { id: 'SOPORTE_PASADO', cumplida: null, detalle: 'No hay pivotes de mínimo confirmados en la ventana' }
-      : {
-          id: 'SOPORTE_PASADO', cumplida: cercaBajo !== null,
-          detalle: cercaBajo !== null
-            ? `Cierre ${fmt(cierre)} a ±${P.nivel_tolerancia_pct}% del soporte ${fmt(cercaBajo.precio)} (${cercaBajo.fecha})`
-            : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de mínimo de la ventana`,
-        },
-  );
 
   // Señales de salida del PCP (aprobadas el 19-oct). Cada una se reporta por separado. MACD, figura y Koncorde de salida son visuales tuyos: no se calculan.
   senales.push(

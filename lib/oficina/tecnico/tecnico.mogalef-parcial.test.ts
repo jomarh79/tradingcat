@@ -51,7 +51,7 @@ describe('sin bandas de Mogalef: nada se inventa', () => {
   it('las demás señales siguen evaluándose', () => {
     expect(sen('RSI_SOBREVENTA').cumplida).not.toBeNull();
     expect(sen('RSI_SOBRECOMPRA').cumplida).not.toBeNull();
-    expect(sen('SOPORTE_PASADO').cumplida).not.toBeNull();
+    expect(sen('NIVEL_PASADO').cumplida).not.toBeNull();
     expect(sen('RESISTENCIA_PASADA').cumplida).not.toBeNull();
   });
 });

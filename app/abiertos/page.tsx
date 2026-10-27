@@ -337,7 +337,10 @@ export default function TradesAbiertosPage() {
 
       const belowStop = Number(trade.stop_loss) > 0 && curPrice > 0 && curPrice <= Number(trade.stop_loss)
       const nearStop  = (belowStop || (distPct(curPrice, trade.stop_loss) ?? Infinity) <= 1) && !trade.stop_hit
-      const nearTP   = TARGETS.some(({ field, hit }) => (distPct(curPrice, trade[field]) ?? Infinity) <= 1 && !trade[hit])
+      const nearTP   = TARGETS.some(({ field, hit }) => {
+        const tp = Number(trade[field])
+        return tp > 0 && curPrice > 0 && curPrice >= tp && !trade[hit]
+      })
 
       return {
         ...trade, curPrice, avgPrice, pnl, pnlPct, invested, curValue, nearStop, nearTP,

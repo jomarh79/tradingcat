@@ -5,7 +5,7 @@ import type { IdSenal, SnapshotTecnico } from './tipos';
 export const SENALES_POR_USO = {
   apertura_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR'],      // PCP-10
   recompra_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'],          // PCP-04; nivel = pivote de mínimo o de máximo (19-oct)
-  dca_plp: ['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'SOPORTE_PASADO'],                 // PLP-03 (21-oct): solo soporte, no máximos; "sobreventa" = RSI ≤ 30 [PROPUESTA]
+  dca_plp: ['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO'],                    // PLP-03 (22-oct): definición común NIVEL_PASADO (mínimos y máximos, 19-oct); "sobreventa" = RSI ≤ 30 [PROPUESTA]
   salida_pcp: ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'],                           // PCP-05/06 (19-oct); sin soporte
 } as const satisfies Record<string, readonly IdSenal[]>;
 

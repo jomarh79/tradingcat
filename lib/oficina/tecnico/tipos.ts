@@ -24,8 +24,7 @@ export type IdSenal =
   | 'KONCORDE_BAJO_CERO'
   | 'EMA8_SOBRE_EMA21'
   | 'MOGALEF_BANDA_INFERIOR'
-  | 'NIVEL_PASADO'          // recompra del PCP (19-oct): pivotes de mínimo y de máximo
-  | 'SOPORTE_PASADO'        // DCA del PLP (21-oct): solo pivotes de mínimo
+  | 'NIVEL_PASADO'          // recompra del PCP y DCA del PLP (19-oct / 22-oct): pivotes de mínimo y de máximo
   | 'RSI_SOBRECOMPRA'       // salida del PCP
   | 'MOGALEF_BANDA_SUPERIOR' // salida del PCP
   | 'RESISTENCIA_PASADA';   // salida del PCP: solo pivotes de máximo
