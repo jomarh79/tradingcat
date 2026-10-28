@@ -15,3 +15,8 @@ export type {
 } from './hechos-bd';
 export { TABLA_ANALISIS, filaAnalisisAuditor, guardarAnalisisAuditor } from './persistencia-auditor';
 export type { ClienteInsercion, IdsAnalisis, ResultadoFilaAnalisis, ResultadoGuardado } from './persistencia-auditor';
+export {
+  CODIGO_VIOLACION_UNICA, MERCADOS_EXPEDIENTE, ORIGEN_AL_ENTRAR, ORIGEN_RECONSTRUIDA, PORTAFOLIOS_OPERATIVOS, TABLA_EXPEDIENTES_BD,
+  obtenerOCrearExpediente, verificarParametrosExpediente,
+} from './expediente-bd';
+export type { ClienteExpediente, ParametrosExpediente, ResultadoExpediente } from './expediente-bd';
