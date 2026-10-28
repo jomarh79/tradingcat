@@ -5,3 +5,13 @@ export {
 export type { ClienteConsulta, FilaClasificacion, FilaRegla, FilaVersion, FilasReglas, OpcionesReglas, ResultadoCarga, ResultadoReglas } from './reglas-bd';
 export { ACCION_POR_TIPO, conSobreAuditor, construirEntradaAuditor } from './entrada-auditor';
 export type { ArgumentosEntrada, HechosAuditor, ResultadoEntrada } from './entrada-auditor';
+export {
+  COLUMNAS_CAPITAL, COLUMNAS_EJECUCIONES, COLUMNAS_EXPEDIENTES, COLUMNAS_POSICIONES, EJECUCION_CIERRE, EJECUCION_COMPRA, EJECUCION_VENTA,
+  TABLA_CAPITAL, TABLA_EJECUCIONES, TABLA_EXPEDIENTES, TABLA_POSICIONES, cargarHechosPosicion, resolverHechosPosicion,
+} from './hechos-bd';
+export type {
+  ClienteLectura, ConsultaFiltrable, ConsultaPosicion, FilaCapital, FilaEjecucion, FilaExpediente, FilaPosicion, FilasPosicion,
+  ResultadoCargaHechos, ResultadoHechosPosicion,
+} from './hechos-bd';
+export { TABLA_ANALISIS, filaAnalisisAuditor, guardarAnalisisAuditor } from './persistencia-auditor';
+export type { ClienteInsercion, IdsAnalisis, ResultadoFilaAnalisis, ResultadoGuardado } from './persistencia-auditor';
