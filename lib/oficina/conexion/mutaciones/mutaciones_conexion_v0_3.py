@@ -1,0 +1,20 @@
+H='lib/oficina/conexion/hechos-bd.ts'
+M = [
+ ('estado no exigido', H, "if (o['estado'] !== ESTADO_PLAN_DECLARADO) return null;", ""),
+ ('estado cualquiera con texto', H, "if (o['estado'] !== ESTADO_PLAN_DECLARADO) return null;", "if (typeof o['estado'] !== 'string') return null;"),
+ ('ficha array aceptada', H, "typeof ficha !== 'object' || ficha === null || Array.isArray(ficha)", "typeof ficha !== 'object' || ficha === null"),
+ ('ficha null revienta', H, "typeof ficha !== 'object' || ficha === null || Array.isArray(ficha)", "typeof ficha !== 'object' || Array.isArray(ficha)"),
+ ('plan array aceptado', H, "typeof p !== 'object' || p === null || Array.isArray(p)", "typeof p !== 'object' || p === null"),
+ ('plan null revienta', H, "typeof p !== 'object' || p === null || Array.isArray(p)", "typeof p !== 'object' || Array.isArray(p)"),
+ ('plan texto aceptado', H, "typeof p !== 'object' || p === null || Array.isArray(p)", "p === null || Array.isArray(p)"),
+ ('modalidad invalida tolerada', H, "return m !== undefined ? { plan: m } : { problema:", "return m !== undefined ? { plan: m } : null; const _x = { problema:"),
+ ('modalidad por defecto escalonado', H, "return m !== undefined ? { plan: m } :", "return m !== undefined ? { plan: m } : o['modalidad'] === undefined ? { plan: 'escalonado' } :"),
+ ('clave distinta', H, "export const FICHA_CLAVE_PLAN = 'plan_pcp';", "export const FICHA_CLAVE_PLAN = 'plan';"),
+ ('estado distinto', H, "export const ESTADO_PLAN_DECLARADO = 'declarado';", "export const ESTADO_PLAN_DECLARADO = 'validado';"),
+ ('modalidades sin una_compra', H, "['una_compra', 'escalonado']", "['escalonado']"),
+ ('modalidades sin escalonado', H, "['una_compra', 'escalonado']", "['una_compra']"),
+ ('problema de plan ignorado', H, "if (plan !== null && 'problema' in plan) problemas.push(`${q.ticker}: ${plan.problema}`);\n    else if", "if (false) problemas.push('');\n    if"),
+ ('plan sin posicion', H, "else if (plan !== null && q.posicion_existe) hechos.posicion", "else if (plan !== null) hechos.posicion"),
+ ('plan pierde rol', H, "hechos.posicion = { ...hechos.posicion, plan_pcp: plan.plan }", "hechos.posicion = { plan_pcp: plan.plan }"),
+ ('columnas sin ficha', H, "'id,ticker,portfolio_id,rol_posicion,ficha'", "'id,ticker,portfolio_id,rol_posicion'"),
+]

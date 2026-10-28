@@ -18,7 +18,7 @@ function filas(o: Partial<FilasPosicion> = {}): FilasPosicion {
     posiciones: [{ trade_id: TR, portfolio_id: PF, ticker: 'MSFT', fecha_apertura: '2026-10-06' }],
     ejecuciones: [compra('e1', 100, 0.25, 25), compra('e2', 80, 0.5, 40, '2026-10-13T10:00:00')],
     capital: [{ portfolio_id: PF, posiciones_abiertas: 4 }],
-    expedientes: [{ id: EX, ticker: 'MSFT', portfolio_id: PF, rol_posicion: 'core' }],
+    expedientes: [{ id: EX, ticker: 'MSFT', portfolio_id: PF, rol_posicion: 'core', ficha: {} }],
     ...o,
   };
 }
@@ -124,14 +124,42 @@ describe('resolverHechosPosicion', () => {
     expect(problemas(filas({ capital: [{ portfolio_id: PF, posiciones_abiertas: 1.5 }] }))).toMatch(/posiciones_abiertas inválido/);
     expect(problemas(filas({ expedientes: [...filas().expedientes, ...filas().expedientes] }))).toMatch(/2 expedientes/);
   });
+  it('plan_pcp: solo cuenta si la ficha lo trae declarado; una propuesta pendiente es plan no declarado', () => {
+    const conFicha = (ficha: unknown) => filas({ expedientes: [{ id: EX, ticker: 'MSFT', portfolio_id: PF, rol_posicion: 'core', ficha }] });
+    const plan = (ficha: unknown, q = Q) => { const r = resolverHechosPosicion(conFicha(ficha), q); return r.ok ? r.hechos.posicion?.plan_pcp : 'PROBLEMA'; };
+    expect(plan({ plan_pcp: { modalidad: 'escalonado', estado: 'declarado' } })).toBe('escalonado');
+    expect(plan({ plan_pcp: { modalidad: 'una_compra', estado: 'declarado' } })).toBe('una_compra');
+    expect(plan({ plan_pcp: { modalidad: 'escalonado', estado: 'pendiente_de_validacion' } })).toBeUndefined();
+    expect(plan({ plan_pcp: { modalidad: 'escalonado' } })).toBeUndefined();
+    expect(plan({ plan_pcp: { estado: 'declarado' } })).toBe('PROBLEMA');
+    expect(plan({ plan_pcp: { modalidad: 'otro', estado: 'declarado' } })).toBe('PROBLEMA');
+    expect(plan({})).toBeUndefined();
+    expect(plan(null)).toBeUndefined();
+    expect(plan('texto')).toBeUndefined();
+    expect(plan([{ modalidad: 'escalonado', estado: 'declarado' }])).toBeUndefined();
+    expect(plan({ plan_pcp: null })).toBeUndefined();
+    expect(plan({ plan_pcp: 'escalonado' })).toBeUndefined();
+    expect(plan({ plan_pcp: [{ modalidad: 'escalonado', estado: 'declarado' }] })).toBeUndefined();
+    expect(plan(Object.assign([], { plan_pcp: { modalidad: 'escalonado', estado: 'declarado' } }))).toBeUndefined();
+    expect(plan({ plan_pcp: Object.assign([], { modalidad: 'escalonado', estado: 'declarado' }) })).toBeUndefined();
+    const conRol = resolverHechosPosicion(conFicha({ plan_pcp: { modalidad: 'escalonado', estado: 'declarado' } }), Q);
+    expect(conRol.ok && conRol.hechos.posicion?.rol).toBe('core');
+    expect(plan({ otra_clave: { modalidad: 'escalonado', estado: 'declarado' } })).toBeUndefined();
+    const sin = resolverHechosPosicion(conFicha({ plan_pcp: { modalidad: 'escalonado', estado: 'declarado' } }), { ...Q, posicion_existe: false });
+    expect(sin.ok).toBe(false); // la base tiene la posición abierta y se declaró que no
+    const r = resolverHechosPosicion({ ...conFicha({ plan_pcp: { modalidad: 'escalonado', estado: 'declarado' } }), posiciones: [], ejecuciones: [] }, { ...Q, posicion_existe: false });
+    expect(r.ok && r.hechos.posicion?.plan_pcp).toBeUndefined();
+    const m = resolverHechosPosicion(conFicha({ plan_pcp: { modalidad: 'otro', estado: 'declarado' } }), Q);
+    expect(!m.ok && m.problemas.join()).toMatch(/modalidad inválida \(otro\)/);
+  });
   it('sin expediente: no inventa rol ni id (la persistencia lo exigirá)', () => {
     const r = resolverHechosPosicion(filas({ expedientes: [] }), Q);
     expect(r.ok && r.expediente_id).toBeNull();
     expect(r.ok && r.hechos.posicion?.rol).toBeUndefined();
-    const s = resolverHechosPosicion(filas({ expedientes: [{ id: EX, ticker: 'MSFT', portfolio_id: PF, rol_posicion: null }] }), Q);
+    const s = resolverHechosPosicion(filas({ expedientes: [{ id: EX, ticker: 'MSFT', portfolio_id: PF, rol_posicion: null, ficha: {} }] }), Q);
     expect(s.ok && s.hechos.posicion?.rol).toBeUndefined();
     expect(s.ok && s.expediente_id).toBe(EX);
-    const o = resolverHechosPosicion(filas({ expedientes: [{ id: 'z', ticker: 'AAPL', portfolio_id: PF, rol_posicion: 'x' }, { id: 'w', ticker: 'MSFT', portfolio_id: 'otro', rol_posicion: 'y' }] }), Q);
+    const o = resolverHechosPosicion(filas({ expedientes: [{ id: 'z', ticker: 'AAPL', portfolio_id: PF, rol_posicion: 'x', ficha: {} }, { id: 'w', ticker: 'MSFT', portfolio_id: 'otro', rol_posicion: 'y', ficha: {} }] }), Q);
     expect(o.ok && o.expediente_id).toBeNull();
   });
 });
@@ -169,7 +197,7 @@ describe('cargarHechosPosicion', () => {
       { tabla: 'oficina_v_posiciones', cols: 'trade_id,portfolio_id,ticker,fecha_apertura', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
       { tabla: 'trade_executions', cols: 'id,trade_id,execution_type,price,quantity,executed_at,total', filtros: [['trade_id', TR]] },
       { tabla: 'oficina_v_capital', cols: 'portfolio_id,posiciones_abiertas', filtros: [['portfolio_id', PF]] },
-      { tabla: 'oficina_expedientes', cols: 'id,ticker,portfolio_id,rol_posicion', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
+      { tabla: 'oficina_expedientes', cols: 'id,ticker,portfolio_id,rol_posicion,ficha', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
     ]);
   });
   it('si no hay posición no consulta ejecuciones', async () => {
