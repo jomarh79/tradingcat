@@ -2,6 +2,8 @@
 //   id uuid (default gen_random_uuid), user_id*, ticker*, mercado* CHECK ('US','BMV'), tesis_vigente, tesis_version* (default 1),
 //   tesis_origen* CHECK ('al_entrar','reconstruida') (default 'al_entrar'), ficha* jsonb (default '{}'), portfolio_id, portafolio_codigo (7 códigos),
 //   índice único oficina_expedientes_unico (user_id, ticker, mercado, COALESCE(portfolio_id, 0)); RLS "propias": user_id = auth.uid().
+// `user_id` es OPCIONAL: en sesión de usuario se omite (la base lo pone con auth.uid() y el RLS "propias" limita las filas); si viene, se valida y se usa
+// en filtros y filas (proceso sin sesión con clave de servicio: sale de una variable fija de entorno, nunca de la petición).
 // Reglas: nunca se inventa un id (solo el que devuelve la base); si el expediente no se puede recuperar ni crear, devuelve problemas y el llamador
 // NO guarda `oficina_analisis` (registra la corrida como bloqueada o incompleta). El error de la base va tal cual. No se sobrescribe nada existente.
 // [PROPUESTA] tesis_origen al crear: 'reconstruida' si la posición ya existía (anterior a la Oficina), 'al_entrar' si es una posición nueva;
@@ -19,7 +21,7 @@ export const ORIGEN_AL_ENTRAR = 'al_entrar';
 export const CODIGO_VIOLACION_UNICA = '23505';
 
 export interface ParametrosExpediente {
-  user_id: string;
+  user_id?: string | null;
   ticker: string;
   mercado: string;
   portfolio_id: string;
@@ -41,7 +43,7 @@ export interface ClienteExpediente {
 
 export function verificarParametrosExpediente(p: ParametrosExpediente): string[] {
   const m: string[] = [];
-  if (!esUuid(p.user_id)) m.push('user_id inválido');
+  if (p.user_id !== undefined && p.user_id !== null && !esUuid(p.user_id)) m.push('user_id inválido');
   if (typeof p.ticker !== 'string' || p.ticker.trim() === '') m.push('ticker vacío');
   if (!(MERCADOS_EXPEDIENTE as readonly string[]).includes(p.mercado)) m.push(`mercado inválido: ${String(p.mercado)}`);
   if (!esUuid(p.portfolio_id)) m.push('portfolio_id inválido');
@@ -52,11 +54,13 @@ export function verificarParametrosExpediente(p: ParametrosExpediente): string[]
 export async function obtenerOCrearExpediente(cliente: ClienteExpediente, p: ParametrosExpediente): Promise<ResultadoExpediente> {
   const malos = verificarParametrosExpediente(p);
   if (malos.length > 0) return { ok: false, problemas: malos };
+  const usuario = p.user_id ?? null;
   const falla = (m: string): ResultadoExpediente => ({ ok: false, problemas: [`${TABLA_EXPEDIENTES_BD}: ${m}`], error_bd: m });
   try {
     const buscar = async (): Promise<{ id: string | null } | { error: string; problemas?: string[] }> => {
-      const r = await cliente.from(TABLA_EXPEDIENTES_BD).select(COLUMNAS_EXPEDIENTE_ID)
-        .eq('user_id', p.user_id).eq('ticker', p.ticker).eq('mercado', p.mercado).eq('portfolio_id', p.portfolio_id);
+      let q = cliente.from(TABLA_EXPEDIENTES_BD).select(COLUMNAS_EXPEDIENTE_ID);
+      if (usuario !== null) q = q.eq('user_id', usuario);
+      const r = await q.eq('ticker', p.ticker).eq('mercado', p.mercado).eq('portfolio_id', p.portfolio_id);
       if (r.error) return { error: r.error.message };
       if (!Array.isArray(r.data)) return { error: 'la consulta no devolvió filas' };
       if (r.data.length > 1) return { error: `hay ${r.data.length} expedientes del mismo ticker y portafolio (ambiguo)`, problemas: [`${p.ticker}: hay ${r.data.length} expedientes del mismo portafolio (ambiguo)`] };
@@ -69,7 +73,8 @@ export async function obtenerOCrearExpediente(cliente: ClienteExpediente, p: Par
     if (a.id !== null) return { ok: true, expediente_id: a.id, creado: false };
 
     const fila = {
-      user_id: p.user_id, ticker: p.ticker, mercado: p.mercado, portfolio_id: p.portfolio_id, portafolio_codigo: p.portafolio_codigo,
+      ...(usuario !== null ? { user_id: usuario } : {}),
+      ticker: p.ticker, mercado: p.mercado, portfolio_id: p.portfolio_id, portafolio_codigo: p.portafolio_codigo,
       tesis_origen: p.posicion_existe ? ORIGEN_RECONSTRUIDA : ORIGEN_AL_ENTRAR,
     };
     const ins = await cliente.from(TABLA_EXPEDIENTES_BD).insert(fila).select('id').single();

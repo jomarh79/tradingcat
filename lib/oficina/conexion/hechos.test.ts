@@ -256,6 +256,15 @@ describe('filaAnalisisAuditor', () => {
       fila: { user_id: US, ejecucion_id: EJ, expediente_id: EX, agente: 'auditor_reglas', veredicto: 'CUMPLE', puntaje: null, confianza: null, salida: SALIDA, datos_fuente: [{ id: 'd1' }], supuestos: null, invalidadores: null },
     });
   });
+  it('user_id opcional: sin él la fila no lo lleva (lo pone la base)', () => {
+    const { user_id: _u, ...sin } = IDS;
+    const r = filaAnalisisAuditor(SALIDA, sin);
+    expect(r.ok).toBe(true);
+    expect(r.ok && 'user_id' in r.fila).toBe(false);
+    const n = filaAnalisisAuditor(SALIDA, { ...IDS, user_id: null });
+    expect(n.ok).toBe(true);
+    expect(n.ok && 'user_id' in n.fila).toBe(false);
+  });
   it('ejecucion_id puede ser null; expediente_id no', () => {
     expect(filaAnalisisAuditor(SALIDA, { ...IDS, ejecucion_id: null }).ok).toBe(true);
     const r = filaAnalisisAuditor(SALIDA, { ...IDS, expediente_id: null });

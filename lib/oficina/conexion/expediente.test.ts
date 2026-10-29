@@ -64,6 +64,21 @@ describe('obtenerOCrearExpediente', () => {
     expect(e.inserts[0]?.['tesis_origen']).toBe('al_entrar');
     expect(Object.keys(e.inserts[0] ?? {}).sort()).toEqual(['mercado', 'portafolio_codigo', 'portfolio_id', 'tesis_origen', 'ticker', 'user_id']);
   });
+  it('sin user_id (sesión de usuario): no filtra ni envía user_id, lo pone la base', async () => {
+    const e: Espia = { lecturas: [], inserts: [], cols: [] };
+    const { user_id: _u, ...sinUsuario } = P;
+    const r = await obtenerOCrearExpediente(cliente([ok([])], [{ data: { id: EX }, error: null }], e), sinUsuario);
+    expect(r).toEqual({ ok: true, expediente_id: EX, creado: true });
+    expect(e.lecturas[0]).toEqual([['ticker', 'MSFT'], ['mercado', 'US'], ['portfolio_id', PF]]);
+    expect(Object.keys(e.inserts[0] ?? {})).not.toContain('user_id');
+    const n = await obtenerOCrearExpediente(cliente([ok([{ id: EX }])], []), { ...P, user_id: null });
+    expect(n.ok).toBe(true);
+  });
+  it('con user_id lo envía en la fila', async () => {
+    const e: Espia = { lecturas: [], inserts: [], cols: [] };
+    await obtenerOCrearExpediente(cliente([ok([])], [{ data: { id: EX }, error: null }], e), P);
+    expect(e.inserts[0]?.['user_id']).toBe(US);
+  });
   it('carrera: si el insert choca con el índice único relee una vez y usa el existente', async () => {
     const e: Espia = { lecturas: [], inserts: [], cols: [] };
     const r = await obtenerOCrearExpediente(cliente([ok([]), ok([{ id: EX2 }])], [{ data: null, error: { message: 'duplicate key', code: '23505' } }], e), P);
@@ -122,6 +137,10 @@ describe('verificarParametrosExpediente', () => {
     expect(verificarParametrosExpediente(P)).toEqual([]);
     expect(verificarParametrosExpediente({ ...P, mercado: 'BMV' })).toEqual([]);
     for (const c of ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA']) expect(verificarParametrosExpediente({ ...P, portafolio_codigo: c })).toEqual([]);
+  });
+  it('user_id ausente o null es válido', () => {
+    expect(verificarParametrosExpediente({ ...P, user_id: null })).toEqual([]);
+    expect(verificarParametrosExpediente({ ...P, user_id: undefined })).toEqual([]);
   });
   it('rechaza user_id, ticker, mercado, portfolio_id y portafolios sin reglas (Especulativo, Spin Off)', () => {
     expect(v({ user_id: 'x' })).toMatch(/user_id/);

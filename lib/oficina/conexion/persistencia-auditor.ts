@@ -1,6 +1,7 @@
 // Persistencia de la salida del Auditor en `oficina_analisis` (columnas y restricciones pegadas el 28-oct):
 //   id, user_id*, ejecucion_id, expediente_id*, agente*, veredicto, puntaje, confianza, salida*, datos_fuente*, supuestos, invalidadores, created_at   (* NOT NULL)
 //   FK: ejecucion_id → oficina_ejecuciones_agentes(id); expediente_id → oficina_expedientes(id); user_id → auth.users. CHECK: confianza en [0,1] o null.
+// `user_id` es OPCIONAL: en sesión de usuario se omite y la base lo pone (default auth.uid(), RLS "propias"); si viene, se valida y se envía.
 // Una sola fila por inserción (atómico). El Auditor no puntúa: puntaje y confianza van en null; supuestos e invalidadores también.
 // El error de la base se devuelve tal cual, sin reintentos. No se inventa expediente: si no existe, no se persiste.
 import { AGENTE_AUDITOR } from '../auditor';
@@ -8,12 +9,12 @@ import type { SalidaAuditor } from '../auditor';
 import { esUuid } from '../orquestador/persistencia';
 
 export const TABLA_ANALISIS = 'oficina_analisis';
-export interface IdsAnalisis { user_id: string; expediente_id: string | null; ejecucion_id: string | null }
+export interface IdsAnalisis { user_id?: string | null; expediente_id: string | null; ejecucion_id: string | null }
 export type ResultadoFilaAnalisis = { ok: true; fila: Record<string, unknown> } | { ok: false; problemas: string[] };
 
 export function filaAnalisisAuditor(salida: SalidaAuditor, ids: IdsAnalisis): ResultadoFilaAnalisis {
   const problemas: string[] = [];
-  if (!esUuid(ids.user_id)) problemas.push('user_id inválido');
+  if (ids.user_id !== undefined && ids.user_id !== null && !esUuid(ids.user_id)) problemas.push('user_id inválido');
   if (!esUuid(ids.expediente_id)) problemas.push('expediente_id inválido o ausente: oficina_analisis lo exige y no se inventa');
   if (ids.ejecucion_id !== null && !esUuid(ids.ejecucion_id)) problemas.push('ejecucion_id inválido');
   if (salida.agente !== AGENTE_AUDITOR) problemas.push(`agente inesperado: ${String(salida.agente)}`);
@@ -23,7 +24,7 @@ export function filaAnalisisAuditor(salida: SalidaAuditor, ids: IdsAnalisis): Re
   return {
     ok: true,
     fila: {
-      user_id: ids.user_id, ejecucion_id: ids.ejecucion_id, expediente_id: ids.expediente_id, agente: AGENTE_AUDITOR,
+      ...(ids.user_id !== undefined && ids.user_id !== null ? { user_id: ids.user_id } : {}), ejecucion_id: ids.ejecucion_id, expediente_id: ids.expediente_id, agente: AGENTE_AUDITOR,
       veredicto: salida.veredicto, puntaje: null, confianza: null, salida, datos_fuente: salida.datos_fuente, supuestos: null, invalidadores: null,
     },
   };
