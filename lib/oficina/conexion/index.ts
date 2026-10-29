@@ -20,3 +20,7 @@ export {
   obtenerOCrearExpediente, verificarParametrosExpediente,
 } from './expediente-bd';
 export type { ClienteExpediente, ParametrosExpediente, ResultadoExpediente } from './expediente-bd';
+export {
+  COLUMNAS_PORTAFOLIOS_CONFIG, TABLA_PORTAFOLIOS_CONFIG, ejecutarCorridaConAuditoria, prepararAuditoria, puertoAuditorBd, resolverPortfolioId,
+} from './flujo-auditoria';
+export type { ArgumentosPreparacion, ClienteOficina, OpcionesFlujo, ResultadoFlujo, ResultadoPortafolio, ResultadoPreparacion } from './flujo-auditoria';
