@@ -16,7 +16,7 @@ export type {
   UsoDetonante, UsoMomento,
 } from './preparar-tecnico';
 export {
-  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, CAMPO_HORAS, CLAVE_VENTANA_ALERTAS, UNIDAD_DIAS_HABILES, UNIDAD_MINUTOS, leerHoras, leerValorConUnidad, parametroVigente, resolverParametros,
+  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, CAMPO_HORAS, CLAVE_VENTANA_ALERTAS, CAMPO_DIAS_HABILES, UNIDAD_MINUTOS, leerDiasHabiles, leerHoras, leerValorConUnidad, parametroVigente, resolverParametros,
 } from './parametros';
 export type { FilaParametro, OrigenParametro, ParametrosOrquestador } from './parametros';
 export { ESTADO_DATO_VENCIDO, MAX_DIAS_REVISION_FRESCURA, MOTIVO_PRECIO_DESACTUALIZADO, datoFaltantePorFrescura, evaluarFrescuraPrecio, textoDatoFaltante, textoUmbralFrescura } from './frescura';

@@ -30,7 +30,7 @@ const sol = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
 });
 const PARAMS = [
   { clave: 'orquestador.margen_cierre_velas', valor: { valor: 30, unidad: 'minutos' }, version: 1, vigente_desde: '2026-10-22' },
-  { clave: 'frescura.precio', valor: { valor: 1, unidad: 'dias_habiles' }, version: 1, vigente_desde: '2026-10-14' },
+  { clave: 'frescura.precio', valor: { dias_habiles: 1 }, version: 1, vigente_desde: '2026-10-14' },
 ];
 const datos = (extra: Partial<DatosCongelados> = {}): DatosCongelados => ({
   snapshot_id: 'snap-1', snapshot_generado_en: '2026-10-22T13:59:00Z', snapshot_fecha_datos: '2026-10-21', expediente_id: 'exp-1',

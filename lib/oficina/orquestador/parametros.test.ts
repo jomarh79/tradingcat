@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, CLAVE_VENTANA_ALERTAS, MARGEN_CIERRE_MINUTOS, CAMPO_HORAS, UNIDAD_DIAS_HABILES, UNIDAD_MINUTOS, leerHoras, leerValorConUnidad,
+  CLAVE_FRESCURA_PRECIO, CLAVE_MARGEN_CIERRE, CLAVE_VENTANA_ALERTAS, MARGEN_CIERRE_MINUTOS, CAMPO_HORAS, CAMPO_DIAS_HABILES, UNIDAD_MINUTOS, leerDiasHabiles, leerHoras, leerValorConUnidad,
   parametroVigente, resolverParametros,
 } from './index';
 import type { FilaParametro } from './index';
@@ -14,7 +14,7 @@ describe('claves y unidades', () => {
     expect(CLAVE_MARGEN_CIERRE).toBe('orquestador.margen_cierre_velas');
     expect(CLAVE_FRESCURA_PRECIO).toBe('frescura.precio');
     expect(UNIDAD_MINUTOS).toBe('minutos');
-    expect(UNIDAD_DIAS_HABILES).toBe('dias_habiles');
+    expect(CAMPO_DIAS_HABILES).toBe('dias_habiles');
     expect(CLAVE_VENTANA_ALERTAS).toBe('orquestador.ventana_alertas');
     expect(CAMPO_HORAS).toBe('horas');
   });
@@ -22,7 +22,7 @@ describe('claves y unidades', () => {
 
 describe('parametroVigente: mayor versión con vigente_desde <= la fecha', () => {
   const filas = [margen({ valor: 30, unidad: 'minutos' }, 1, '2026-10-22'), margen({ valor: 45, unidad: 'minutos' }, 2, '2026-12-01'), margen({ valor: 20, unidad: 'minutos' }, 3, '2027-01-01'),
-    fresc({ valor: 1, unidad: 'dias_habiles' })];
+    fresc({ dias_habiles: 1 })];
   it('elige la versión que ya rige en la fecha de evaluación', () => {
     expect(parametroVigente(filas, CLAVE_MARGEN_CIERRE, '2026-10-22')!.version).toBe(1);
     expect(parametroVigente(filas, CLAVE_MARGEN_CIERRE, '2026-11-30')!.version).toBe(1);
@@ -56,13 +56,26 @@ describe('leerValorConUnidad', () => {
   });
 });
 
+describe('leerDiasHabiles ({ dias_habiles: n }, forma real de frescura.precio)', () => {
+  it('acepta número finito >= 0', () => {
+    expect(leerDiasHabiles({ dias_habiles: 1 })).toBe(1);
+    expect(leerDiasHabiles({ dias_habiles: 0 })).toBe(0);
+    expect(leerDiasHabiles({ dias_habiles: 2.5 })).toBe(2.5);
+  });
+  it('rechaza negativo, no finito, texto, otra forma o tipo', () => {
+    for (const malo of [{ dias_habiles: -1 }, { dias_habiles: NaN }, { dias_habiles: Infinity }, { dias_habiles: '1' }, { valor: 1, unidad: 'dias_habiles' }, { horas: 1 }, {}, 1, '1', null, undefined, []]) {
+      expect(leerDiasHabiles(malo)).toBeNull();
+    }
+  });
+});
+
 describe('resolverParametros', () => {
   it('sin filas: el margen es la constante (origen «constante») y la frescura queda sin definir; no hay versiones ni problemas', () => {
     const p = resolverParametros([], '2026-10-22');
     expect(p).toEqual({ margen_cierre_minutos: MARGEN_CIERRE_MINUTOS, margen_origen: 'constante', frescura_precio_dias_habiles: null, ventana_alertas_horas: null, parametros_versiones: [], problemas: [] });
   });
   it('con filas válidas lee margen y frescura y reporta sus versiones para parametros_versiones del Motor', () => {
-    const p = resolverParametros([margen({ valor: 45, unidad: 'minutos' }, 2), fresc({ valor: 1, unidad: 'dias_habiles' })], '2026-10-22');
+    const p = resolverParametros([margen({ valor: 45, unidad: 'minutos' }, 2), fresc({ dias_habiles: 1 })], '2026-10-22');
     expect(p.margen_cierre_minutos).toBe(45);
     expect(p.margen_origen).toBe('oficina_parametros');
     expect(p.frescura_precio_dias_habiles).toBe(1);
@@ -78,11 +91,12 @@ describe('resolverParametros', () => {
     expect(p.problemas[0]).toContain(CLAVE_MARGEN_CIERRE);
   });
   it('una fila de frescura inválida deja la frescura sin evaluar y queda declarada', () => {
-    const p = resolverParametros([fresc({ valor: 1, unidad: 'horas' })], '2026-10-22');
+    const p = resolverParametros([fresc({ valor: 1, unidad: 'dias_habiles' })], '2026-10-22');
     expect(p.frescura_precio_dias_habiles).toBeNull();
     expect(p.parametros_versiones).toEqual([]);
     expect(p.problemas).toHaveLength(1);
     expect(p.problemas[0]).toContain(CLAVE_FRESCURA_PRECIO);
+    expect(p.problemas[0]).toContain('{ "dias_habiles": número >= 0 }');
   });
   it('respeta la vigencia: una versión futura no rige todavía', () => {
     const filas = [margen({ valor: 30, unidad: 'minutos' }, 1, '2026-10-22'), margen({ valor: 60, unidad: 'minutos' }, 2, '2026-11-01')];

@@ -24,3 +24,9 @@ export {
   COLUMNAS_PORTAFOLIOS_CONFIG, TABLA_PORTAFOLIOS_CONFIG, ejecutarCorridaConAuditoria, prepararAuditoria, puertoAuditorBd, resolverPortfolioId,
 } from './flujo-auditoria';
 export type { ArgumentosPreparacion, ClienteOficina, OpcionesFlujo, ResultadoFlujo, ResultadoPortafolio, ResultadoPreparacion } from './flujo-auditoria';
+export {
+  COLUMNAS_PARAMETROS, ETFS_EXCLUIDOS_DEL_APORTE_SEMANAL, ETFS_SECTORIALES_ESPERADOS, PORTAFOLIO_ETF, TIPO_APORTE_PERIODICO, armarDatosAporteEtf, lunesDeLaSemana,
+} from './datos-aporte-etf';
+export type { ArgumentosDatosAporte, ResultadoDatosAporte } from './datos-aporte-etf';
+export { DISPARADOR_RUTA, MERCADO_ETF, TICKER_ETF_RE, correrAporteEtf } from './corrida-etf';
+export type { ClienteCorridaEtf, DependenciasCorrida, RespuestaCorridaEtf } from './corrida-etf';

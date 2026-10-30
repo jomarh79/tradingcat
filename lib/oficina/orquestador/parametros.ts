@@ -12,7 +12,8 @@ export const CLAVE_VENTANA_ALERTAS = 'orquestador.ventana_alertas';
 export const UNIDAD_MINUTOS = 'minutos';
 /** Forma real de la fila (verificada el 23-oct): `{ "horas": 24 }`. Distinta de las otras claves, que usan `{ valor, unidad }`. */
 export const CAMPO_HORAS = 'horas';
-export const UNIDAD_DIAS_HABILES = 'dias_habiles';
+/** Forma real de frescura.precio (verificada el 29-oct): `{ "dias_habiles": 1 }`. */
+export const CAMPO_DIAS_HABILES = 'dias_habiles';
 
 export interface FilaParametro {
   clave: string;
@@ -56,6 +57,13 @@ export function leerHoras(valor: unknown): number | null {
   return typeof h === 'number' && isFinite(h) && h >= 0 ? h : null;
 }
 
+/** `{ dias_habiles: número finito >= 0 }`; si no, null. */
+export function leerDiasHabiles(valor: unknown): number | null {
+  if (typeof valor !== 'object' || valor === null) return null;
+  const d = (valor as { dias_habiles?: unknown }).dias_habiles;
+  return typeof d === 'number' && isFinite(d) && d >= 0 ? d : null;
+}
+
 /** `{ valor: número finito >= 0, unidad }` con la unidad esperada; si no, null. */
 export function leerValorConUnidad(valor: unknown, unidad: string): number | null {
   if (typeof valor !== 'object' || valor === null) return null;
@@ -81,8 +89,8 @@ export function resolverParametros(filas: FilaParametro[], fecha_evaluacion: str
   let frescura: number | null = null;
   const ff = parametroVigente(filas, CLAVE_FRESCURA_PRECIO, fecha_evaluacion);
   if (ff !== null) {
-    frescura = leerValorConUnidad(ff.valor, UNIDAD_DIAS_HABILES);
-    if (frescura === null) problemas.push(`${CLAVE_FRESCURA_PRECIO} v${ff.version}: valor inválido (se espera { "valor": número >= 0, "unidad": "${UNIDAD_DIAS_HABILES}" })`);
+    frescura = leerDiasHabiles(ff.valor);
+    if (frescura === null) problemas.push(`${CLAVE_FRESCURA_PRECIO} v${ff.version}: valor inválido (se espera { "${CAMPO_DIAS_HABILES}": número >= 0 })`);
     else versiones.push({ clave: CLAVE_FRESCURA_PRECIO, version: ff.version });
   }
 

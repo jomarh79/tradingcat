@@ -1,16 +1,11 @@
-# Oficina - modulo de conexion v0.6
+# Oficina - modulo de conexion v0.7
 
-- reglas-bd.ts: reglas vigentes desde oficina_reglas / _versiones / _clasificacion.
-- entrada-auditor.ts: construye auditoria_entrada.v1.
-- hechos-bd.ts: posicion, compras (trade_executions buy/sell/close), capital, expediente y plan_pcp (solo si ficha.plan_pcp.estado = "declarado").
-- expediente-bd.ts: recupera o crea el Expediente Maestro (id real de Supabase, nunca inventado).
-- persistencia-auditor.ts: guarda la salida del Auditor en oficina_analisis.
-- flujo-auditoria.ts (NUEVO): une todo con un cliente inyectado (ClienteOficina).
-  * resolverPortfolioId: codigo de portafolio -> portfolio_id (oficina_portafolios_config, exactamente 1 fila).
-  * prepararAuditoria: portafolio -> expediente (recuperar/crear) -> reglas -> hechos -> entrada del Auditor (sobre_auditor).
-  * puertoAuditorBd: corre el Auditor y guarda su salida en oficina_analisis (ejecucion_id null; el registro de la corrida lo hace oficina_registrar_corrida).
-  * ejecutarCorridaConAuditoria(cliente, solicitud, datos, puertosBase, opciones, { user_id? }): todo el flujo + ejecutarCorrida.
-    Si la preparacion falla: no se guarda ningun analisis, el motivo va en datos_faltantes y el Auditor responde error (la corrida no queda completada).
-    El run_id del Auditor es el corrida_id.
-- user_id es OPCIONAL: en sesion de usuario se omite (la base lo pone con auth.uid()); con clave de servicio se pasa explicito desde una variable fija de entorno.
-- Tests: 102 en conexion; 251 mutaciones (56 + 77 + 17 + 48 + 53), 0 sin atrapar.
+- reglas-bd, entrada-auditor, hechos-bd, expediente-bd, persistencia-auditor, flujo-auditoria: ver versiones anteriores.
+- datos-aporte-etf.ts (NUEVO): arma los datos congelados del aporte semanal de ETFs con la base real (cliente con sesion del usuario, RLS activo).
+  Propuestas E1-E5: efectivo de oficina_v_capital; 11 ETFs sectoriales (sin IVV PESOS, GBTC, QQQ; con otro numero no se arma);
+  duplicado = compra del mismo ETF en la semana en curso (lunes a domingo, America/Mexico_City); snapshot = ahora.
+- corrida-etf.ts (NUEVO): correrAporteEtf(cliente, body, { nuevoId, ahora }) = datos + flujo con Auditor + registro atomico (oficina_registrar_corrida).
+  Respuesta: resumen sin tokens ni claves. 400 body invalido, 422 datos reales insuficientes (nada registrado), 500 si el registro falla.
+- app/api/oficina/corrida-etf/route.ts (NUEVO): POST protegido por isOwnerRequest; cliente = clave anonima + token del usuario (sin service role).
+- scripts/oficina/probar-corrida-etf.ps1: prueba manual (pide correo y clave sin mostrarlas, o -ConToken).
+- Tests: 125 en conexion; 314 mutaciones (56 + 77 + 17 + 48 + 53 + 63), 0 sin atrapar.
