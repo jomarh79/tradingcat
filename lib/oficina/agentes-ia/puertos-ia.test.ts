@@ -148,7 +148,7 @@ describe('puerto del Director IA', () => {
     expect(JSON.parse(t.peticiones[0]!.mensajes[1]!.content)).toEqual(JSON.parse(JSON.stringify(contextoBase())));
     expect(t.guardadosD).toHaveLength(1);
     expect(t.guardadosA).toHaveLength(0);
-    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'integracion.v1', version_prompt: 'director.p5', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
+    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'integracion.v1', version_prompt: 'director.p6', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
   });
   it('sin analistas: error y no se llama al modelo', async () => {
     const t = armar([salidaDirectorBase()]);

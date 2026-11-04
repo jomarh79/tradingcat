@@ -116,5 +116,9 @@ Cuerpo: `{ ticker, income_statement, items_extra?, con_director?, portafolio? }`
 - **Limitación:** no hay regla de código. Un filtro por palabras (por ejemplo «deuda») rechazaría también las menciones correctas de que el dato falta. La comprobación semántica sigue siendo revisión humana de las corridas de prueba.
 - El prompt del Director no cambia (p5). Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_11.py` (12).
 
+## Primera propuesta de tesis (v0.12, Director p6)
+- Decisión del usuario: sin cambiar el contrato `integracion.v1`. Por convención, `tesis.estado = propuesta_cambio` cuando no hay tesis vigente significa **primera propuesta** (siempre con `pendiente_autorizacion` true). El prompt del Director p6 lo indica y le prohíbe inventar un estado nuevo. Quien lea el resultado debe interpretarlo así; el código de guardado deberá distinguirlo comprobando si existe tesis vigente.
+- Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_12.py` (4).
+
 ## Pruebas
 `npx vitest run lib/oficina/agentes-ia`. Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_1.py` y `mutaciones/mutaciones_prueba_fundamental_v0_2.py` `mutaciones/mutaciones_gemini_v0_3.py` y `mutaciones/mutaciones_finnhub_v0_4.py` `mutaciones/mutaciones_agentes_ia_v0_5.py` y `mutaciones/mutaciones_agentes_ia_v0_6.py` `mutaciones/mutaciones_agentes_ia_v0_7.py` `mutaciones/mutaciones_agentes_ia_v0_8.py` `mutaciones/mutaciones_agentes_ia_v0_9.py` `mutaciones/mutaciones_agentes_ia_v0_10.py` y `mutaciones/mutaciones_agentes_ia_v0_11.py` (se corre con el mismo ejecutor de mutaciones).

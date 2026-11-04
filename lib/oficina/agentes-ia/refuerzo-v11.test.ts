@@ -5,7 +5,7 @@ import { PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL, VERSION_PROMPT_DIRECTOR, VERSION_P
 describe('v0.11: prompt del Fundamental p6', () => {
   it('sube la versión del Fundamental y deja la del Director en p5', () => {
     expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p6');
-    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p5');
+    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p6');
   });
   it('prohíbe afirmar sobre un tema con dato faltante, en resumen, hallazgos y tesis', () => {
     expect(PROMPT_FUNDAMENTAL).toContain('El `resumen`, los `hallazgos` y la `tesis_propuesta` no pueden afirmar nada sobre un tema cuyo dato esté en `datos_faltantes`');
