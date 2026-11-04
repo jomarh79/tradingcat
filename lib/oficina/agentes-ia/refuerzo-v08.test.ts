@@ -45,7 +45,7 @@ describe('v0.8: confianza del Fundamental con datos faltantes', () => {
     expect(e).not.toContain('no puede superar');
   });
   it('versión y prompt del Fundamental explican la regla', () => {
-    expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p4');
+    expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p5');
     expect(PROMPT_FUNDAMENTAL).toContain('Si `datos_faltantes` no está vacío, `confianza` no puede ser mayor que 0.6; el código rechaza lo contrario.');
   });
 });

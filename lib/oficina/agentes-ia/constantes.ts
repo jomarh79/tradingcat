@@ -19,6 +19,7 @@ export const ESTADOS_TESIS_DIRECTOR = ['vigente', 'propuesta_cambio', 'sin_cambi
 export const ESTADO_TESIS_PROPUESTA = 'propuesta_cambio';
 export const RECOMENDACIONES_MOTOR = ['continuar', 'completar_datos', 'detener'] as const;
 export const RECOMENDACION_CONTINUAR = 'continuar';
+export const RECOMENDACION_COMPLETAR_DATOS = 'completar_datos';
 export const VEREDICTOS_AUDITOR_CON_BLOQUEO = ['BLOQUEO_REGLA', 'NO_ELEGIBLE'] as const;
 
 export const MAX_RESUMEN = 600;
@@ -50,8 +51,8 @@ export const TIMEOUT_MODELO_MS = 180_000;
 export const ESTADO_HTTP_NO_AUTORIZADO = 401;
 export const ESTADO_HTTP_PROHIBIDO = 403;
 
-export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p4';
-export const VERSION_PROMPT_DIRECTOR = 'director.p4';
+export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p5';
+export const VERSION_PROMPT_DIRECTOR = 'director.p5';
 export const ESQUEMA_NOMBRE_FUNDAMENTAL = 'salida_fundamental_v1';
 export const ESQUEMA_NOMBRE_DIRECTOR = 'integracion_v1';
 

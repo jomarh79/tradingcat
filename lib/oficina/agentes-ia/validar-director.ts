@@ -3,7 +3,7 @@
 // [PROPUESTA] Las referencias a hallazgos van como `agente:id_hallazgo` (por ejemplo `fundamental:h3`), igual que `hallazgos_negativos_ids`.
 import {
   AGENTE_DIRECTOR_IA, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_INTEGRACION, ESTADOS_TESIS_DIRECTOR, ESTADO_TESIS_PROPUESTA, MAX_REFS_EN_MENSAJE, MAX_RESUMEN, TOPE_CONFIANZA_CON_FALTANTES,
-  OPERADORES_UMBRAL, RECOMENDACIONES_MOTOR, RECOMENDACION_CONTINUAR, TIPO_HALLAZGO_NEGATIVO, VEREDICTOS_AUDITOR_CON_BLOQUEO,
+  OPERADORES_UMBRAL, RECOMENDACIONES_MOTOR, RECOMENDACION_COMPLETAR_DATOS, RECOMENDACION_CONTINUAR, TIPO_HALLAZGO_NEGATIVO, VEREDICTOS_AUDITOR_CON_BLOQUEO,
 } from './constantes';
 import {
   canonCifra, cifrasDe, cifrasEnTexto, contieneOrden, enRango, enumDe, esNumeroFinito, esObjeto, recolectarTextos, textoNoVacio,
@@ -50,6 +50,14 @@ export function validarContextoDirector(x: unknown): Validacion<ContextoDirector
 }
 
 const ref = (agente: string, id: string): string => `${agente}:${id}`;
+
+/** ¿Algún analista declara un dato faltante crítico (`critico: true`)? */
+function hayFaltanteCritico(ctx: ContextoDirectorValido): boolean {
+  return Object.keys(ctx.salidas_analistas).some(k => {
+    const falt = ctx.salidas_analistas[k as Agente]?.['datos_faltantes'];
+    return Array.isArray(falt) && falt.some(f => esObjeto(f) && f['critico'] === true);
+  });
+}
 
 /** Cifras que el Director puede citar: las que ya están en los análisis, en la auditoría o en el contexto entregado. */
 function cifrasPermitidas(ctx: ContextoDirectorValido): Set<string> {
@@ -155,6 +163,7 @@ export function validarSalidaDirector(x: unknown, ctx: ContextoDirectorValido): 
   }
   const rec = x['recomendacion_para_motor'];
   if (!enumDe(rec, RECOMENDACIONES_MOTOR)) e.push(`recomendacion_para_motor debe ser ${RECOMENDACIONES_MOTOR.join('|')}`);
+  if (rec === RECOMENDACION_COMPLETAR_DATOS && !hayFaltanteCritico(ctx)) e.push(`recomendacion_para_motor es ${RECOMENDACION_COMPLETAR_DATOS} pero ningún analista declara un dato faltante crítico (critico: true); con faltantes no críticos usa ${RECOMENDACION_CONTINUAR}`);
   if (!enRango(x['nivel_confianza'], CONFIANZA_MIN, CONFIANZA_MAX)) e.push(`nivel_confianza debe estar entre ${CONFIANZA_MIN} y ${CONFIANZA_MAX}`);
   const nivel = x['nivel_confianza'];
   if (esNumeroFinito(nivel) && enRango(nivel, CONFIANZA_MIN, CONFIANZA_MAX)) {
