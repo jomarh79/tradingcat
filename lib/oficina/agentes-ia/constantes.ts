@@ -51,7 +51,7 @@ export const TIMEOUT_MODELO_MS = 180_000;
 export const ESTADO_HTTP_NO_AUTORIZADO = 401;
 export const ESTADO_HTTP_PROHIBIDO = 403;
 
-export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p5';
+export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p6';
 export const VERSION_PROMPT_DIRECTOR = 'director.p5';
 export const ESQUEMA_NOMBRE_FUNDAMENTAL = 'salida_fundamental_v1';
 export const ESQUEMA_NOMBRE_DIRECTOR = 'integracion_v1';
