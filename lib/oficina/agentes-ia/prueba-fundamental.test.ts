@@ -3,6 +3,7 @@ import { ejecutarPruebaFundamental } from './prueba-fundamental';
 import type { DepsPrueba } from './prueba-fundamental';
 import type { LlamadaModelo, PeticionModelo } from './index';
 import { RUN_ID, SNAP_ID } from './fixtures.test-util';
+import { modeloFalso } from './modelo-falso.test-util';
 
 const entrada = (fy: number, ingresos: number) => ({
   fiscalYear: fy, fiscalPeriod: 0, endDate: `${fy}-12-31`, currency: 'USD', revenue: ingresos, costOfRevenue: null, grossProfit: ingresos * 0.8, opex: null, sgaExp: null, rndExp: null,
@@ -10,40 +11,6 @@ const entrada = (fy: number, ingresos: number) => ({
 });
 const income = { success: true, symbol: 'GKOS', annual: [entrada(2023, 1200), entrada(2024, 1500)], ttm: null, forwardEps: null };
 
-/** Modelo falso que responde según el esquema pedido, construyendo una salida válida a partir del sobre recibido. */
-function modeloFalso(opciones: { fundamentalMalo?: boolean; directorMalo?: boolean } = {}) {
-  const peticiones: PeticionModelo[] = [];
-  const llamar: LlamadaModelo = async p => {
-    peticiones.push(p);
-    const usuario = JSON.parse(p.mensajes[1]!.content) as Record<string, unknown>;
-    if (p.esquema_nombre === 'salida_fundamental_v1') {
-      if (opciones.fundamentalMalo) return { ok: true, texto: '{}', json: {}, modelo: 'modelo-f' };
-      const items = ((usuario['snapshot'] as Record<string, unknown>)['datos'] as Record<string, unknown>)['items'] as Record<string, unknown>[];
-      const dato = items.find(i => i['id'] === 'margen_bruto_fy2024')!;
-      const salida = {
-        contrato: 'salida.v1', agente: 'fundamental', run_id: usuario['run_id'], snapshot_id: (usuario['snapshot'] as Record<string, unknown>)['id'], ticker: usuario['ticker'],
-        veredicto: 'NO_EVALUABLE', puntaje: null, confianza: 0.3, resumen: 'Solo hay estado de resultados; falta balance y flujo de caja.',
-        hallazgos: [{ id: 'h1', tipo: 'positivo', texto: 'El margen bruto se mantiene alto.', evidencia: ['margen_bruto_fy2024'] }, { id: 'h2', tipo: 'negativo', texto: 'No hay datos de balance.', evidencia: [] }],
-        negativos: ['No hay datos de balance ni de flujo de caja.'], datos_fuente: [dato], supuestos: [], invalidadores: [],
-        datos_faltantes: [{ campo: 'balance', critico: true }, { campo: 'flujo_caja_libre', critico: true }],
-        subpuntajes: { crecimiento: null, rentabilidad: null, balance: null, flujo_caja: null, ventaja_competitiva: null }, tesis_propuesta: null, cambios_vs_tesis_vigente: [],
-      };
-      return { ok: true, texto: JSON.stringify(salida), json: salida, modelo: 'modelo-f', tokens_in: 100, tokens_out: 50 };
-    }
-    if (opciones.directorMalo) return { ok: true, texto: '{}', json: {}, modelo: 'modelo-d' };
-    const dir = {
-      contrato: 'integracion.v1', agente: 'director_ia', run_id: usuario['run_id'], snapshot_id: usuario['snapshot_id'], ticker: usuario['ticker'],
-      portafolio_codigo: usuario['portafolio_codigo'], tipo_evaluacion: usuario['tipo_evaluacion'], resumen: 'No hay datos suficientes para integrar.',
-      integracion: { coincidencias: [], contradicciones: [], no_comparables: [], discrepancias_con_auditoria: [] },
-      tesis: { estado: 'sin_tesis', propuesta: null, pendiente_autorizacion: false }, riesgos_principales: ['Falta de datos de balance.'],
-      hallazgos_negativos_ids: ['fundamental:h2'], negativos: ['Falta de datos de balance.'], datos_faltantes: ['balance', 'flujo_caja_libre'],
-      condicion_que_cambiaria_la_conclusion: { texto: 'Disponer de balance y flujo de caja.', medible: false, umbral: null },
-      recomendacion_para_motor: 'completar_datos', nivel_confianza: 0.3, explicacion_confianza: 'Cobertura muy parcial.',
-    };
-    return { ok: true, texto: JSON.stringify(dir), json: dir, modelo: 'modelo-d', tokens_in: 80, tokens_out: 40 };
-  };
-  return { llamar, peticiones };
-}
 function deps(m: ReturnType<typeof modeloFalso>): DepsPrueba {
   let n = 0;
   return { llamar: m.llamar, modelo_analista: 'a', modelo_director: 'd', nuevoId: () => (n++ === 0 ? RUN_ID : SNAP_ID), ahora: () => '2026-10-30T18:00:00.000Z' };
@@ -100,6 +67,41 @@ describe('prueba de punta a punta del Fundamental y el Director (modelo falso)',
     expect(r.cuerpo['fundamental']).toMatchObject({ estado: 'ok' });
     expect(r.cuerpo['director']).toMatchObject({ estado: 'error' });
     expect(typeof (r.cuerpo['director'] as Record<string, unknown>)['error']).toBe('string');
+  });
+  it('los datos de Finnhub se suman a los de Webull, se cuentan aparte y el modelo los recibe en el snapshot', async () => {
+    const m = modeloFalso();
+    const finnhub = { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31 00:00:00', filedDate: '2026-02-23 00:00:00', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] };
+    const r = await ejecutarPruebaFundamental(deps(m), { ticker: 'GKOS', income_statement: income, finnhub_reportado: finnhub, finnhub_metric: { metric: { currentRatioAnnual: 4.69 } }, con_director: false });
+    expect(r.http).toBe(200);
+    expect(r.cuerpo['items_finnhub']).toBe(2);
+    const sobre = JSON.parse(m.peticiones[0]!.mensajes[1]!.content) as { snapshot: { datos: { items: { id: string }[] } } };
+    const ids = sobre.snapshot.datos.items.map(i => i.id);
+    expect(ids).toContain('activos_totales_fy2025');
+    expect(ids).toContain('razon_corriente_anual_proveedor_a_fecha_de_consulta');
+    expect(ids).toContain('margen_bruto_fy2024');
+    expect(r.cuerpo['avisos_datos']).toContain('fy2025: sin concepto para efectivo (se omite; no se asume cero)');
+  });
+  it('basta con una sola de las tres entradas de Finnhub: cada una se pasa al convertidor', async () => {
+    const trimestral = { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 5 }] } }] };
+    const a = await ejecutarPruebaFundamental(deps(modeloFalso()), { ticker: 'GKOS', income_statement: income, finnhub_reportado_trimestral: trimestral, con_director: false });
+    expect(a.cuerpo['items_finnhub']).toBe(1);
+    const b = await ejecutarPruebaFundamental(deps(modeloFalso()), { ticker: 'GKOS', income_statement: income, finnhub_metric: { metric: { currentRatioAnnual: 4.69 } }, con_director: false });
+    expect(b.cuerpo['items_finnhub']).toBe(1);
+    const c = await ejecutarPruebaFundamental(deps(modeloFalso()), { ticker: 'GKOS', income_statement: income, finnhub_reportado: { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 1 }], cf: [] } }] }, con_director: false });
+    expect(c.cuerpo['items_finnhub']).toBe(1);
+  });
+  it('sin datos de Finnhub, items_finnhub es 0; datos de Finnhub inválidos dan 422 sin llamar al modelo', async () => {
+    const m = modeloFalso();
+    const sin = await ejecutarPruebaFundamental(deps(m), { ticker: 'GKOS', income_statement: income, con_director: false });
+    expect(sin.cuerpo['items_finnhub']).toBe(0);
+    const m2 = modeloFalso();
+    const mal = await ejecutarPruebaFundamental(deps(m2), { ticker: 'GKOS', income_statement: income, finnhub_reportado: { data: 'x' } });
+    expect(mal.http).toBe(422);
+    expect(String(mal.cuerpo['error'])).toContain('datos de Finnhub inválidos');
+    expect(m2.peticiones).toHaveLength(0);
+    const colision = await ejecutarPruebaFundamental(deps(modeloFalso()), { ticker: 'GKOS', income_statement: income, items_extra: [{ id: 'activos_totales_fy2025', campo: 'x', valor: 1, unidad: null, fuente: 'f', fecha_dato: '2025-12-31' }], finnhub_reportado: { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 1 }], cf: [] } }] } });
+    expect(colision.http).toBe(422);
+    expect(String(colision.cuerpo['error'])).toContain('repetido');
   });
   it('items_extra se suman a los datos y se validan como cualquier dato', async () => {
     const m = modeloFalso();

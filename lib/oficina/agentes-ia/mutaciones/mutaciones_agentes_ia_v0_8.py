@@ -1,0 +1,20 @@
+D='lib/oficina/agentes-ia/'
+M=[
+('v: sin regla',D+'validar-fundamental.ts','if (enRango(conf, CONFIANZA_MIN, CONFIANZA_MAX) && Array.isArray(falt) && falt.length > 0 && conf > TOPE_CONFIANZA_CON_FALTANTES)','if (false)'),
+('v: >=',D+'validar-fundamental.ts','conf > TOPE_CONFIANZA_CON_FALTANTES','conf >= TOPE_CONFIANZA_CON_FALTANTES'),
+('v: vacio cuenta',D+'validar-fundamental.ts','falt.length > 0 && conf','falt.length >= 0 && conf'),
+('v: sin array',D+'validar-fundamental.ts','Array.isArray(falt) && falt.length > 0 && conf','conf'),
+('v: solo no evaluable',D+'validar-fundamental.ts','&& Array.isArray(falt) && falt.length > 0 && conf >','&& noEval && Array.isArray(falt) && falt.length > 0 && conf >'),
+('v: solo evaluable',D+'validar-fundamental.ts','&& Array.isArray(falt) && falt.length > 0 && conf >','&& !noEval && Array.isArray(falt) && falt.length > 0 && conf >'),
+('v: rango no se salta',D+'validar-fundamental.ts','if (enRango(conf, CONFIANZA_MIN, CONFIANZA_MAX) && Array.isArray(falt)','if (Array.isArray(falt)'),
+('v: msg valor',D+'validar-fundamental.ts','confianza (${String(conf)}) no puede superar','confianza no puede superar'),
+('v: msg tope',D+'validar-fundamental.ts','no puede superar ${String(TOPE_CONFIANZA_CON_FALTANTES)} cuando hay datos_faltantes','no puede superar el tope cuando hay datos_faltantes'),
+('v: msg cuando',D+'validar-fundamental.ts','cuando hay datos_faltantes`);','cuando hay faltantes`);'),
+('c: tope 0.7',D+'constantes.ts','TOPE_CONFIANZA_CON_FALTANTES = 0.6','TOPE_CONFIANZA_CON_FALTANTES = 0.7'),
+('c: tope 0.5',D+'constantes.ts','TOPE_CONFIANZA_CON_FALTANTES = 0.6','TOPE_CONFIANZA_CON_FALTANTES = 0.5'),
+('c: version F',D+'constantes.ts',"'fundamental.p4'","'fundamental.p3'"),
+('p: si faltantes',D+'prompts.ts','Si \\`datos_faltantes\\` no está vacío, \\`confianza\\` no puede ser mayor','Si \\`datos_faltantes\\` está vacío, \\`confianza\\` no puede ser mayor'),
+('p: tope',D+'prompts.ts','no puede ser mayor que ${TOPE_CONFIANZA_CON_FALTANTES}; el código rechaza','no puede ser mayor que 0.9; el código rechaza'),
+('p: rechaza',D+'prompts.ts','${TOPE_CONFIANZA_CON_FALTANTES}; el código rechaza lo contrario.','${TOPE_CONFIANZA_CON_FALTANTES}.'),
+('p: menor',D+'prompts.ts','\\`confianza\\` no puede ser mayor que ${TOPE','\\`confianza\\` no puede ser menor que ${TOPE'),
+]

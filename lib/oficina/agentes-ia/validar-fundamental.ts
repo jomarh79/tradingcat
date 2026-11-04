@@ -3,7 +3,7 @@
 // [PROPUESTA] Forma de `snapshot.datos` para el Fundamental: `{ items: [{ id, campo, valor, unidad, fuente, fecha_dato }] }`. Los fragmentos de texto
 //   del 10-K/10-Q son items con `campo` de fragmento y `valor` texto. El agente solo puede citar items existentes, con los mismos valores.
 import {
-  AGENTE_FUNDAMENTAL, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_CAMBIO_TESIS, MAX_RESUMEN, MERCADOS_VALIDOS,
+  AGENTE_FUNDAMENTAL, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_CAMBIO_TESIS, MAX_CAMPOS_EN_MENSAJE, MAX_RESUMEN, MERCADOS_VALIDOS, TOPE_CONFIANZA_CON_FALTANTES,
   OPERADORES_UMBRAL, PUNTAJE_MAX, PUNTAJE_MIN, SUBPUNTAJES_FUNDAMENTAL, TIPOS_HALLAZGO, VEREDICTOS_FUNDAMENTAL, VEREDICTO_NO_EVALUABLE,
 } from './constantes';
 import { contieneOrden, enRango, enumDe, esEntero, esFechaIso, esNumeroFinito, esObjeto, recolectarTextos, textoNoVacio, tieneCifra } from './utilidades';
@@ -13,7 +13,7 @@ import { esUuid } from '../orquestador/persistencia';
 export interface ItemDato { id: string; campo: string; valor: number | string; unidad: string | null; fuente: string; fecha_dato: string }
 export interface SobreFundamental {
   contrato: string; run_id: string; agente: string; ticker: string; mercado: string;
-  snapshot: { id: string; generado_en: string; datos: { items: ItemDato[] } };
+  snapshot: { id: string; generado_en: string; datos: { items: ItemDato[]; avisos?: string[] } };
   tesis_vigente: { texto: string; version: number; origen: string } | null;
 }
 export type Validacion<T> = { ok: true; valor: T } | { ok: false; errores: string[] };
@@ -33,6 +33,8 @@ export function validarSobreFundamental(x: unknown): Validacion<SobreFundamental
     if (!textoNoVacio(snap['generado_en'])) e.push('snapshot.generado_en ausente');
     const datos = snap['datos'];
     const items = esObjeto(datos) ? datos['items'] : undefined;
+    const avisos = esObjeto(datos) ? datos['avisos'] : undefined;
+    if (avisos !== undefined && (!Array.isArray(avisos) || !avisos.every(a => textoNoVacio(a)))) e.push('snapshot.datos.avisos debe ser una lista de textos no vacíos');
     if (!Array.isArray(items) || items.length === 0) e.push('snapshot.datos.items ausente o vacío: sin datos el Fundamental no se ejecuta');
     else {
       const ids = new Set<string>();
@@ -132,6 +134,7 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
   const sup = x['supuestos'];
   if (!Array.isArray(sup) || !sup.every(textoNoVacio)) e.push('supuestos debe ser una lista de textos');
 
+  const camposNumericos = sobre.snapshot.datos.items.filter(it => typeof it.valor === 'number').map(it => it.campo);
   const inv = x['invalidadores'];
   if (!Array.isArray(inv)) e.push('invalidadores debe ser una lista');
   else inv.forEach((v, i) => {
@@ -141,6 +144,12 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
     const u = v['umbral'];
     if (u === null) { if (v['medible'] === true) e.push(`invalidadores[${i}] medible exige umbral`); }
     else if (!esObjeto(u) || !textoNoVacio(u['campo']) || !enumDe(u['operador'], OPERADORES_UMBRAL) || !esNumeroFinito(u['valor'])) e.push(`invalidadores[${i}].umbral inválido (campo, operador, valor)`);
+    else if (!camposNumericos.includes(u['campo'])) {
+      const pedido = u['campo'];
+      const cercanos = camposNumericos.filter(c => c.startsWith(pedido));
+      const sugeridos = cercanos.concat(camposNumericos.filter(c => !c.startsWith(pedido))).slice(0, MAX_CAMPOS_EN_MENSAJE);
+      e.push(`invalidadores[${i}].umbral.campo ${pedido} no es un campo numérico de los datos (campos válidos: ${sugeridos.join(', ')})`);
+    }
   });
 
   const falt = x['datos_faltantes'];
@@ -152,6 +161,8 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
   });
   if (!noEval && hayCritico) e.push('hay datos_faltantes críticos: el veredicto debe ser NO_EVALUABLE');
   if (noEval && Array.isArray(falt) && falt.length === 0) e.push('NO_EVALUABLE exige listar datos_faltantes');
+  const conf = x['confianza'];
+  if (enRango(conf, CONFIANZA_MIN, CONFIANZA_MAX) && Array.isArray(falt) && falt.length > 0 && conf > TOPE_CONFIANZA_CON_FALTANTES) e.push(`confianza (${String(conf)}) no puede superar ${String(TOPE_CONFIANZA_CON_FALTANTES)} cuando hay datos_faltantes`);
 
   const sub = x['subpuntajes'];
   if (!esObjeto(sub)) e.push('subpuntajes ausente');

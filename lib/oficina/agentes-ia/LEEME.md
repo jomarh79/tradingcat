@@ -58,6 +58,15 @@ Cuerpo: `{ ticker, income_statement, items_extra?, con_director?, portafolio? }`
 - Mínimo 30 s entre llamadas (cuesta llamadas a OpenAI). Script: `scripts/oficina/probar-fundamental-ia.ps1`.
 - Variables: `PROVEEDOR_IA` (obligatoria: `openai` o `gemini`, sin valor por omisión) y las de ese proveedor. Solo servidor.
 
+## Datos de Finnhub (v0.4)
+`datos-finnhub.ts` (`itemsDesdeFinnhub`) convierte tres respuestas de Finnhub en items del snapshot. La ruta de prueba acepta `finnhub_reportado` (financials-reported anual), `finnhub_reportado_trimestral` (financials-reported trimestral) y `finnhub_metric` (stock/metric); el script las trae con `-ConFinnhub`.
+- Solo toma **balance y flujo de caja** de financials-reported (conceptos us-gaap en USD, últimos 3 años). El estado de resultados sigue viniendo de Webull: el SEC clasifica el deterioro de intangibles en el costo de ventas y daría una utilidad bruta distinta (GKOS 2025: 282.761.000 contra 395.628.000 de Webull).
+- Cada item lleva formulario (10-K/10-Q), fecha de presentación y fecha de cierre del periodo. Un concepto ausente se omite con aviso (nunca se asume cero: p. ej. sin concepto de deuda).
+- Calculado por código: razón corriente (activos corrientes entre pasivos corrientes) y flujo de caja libre (flujo operativo menos pagos por propiedad, planta y equipo), con su fuente de cálculo.
+- El 10-Q más reciente: Finnhub trae su flujo de caja (**acumulado del año fiscal**, no del trimestre) pero su balance suele venir vacío; se avisa y el balance más reciente es el del último 10-K. Solo se usa un trimestral posterior al último anual.
+- `stock/metric`: solo ratios ya expresados como razón (razón corriente, prueba ácida, deuda sobre patrimonio). Su fecha es la de consulta, no la del balance, y así lo dice la fuente. Márgenes y retornos (en porcentaje) no se toman.
+- No hay datos de Finnhub si la clave no existe o el plan no cubre el endpoint (TwelveData responde 403 en balance y flujo de caja con el plan actual del usuario: no se usa).
+
 ## Proveedores (v0.3)
 - `openai`: `OPENAI_API_KEY`, `OPENAI_MODEL_ANALISTA`, `OPENAI_MODEL_DIRECTOR`.
 - `gemini` (Google AI Studio): `GEMINI_API_KEY`, `GEMINI_MODEL_ANALISTA`, `GEMINI_MODEL_DIRECTOR`. Cliente: `cliente-gemini.ts` (generateContent, clave en la cabecera `x-goog-api-key`, salida JSON con esquema).
@@ -66,5 +75,36 @@ Cuerpo: `{ ticker, income_statement, items_extra?, con_director?, portafolio? }`
 - El esquema solo guía al modelo; la autoridad es el validador del código.
 - **Capa gratuita de Gemini: Google puede usar lo enviado para mejorar sus modelos.** Mientras se use, el Director recibe solo datos públicos; no enviar posiciones ni datos del portafolio. Esta restricción debe aplicarse al cablear el Director con datos reales (aún no existe).
 
+## Correcciones de la prueba real (v0.5)
+- **Avisos de datos al modelo [PROPUESTA]:** el snapshot puede traer `datos.avisos` (lista de textos generados por código sobre datos ausentes o con salvedades). Antes solo los veía quien leía la respuesta HTTP, no el modelo. Es un campo OPCIONAL y aditivo de `entrada.v1`; si no hay avisos no aparece. Viajan como máximo `MAX_AVISOS_SNAPSHOT` (40); el resto se resume en una línea. La respuesta de la prueba conserva todos.
+- **Prompts p2:** escala 0 a 100 (la v0.4 devolvió 6.5), afirmaciones cualitativas con evidencia directa (sin «continuo» si algún periodo no lo cumple), datos ausentes a `datos_faltantes` y menos `confianza`, y referencias del Director siempre `agente:id` (también en coincidencias y contradicciones).
+- **Error del Director:** ante una referencia inexistente el mensaje de reintento dice el formato y lista las referencias válidas (hasta `MAX_REFS_EN_MENSAJE`, 20).
+- Los prompts no garantizan nada: la autoridad sigue siendo el validador. Afirmaciones cualitativas sin respaldo (por ejemplo «continuo») no se pueden detectar por código.
+- Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_5.py` (48).
+
+## Correcciones de la segunda prueba real (v0.6)
+- **Unidad de Finnhub:** el último reporte anual usa `u_usd`, pero los anteriores (GKOS 2019 a 2024) usan `unit_standard_usd_<código distinto por reporte>`; 2015 a 2018 usan `unit12`. Se acepta `u_usd` o el prefijo `unit_standard_usd_` con código no vacío (`esUnidadUsdFinnhub`). Cualquier otra unidad (`unit12`, etc.) se descarta con aviso, sin asumir USD. Basado en una sola muestra (GKOS): si otro ticker trae otra unidad, saldrá el aviso «unidad inesperada».
+- **Campo del umbral:** `invalidadores[].umbral.campo` debe ser el `campo` de un item numérico del snapshot (no el id ni un texto). El error lista los campos válidos (primero los que empiezan igual, hasta `MAX_CAMPOS_EN_MENSAJE` = 30). Se aplica a cualquier umbral presente, sea o no medible la condición.
+- **Prompts p3:** cada subpuntaje debe citar evidencia de su dimensión (sin ninguna, NO_EVALUABLE; el contrato no permite subpuntaje null con otro veredicto), `umbral.campo` exacto, y `tesis.estado` = `sin_tesis` si no hay tesis vigente. Solo son instrucciones: el validador no comprueba que cada subpuntaje tenga evidencia.
+- Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_6.py` (34).
+
+## Confianza del Director (v0.7)
+- Regla de código aprobada por el usuario: `nivel_confianza` del Director no puede superar la `confianza` más baja de los analistas (se ignoran las que no sean numéricas), ni `TOPE_CONFIANZA_CON_FALTANTES` si su lista `datos_faltantes` no está vacía. Es un cambio de validador, no de contrato.
+- **[PROPUESTA] El tope vale 0.6**: lo fijé yo; es una constante nombrada en `constantes.ts` y el usuario puede cambiarlo. Solo mira los `datos_faltantes` del propio Director, no los de los analistas.
+- Una confianza fuera de 0 a 1 da solo el error de rango. Prompt del Director p4 explica la regla.
+- **Desde v0.8 el mismo tope aplica al Fundamental** (aprobado por el usuario): con `datos_faltantes` no vacío, `confianza` ≤ `TOPE_CONFIANZA_CON_FALTANTES`, con cualquier veredicto. Prompt del Fundamental p4. En la prueba real el Fundamental dio 0.8 con deuda ausente y el Director lo copió; ahora el error cae sobre el modelo que lo causa.
+- Mutaciones v0.8: `mutaciones/mutaciones_agentes_ia_v0_8.py` (17).
+- Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_7.py` (22).
+
+## Análisis con datos reales (v0.9)
+- Ruta nueva `POST /api/oficina/analisis-fundamental` (body `{ ticker, con_director?, portafolio? }`): el SERVIDOR trae los datos, ya no se pega JSON. Script: `scripts/oficina/analizar-fundamental.ps1`.
+- **Webull:** llama por HTTP a tu ruta `/api/webull/income-statement` reenviando el token del dueño (tu ruta no se modifica). No se siguen redirecciones (el token no viaja a otro destino); si hay una, el error pide definir `OFICINA_BASE_URL` (origen público de la app, opcional; por omisión se usa el origen de la petición). Si Webull falla no hay análisis (HTTP 502).
+- **Finnhub:** `financials-reported` anual y trimestral y `stock/metric`, con la clave solo en la cabecera `X-Finnhub-Token` (variable `FINNHUB_API_KEY`; si en tu entorno se llama distinto, se cambia la constante `ENV_FINNHUB_API_KEY`). Si falla una llamada se omite esa parte y se añade un aviso (`avisos_obtencion`, que también ve el modelo); nunca se rellena.
+- La respuesta añade `fuentes` (`ok` u `omitida` por fuente). Errores solo con estado HTTP: nunca cuerpos de respuesta, claves ni tokens. Tiempo máximo por llamada: `TIMEOUT_DATOS_MS` = 25 s.
+- **Privacidad (capa gratuita de Gemini):** el Director recibe solo el análisis del Fundamental, el ticker y el código de portafolio elegido; sin posiciones, capital ni datos del portafolio (hay un test que fija las claves). No se debe añadir nada de eso mientras se use esa capa.
+- **Limitación:** en local, tu servidor no alcanza Webull (timeout), así que esta ruta falla allí con `Webull (ruta interna): ...`. Se prueba contra la app desplegada (`-Base`) con las variables de entorno puestas en el despliegue.
+- Solo analiza: no lee ni escribe en Supabase, no guarda y no opera. Guardar con expediente es la siguiente entrega.
+- `prueba-fundamental` acepta ahora `avisos_obtencion` (lista de hasta 20 textos de hasta 300 caracteres). Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_9.py` (79).
+
 ## Pruebas
-`npx vitest run lib/oficina/agentes-ia`. Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_1.py` y `mutaciones/mutaciones_prueba_fundamental_v0_2.py` y `mutaciones/mutaciones_gemini_v0_3.py` (se corre con el mismo ejecutor de mutaciones).
+`npx vitest run lib/oficina/agentes-ia`. Mutaciones: `mutaciones/mutaciones_agentes_ia_v0_1.py` y `mutaciones/mutaciones_prueba_fundamental_v0_2.py` `mutaciones/mutaciones_gemini_v0_3.py` y `mutaciones/mutaciones_finnhub_v0_4.py` `mutaciones/mutaciones_agentes_ia_v0_5.py` y `mutaciones/mutaciones_agentes_ia_v0_6.py` `mutaciones/mutaciones_agentes_ia_v0_7.py` `mutaciones/mutaciones_agentes_ia_v0_8.py` y `mutaciones/mutaciones_agentes_ia_v0_9.py` (se corre con el mismo ejecutor de mutaciones).

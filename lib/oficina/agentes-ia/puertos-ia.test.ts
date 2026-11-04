@@ -44,7 +44,7 @@ describe('puerto del Analista Fundamental', () => {
     expect(t.peticiones[0]!.mensajes[1]).toEqual({ role: 'user', content: JSON.stringify(sobreBase()) });
     expect(t.guardados).toHaveLength(1);
     expect(t.guardados[0]!.salida).toEqual(salidaBase());
-    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'salida.v1', version_prompt: 'fundamental.p1', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
+    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'salida.v1', version_prompt: 'fundamental.p4', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
   });
   it('sobre sin datos obligatorios: error explícito y NO se llama al modelo ni se guarda', async () => {
     const t = armar([salidaBase()]);
@@ -148,7 +148,7 @@ describe('puerto del Director IA', () => {
     expect(JSON.parse(t.peticiones[0]!.mensajes[1]!.content)).toEqual(JSON.parse(JSON.stringify(contextoBase())));
     expect(t.guardadosD).toHaveLength(1);
     expect(t.guardadosA).toHaveLength(0);
-    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'integracion.v1', version_prompt: 'director.p1', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
+    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'openai', modelo: 'modelo-real', contrato: 'integracion.v1', version_prompt: 'director.p4', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA });
   });
   it('sin analistas: error y no se llama al modelo', async () => {
     const t = armar([salidaDirectorBase()]);
@@ -202,7 +202,7 @@ describe('puerto del Director IA', () => {
 });
 
 describe('persistencia en oficina_analisis', () => {
-  const tra: TrazabilidadIa = { proveedor: 'openai', modelo: 'm', contrato: 'salida.v1', version_prompt: 'fundamental.p1', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA };
+  const tra: TrazabilidadIa = { proveedor: 'openai', modelo: 'm', contrato: 'salida.v1', version_prompt: 'fundamental.p4', run_id: RUN_ID, snapshot_id: SNAP_ID, intentos: 1, generado_en: AHORA };
   const ids = { expediente_id: EXP_ID, ejecucion_id: null };
   it('fila del Fundamental: veredicto, puntaje, confianza, datos_fuente y salida con trazabilidad; user_id se omite', () => {
     const f = filaAnalisisIa(salidaBase(), tra, ids);

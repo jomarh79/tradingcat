@@ -2,7 +2,7 @@
 // Código puro. El Director integra y explica; no decide, no recomienda operar y no calcula.
 // [PROPUESTA] Las referencias a hallazgos van como `agente:id_hallazgo` (por ejemplo `fundamental:h3`), igual que `hallazgos_negativos_ids`.
 import {
-  AGENTE_DIRECTOR_IA, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_INTEGRACION, ESTADOS_TESIS_DIRECTOR, ESTADO_TESIS_PROPUESTA, MAX_RESUMEN,
+  AGENTE_DIRECTOR_IA, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_INTEGRACION, ESTADOS_TESIS_DIRECTOR, ESTADO_TESIS_PROPUESTA, MAX_REFS_EN_MENSAJE, MAX_RESUMEN, TOPE_CONFIANZA_CON_FALTANTES,
   OPERADORES_UMBRAL, RECOMENDACIONES_MOTOR, RECOMENDACION_CONTINUAR, TIPO_HALLAZGO_NEGATIVO, VEREDICTOS_AUDITOR_CON_BLOQUEO,
 } from './constantes';
 import {
@@ -91,7 +91,11 @@ export function validarSalidaDirector(x: unknown, ctx: ContextoDirectorValido): 
   }
   const refsValidas = (lista: unknown, campo: string): void => {
     if (!Array.isArray(lista)) { e.push(`${campo}.evidencia debe ser una lista`); return; }
-    for (const r of lista) if (typeof r !== 'string' || !todas.has(r)) e.push(`${campo} cita una referencia inexistente: ${String(r)}`);
+    for (const r of lista) {
+      if (typeof r === 'string' && todas.has(r)) continue;
+      const validas = Array.from(todas).slice(0, MAX_REFS_EN_MENSAJE);
+      e.push(`${campo} cita una referencia inexistente: ${String(r)} (el formato es agente:id, por ejemplo ${validas[0] ?? 'fundamental:h1'}; referencias válidas: ${validas.length === 0 ? 'ninguna' : validas.join(', ')})`);
+    }
   };
 
   const integ = x['integracion'];
@@ -152,6 +156,13 @@ export function validarSalidaDirector(x: unknown, ctx: ContextoDirectorValido): 
   const rec = x['recomendacion_para_motor'];
   if (!enumDe(rec, RECOMENDACIONES_MOTOR)) e.push(`recomendacion_para_motor debe ser ${RECOMENDACIONES_MOTOR.join('|')}`);
   if (!enRango(x['nivel_confianza'], CONFIANZA_MIN, CONFIANZA_MAX)) e.push(`nivel_confianza debe estar entre ${CONFIANZA_MIN} y ${CONFIANZA_MAX}`);
+  const nivel = x['nivel_confianza'];
+  if (esNumeroFinito(nivel) && enRango(nivel, CONFIANZA_MIN, CONFIANZA_MAX)) {
+    const confianzas = agentesPresentes.map(k => ctx.salidas_analistas[k as Agente]?.['confianza']).filter((c): c is number => esNumeroFinito(c));
+    const minima = confianzas.length > 0 ? Math.min(...confianzas) : null;
+    if (minima !== null && nivel > minima) e.push(`nivel_confianza (${String(nivel)}) no puede superar la confianza mínima de los analistas (${String(minima)})`);
+    if (Array.isArray(x['datos_faltantes']) && x['datos_faltantes'].length > 0 && nivel > TOPE_CONFIANZA_CON_FALTANTES) e.push(`nivel_confianza (${String(nivel)}) no puede superar ${String(TOPE_CONFIANZA_CON_FALTANTES)} cuando hay datos_faltantes`);
+  }
   if (!textoNoVacio(x['explicacion_confianza'])) e.push('explicacion_confianza ausente');
 
   // 8. operación presentada como viable pese a un bloqueo del Auditor, sin declarar la discrepancia

@@ -34,7 +34,7 @@ const CRECIMIENTOS: readonly { clave: string; campo: string }[] = [
 export interface ResultadoItems { ok: true; items: ItemDato[]; avisos: string[] }
 export type ResultadoItemsOError = ResultadoItems | { ok: false; errores: string[] };
 
-const redondear = (x: number): number => Math.round(x * Math.pow(10, DECIMALES_RATIO)) / Math.pow(10, DECIMALES_RATIO);
+export const redondear = (x: number): number => Math.round(x * Math.pow(10, DECIMALES_RATIO)) / Math.pow(10, DECIMALES_RATIO);
 const numero = (x: unknown): number | null => (esNumeroFinito(x) ? x : null);
 /** AAAA-MM-DD desde un texto que empiece con esa fecha (admite «2025-12-31T00:00:00»). null si no es una fecha real. */
 export function fechaDe(x: unknown): string | null {
@@ -109,12 +109,21 @@ export function itemsDesdeIncomeStatement(resp: unknown, opciones: { generado_en
 export interface ArgumentosSobre {
   run_id: string; snapshot_id: string; generado_en: string; ticker: string; mercado: string;
   items: ItemDato[];
+  /** Notas generadas por código sobre datos ausentes o con salvedades; viajan al modelo para que las declare. */
+  avisos?: string[];
   tesis_vigente: { texto: string; version: number; origen: string } | null;
+}
+
+/** Limita los avisos que viajan al modelo: si hay más del máximo, los últimos se resumen en una línea. */
+export function limitarAvisos(avisos: string[], maximo: number): string[] {
+  if (avisos.length <= maximo) return avisos;
+  const visibles = avisos.slice(0, maximo - 1);
+  return visibles.concat(`y ${avisos.length - visibles.length} avisos más (omitidos del snapshot)`);
 }
 export function armarSobreFundamental(a: ArgumentosSobre): unknown {
   return {
     contrato: CONTRATO_ENTRADA, run_id: a.run_id, agente: AGENTE_FUNDAMENTAL, ticker: a.ticker, mercado: a.mercado,
-    snapshot: { id: a.snapshot_id, generado_en: a.generado_en, datos: { items: a.items } },
+    snapshot: { id: a.snapshot_id, generado_en: a.generado_en, datos: a.avisos !== undefined && a.avisos.length > 0 ? { items: a.items, avisos: a.avisos } : { items: a.items } },
     tesis_vigente: a.tesis_vigente,
   };
 }
