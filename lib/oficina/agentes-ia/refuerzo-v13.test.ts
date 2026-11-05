@@ -8,6 +8,7 @@ import type { ContextoDirector } from '../orquestador/corrida';
 import type { FetchDatos } from './index';
 import { modeloFalso } from './modelo-falso.test-util';
 import { PF, nuevaBdGuardado } from './bd-guardado.test-util';
+import { DIARIAS_PRUEBA, SEMANALES_PRUEBA, respuestaChart } from './velas.test-util';
 import type { ErroresBd, Fila } from './bd-guardado.test-util';
 
 const TOKEN = 'Bearer TOKEN-SECRETO-DEL-DUENO-456';
@@ -24,6 +25,8 @@ const RESP: Record<string, unknown> = {
   'freq=annual': { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] },
   'freq=quarterly': { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] },
   '/stock/metric': { metric: { currentRatioAnnual: 4.69 } },
+  'interval=1day': respuestaChart('GKOS', '1day', DIARIAS_PRUEBA()),
+  'interval=1week': respuestaChart('GKOS', '1week', SEMANALES_PRUEBA()),
 };
 function fetchFalso(fallaWebull = false) {
   const llamadas: string[] = [];
@@ -116,9 +119,9 @@ describe('v0.13: guardado, camino feliz (posición nueva)', () => {
     const exps = insertsDe(t.b, 'oficina_expedientes');
     expect(exps).toHaveLength(1);
     expect(exps[0]).toMatchObject({ ticker: 'GKOS', mercado: 'US', portfolio_id: PF, portafolio_codigo: 'PMP', tesis_origen: 'al_entrar' });
-    // análisis: fundamental, director y auditor, todos con el expediente real y sin user_id
+    // análisis: fundamental, técnico, director y auditor, todos con el expediente real y sin user_id
     const an = insertsDe(t.b, 'oficina_analisis');
-    expect(an.map(f => f['agente']).sort()).toEqual(['auditor_reglas', 'director_ia', 'fundamental'].sort());
+    expect(an.map(f => f['agente']).sort()).toEqual(['auditor_reglas', 'director_ia', 'fundamental', 'tecnico'].sort());
     const idExp = (r.cuerpo['expediente'] as Record<string, unknown>)['id'];
     for (const f of an) { expect(f['expediente_id']).toBe(idExp); expect(f).not.toHaveProperty('user_id'); }
     // una sola corrida registrada, con el run_id y el expediente

@@ -3,17 +3,18 @@
 // → reintento UNA vez con el error (contrato, sección 3) → guarda en `oficina_analisis` → devuelve la salida validada.
 // Errores de transporte del modelo: sin reintento aquí (el Orquestador ya reintenta el puerto). Un análisis que no valida nunca se guarda ni llega al Director.
 import {
-  AGENTE_FUNDAMENTAL, CONTRATO_INTEGRACION, CONTRATO_SALIDA, ESQUEMA_NOMBRE_DIRECTOR, ESQUEMA_NOMBRE_FUNDAMENTAL,
-  INTENTOS_POR_VALIDACION, MAX_ERRORES_EN_MENSAJE, PROVEEDOR_OPENAI, VERSION_PROMPT_DIRECTOR, VERSION_PROMPT_FUNDAMENTAL,
+  AGENTE_FUNDAMENTAL, AGENTE_TECNICO, CONTRATO_INTEGRACION, CONTRATO_SALIDA, ESQUEMA_NOMBRE_DIRECTOR, ESQUEMA_NOMBRE_FUNDAMENTAL, ESQUEMA_NOMBRE_TECNICO,
+  INTENTOS_POR_VALIDACION, MAX_ERRORES_EN_MENSAJE, PROVEEDOR_OPENAI, VERSION_PROMPT_DIRECTOR, VERSION_PROMPT_FUNDAMENTAL, VERSION_PROMPT_TECNICO,
 } from './constantes';
 import type { LlamadaModelo, MensajeModelo } from './cliente-openai';
-import { ESQUEMA_DIRECTOR, ESQUEMA_FUNDAMENTAL } from './esquemas-json';
-import { PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL } from './prompts';
+import { ESQUEMA_DIRECTOR, ESQUEMA_FUNDAMENTAL, ESQUEMA_TECNICO } from './esquemas-json';
+import { PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL, PROMPT_TECNICO } from './prompts';
 import type { TrazabilidadIa } from './persistencia-ia';
 import { resumirErrores } from './utilidades';
 import type { Validacion } from './validar-fundamental';
 import { validarSalidaFundamental, validarSobreFundamental } from './validar-fundamental';
 import { validarContextoDirector, validarSalidaDirector } from './validar-director';
+import { mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
 import type { ContextoDirector, Puertos, RespuestaAgente } from '../orquestador/corrida';
 import type { Agente } from '../motor/tipos';
 
@@ -57,8 +58,29 @@ async function ejecutarConValidacion<T>(p: ParamsEjecucion<T>): Promise<Resultad
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** Analista Técnico: sin cálculo de código válido NO se llama al modelo (no se interpreta lo que no se calculó). */
+async function analistaTecnico(o: OpcionesPuertosIa, sobre: unknown): Promise<RespuestaAgente> {
+  const proveedor = o.proveedor ?? PROVEEDOR_OPENAI;
+  const s = validarSobreTecnico(sobre);
+  if (!s.ok) return { estado: 'error', error: `sobre del Técnico inválido: ${resumirErrores(s.errores, MAX_ERRORES_EN_MENSAJE)}` };
+  const ejec = await ejecutarConValidacion({
+    llamar: o.llamar, modelo: o.modelo_analista, esquema_nombre: ESQUEMA_NOMBRE_TECNICO, esquema: ESQUEMA_TECNICO,
+    mensajes: [{ role: 'system', content: PROMPT_TECNICO }, { role: 'user', content: JSON.stringify(mensajeTecnicoParaModelo(s.valor)) }],
+    validar: json => validarSalidaTecnicoIa(json, s.valor),
+  }).catch((e: unknown) => ({ ok: false as const, error: msg(e) }));
+  if (!ejec.ok) return { estado: 'error', error: ejec.error, proveedor, modelo: o.modelo_analista };
+  const tra: TrazabilidadIa = {
+    proveedor, modelo: ejec.modelo, contrato: CONTRATO_SALIDA, version_prompt: VERSION_PROMPT_TECNICO,
+    run_id: s.valor.run_id, snapshot_id: s.valor.snapshot_id, intentos: ejec.intentos, generado_en: o.ahora(),
+  };
+  const g = await o.guardar_analista(ejec.valor, tra).catch((e: unknown) => ({ ok: false as const, error: msg(e) }));
+  if (!g.ok) return { estado: 'error', error: `no se pudo guardar el análisis: ${g.error}`, proveedor, modelo: ejec.modelo };
+  return { estado: 'ok', analisis_id: g.analisis_id, veredicto: ejec.valor.veredicto, salida: ejec.valor, proveedor, modelo: ejec.modelo, tokens_in: ejec.tokens_in, tokens_out: ejec.tokens_out };
+}
+
 export function crearPuertoAnalista(o: OpcionesPuertosIa): Puertos['analista'] {
   return async (agente: Agente, sobre: unknown): Promise<RespuestaAgente> => {
+    if (agente === AGENTE_TECNICO) return analistaTecnico(o, sobre);
     if (agente !== AGENTE_FUNDAMENTAL) return { estado: 'error', error: `analista ${agente}: no implementado todavía` };
     const s = validarSobreFundamental(sobre);
     if (!s.ok) return { estado: 'error', error: `sobre del Fundamental inválido: ${resumirErrores(s.errores, MAX_ERRORES_EN_MENSAJE)}` };

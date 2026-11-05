@@ -1,6 +1,6 @@
 export * from './constantes';
-export { ESQUEMA_DIRECTOR, ESQUEMA_FUNDAMENTAL } from './esquemas-json';
-export { PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL } from './prompts';
+export { ESQUEMA_DIRECTOR, ESQUEMA_FUNDAMENTAL, ESQUEMA_TECNICO } from './esquemas-json';
+export { PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL, PROMPT_TECNICO } from './prompts';
 export { crearLlamadaOpenAi, leerConfigOpenAi } from './cliente-openai';
 export type { ConfigOpenAi, LlamadaModelo, MensajeModelo, OpcionesClienteOpenAi, PeticionModelo, RespuestaModelo } from './cliente-openai';
 export { crearLlamadaGemini, leerConfigGemini } from './cliente-gemini';
@@ -32,3 +32,8 @@ export { ejecutarAnalisisGuardado, sanearContextoDirector } from './analisis-gua
 export type { ClienteGuardado } from './analisis-guardado';
 export { construirSobreFundamental } from './prueba-fundamental';
 export type { ParamsSobre, ResultadoSobre } from './prueba-fundamental';
+export { itemsDesdeSnapshotTecnico } from './datos-tecnico';
+export { mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
+export type { SalidaTecnicoIa, SobreTecnicoValido } from './validar-tecnico';
+export { extraerVelas, obtenerVelas } from './datos-velas';
+export type { ResultadoVelas, VelasObtenidas } from './datos-velas';

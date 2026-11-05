@@ -7,16 +7,18 @@
 // [PROPUESTA] Privacidad (capa gratuita de Gemini): mientras DIRECTOR_VE_DATOS_PRIVADOS sea false, el Director NO recibe el resultado del Auditor ni los
 // ids de reglas ni el tipo de evaluación real (`posicion_abierta` delata que hay posición): recibe `nueva_posicion` y `auditoria: null`. El Motor y el
 // registro de la corrida sí usan los valores reales. La salida guardada del Director lleva una anotación del código que lo deja escrito.
-// [PROPUESTA] Fuera del Fundamental, los demás analistas no existen todavía: la corrida de un portafolio que los exige queda incompleta y así se registra.
+// El Técnico de IA corre solo si la matriz de agentes lo pide para el portafolio y el tipo (PMP: en `abrir` es requerido; con posición abierta es opcional y no se pide),
+// y `analisis_completo` solo lo exige cuando se ejecutó. Valuación y Riesgo y Capital no existen todavía: la corrida de un portafolio que los exige queda incompleta y así se registra.
 // Límite conocido: el análisis y la corrida son escrituras distintas; si el registro de la corrida falla, los análisis ya guardados quedan sin corrida
 // (la respuesta lo dice: `persistencia.estado` distinto de `guardada`).
 import {
-  AGENTE_FUNDAMENTAL, CLAVE_ANOTACIONES_CODIGO, COLUMNAS_TESIS_EXPEDIENTE, DIRECTOR_VE_DATOS_PRIVADOS, DISPARADOR_ANALISIS_GUARDADO, MERCADO_PRUEBA,
-  PORTAFOLIO_PRUEBA_POR_OMISION, TABLA_EXPEDIENTES_TESIS, TIPO_EVALUACION_ABIERTA, TIPO_EVALUACION_NUEVA,
+  AGENTE_FUNDAMENTAL, AGENTE_TECNICO, CLAVE_ANOTACIONES_CODIGO, COLUMNAS_TESIS_EXPEDIENTE, DIRECTOR_VE_DATOS_PRIVADOS, DISPARADOR_ANALISIS_GUARDADO, MERCADO_PRUEBA,
+  PORTAFOLIO_PRUEBA_POR_OMISION, TABLA_EXPEDIENTES_TESIS, CONTRATO_ENTRADA, TIPO_EVALUACION_ABIERTA, TIPO_EVALUACION_NUEVA,
 } from './constantes';
 import { validarCuerpoAnalisis } from './analisis-real';
 import { clasificarTesisPropuesta, hayTesisVigente } from './clasificar-tesis';
 import { obtenerDatosFundamental } from './datos-reales';
+import { obtenerVelas } from './datos-velas';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
 import type { TrazabilidadIa } from './persistencia-ia';
@@ -32,7 +34,7 @@ import { COLUMNAS_PARAMETROS, TABLA_PARAMETROS } from '../conexion/datos-aporte-
 import { almacenSupabase, persistirResultado } from '../orquestador/persistencia';
 import type { ClienteSupabaseMinimo } from '../orquestador/persistencia';
 import { ZONA_OFICINA, fechaEnZona } from '../orquestador/calendario';
-import type { ContextoDirector, DatosCongelados, Puertos, RespuestaAgente } from '../orquestador/corrida';
+import type { ContextoDirector, DatosCongelados, Puertos, RespuestaAgente, ResultadoCorrida } from '../orquestador/corrida';
 import type { FilaParametro } from '../orquestador/parametros';
 import type { PortafolioCodigo } from '../motor/tipos';
 
@@ -54,7 +56,7 @@ async function leerFilas(cliente: ClienteOficina, tabla: string, columnas: strin
 
 /** Resumen corto de la respuesta de un agente (sin la salida completa: esa ya quedó guardada). */
 function resumenAgente(r: RespuestaAgente | undefined, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  if (r === undefined) return { estado: 'no_ejecutado' };
+  if (r === undefined) return { estado: 'no_ejecutado', ...extra };
   const s = esObjeto(r.salida) ? r.salida : {};
   return {
     estado: r.estado,
@@ -64,6 +66,13 @@ function resumenAgente(r: RespuestaAgente | undefined, extra: Record<string, unk
     ...(s['puntaje'] !== undefined ? { puntaje: s['puntaje'] } : {}), ...(s['confianza'] !== undefined ? { confianza: s['confianza'] } : {}),
     ...(s['nivel_confianza'] !== undefined ? { nivel_confianza: s['nivel_confianza'] } : {}), ...extra,
   };
+}
+
+/** Resumen del cálculo de código del Técnico (sin las series ni el snapshot completo: eso ya quedó en la corrida). */
+function resumenTecnicoCodigo(c: ResultadoCorrida): Record<string, unknown> {
+  if (c.resultado !== 'corrida' || c.tecnico === null) return { calculo_codigo: { estado: 'no_calculado' } };
+  const t = c.tecnico;
+  return { calculo_codigo: { estado: t.estado, fecha_evaluacion: t.fecha_evaluacion, ultima_vela_diaria: t.referencias.tecnico.ultima_vela_diaria, ultima_vela_semanal: t.referencias.tecnico.ultima_vela_semanal, descartes: t.descartes, motivos: t.motivos } };
 }
 
 /** Lo único que el Director recibe mientras se use la capa gratuita: sin resultado del Auditor, sin ids de reglas, sin contexto y con el tipo neutro (el real delata si hay posición). */
@@ -85,6 +94,9 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const d = await obtenerDatosFundamental(datosDeps, ticker);
   if (!d.ok) return bad(d.http, d.error);
   const { fuentes, ...resto } = d.datos;
+  // velas del Técnico (chart-data): si fallan NO se aborta; el Técnico queda sin calcular y se declara (no se rellena)
+  const velas = await obtenerVelas(datosDeps, ticker);
+  const avisos_velas = velas.ok ? velas.avisos : [velas.error];
 
   // (3) sobre del Fundamental
   const run_id = deps.nuevoId();
@@ -133,7 +145,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     llamar: deps.llamar, modelo_analista: deps.modelo_analista, modelo_director: deps.modelo_director, ahora: deps.ahora,
     guardar_analista: guardar, guardar_director: guardarDirector, ...(deps.proveedor !== undefined ? { proveedor: deps.proveedor } : {}),
   };
-  const respuestas: { fundamental?: RespuestaAgente; director?: RespuestaAgente } = {};
+  const respuestas: { fundamental?: RespuestaAgente; tecnico?: RespuestaAgente; director?: RespuestaAgente } = {};
   const analistaIa = crearPuertoAnalista(opc);
   const directorIa = crearPuertoDirector(opc);
   const base: Omit<Puertos, 'auditor'> = {
@@ -141,6 +153,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     analista: async (agente, sobre) => {
       const r = await analistaIa(agente, sobre);
       if (agente === AGENTE_FUNDAMENTAL) respuestas.fundamental = r;
+      if (agente === AGENTE_TECNICO) respuestas.tecnico = r;
       return r;
     },
     director: async (ctx: ContextoDirector) => {
@@ -149,10 +162,12 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
       return r;
     },
   };
+  // Sobre del Técnico: solo identifica la corrida; el cálculo de código (`tecnico_codigo`) lo agrega el Orquestador. Datos públicos de mercado, sin posición.
+  const sobreTecnico = { contrato: CONTRATO_ENTRADA, run_id, agente: AGENTE_TECNICO, ticker, mercado: MERCADO_PRUEBA, snapshot: { id: snapshot_id, generado_en: ahora } };
   const datos: DatosCongelados = {
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
-    reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: null,
-    sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre }, sobre_auditor: null, motor: {},
+    reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
+    sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null, motor: {},
   };
   const solicitud = {
     contrato: 'solicitud.v1', disparador: DISPARADOR_ANALISIS_GUARDADO, ticker, mercado: MERCADO_PRUEBA, portafolio_codigo: portafolio, tipo_evaluacion,
@@ -168,8 +183,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     expediente: { id: exp.expediente_id, creado: exp.creado, tesis_vigente_previa },
     avisos_datos: armado.avisos, items: armado.items.length, items_finnhub: armado.items_finnhub, fuentes,
     fundamental: resumenAgente(respuestas.fundamental),
+    tecnico: resumenAgente(respuestas.tecnico, resumenTecnicoCodigo(flujo.corrida)),
+    avisos_velas,
     director: resumenAgente(respuestas.director, respuestas.director?.estado === 'ok' ? { clasificacion_tesis } : {}),
-    analisis_completo: respuestas.fundamental?.estado === 'ok' && respuestas.director?.estado === 'ok',
+    analisis_completo: respuestas.fundamental?.estado === 'ok' && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',
     resultado_corrida: c.resultado,
     persistencia,
   };

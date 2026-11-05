@@ -59,7 +59,7 @@ describe('puerto del Analista Fundamental', () => {
   });
   it('otro analista: error «no implementado», sin llamar al modelo', async () => {
     const t = armar([salidaBase()]);
-    for (const a of ['tecnico', 'valuacion', 'riesgo_capital'] as const) {
+    for (const a of ['valuacion', 'riesgo_capital'] as const) {
       const r = await t.analista(a, sobreBase());
       expect(r).toEqual({ estado: 'error', error: `analista ${a}: no implementado todavía` });
     }
@@ -223,7 +223,7 @@ describe('persistencia en oficina_analisis', () => {
     expect(filaAnalisisIa(salidaBase(), tra, { expediente_id: null, ejecucion_id: null })).toEqual({ ok: false, problemas: ['expediente_id inválido o ausente: oficina_analisis lo exige y no se inventa'] });
     expect(filaAnalisisIa(salidaBase(), tra, { expediente_id: EXP_ID, ejecucion_id: 'x' })).toEqual({ ok: false, problemas: ['ejecucion_id inválido'] });
     expect(filaAnalisisIa(salidaBase(), tra, { expediente_id: EXP_ID, ejecucion_id: null, user_id: 'x' })).toEqual({ ok: false, problemas: ['user_id inválido'] });
-    expect(filaAnalisisIa({ ...salidaBase(), agente: 'tecnico' }, tra, ids)).toEqual({ ok: false, problemas: ['agente no soportado: tecnico'] });
+    expect(filaAnalisisIa({ ...salidaBase(), agente: 'valuacion' }, tra, ids)).toEqual({ ok: false, problemas: ['agente no soportado: valuacion'] });
   });
   it('guardarAnalisisIa inserta una fila y devuelve el id; errores de la base tal cual', async () => {
     let tabla = ''; let fila: Record<string, unknown> = {};

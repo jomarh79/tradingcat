@@ -1,9 +1,10 @@
 // Esquemas JSON para «salida estructurada estricta» del proveedor (strict: todas las claves requeridas, sin claves extra; opcionales = null).
 // Son una ayuda para el modelo: la verdad la dicta el validador en código (validar-*.ts), que corre siempre.
 import {
-  CONTRATO_INTEGRACION, CONTRATO_SALIDA, AGENTE_DIRECTOR_IA, AGENTE_FUNDAMENTAL, ESTADOS_CAMBIO_TESIS, ESTADOS_TESIS_DIRECTOR, OPERADORES_UMBRAL,
+  CONTRATO_INTEGRACION, CONTRATO_SALIDA, AGENTE_DIRECTOR_IA, AGENTE_FUNDAMENTAL, AGENTE_TECNICO, ESTADOS_CAMBIO_TESIS, ESTADOS_TESIS_DIRECTOR, OPERADORES_UMBRAL,
   RECOMENDACIONES_MOTOR, SUBPUNTAJES_FUNDAMENTAL, TIPOS_HALLAZGO, VEREDICTOS_FUNDAMENTAL,
 } from './constantes';
+import { VEREDICTOS_TECNICO } from '../tecnico';
 
 type Esquema = Record<string, unknown>;
 const texto: Esquema = { type: 'string' };
@@ -62,4 +63,27 @@ export const ESQUEMA_DIRECTOR: Esquema = objeto({
   recomendacion_para_motor: enumerado(RECOMENDACIONES_MOTOR),
   nivel_confianza: numero,
   explicacion_confianza: texto,
+});
+
+const tendencia = enumerado(['alcista', 'lateral', 'bajista']);
+const nivelClave = objeto({ precio: numero, nivel_id: texto });
+
+export const ESQUEMA_TECNICO: Esquema = objeto({
+  contrato: enumerado([CONTRATO_SALIDA]),
+  agente: enumerado([AGENTE_TECNICO]),
+  run_id: texto,
+  snapshot_id: texto,
+  ticker: texto,
+  veredicto: enumerado(VEREDICTOS_TECNICO),
+  confianza: numero,
+  resumen: texto,
+  tendencia: objeto({ corto: tendencia, medio: tendencia, largo: tendencia }),
+  hallazgos: lista(objeto({ id: texto, tipo: enumerado(TIPOS_HALLAZGO), texto, evidencia: lista(texto) })),
+  negativos: lista(texto),
+  datos_fuente: lista(objeto({ id: texto, campo: texto, valor: { anyOf: [numero, texto] }, unidad: opcional(texto), fuente: texto, fecha_dato: texto })),
+  zona_entrada: opcional(objeto({ min: numero, max: numero, nivel_ids: lista(texto) })),
+  soporte_clave: opcional(nivelClave),
+  resistencia_clave: opcional(nivelClave),
+  nivel_invalidacion: opcional(nivelClave),
+  datos_faltantes: lista(objeto({ campo: texto, critico: booleano })),
 });

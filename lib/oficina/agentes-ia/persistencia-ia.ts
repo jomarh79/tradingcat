@@ -1,7 +1,7 @@
 // Persistencia de la salida de los agentes de IA en `oficina_analisis` (esquema pegado el 28-oct). Una inserción por análisis, error de la base tal cual.
 // `user_id` opcional: en sesión de usuario lo pone la base (default auth.uid()). `expediente_id` es obligatorio y no se inventa.
 // [PROPUESTA] `supuestos` e `invalidadores` van SOLO dentro de `salida` mientras no se confirme el tipo de esas dos columnas (null en columna, como el Auditor).
-import { AGENTE_DIRECTOR_IA, AGENTE_FUNDAMENTAL } from './constantes';
+import { AGENTE_DIRECTOR_IA, AGENTE_FUNDAMENTAL, AGENTE_TECNICO } from './constantes';
 import { esObjeto } from './utilidades';
 import { esUuid } from '../orquestador/persistencia';
 import { TABLA_ANALISIS } from '../conexion/persistencia-auditor';
@@ -19,7 +19,7 @@ export function filaAnalisisIa(salida: Record<string, unknown>, tra: Trazabilida
   if (ids.ejecucion_id !== null && !esUuid(ids.ejecucion_id)) problemas.push('ejecucion_id inválido');
   const agente = salida['agente'];
   const esDirector = agente === AGENTE_DIRECTOR_IA;
-  if (agente !== AGENTE_FUNDAMENTAL && !esDirector) problemas.push(`agente no soportado: ${String(agente)}`);
+  if (agente !== AGENTE_FUNDAMENTAL && agente !== AGENTE_TECNICO && !esDirector) problemas.push(`agente no soportado: ${String(agente)}`);
   if (problemas.length > 0) return { ok: false, problemas };
   const confianza = esDirector ? salida['nivel_confianza'] : salida['confianza'];
   const df = salida['datos_fuente'];
@@ -28,7 +28,7 @@ export function filaAnalisisIa(salida: Record<string, unknown>, tra: Trazabilida
     fila: {
       ...(ids.user_id !== undefined && ids.user_id !== null ? { user_id: ids.user_id } : {}),
       ejecucion_id: ids.ejecucion_id, expediente_id: ids.expediente_id, agente,
-      veredicto: esDirector ? null : salida['veredicto'], puntaje: esDirector ? null : salida['puntaje'], confianza,
+      veredicto: esDirector ? null : salida['veredicto'], puntaje: esDirector ? null : (salida['puntaje'] ?? null), confianza,
       salida: { ...salida, trazabilidad: tra },
       datos_fuente: Array.isArray(df) ? df : [], supuestos: null, invalidadores: null,
     },

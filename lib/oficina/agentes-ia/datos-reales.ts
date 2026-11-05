@@ -32,9 +32,9 @@ export function leerConfigDatos(env: Record<string, string | undefined>): Config
   return { ok: true, finnhub_key: clave.trim(), base_url: typeof base === 'string' && base.trim() !== '' ? base.trim().replace(/\/+$/, '') : null };
 }
 
-type Leida = { ok: true; json: unknown } | { ok: false; motivo: string };
+export type Leida = { ok: true; json: unknown } | { ok: false; motivo: string };
 
-async function leer(deps: DepsDatosReales, url: string, headers: Record<string, string>): Promise<Leida> {
+export async function leer(deps: DepsDatosReales, url: string, headers: Record<string, string>): Promise<Leida> {
   try {
     const r = await deps.fetchFn(url, { headers, signal: (deps.senalTiempo ?? AbortSignal.timeout.bind(AbortSignal))(TIMEOUT_DATOS_MS), redirect: 'manual', cache: 'no-store' });
     if (r.status >= 300 && r.status < 400) return { ok: false, motivo: `redirección HTTP ${String(r.status)} no seguida` };

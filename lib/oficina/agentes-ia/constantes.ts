@@ -139,3 +139,31 @@ export const TESIS_PRIMERA_PROPUESTA = 'primera_propuesta';
 export const TESIS_CAMBIO = 'cambio_de_tesis';
 export const TESIS_SIN_PROPUESTA = 'sin_propuesta';
 export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
+
+// --- v0.14: Analista Técnico (velas de TwelveData por /api/chart-data + agente de IA) ---
+export const AGENTE_TECNICO = 'tecnico';
+export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
+export const VERSION_PROMPT_TECNICO = 'tecnico.p1';
+export const RUTA_CHART_DATA = '/api/chart-data';
+export const INTERVALO_VELAS_DIARIAS = '1day';
+export const INTERVALO_VELAS_SEMANALES = '1week';
+/** Fuente que queda escrita en el snapshot del Técnico y en `referencias.tecnico`. */
+export const FUENTE_VELAS = 'TwelveData (vía /api/chart-data)';
+/** Estados del cálculo de código con los que el modelo SÍ se llama; cualquier otro (NO_EVALUABLE, pendiente) corta antes del modelo. */
+export const ESTADOS_TECNICO_CON_MODELO = ['completo', 'parcial'] as const;
+export const ESTADO_TECNICO_PARCIAL = 'parcial';
+/** Texto de los items de señal según `cumplida` (true / false / null: nunca se rellena con false). */
+export const SENAL_CUMPLIDA = 'cumplida';
+export const SENAL_NO_CUMPLIDA = 'no_cumplida';
+export const SENAL_SIN_DATOS = 'sin_datos';
+export const VALOR_SI = 'si';
+export const VALOR_NO = 'no';
+export const PREFIJO_ITEM_INDICADOR = 'ind_';
+export const PREFIJO_ITEM_SENAL = 'senal_';
+export const PREFIJO_ITEM_NIVEL_CAMPO = 'nivel_';
+export const ID_ITEM_CIERRE_DIARIO = 'cierre_ultima_vela_diaria';
+export const ID_ITEM_CIERRE_SEMANAL = 'cierre_ultima_vela_semanal';
+export const ID_ITEM_SOBRE_EMA200 = 'cierre_sobre_ema200_diaria';
+export const ID_ITEM_SOBRE_SMA200 = 'cierre_sobre_sma200_semanal';
+export const UNIDAD_PRECIO = 'precio';
+export const UNIDAD_PORCENTAJE = 'porcentaje';
