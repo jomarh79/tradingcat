@@ -1,5 +1,6 @@
 # Prueba manual de POST /api/oficina/analisis-fundamental (solo ASCII). El SERVIDOR trae los datos (Webull y Finnhub): no hay que pegar JSON.
-# SOLO analiza: no guarda nada ni opera. Cuesta llamadas al proveedor de IA. No imprime tokens ni claves.
+# Sin -Guardar SOLO analiza: no guarda nada ni opera. Con -Guardar crea o recupera el expediente, guarda los analisis y registra la corrida (nunca opera).
+# Cuesta llamadas al proveedor de IA. No imprime tokens ni claves.
 # Pide tu access_token (con -ConToken) o tu correo y clave de Supabase (no se muestran ni se guardan).
 # Importante: el servidor necesita llegar a Webull; si en local da timeout, usa -Base con la URL de tu app desplegada.
 param(
@@ -7,7 +8,8 @@ param(
   [string]$Base = "http://localhost:3000",
   [string]$Portafolio = "PMP",
   [switch]$SinDirector,
-  [switch]$ConToken
+  [switch]$ConToken,
+  [switch]$Guardar
 )
 $ErrorActionPreference = "Stop"
 $proj = "C:\Users\dell\trading-journal"
@@ -61,12 +63,15 @@ if ([string]::IsNullOrWhiteSpace($token)) { Write-Host "No hay token."; exit 1 }
 $tk = $Ticker.Trim().ToUpper()
 $conDir = "true"
 if ($SinDirector) { $conDir = "false" }
-$body = '{"ticker":"' + $tk + '","portafolio":"' + $Portafolio + '","con_director":' + $conDir + '}'
+$guardarTxt = "false"
+if ($Guardar) { $guardarTxt = "true" }
+if ($Guardar -and $SinDirector) { Write-Host "Con -Guardar el Director siempre se ejecuta: quita -SinDirector."; exit 1 }
+$body = '{"ticker":"' + $tk + '","portafolio":"' + $Portafolio + '","con_director":' + $conDir + ',"guardar":' + $guardarTxt + '}'
 
 # 2) Llamada (puede tardar uno o dos minutos: datos de Webull y Finnhub y dos llamadas al modelo)
 try {
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-  $r = Invoke-WebRequest -Method Post -Uri ($Base + "/api/oficina/analisis-fundamental") -Headers @{ Authorization = ("Bearer " + $token) } -ContentType "application/json; charset=utf-8" -Body $bytes -UseBasicParsing -TimeoutSec 600
+  $r = Invoke-WebRequest -Method Post -Uri ($Base.TrimEnd('/') + "/api/oficina/analisis-fundamental") -Headers @{ Authorization = ("Bearer " + $token) } -ContentType "application/json; charset=utf-8" -Body $bytes -UseBasicParsing -TimeoutSec 600
   Write-Host "HTTP" $r.StatusCode
   (Get-Utf8Text $r) | ConvertFrom-Json | ConvertTo-Json -Depth 20
 } catch {

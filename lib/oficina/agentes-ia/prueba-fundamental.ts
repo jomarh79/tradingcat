@@ -10,7 +10,7 @@ import { itemsDesdeFinnhub } from './datos-finnhub';
 import { crearPuertoAnalista, crearPuertoDirector } from './puertos-ia';
 import { esObjeto, resumirErrores } from './utilidades';
 import { validarSobreFundamental } from './validar-fundamental';
-import type { ItemDato } from './validar-fundamental';
+import type { ItemDato, SobreFundamental } from './validar-fundamental';
 import type { ContextoDirector } from '../orquestador/corrida';
 import type { PortafolioCodigo } from '../motor/tipos';
 
@@ -36,6 +36,37 @@ function resumenAgente(r: { estado: string; error?: string; veredicto?: string; 
   };
 }
 
+export interface ParamsSobre { run_id: string; snapshot_id: string; generado_en: string }
+export type ResultadoSobre =
+  | { ok: true; sobre: SobreFundamental; items: ItemDato[]; avisos: string[]; items_finnhub: number }
+  | { ok: false; http: number; error: string };
+
+/** Arma y valida el sobre del Fundamental a partir de los datos del cuerpo (income_statement, Finnhub, items_extra, avisos_obtencion). No llama a ningún modelo. */
+export function construirSobreFundamental(body: Record<string, unknown>, ticker: string, p: ParamsSobre): ResultadoSobre {
+  const bad = (error: string): ResultadoSobre => ({ ok: false, http: 400, error });
+  const itemsExtra = body['items_extra'] === undefined ? [] : body['items_extra'];
+  if (!Array.isArray(itemsExtra) || itemsExtra.length > MAX_ITEMS_EXTRA) return bad(`items_extra debe ser una lista de máximo ${MAX_ITEMS_EXTRA} elementos`);
+
+  const avisosObtencion = body['avisos_obtencion'] === undefined ? [] : body['avisos_obtencion'];
+  if (!Array.isArray(avisosObtencion) || avisosObtencion.length > MAX_AVISOS_OBTENCION || !avisosObtencion.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= MAX_LARGO_AVISO)) {
+    return bad(`avisos_obtencion debe ser una lista de máximo ${MAX_AVISOS_OBTENCION} textos no vacíos de máximo ${MAX_LARGO_AVISO} caracteres`);
+  }
+
+  const datos = itemsDesdeIncomeStatement(body['income_statement'], { generado_en: p.generado_en });
+  if (!datos.ok) return { ok: false, http: 422, error: `datos insuficientes: ${resumirErrores(datos.errores, 5)}` };
+  const hayFinnhub = body['finnhub_reportado'] !== undefined || body['finnhub_reportado_trimestral'] !== undefined || body['finnhub_metric'] !== undefined;
+  const fh = hayFinnhub
+    ? itemsDesdeFinnhub({ reportado: body['finnhub_reportado'], reportado_trimestral: body['finnhub_reportado_trimestral'], metric: body['finnhub_metric'] }, { generado_en: p.generado_en })
+    : { ok: true as const, items: [] as ItemDato[], avisos: [] as string[] };
+  if (!fh.ok) return { ok: false, http: 422, error: `datos de Finnhub inválidos: ${resumirErrores(fh.errores, 5)}` };
+  const items = (datos.items as ItemDato[]).concat(fh.items as ItemDato[], itemsExtra as ItemDato[]);
+  const avisosDatos = datos.avisos.concat(fh.avisos, avisosObtencion as string[]);
+  const sobre = armarSobreFundamental({ run_id: p.run_id, snapshot_id: p.snapshot_id, generado_en: p.generado_en, ticker, mercado: MERCADO_PRUEBA, items, avisos: limitarAvisos(avisosDatos, MAX_AVISOS_SNAPSHOT), tesis_vigente: null });
+  const valido = validarSobreFundamental(sobre);
+  if (!valido.ok) return { ok: false, http: 422, error: `el sobre no es válido: ${resumirErrores(valido.errores, 8)}` };
+  return { ok: true, sobre: valido.valor, items, avisos: avisosDatos, items_finnhub: fh.items.length };
+}
+
 export async function ejecutarPruebaFundamental(deps: DepsPrueba, body: unknown): Promise<ResultadoPrueba> {
   const bad = (error: string): ResultadoPrueba => ({ http: 400, cuerpo: { ok: false, error } });
   if (!esObjeto(body)) return bad('el cuerpo debe ser un objeto JSON');
@@ -47,35 +78,18 @@ export async function ejecutarPruebaFundamental(deps: DepsPrueba, body: unknown)
   if (typeof conDirector !== 'boolean') return bad('con_director debe ser booleano');
   const portafolio = body['portafolio'] === undefined ? PORTAFOLIO_PRUEBA_POR_OMISION : body['portafolio'];
   if (typeof portafolio !== 'string' || !(PORTAFOLIOS_PRUEBA as readonly string[]).includes(portafolio)) return bad(`portafolio debe ser ${PORTAFOLIOS_PRUEBA.join('|')}`);
-  const itemsExtra = body['items_extra'] === undefined ? [] : body['items_extra'];
-  if (!Array.isArray(itemsExtra) || itemsExtra.length > MAX_ITEMS_EXTRA) return bad(`items_extra debe ser una lista de máximo ${MAX_ITEMS_EXTRA} elementos`);
-
-  const avisosObtencion = body['avisos_obtencion'] === undefined ? [] : body['avisos_obtencion'];
-  if (!Array.isArray(avisosObtencion) || avisosObtencion.length > MAX_AVISOS_OBTENCION || !avisosObtencion.every(a => typeof a === 'string' && a.trim() !== '' && a.length <= MAX_LARGO_AVISO)) {
-    return bad(`avisos_obtencion debe ser una lista de máximo ${MAX_AVISOS_OBTENCION} textos no vacíos de máximo ${MAX_LARGO_AVISO} caracteres`);
-  }
-
   const run_id = deps.nuevoId();
   const snapshot_id = deps.nuevoId();
   const generado_en = deps.ahora();
-  const datos = itemsDesdeIncomeStatement(body['income_statement'], { generado_en });
-  if (!datos.ok) return { http: 422, cuerpo: { ok: false, error: `datos insuficientes: ${resumirErrores(datos.errores, 5)}` } };
-  const hayFinnhub = body['finnhub_reportado'] !== undefined || body['finnhub_reportado_trimestral'] !== undefined || body['finnhub_metric'] !== undefined;
-  const fh = hayFinnhub
-    ? itemsDesdeFinnhub({ reportado: body['finnhub_reportado'], reportado_trimestral: body['finnhub_reportado_trimestral'], metric: body['finnhub_metric'] }, { generado_en })
-    : { ok: true as const, items: [] as ItemDato[], avisos: [] as string[] };
-  if (!fh.ok) return { http: 422, cuerpo: { ok: false, error: `datos de Finnhub inválidos: ${resumirErrores(fh.errores, 5)}` } };
-  const items = (datos.items as ItemDato[]).concat(fh.items as ItemDato[], itemsExtra as ItemDato[]);
-  const avisosDatos = datos.avisos.concat(fh.avisos, avisosObtencion as string[]);
-  const sobre = armarSobreFundamental({ run_id, snapshot_id, generado_en, ticker, mercado: MERCADO_PRUEBA, items, avisos: limitarAvisos(avisosDatos, MAX_AVISOS_SNAPSHOT), tesis_vigente: null });
-  const valido = validarSobreFundamental(sobre);
-  if (!valido.ok) return { http: 422, cuerpo: { ok: false, error: `el sobre no es válido: ${resumirErrores(valido.errores, 8)}` } };
+  const armado = construirSobreFundamental(body, ticker, { run_id, snapshot_id, generado_en });
+  if (!armado.ok) return { http: armado.http, cuerpo: { ok: false, error: armado.error } };
+  const { sobre: valido, items, avisos: avisosDatos, items_finnhub: itemsFinnhub } = armado;
 
   const simulado = async (): Promise<{ ok: true; analisis_id: string }> => ({ ok: true, analisis_id: ID_SIMULADO });
   const opc = { llamar: deps.llamar, modelo_analista: deps.modelo_analista, modelo_director: deps.modelo_director, ahora: deps.ahora, guardar_analista: simulado, guardar_director: simulado, ...(deps.proveedor !== undefined ? { proveedor: deps.proveedor } : {}) };
-  const rf = await crearPuertoAnalista(opc)(AGENTE_FUNDAMENTAL, valido.valor);
+  const rf = await crearPuertoAnalista(opc)(AGENTE_FUNDAMENTAL, valido);
   const cuerpo: Record<string, unknown> = {
-    ok: true, ticker, guardado: false, items: items.length, avisos_datos: avisosDatos, items_finnhub: fh.items.length, fundamental: resumenAgente(rf),
+    ok: true, ticker, guardado: false, items: items.length, avisos_datos: avisosDatos, items_finnhub: itemsFinnhub, fundamental: resumenAgente(rf),
   };
   if (!conDirector) return { http: 200, cuerpo };
   if (rf.estado !== 'ok') return { http: 200, cuerpo: { ...cuerpo, director: { estado: 'omitido', motivo: 'el Fundamental no produjo una salida validada' } } };

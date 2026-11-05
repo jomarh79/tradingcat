@@ -123,6 +123,19 @@ export const FINNHUB_METRIC_TODAS = 'all';
 export const TIMEOUT_DATOS_MS = 25_000;
 export const MAX_AVISOS_OBTENCION = 20;
 export const MAX_LARGO_AVISO = 300;
-export const CLAVES_ANALISIS_REAL = ['ticker', 'con_director', 'portafolio'] as const;
+export const CLAVES_ANALISIS_REAL = ['ticker', 'con_director', 'portafolio', 'guardar'] as const;
 export const FUENTE_OK = 'ok';
 export const FUENTE_OMITIDA = 'omitida';
+
+// --- v0.13: guardado del análisis (expediente, análisis, corrida) ---
+export const DISPARADOR_ANALISIS_GUARDADO = 'usuario';
+export const TIPO_EVALUACION_NUEVA = 'nueva_posicion';
+export const TIPO_EVALUACION_ABIERTA = 'posicion_abierta';
+export const TABLA_EXPEDIENTES_TESIS = 'oficina_expedientes';
+export const COLUMNAS_TESIS_EXPEDIENTE = 'id,tesis_vigente,tesis_version';
+/** [PROPUESTA] false mientras se use la capa gratuita de Gemini: el Director no recibe el resultado del Auditor ni el tipo de evaluación real (delata si hay posición). */
+export const DIRECTOR_VE_DATOS_PRIVADOS = false;
+export const TESIS_PRIMERA_PROPUESTA = 'primera_propuesta';
+export const TESIS_CAMBIO = 'cambio_de_tesis';
+export const TESIS_SIN_PROPUESTA = 'sin_propuesta';
+export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
