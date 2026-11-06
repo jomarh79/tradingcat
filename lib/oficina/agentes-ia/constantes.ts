@@ -143,7 +143,12 @@ export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
 // --- v0.14: Analista Técnico (velas de TwelveData por /api/chart-data + agente de IA) ---
 export const AGENTE_TECNICO = 'tecnico';
 export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
-export const VERSION_PROMPT_TECNICO = 'tecnico.p3';
+export const VERSION_PROMPT_TECNICO = 'tecnico.p4';
+// v0.17 [PROPUESTA]: señales de entrada y de salida según las reglas aprobadas (PCP-10, PCP-04, PLP-03 y salidas del PCP). Solo orientan el texto del modelo; no son criterio de decisión.
+export const SENALES_ENTRADA_TECNICO = ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'];
+export const SENALES_SALIDA_TECNICO = ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'];
+/** Tope de confianza del Técnico cuando el veredicto depende de una condición que el modelo no puede verificar con los datos (por ejemplo, no hay señales de entrada definidas para el caso). */
+export const TOPE_CONFIANZA_CONDICION_NO_VERIFICABLE = 0.8;
 export const RUTA_CHART_DATA = '/api/chart-data';
 export const INTERVALO_VELAS_DIARIAS = '1day';
 export const INTERVALO_VELAS_SEMANALES = '1week';

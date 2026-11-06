@@ -1,10 +1,10 @@
-// Pruebas de la v0.16: prompt tecnico.p3 (solo prompt, sin reglas nuevas de código).
+// Pruebas de la v0.16: prompt prompt del Técnico (versión vigente tecnico.p4) (solo prompt, sin reglas nuevas de código).
 import { describe, expect, it } from 'vitest';
 import { PROMPT_TECNICO, VERSION_PROMPT_TECNICO } from './index';
 
-describe('v0.16: prompt del Técnico tecnico.p3', () => {
+describe('v0.16: prompt del Técnico versión y reglas de p3 siguen en el prompt', () => {
   it('versión', () => {
-    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p3');
+    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p4');
   });
   it('una señal no cumplida es neutral, no negativa', () => {
     for (const t of ['una banda de Mogalef sin ruptura', 'NO perjudica', 'nunca \`negativo\`']) expect(PROMPT_TECNICO).toContain(t.replace(/\\`/g, '`'));

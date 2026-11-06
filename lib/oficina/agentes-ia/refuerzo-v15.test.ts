@@ -247,7 +247,7 @@ describe('v0.15: Fundamental: cifras de la salida', () => {
 
 describe('v0.15: prompts', () => {
   it('versiones', () => {
-    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p3');
+    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p4');
     expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p7');
   });
   it('el Técnico recibe las reglas nuevas', () => {
