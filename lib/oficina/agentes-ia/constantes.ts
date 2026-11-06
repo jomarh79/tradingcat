@@ -143,7 +143,7 @@ export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
 // --- v0.14: Analista Técnico (velas de TwelveData por /api/chart-data + agente de IA) ---
 export const AGENTE_TECNICO = 'tecnico';
 export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
-export const VERSION_PROMPT_TECNICO = 'tecnico.p2';
+export const VERSION_PROMPT_TECNICO = 'tecnico.p3';
 export const RUTA_CHART_DATA = '/api/chart-data';
 export const INTERVALO_VELAS_DIARIAS = '1day';
 export const INTERVALO_VELAS_SEMANALES = '1week';
