@@ -149,7 +149,7 @@ describe('v0.13: guardado, camino feliz (posición nueva)', () => {
     await t.ejecutar();
     const an = insertsDe(t.b, 'oficina_analisis');
     const f = an.find(x => x['agente'] === 'fundamental')!;
-    expect((f['salida'] as Record<string, unknown>)['trazabilidad']).toMatchObject({ contrato: 'salida.v1', version_prompt: 'fundamental.p6', run_id: t.ids[0] });
+    expect((f['salida'] as Record<string, unknown>)['trazabilidad']).toMatchObject({ contrato: 'salida.v1', version_prompt: 'fundamental.p7', run_id: t.ids[0] });
     expect((f['salida'] as Record<string, unknown>)).not.toHaveProperty('anotaciones_codigo');
     const d = an.find(x => x['agente'] === 'director_ia')!;
     expect((d['salida'] as Record<string, unknown>)['anotaciones_codigo']).toEqual({

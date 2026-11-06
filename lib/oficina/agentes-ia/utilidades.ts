@@ -1,5 +1,5 @@
 // Utilidades puras de validación compartidas por los validadores de Fundamental y Director.
-import { ENTERO_MAXIMO_SIN_FUENTE } from './constantes';
+import { ENTERO_MAXIMO_SIN_FUENTE, EPSILON_CIFRA, ESCALAS_CIFRA } from './constantes';
 
 export type Obj = Record<string, unknown>;
 export const esObjeto = (x: unknown): x is Obj => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -69,6 +69,47 @@ export const cifrasDe = (texto: string): string[] => cifrasEnTexto(texto).map(c 
 /** Forma comparable de una cifra: solo dígitos (se ignoran separadores de miles y decimales; límite documentado en el LEEME). */
 export const canonCifra = (t: string): string => t.replace(/[.,]/g, '').replace(/^0+(?=\d)/, '');
 export const tieneCifra = (texto: string): boolean => cifrasDe(texto).length > 0;
+
+const FECHA_ISO = /\b\d{4}-\d{2}-\d{2}\b/g;
+
+/** Lecturas posibles de una cifra escrita (el separador puede ser de miles o decimal): valor y número de decimales de cada una. */
+export function lecturasDeCifra(token: string): { valor: number; decimales: number }[] {
+  const lecturas: { valor: number; decimales: number }[] = [];
+  const agregar = (entera: string, decimal: string): void => {
+    const v = Number(decimal === '' ? entera : `${entera}.${decimal}`);
+    if (isFinite(v)) lecturas.push({ valor: v, decimales: decimal.length });
+  };
+  if (/^\d+$/.test(token)) { agregar(token, ''); return lecturas; }
+  const ultima = Math.max(token.lastIndexOf('.'), token.lastIndexOf(','));
+  // 1) el último separador es decimal y los anteriores son de miles
+  agregar(token.slice(0, ultima).replace(/[.,]/g, ''), token.slice(ultima + 1));
+  // 2) todos los separadores son de miles (solo si los grupos son de 3 dígitos)
+  if (/^\d{1,3}([.,]\d{3})+$/.test(token)) agregar(token.replace(/[.,]/g, ''), '');
+  return lecturas;
+}
+
+/** Números enteros que aparecen dentro de textos (por ejemplo los 8, 21 y 200 de `ind_ema8`, `ind_ema21`, `ind_ema200_diaria`): son parámetros, no cifras. */
+export function numerosEnTextos(textos: readonly string[]): number[] {
+  const out = new Set<number>();
+  for (const t of textos) for (const m of t.match(/\d+/g) ?? []) out.add(Number(m));
+  return Array.from(out);
+}
+
+/** Cifras del texto que no coinciden con ningún valor dado: tal cual, como porcentaje o en miles, millones o miles de millones, redondeadas al número de decimales con que se escribió
+ *  (62.01 NO respalda 62.0196: esa cifra se redondea a 62.02). Se ignoran las fechas ISO, los conteos de un dígito y los `permitidos` (parámetros de indicadores). */
+export function cifrasSinRespaldo(texto: string, valores: readonly number[], permitidos: readonly number[] = []): string[] {
+  const sin = texto.replace(FECHA_ISO, ' ');
+  const base = valores.map(Math.abs);
+  const sueltas: string[] = [];
+  for (const c of cifrasEnTexto(sin)) {
+    if (c.conteo) continue;
+    const ok = lecturasDeCifra(c.token).some(l =>
+      permitidos.includes(l.valor)
+      || base.some(v => ESCALAS_CIFRA.some(k => Math.abs(l.valor - v * k) <= 0.5 * Math.pow(10, -l.decimales) + EPSILON_CIFRA * Math.max(1, Math.abs(l.valor)))));
+    if (!ok) sueltas.push(c.token);
+  }
+  return sueltas;
+}
 
 export function resumirErrores(errores: readonly string[], max: number): string {
   const vistos = errores.slice(0, max);

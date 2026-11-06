@@ -51,7 +51,7 @@ export const TIMEOUT_MODELO_MS = 180_000;
 export const ESTADO_HTTP_NO_AUTORIZADO = 401;
 export const ESTADO_HTTP_PROHIBIDO = 403;
 
-export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p6';
+export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p7';
 export const VERSION_PROMPT_DIRECTOR = 'director.p6';
 export const ESQUEMA_NOMBRE_FUNDAMENTAL = 'salida_fundamental_v1';
 export const ESQUEMA_NOMBRE_DIRECTOR = 'integracion_v1';
@@ -143,7 +143,7 @@ export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
 // --- v0.14: Analista Técnico (velas de TwelveData por /api/chart-data + agente de IA) ---
 export const AGENTE_TECNICO = 'tecnico';
 export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
-export const VERSION_PROMPT_TECNICO = 'tecnico.p1';
+export const VERSION_PROMPT_TECNICO = 'tecnico.p2';
 export const RUTA_CHART_DATA = '/api/chart-data';
 export const INTERVALO_VELAS_DIARIAS = '1day';
 export const INTERVALO_VELAS_SEMANALES = '1week';
@@ -167,3 +167,15 @@ export const ID_ITEM_SOBRE_EMA200 = 'cierre_sobre_ema200_diaria';
 export const ID_ITEM_SOBRE_SMA200 = 'cierre_sobre_sma200_semanal';
 export const UNIDAD_PRECIO = 'precio';
 export const UNIDAD_PORCENTAJE = 'porcentaje';
+
+// --- v0.15: las cifras escritas por el modelo deben coincidir con los datos que cita ---
+/** [PROPUESTA] true: cada cifra del `resumen`, los `hallazgos` y los `negativos` del Técnico debe coincidir (redondeada, no truncada) con un dato citado. */
+export const VERIFICAR_CIFRAS_TECNICO = true;
+/** [PROPUESTA] Igual para el Fundamental. Si en producción rechaza de más, se apaga aquí sin tocar el resto. */
+export const VERIFICAR_CIFRAS_FUNDAMENTAL = true;
+/** Formas equivalentes de escribir un valor: tal cual, como porcentaje (×100) y en miles, millones o miles de millones. */
+export const ESCALAS_CIFRA = [1, 100, 1e-3, 1e-6, 1e-9] as const;
+/** Margen para comparar decimales de coma flotante. */
+export const EPSILON_CIFRA = 1e-9;
+/** Datos citados que se listan en el mensaje de error de una cifra sin respaldo (para que el modelo corrija al reintentar). */
+export const MAX_VALORES_EN_MENSAJE = 12;

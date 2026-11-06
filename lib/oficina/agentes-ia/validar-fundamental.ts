@@ -4,10 +4,11 @@
 //   del 10-K/10-Q son items con `campo` de fragmento y `valor` texto. El agente solo puede citar items existentes, con los mismos valores.
 import {
   AGENTE_FUNDAMENTAL, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_CAMBIO_TESIS, MAX_CAMPOS_EN_MENSAJE, MAX_RESUMEN, MERCADOS_VALIDOS, TOPE_CONFIANZA_CON_FALTANTES,
-  OPERADORES_UMBRAL, PUNTAJE_MAX, PUNTAJE_MIN, SUBPUNTAJES_FUNDAMENTAL, TIPOS_HALLAZGO, VEREDICTOS_FUNDAMENTAL, VEREDICTO_NO_EVALUABLE,
+  VERIFICAR_CIFRAS_FUNDAMENTAL, OPERADORES_UMBRAL, PUNTAJE_MAX, PUNTAJE_MIN, SUBPUNTAJES_FUNDAMENTAL, TIPOS_HALLAZGO, VEREDICTOS_FUNDAMENTAL, VEREDICTO_NO_EVALUABLE,
 } from './constantes';
 import { contieneOrden, enRango, enumDe, esEntero, esFechaIso, esNumeroFinito, esObjeto, recolectarTextos, textoNoVacio, tieneCifra } from './utilidades';
 import type { Obj } from './utilidades';
+import { erroresDeCifras, numerosPermitidos } from './verificar-cifras';
 import { esUuid } from '../orquestador/persistencia';
 
 export interface ItemDato { id: string; campo: string; valor: number | string; unidad: string | null; fuente: string; fecha_dato: string }
@@ -128,6 +129,9 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
       }
     });
   }
+
+  // Las cifras escritas deben ser las de los datos citados (redondeadas, no truncadas; también como porcentaje o en miles, millones y miles de millones)
+  if (VERIFICAR_CIFRAS_FUNDAMENTAL) e.push(...erroresDeCifras(x, fuentes, idsFuente, numerosPermitidos(sobre.snapshot.datos.items)));
 
   const neg = x['negativos'];
   if (!Array.isArray(neg) || neg.length === 0 || !neg.every(textoNoVacio)) e.push('negativos debe traer al menos un elemento de texto (o qué se revisó para concluir que no hay)');

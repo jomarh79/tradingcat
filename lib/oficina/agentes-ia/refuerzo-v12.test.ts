@@ -5,7 +5,7 @@ import { ESTADOS_TESIS_DIRECTOR, PROMPT_DIRECTOR, PROMPT_FUNDAMENTAL, VERSION_PR
 describe('v0.12: primera propuesta de tesis', () => {
   it('sube el Director a p6 y deja el Fundamental en p6', () => {
     expect(VERSION_PROMPT_DIRECTOR).toBe('director.p6');
-    expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p6');
+    expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p7');
   });
   it('el contrato no gana estados nuevos', () => {
     expect(Array.from(ESTADOS_TESIS_DIRECTOR)).toEqual(['vigente', 'propuesta_cambio', 'sin_cambio', 'sin_tesis']);

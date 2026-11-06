@@ -3,9 +3,10 @@
 // citados por `nivel_id` (regla de `validarSalidaTecnico`, que aquí se reutiliza sin cambios). Una salida que no pase NO se guarda ni llega al Director.
 import {
   AGENTE_TECNICO, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_TECNICO_CON_MODELO, ESTADO_TECNICO_PARCIAL, MAX_RESUMEN,
-  MERCADOS_VALIDOS, TOPE_CONFIANZA_CON_FALTANTES, VEREDICTO_NO_EVALUABLE,
+  MERCADOS_VALIDOS, TOPE_CONFIANZA_CON_FALTANTES, VEREDICTO_NO_EVALUABLE, VERIFICAR_CIFRAS_TECNICO,
 } from './constantes';
 import { itemsDesdeSnapshotTecnico } from './datos-tecnico';
+import { erroresDeCifras, numerosPermitidos } from './verificar-cifras';
 import { contieneOrden, enRango, enumDe, esFechaIso, esNumeroFinito, esObjeto, recolectarTextos, textoNoVacio, tieneCifra } from './utilidades';
 import type { Obj } from './utilidades';
 import type { ItemDato, Validacion } from './validar-fundamental';
@@ -134,6 +135,12 @@ export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): V
       }
     });
     if (!noEval && conEvidencia === 0) e.push('un veredicto distinto de NO_EVALUABLE exige al menos un hallazgo con evidencia citada');
+  }
+
+  // Las cifras escritas deben ser las de los datos citados (redondeadas, no truncadas); los parámetros de los indicadores (EMA21, RSI de 14...) no cuentan
+  if (VERIFICAR_CIFRAS_TECNICO) {
+    const parametros = Object.values(sobre.snapshot.parametros ?? {}).filter(esNumeroFinito);
+    e.push(...erroresDeCifras(x, fuentes, idsFuente, numerosPermitidos(sobre.items, parametros)));
   }
 
   const neg = x['negativos'];
