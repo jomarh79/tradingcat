@@ -1,7 +1,7 @@
 // Items del Técnico: todo lo que el modelo puede citar sale del cálculo de código (`SnapshotTecnico`). El modelo no calcula ni trae cifras propias.
 // Cada item sigue la forma del Fundamental (`ItemDato`), así el Director y el validador usan las mismas reglas de evidencia.
 import {
-  ID_ITEM_CIERRE_DIARIO, ID_ITEM_CIERRE_SEMANAL, ID_ITEM_SOBRE_EMA200, ID_ITEM_SOBRE_SMA200, PREFIJO_ITEM_NIVEL_CAMPO, PREFIJO_ITEM_SENAL, PREFIJO_ITEM_INDICADOR,
+  CLAVE_INDICADOR_EMA21, CLAVE_INDICADOR_EMA8, ID_ITEM_SOBRE_EMA21, ID_ITEM_SOBRE_EMA8, ID_ITEM_CIERRE_DIARIO, ID_ITEM_CIERRE_SEMANAL, ID_ITEM_SOBRE_EMA200, ID_ITEM_SOBRE_SMA200, PREFIJO_ITEM_NIVEL_CAMPO, PREFIJO_ITEM_SENAL, PREFIJO_ITEM_INDICADOR,
   SENAL_CUMPLIDA, SENAL_NO_CUMPLIDA, SENAL_SIN_DATOS, UNIDAD_PORCENTAJE, UNIDAD_PRECIO, VALOR_NO, VALOR_SI,
 } from './constantes';
 import type { ItemDato } from './validar-fundamental';
@@ -29,6 +29,13 @@ export function itemsDesdeSnapshotTecnico(s: SnapshotTecnico): ItemDato[] {
   const bandera = (id: string, v: boolean | null, fecha: string): void => {
     if (v !== null) items.push({ id, campo: id, valor: v ? VALOR_SI : VALOR_NO, unidad: null, fuente, fecha_dato: fecha });
   };
+  const cierreDiario = s.ultima_vela_diaria === null ? null : Number(s.ultima_vela_diaria.cierre);
+  const sobreMedia = (clave: string): boolean | null => {
+    const m = s.indicadores[clave as keyof typeof s.indicadores];
+    return cierreDiario === null || !isFinite(cierreDiario) || typeof m !== 'number' || !isFinite(m) ? null : cierreDiario > m;
+  };
+  bandera(ID_ITEM_SOBRE_EMA8, sobreMedia(CLAVE_INDICADOR_EMA8), fDia);
+  bandera(ID_ITEM_SOBRE_EMA21, sobreMedia(CLAVE_INDICADOR_EMA21), fDia);
   bandera(ID_ITEM_SOBRE_EMA200, s.cierre_sobre_ema200_diaria, fDia);
   bandera(ID_ITEM_SOBRE_SMA200, s.cierre_sobre_sma200_semanal, fSem);
   for (const g of s.senales) {

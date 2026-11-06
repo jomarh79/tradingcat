@@ -170,7 +170,7 @@ describe('v0.14: items del Técnico (todo sale del cálculo de código)', () => 
     expect(b.find(i => i.id === 'cierre_sobre_ema200_diaria')!.valor).toBe('no');
     expect(b.find(i => i.id === 'cierre_sobre_sma200_semanal')!.valor).toBe('si');
     const n = itemsDesdeSnapshotTecnico({ ...s.snapshot, cierre_sobre_ema200_diaria: null, cierre_sobre_sma200_semanal: null } as never);
-    expect(n.some(i => i.id.startsWith('cierre_sobre_'))).toBe(false);
+    expect(n.some(i => i.id === 'cierre_sobre_ema200_diaria' || i.id === 'cierre_sobre_sma200_semanal')).toBe(false);
   });
   it('un indicador NaN o infinito no genera item; la fuente declara que lo calculó el código', () => {
     const it = itemsDesdeSnapshotTecnico({ ...s.snapshot, indicadores: { ...s.snapshot.indicadores, rsi14: NaN, adx14: Infinity } } as never);
@@ -391,8 +391,8 @@ describe('v0.14: puerto del Analista Técnico', () => {
     expect((t.peticiones[0] as unknown as Obj)['esquema']).toBe(ESQUEMA_TECNICO);
     expect((t.peticiones[0] as unknown as Obj)['modelo']).toBe('ma');
     expect(t.peticiones[0]!.mensajes[0]).toEqual({ role: 'system', content: PROMPT_TECNICO });
-    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'gemini', modelo: 'm-t', contrato: 'salida.v1', version_prompt: 'tecnico.p4', run_id: RUN, snapshot_id: SNAP, intentos: 1, generado_en: '2026-11-04T15:00:01Z' });
-    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p4');
+    expect(t.guardados[0]!.tra).toEqual({ proveedor: 'gemini', modelo: 'm-t', contrato: 'salida.v1', version_prompt: 'tecnico.p5', run_id: RUN, snapshot_id: SNAP, intentos: 1, generado_en: '2026-11-04T15:00:01Z' });
+    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p5');
     expect(AGENTE_TECNICO).toBe('tecnico');
   });
   it('sin cálculo de código NO llama al modelo ni guarda', async () => {
@@ -491,7 +491,7 @@ describe('v0.14: guardado con el Técnico', () => {
     expect(t.llamadas.filter(u => u.includes('/api/chart-data'))).toHaveLength(2);
     const an = insertsDe(t.b, 'oficina_analisis').find(x => x['agente'] === 'tecnico')!;
     expect(an).toMatchObject({ veredicto: 'ESPERAR', puntaje: null, expediente_id: expect.any(String) });
-    expect((an['salida'] as Obj)['trazabilidad']).toMatchObject({ version_prompt: 'tecnico.p4', contrato: 'salida.v1', run_id: r.cuerpo['run_id'] });
+    expect((an['salida'] as Obj)['trazabilidad']).toMatchObject({ version_prompt: 'tecnico.p5', contrato: 'salida.v1', run_id: r.cuerpo['run_id'] });
     expect(an).not.toHaveProperty('user_id');
     const cc = (r.cuerpo['tecnico'] as Obj)['calculo_codigo'] as Obj;
     expect((cc['motivos'] as string[]).some(m => m.startsWith('sma200_semanal'))).toBe(true);

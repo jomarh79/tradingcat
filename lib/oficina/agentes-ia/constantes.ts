@@ -143,7 +143,7 @@ export const CLAVE_ANOTACIONES_CODIGO = 'anotaciones_codigo';
 // --- v0.14: Analista Técnico (velas de TwelveData por /api/chart-data + agente de IA) ---
 export const AGENTE_TECNICO = 'tecnico';
 export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
-export const VERSION_PROMPT_TECNICO = 'tecnico.p4';
+export const VERSION_PROMPT_TECNICO = 'tecnico.p5';
 // v0.17 [PROPUESTA]: señales de entrada y de salida según las reglas aprobadas (PCP-10, PCP-04, PLP-03 y salidas del PCP). Solo orientan el texto del modelo; no son criterio de decisión.
 export const SENALES_ENTRADA_TECNICO = ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'];
 export const SENALES_SALIDA_TECNICO = ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'];
@@ -168,6 +168,11 @@ export const PREFIJO_ITEM_SENAL = 'senal_';
 export const PREFIJO_ITEM_NIVEL_CAMPO = 'nivel_';
 export const ID_ITEM_CIERRE_DIARIO = 'cierre_ultima_vela_diaria';
 export const ID_ITEM_CIERRE_SEMANAL = 'cierre_ultima_vela_semanal';
+// v0.18 [PROPUESTA]: banderas calculadas por código con el cierre y las EMA corta y media (cierre estrictamente mayor = si; igual o menor = no).
+export const ID_ITEM_SOBRE_EMA8 = 'cierre_sobre_ema8';
+export const ID_ITEM_SOBRE_EMA21 = 'cierre_sobre_ema21';
+export const CLAVE_INDICADOR_EMA8 = 'ema8';
+export const CLAVE_INDICADOR_EMA21 = 'ema21';
 export const ID_ITEM_SOBRE_EMA200 = 'cierre_sobre_ema200_diaria';
 export const ID_ITEM_SOBRE_SMA200 = 'cierre_sobre_sma200_semanal';
 export const UNIDAD_PRECIO = 'precio';

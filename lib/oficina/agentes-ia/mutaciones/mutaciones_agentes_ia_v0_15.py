@@ -31,7 +31,7 @@ M=[('u: entero', 'lib/oficina/agentes-ia/utilidades.ts', "if (/^\\d+$/.test(toke
 ('c: max valores', 'lib/oficina/agentes-ia/constantes.ts', 'MAX_VALORES_EN_MENSAJE = 12;', 'MAX_VALORES_EN_MENSAJE = 100;'),
 ('c: verificar tecnico', 'lib/oficina/agentes-ia/constantes.ts', 'VERIFICAR_CIFRAS_TECNICO = true', 'VERIFICAR_CIFRAS_TECNICO = false'),
 ('c: verificar fundamental', 'lib/oficina/agentes-ia/constantes.ts', 'VERIFICAR_CIFRAS_FUNDAMENTAL = true', 'VERIFICAR_CIFRAS_FUNDAMENTAL = false'),
-('c: version t', 'lib/oficina/agentes-ia/constantes.ts', "VERSION_PROMPT_TECNICO = 'tecnico.p4'", "VERSION_PROMPT_TECNICO = 'tecnico.p1'"),
+('c: version t', 'lib/oficina/agentes-ia/constantes.ts', "VERSION_PROMPT_TECNICO = 'tecnico.p5'", "VERSION_PROMPT_TECNICO = 'tecnico.p1'"),
 ('c: version f', 'lib/oficina/agentes-ia/constantes.ts', "VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p7'", "VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p6'"),
 ('v: permitidos ids', 'lib/oficina/agentes-ia/verificar-cifras.ts', 'items.flatMap(i => [i.id, i.campo, i.fecha_dato])', 'items.flatMap(i => [i.campo, i.fecha_dato])'),
 ('v: permitidos campos', 'lib/oficina/agentes-ia/verificar-cifras.ts', 'items.flatMap(i => [i.id, i.campo, i.fecha_dato])', 'items.flatMap(i => [i.id, i.fecha_dato])'),
