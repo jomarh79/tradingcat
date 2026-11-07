@@ -247,11 +247,11 @@ describe('v0.15: Fundamental: cifras de la salida', () => {
 
 describe('v0.15: prompts', () => {
   it('versiones', () => {
-    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p5');
+    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p6');
     expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p7');
   });
   it('el Técnico recibe las reglas nuevas', () => {
-    for (const t of ['REDONDEADA', 'nunca truncada', '62.0196 se escribe 62.02', 'cita ese item en `datos_fuente`', 'No calcules diferencias', 'solo si perjudica la lectura', 'es `neutral`', 'ya está dentro de la zona', 'evento concreto']) {
+    for (const t of ['REDONDEADA', 'nunca truncada', '62.0196 se escribe 62.02', 'cita ese item en `datos_fuente`', 'No calcules diferencias', 'solo si perjudica la lectura', 'es `neutral`', 'Solo escribe «dentro de la zona» si el cierre está dentro', 'evento concreto']) {
       expect(PROMPT_TECNICO).toContain(t);
     }
   });

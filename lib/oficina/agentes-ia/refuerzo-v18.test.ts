@@ -61,9 +61,9 @@ describe('v0.18: banderas del cierre frente a EMA8 y EMA21', () => {
   });
 });
 
-describe('v0.18: prompt tecnico.p5', () => {
+describe('v0.18: prompt versión vigente tecnico.p6; reglas de p5', () => {
   it('versión', () => {
-    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p5');
+    expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p6');
   });
   it('no comparar sin bandera', () => {
     for (const t of ['a menos que un item `cierre_sobre_*` lo diga', 'cierre_sobre_ema8, cierre_sobre_ema21, cierre_sobre_ema200_diaria, cierre_sobre_sma200_semanal', 'si su valor es `no`, el cierre NO está por encima', 'No compares tú precios entre sí']) expect(PROMPT_TECNICO).toContain(t);
@@ -72,6 +72,6 @@ describe('v0.18: prompt tecnico.p5', () => {
     for (const t of ['No digas que «faltan más señales»', 'el criterio de entrada no está definido en los datos', 'sin concluir cuántas bastan']) expect(PROMPT_TECNICO).toContain(t);
   });
   it('conserva las reglas de p3 y p4', () => {
-    for (const t of ['NO perjudica', 'ya está dentro de la zona', 'NUNCA es la condición que vuelve FAVORABLE', 'no puede ser mayor que 0.8']) expect(PROMPT_TECNICO).toContain(t);
+    for (const t of ['NO perjudica', 'Solo escribe «dentro de la zona» si el cierre está dentro', 'NUNCA es la condición que vuelve FAVORABLE', 'no puede ser mayor que 0.8']) expect(PROMPT_TECNICO).toContain(t);
   });
 });

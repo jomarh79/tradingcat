@@ -17,7 +17,7 @@ M=[('d: mayor estricto', D+'datos-tecnico.ts', 'typeof m !== \'number\' || !isFi
 ('c: id ema21', D+'constantes.ts', "ID_ITEM_SOBRE_EMA21 = 'cierre_sobre_ema21'", "ID_ITEM_SOBRE_EMA21 = 'cierre_ema21'"),
 ('c: clave ema8', D+'constantes.ts', "CLAVE_INDICADOR_EMA8 = 'ema8'", "CLAVE_INDICADOR_EMA8 = 'ema9'"),
 ('c: clave ema21', D+'constantes.ts', "CLAVE_INDICADOR_EMA21 = 'ema21'", "CLAVE_INDICADOR_EMA21 = 'ema20'"),
-('c: version', D+'constantes.ts', "VERSION_PROMPT_TECNICO = 'tecnico.p5'", "VERSION_PROMPT_TECNICO = 'tecnico.p4'"),
+('c: version', D+'constantes.ts', "VERSION_PROMPT_TECNICO = 'tecnico.p6'", "VERSION_PROMPT_TECNICO = 'tecnico.p5'"),
 ('p: sin bandera', D+'prompts.ts', 'a menos que un item \\`cierre_sobre_*\\` lo diga', 'aunque no lo diga ningun item'),
 ('p: lista banderas', D+'prompts.ts', 'cierre_sobre_ema8, cierre_sobre_ema21, cierre_sobre_ema200_diaria, cierre_sobre_sma200_semanal', 'cierre_sobre_ema200_diaria, cierre_sobre_sma200_semanal'),
 ('p: valor no', D+'prompts.ts', 'si su valor es \\`no\\`, el cierre NO está por encima', 'si su valor es \\`no\\`, el cierre esta por encima'),

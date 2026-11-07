@@ -3,7 +3,8 @@
 // citados por `nivel_id` (regla de `validarSalidaTecnico`, que aquí se reutiliza sin cambios). Una salida que no pase NO se guarda ni llega al Director.
 import {
   AGENTE_TECNICO, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_TECNICO_CON_MODELO, ESTADO_TECNICO_PARCIAL, MAX_RESUMEN,
-  MERCADOS_VALIDOS, TOPE_CONFIANZA_CON_FALTANTES, VEREDICTO_NO_EVALUABLE, VERIFICAR_CIFRAS_TECNICO,
+  MERCADOS_VALIDOS, PATRON_DENTRO_DE_ZONA, PATRON_NEGACION, TOPE_CONFIANZA_CON_FALTANTES, VENTANA_NEGACION, VEREDICTO_NO_EVALUABLE, VERIFICAR_CIFRAS_TECNICO,
+  VERIFICAR_DENTRO_DE_ZONA,
 } from './constantes';
 import { itemsDesdeSnapshotTecnico } from './datos-tecnico';
 import { erroresDeCifras, numerosPermitidos } from './verificar-cifras';
@@ -84,6 +85,15 @@ export interface SalidaTecnicoIa extends Obj {
 const TIPOS_HALLAZGO_TECNICO = ['positivo', 'negativo', 'neutral'] as const;
 const mismoDato = (a: Obj, b: ItemDato): boolean =>
   a['campo'] === b.campo && a['valor'] === b.valor && a['unidad'] === b.unidad && a['fuente'] === b.fuente && a['fecha_dato'] === b.fecha_dato;
+
+/** true si el texto afirma «dentro de la zona» sin una negación en los caracteres previos. */
+export function afirmaDentroDeZona(texto: string): boolean {
+  for (const m of Array.from(texto.matchAll(PATRON_DENTRO_DE_ZONA))) {
+    const previo = texto.slice(Math.max(0, (m.index ?? 0) - VENTANA_NEGACION), m.index ?? 0);
+    if (!PATRON_NEGACION.test(previo)) return true;
+  }
+  return false;
+}
 
 export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): Validacion<SalidaTecnicoIa> {
   const e: string[] = [];
@@ -170,6 +180,21 @@ export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): V
   const sop = x['soporte_clave']; const res = x['resistencia_clave'];
   if (cierre !== null && esObjeto(sop) && esNumeroFinito(Number(sop['precio'])) && Number(sop['precio']) > cierre) e.push(`soporte_clave (${String(sop['precio'])}) está por encima del último cierre (${String(cierre)}): un soporte va por debajo`);
   if (cierre !== null && esObjeto(res) && esNumeroFinito(Number(res['precio'])) && Number(res['precio']) < cierre) e.push(`resistencia_clave (${String(res['precio'])}) está por debajo del último cierre (${String(cierre)}): una resistencia va por encima`);
+
+  // La frase «dentro de la zona» solo puede aparecer si el último cierre queda dentro de zona_entrada (comprobable en código; v0.19)
+  const zona = x['zona_entrada'];
+  if (VERIFICAR_DENTRO_DE_ZONA && cierre !== null && isFinite(cierre) && esObjeto(zona) && esNumeroFinito(Number(zona['min'])) && esNumeroFinito(Number(zona['max']))) {
+    const zmin = Number(zona['min']); const zmax = Number(zona['max']);
+    if (cierre < zmin || cierre > zmax) {
+      const textos: [string, unknown][] = [['resumen', x['resumen']]];
+      if (Array.isArray(hall)) hall.forEach((h, i) => textos.push([`hallazgos[${i}]`, esObjeto(h) ? h['texto'] : null]));
+      if (Array.isArray(neg)) neg.forEach((n, i) => textos.push([`negativos[${i}]`, n]));
+      const donde = cierre > zmax ? 'por encima' : 'por debajo';
+      for (const [origen, t] of textos) {
+        if (typeof t === 'string' && afirmaDentroDeZona(t)) e.push(`${origen} dice que el cierre está dentro de la zona de entrada, pero el último cierre (${String(cierre)}) queda ${donde} de la zona (${String(zmin)} a ${String(zmax)}): usa los items cierre_sobre_<nivel> de los niveles de la zona`);
+      }
+    }
+  }
 
   if (recolectarTextos(x, ['datos_fuente', 'evidencia', 'id', 'run_id', 'snapshot_id', 'contrato', 'agente', 'ticker']).some(contieneOrden)) e.push('la salida contiene una instrucción de compra o venta: los agentes no emiten órdenes');
   if (e.length > 0) return { ok: false, errores: Array.from(new Set(e)) };
