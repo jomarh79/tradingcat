@@ -10,6 +10,7 @@ import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
   LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode, Menu, X
 } from 'lucide-react'
+import FearGreedBar from './components/FearGreedBar'
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CAT SVG DECORATORS
@@ -281,6 +282,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </div>
         </div>
+
+        <FearGreedBar compact={isMobile} />
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
           {/* Acceso rápido a ocultar/mostrar valores en el celular (en escritorio vive en el sidebar) */}
           {isMobile && (
