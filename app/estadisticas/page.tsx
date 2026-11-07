@@ -9,7 +9,7 @@ import { BarChart2 } from 'lucide-react'
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  ComposedChart, Line, ReferenceLine, Legend, Treemap,
+  ComposedChart, Line, ReferenceLine, Legend,
 } from 'recharts'
 
 // ── Constantes ───────────────────────────────────────────────────────────
@@ -224,20 +224,6 @@ export default function EstadisticasPage() {
     const topGains  = withPnl.filter(t => t.pnl > 0).sort((a, b) => b.pnl - a.pnl).slice(0, 5)
     const topLosses = withPnl.filter(t => t.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 5)
 
-    // PnL no realizado por sector
-    const sectorPnlMap: Record<string, { pnl: number; invested: number; count: number }> = {}
-    withPnl.forEach(t => {
-      const d = (sectorPnlMap[t.sectorN] ||= { pnl: 0, invested: 0, count: 0 })
-      d.pnl += t.pnl; d.invested += t.invested; d.count += 1
-    })
-    const sectorPnlData = Object.entries(sectorPnlMap)
-      .map(([sector, d]) => ({
-        sector, pnl: r2(d.pnl),
-        pct: d.invested > 0 ? r2(d.pnl / d.invested * 100) : 0,
-        count: d.count,
-      }))
-      .sort((a, b) => b.pnl - a.pnl)
-
     // Mapa de calor — agrupado por sector, tamaño = valor actual, color = % no realizado
     const heatmapBySector: Record<string, { name: string; size: number; pnlPct: number }[]> = {}
     withPnl.forEach(t => {
@@ -324,7 +310,7 @@ export default function EstadisticasPage() {
     return {
       totalInvested, totalCurrent, totalPnL, totalPnLPct,
       winningTrades, losingTrades, totalCount: filteredTrades.length,
-      horizonData, sectorData, countryData, sectorPnlData, heatmapData,
+      horizonData, sectorData, countryData, heatmapData,
       topGains, topLosses, daysInPosition, vsData,
       avgDuration: parseFloat(avgDuration.toFixed(1)),
       avgRR: parseFloat(avgRR.toFixed(2)),
@@ -436,8 +422,8 @@ export default function EstadisticasPage() {
               )}
             </ChartCard>
 
-            {/* ══ FILA 3 — TOP GANANCIAS / TOP PÉRDIDAS / PNL POR SECTOR ══ */}
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(3, 1fr)', gap: 12 }}>
+            {/* ══ FILA 3 — TOP GANANCIAS / TOP PÉRDIDAS ══ */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, 1fr)', gap: 12 }}>
               <div style={{ ...box, ...(isMobile ? { padding: '14px 14px' } : {}), position: 'relative', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', bottom: -8, right: -8, pointerEvents: 'none' }}>
                   <Paw size={60} color="#22c55e" opacity={0.03} />
@@ -490,36 +476,6 @@ export default function EstadisticasPage() {
                 )}
               </div>
 
-              <div style={{ ...box, ...(isMobile ? { padding: '14px 14px' } : {}) }}>
-                <div style={boxTitle}>
-                  <Paw size={10} color="#00bfff" opacity={0.6} style={{ marginRight: 6 }} />
-                  PnL no realizado por sector
-                </div>
-                {stats.sectorPnlData.length === 0 ? (
-                  <EmptyText text="Sin posiciones abiertas" />
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
-                    {(() => {
-                      const maxAbs = Math.max(...stats.sectorPnlData.map(d => Math.abs(d.pnl)))
-                      return stats.sectorPnlData.map(s => {
-                        const width = maxAbs > 0 ? Math.abs(s.pnl) / maxAbs * 100 : 0
-                        const color  = s.pnl >= 0 ? '#22c55e' : '#f43f5e'
-                        return (
-                          <div key={s.sector}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 10 }}>
-                              <span style={{ color: '#aaa' }}>{s.sector} <span style={{ color: '#444' }}>({s.count})</span></span>
-                              <span style={{ fontWeight: 700, color }}>{s.pnl >= 0 ? '+' : ''}{money(s.pnl)}</span>
-                            </div>
-                            <div style={{ height: 5, background: '#111', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3 }} />
-                            </div>
-                          </div>
-                        )
-                      })
-                    })()}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* ══ FILA 4 — TIEMPO EN POSICIÓN / HORIZONTE / SECTOR / PAÍS ══ */}
@@ -551,15 +507,7 @@ export default function EstadisticasPage() {
               sub="Tamaño = valor actual en $ · color = % de ganancia/pérdida no realizada (verde = gana, rojo = pierde)"
             >
               {stats.heatmapData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={isMobile ? 340 : 420}>
-                  <Treemap
-                    data={stats.heatmapData}
-                    dataKey="size"
-                    aspectRatio={isMobile ? 1 : 4 / 3}
-                    stroke="#050505"
-                    content={<HeatmapCell money={money} />}
-                  />
-                </ResponsiveContainer>
+                <HeatmapChart data={stats.heatmapData} money={money} height={isMobile ? 400 : 480} isMobile={isMobile} />
               ) : <EmptyChart message="Sin posiciones abiertas" height={300} />}
             </ChartCard>
 
@@ -601,46 +549,127 @@ function DonutCard({ title, data, money, colorOf }: { title: string; data: any[]
   )
 }
 
-function HeatmapCell(props: any) {
-  const { x, y, width, height, name, pnlPct, size, depth, money } = props
+// ── Mapa de calor agrupado por sector (tipo TradingView) ─────────────────
+// Layout "squarified treemap" propio: así cada sector reserva una franja arriba para su encabezado
+// (el Treemap de recharts pinta los hijos encima del padre y el nombre del sector quedaba tapado).
+type HeatLeaf   = { name: string; size: number; pnlPct: number }
+type HeatSector = { name: string; children: HeatLeaf[] }
+type Box = { x: number; y: number; w: number; h: number }
 
-  // Nivel 1 = Sector
-  if (depth === 1) {
-    return (
-      <g>
-        <rect x={x} y={y} width={width} height={height}
-          style={{ fill: '#090909', stroke: '#222222', strokeWidth: 1.5, rx: 4 }} />
-        {width > 60 && height > 18 && (
-          <text x={x + 6} y={y + 14} fontSize={10} fill="#00bfff" fontWeight={800}
-            style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {name}
-          </text>
-        )}
-      </g>
-    )
+function squarify<T extends { size: number }>(items: T[], x: number, y: number, w: number, h: number): (T & Box)[] {
+  const list = items.filter(i => i.size > 0).sort((a, b) => b.size - a.size)
+  const total = list.reduce((a, i) => a + i.size, 0)
+  const out: (T & Box)[] = []
+  if (!list.length || w <= 0 || h <= 0 || total <= 0) return out
+
+  const scale = (w * h) / total
+  const areas = list.map(i => i.size * scale)
+  const worst = (row: number[], side: number) => {
+    const sum = row.reduce((a, b) => a + b, 0)
+    return Math.max((side * side * Math.max(...row)) / (sum * sum), (sum * sum) / (side * side * Math.min(...row)))
   }
 
-  // Nivel 2 = Posición individual
-  const pct = Number(pnlPct ?? 0)
-  const fill = heatColor(pct)
-  const valueTxt = money ? money(Number(size || 0)) : ''
+  let cx = x, cy = y, cw = w, ch = h, i = 0
+  while (i < list.length) {
+    const side = Math.min(cw, ch)
+    const row = [areas[i]]
+    let j = i + 1
+    while (j < list.length && worst([...row, areas[j]], side) <= worst(row, side)) { row.push(areas[j]); j++ }
+    const sum = row.reduce((a, b) => a + b, 0)
+    if (cw >= ch) {            // columna a la izquierda
+      const colW = sum / ch
+      let yy = cy
+      row.forEach((a, k) => { const hh = a / colW; out.push({ ...list[i + k], x: cx, y: yy, w: colW, h: hh }); yy += hh })
+      cx += colW; cw -= colW
+    } else {                   // fila arriba
+      const rowH = sum / cw
+      let xx = cx
+      row.forEach((a, k) => { const ww = a / rowH; out.push({ ...list[i + k], x: xx, y: cy, w: ww, h: rowH }); xx += ww })
+      cy += rowH; ch -= rowH
+    }
+    i = j
+  }
+  return out
+}
+
+function fitLabel(text: string, widthPx: number, charPx: number): string {
+  const max = Math.floor(widthPx / charPx)
+  if (max < 2) return ''
+  return text.length <= max ? text : text.slice(0, Math.max(1, max - 1)) + '…'
+}
+
+function HeatmapChart({ data, money, height, isMobile }: { data: HeatSector[]; money: (n: number) => string; height: number; isMobile: boolean }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    setWidth(el.clientWidth)
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const HEAD = isMobile ? 16 : 18   // alto de la franja con el nombre del sector
+  const GAP  = 2                    // separación entre sectores
+
+  const sectors = useMemo(() => {
+    if (width <= 0) return []
+    const tops = squarify(
+      data.map(s => ({ name: s.name, children: s.children, size: s.children.reduce((a, c) => a + c.size, 0) })),
+      0, 0, width, height,
+    )
+    return tops.map(t => {
+      const bx = t.x + GAP / 2, by = t.y + GAP / 2, bw = t.w - GAP, bh = t.h - GAP
+      const header = bw >= 46 && bh >= HEAD + 24
+      const top = header ? HEAD : 0
+      const leaves = squarify(t.children, bx, by + top, bw, bh - top)
+      return { name: t.name, x: bx, y: by, w: bw, h: bh, header, leaves }
+    })
+  }, [data, width, height, HEAD])
+
   return (
-    <g>
-      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: '#080808', strokeWidth: 1 }} />
-      <title>{`${name}: ${valueTxt} · ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}</title>
-      {width > 36 && height > 22 && (
-        <>
-          <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle"
-            fontSize={11} fontWeight={900} fill="#ffffff" stroke="#000000" strokeWidth={0.5}>
-            {name}
-          </text>
-          <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle"
-            fontSize={9} fontWeight={800} fill="#ffffff" stroke="#000000" strokeWidth={0.4}>
-            {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
-          </text>
-        </>
+    <div ref={wrapRef} style={{ width: '100%', height }}>
+      {width > 0 && (
+        <svg width={width} height={height} style={{ display: 'block' }}>
+          {sectors.map(s => (
+            <g key={s.name}>
+              <rect x={s.x} y={s.y} width={s.w} height={s.h} fill="#090909" stroke="#222" strokeWidth={1} />
+              {s.header && (
+                <text x={s.x + 6} y={s.y + HEAD - 5} fontSize={isMobile ? 9 : 10} fontWeight={800} fill="#00bfff"
+                  style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {fitLabel(s.name, s.w - 12, isMobile ? 6.5 : 7.5)}{s.w > 90 ? ' ›' : ''}
+                </text>
+              )}
+              {s.leaves.map(l => {
+                const pct = Number(l.pnlPct ?? 0)
+                const showName = l.w > 26 && l.h > 18
+                const showPct  = showName && l.h > 32
+                const nameSize = Math.max(8, Math.min(15, l.w / (l.name.length * 0.8), l.h / 2.6))
+                const cx = l.x + l.w / 2, cy = l.y + l.h / 2
+                return (
+                  <g key={l.name}>
+                    <rect x={l.x + 0.5} y={l.y + 0.5} width={Math.max(0, l.w - 1)} height={Math.max(0, l.h - 1)} fill={heatColor(pct)} stroke="#080808" strokeWidth={1} />
+                    <title>{`${l.name}: ${money(l.size >= 1 ? l.size : 0)} · ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}</title>
+                    {showName && (
+                      <text x={cx} y={showPct ? cy - 2 : cy + nameSize / 3} textAnchor="middle" fontSize={nameSize} fontWeight={900}
+                        fill="#fff" stroke="#000" strokeWidth={0.5} style={{ pointerEvents: 'none' }}>{l.name}</text>
+                    )}
+                    {showPct && (
+                      <text x={cx} y={cy + Math.max(10, nameSize * 0.9)} textAnchor="middle" fontSize={Math.max(8, nameSize * 0.72)} fontWeight={800}
+                        fill="#fff" stroke="#000" strokeWidth={0.4} style={{ pointerEvents: 'none' }}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                      </text>
+                    )}
+                  </g>
+                )
+              })}
+            </g>
+          ))}
+        </svg>
       )}
-    </g>
+    </div>
   )
 }
 

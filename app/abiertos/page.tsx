@@ -163,6 +163,8 @@ export default function TradesAbiertosPage() {
   const [loaded,            setLoaded]            = useState(false)
   const [loadError,         setLoadError]         = useState<string | null>(null)
   const [deletingId,        setDeletingId]        = useState<string | null>(null)
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
+  const [priceDraft,     setPriceDraft]     = useState('')
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh,       setLastRefresh]       = useState<Date | null>(null)
   const [currentTime,       setCurrentTime]       = useState(new Date())
@@ -412,6 +414,35 @@ export default function TradesAbiertosPage() {
     return { refreshing, disabled: refreshing || cooldownActive, color, title }
   }
 
+  const savePrice = async (trade: any) => {
+  const v = Number(priceDraft.replace(',', '.'))
+  setEditingPriceId(null)
+  if (!Number.isFinite(v) || v <= 0 || v === Number(trade.last_price)) return
+  const price = Math.round(v * 10000) / 10000
+  const prev = trade.last_price
+  setTrades(p => p.map(t => t.id === trade.id ? { ...t, last_price: price } : t))
+  const { error } = await supabase.from("trades").update({ last_price: price }).eq("id", trade.id)
+  if (error) {
+    console.error("Error guardando precio:", error)
+    setTrades(p => p.map(t => t.id === trade.id ? { ...t, last_price: prev } : t))
+    alert(`No se pudo guardar el precio: ${errMsg(error)}`)
+  }
+}
+
+const renderPrice = (trade: any, style: React.CSSProperties) =>
+  editingPriceId === trade.id ? (
+    <input autoFocus type="number" step="any" inputMode="decimal" value={priceDraft}
+      onChange={e => setPriceDraft(e.target.value)}
+      onBlur={() => savePrice(trade)}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingPriceId(null) }}
+      style={{ width: 84, background: '#000', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 4, padding: '3px 6px', fontSize: 'inherit', fontWeight: 800 }} />
+  ) : (
+    <span onClick={() => { setPriceDraft(String(trade.curPrice)); setEditingPriceId(trade.id) }}
+      title="Clic para cambiar el precio" style={{ ...style, cursor: 'pointer', borderBottom: '1px dashed #fbbf2466' }}>
+      {money(trade.curPrice)}
+    </span>
+  )
+
   const renderStar = (trade: any, size: number, pad: number) => (
     <button onClick={() => handleTogglePriority(trade)} title="Seleccionar trade" aria-label="Seleccionar trade"
       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: pad, display: 'flex' }}>
@@ -652,7 +683,7 @@ export default function TradesAbiertosPage() {
 
                     {/* Precio y variación */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
-                      <Metric label="Actual"><span style={{ color: '#fbbf24', fontWeight: 800 }}>{money(trade.curPrice)}</span></Metric>
+                      <Metric label="Actual">{renderPrice(trade, { color: '#fbbf24', fontWeight: 800 })}</Metric>
                       <Metric label="Var día">
                         <span style={{ color: trade.dayChange >= 0 ? '#4caf50' : '#f43f5e' }}>
                           {trade.dayChange >= 0 ? '+' : ''}{trade.dayChange.toFixed(2)}%
@@ -806,7 +837,7 @@ export default function TradesAbiertosPage() {
 
                       {/* Precio actual */}
                       <td style={{ ...tdStyle, color: '#fbbf24', fontWeight: 'bold' }}>
-                        {money(trade.curPrice)}
+                        {renderPrice(trade, {})}
                       </td>
 
                       {/* TPs */}
