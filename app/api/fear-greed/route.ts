@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { isOwnerRequest } from '@/lib/api-auth'
 import { computeFearGreed, type Bar, type FGResult } from '@/lib/fearGreed'
 
+type FGWithNotes = FGResult & { notes: string[] }
+
 // GET /api/fear-greed → índice propio de miedo y codicia (0-100) calculado con velas diarias de TwelveData.
 // Usa 4 créditos de TwelveData por cálculo; el resultado se reutiliza varias horas (los datos son diarios).
 // El VIX no viene en el plan de TwelveData: se toma de la fuente oficial (CBOE) y, si falla, de la Reserva Federal (FRED).
@@ -59,27 +61,41 @@ function parseVixCsv(text: string): Bar[] | null {
   return bars.length >= 60 ? bars : null
 }
 
-async function fetchVix(): Promise<Bar[] | null> {
-  for (const url of VIX_SOURCES) {
-    try {
-      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-      if (!res.ok) continue
-      const bars = parseVixCsv(await res.text())
-      if (bars) return bars
-    } catch { /* se prueba la siguiente fuente */ }
-  }
-  return null
+// Algunos servidores rechazan peticiones sin cabeceras de navegador, por eso se envían
+const VIX_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (compatible; TradingCatBot/1.0)',
+  Accept: 'text/csv,text/plain,*/*',
 }
 
-let cache: { expires: number; data: FGResult | null } | null = null
-let inflight: Promise<FGResult | null> | null = null
+// Devuelve las velas y, para poder diagnosticar, una nota por cada fuente que se intentó
+async function fetchVix(): Promise<{ bars: Bar[] | null; notes: string[] }> {
+  const notes: string[] = []
+  for (const url of VIX_SOURCES) {
+    const host = new URL(url).hostname
+    try {
+      const res = await fetch(url, { cache: 'no-store', headers: VIX_HEADERS, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) { notes.push(`VIX ${host}: HTTP ${res.status}`); continue }
+      const text = await res.text()
+      const bars = parseVixCsv(text)
+      if (bars) return { bars, notes }
+      notes.push(`VIX ${host}: archivo no reconocido (${text.length} caracteres, empieza con "${text.slice(0, 40).replace(/\s+/g, ' ')}")`)
+    } catch (e: any) {
+      notes.push(`VIX ${host}: ${e?.name === 'TimeoutError' ? 'sin respuesta en 10 s' : (e?.message ?? 'error de red')}`)
+    }
+  }
+  return { bars: null, notes }
+}
 
-async function compute(apiKey: string): Promise<FGResult | null> {
-  const [spy, tlt, hyg, lqd, vix] = await Promise.all([
+let cache: { expires: number; data: FGWithNotes | null } | null = null
+let inflight: Promise<FGWithNotes | null> | null = null
+
+async function compute(apiKey: string): Promise<FGWithNotes | null> {
+  const [spy, tlt, hyg, lqd, vixRes] = await Promise.all([
     fetchBars('SPY', apiKey), fetchBars('TLT', apiKey), fetchBars('HYG', apiKey), fetchBars('LQD', apiKey),
     fetchVix(),
   ])
-  const result = computeFearGreed({ spy, vix, tlt, hyg, lqd })
+  const base = computeFearGreed({ spy, vix: vixRes.bars, tlt, hyg, lqd })
+  const result = base ? { ...base, notes: vixRes.notes } : null
   const ttl = !result ? TTL_FAIL_MS : result.missing.length ? TTL_PARTIAL_MS : TTL_OK_MS
   cache = { expires: Date.now() + ttl, data: result }
   return result

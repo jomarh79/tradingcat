@@ -9,10 +9,12 @@ type FG = {
   asOf: string
   components: { key: string; label: string; score: number; detail: string }[]
   missing: string[]
+  notes?: string[]
 }
 
-const CACHE_KEY = 'tc_fear_greed_v1'
+const CACHE_KEY = 'tc_fear_greed_v2'
 const CACHE_MS = 30 * 60 * 1000
+const CACHE_PARTIAL_MS = 5 * 60 * 1000   // si falta algún indicador se vuelve a intentar pronto
 
 // Miedo = verde · neutral = amarillo · codicia = rojo (0 → 100)
 function fgColor(v: number): string {
@@ -32,7 +34,7 @@ export default function FearGreedBar({ compact = false }: { compact?: boolean })
       const raw = sessionStorage.getItem(CACHE_KEY)
       if (raw) {
         const c = JSON.parse(raw)
-        if (c?.data && Date.now() - c.ts < CACHE_MS) { setFg(c.data); return }
+        if (c?.data && Date.now() - c.ts < (c.data.missing?.length ? CACHE_PARTIAL_MS : CACHE_MS)) { setFg(c.data); return }
       }
     } catch { /* sin almacenamiento: se pide igual */ }
 
@@ -54,6 +56,7 @@ export default function FearGreedBar({ compact = false }: { compact?: boolean })
     `Miedo y codicia: ${fg.value} · ${fg.label}  (0 = miedo extremo, 100 = codicia extrema)`,
     ...fg.components.map(x => `• ${x.label}: ${x.score} — ${x.detail}`),
     ...(fg.missing.length ? [`Sin datos: ${fg.missing.join(', ')}`] : []),
+    ...(fg.missing.length && fg.notes?.length ? fg.notes.map(n => `  ↳ ${n}`) : []),
     `Datos al ${fg.asOf} · índice propio, no es el de CNN`,
   ].join('\n')
 
