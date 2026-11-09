@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import AppShell from '../AppShell'
 import { 
   FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, 
-  FaSync, FaChartArea, FaCrosshairs 
+  FaSync, FaCrosshairs 
 } from 'react-icons/fa'
 
 interface WatchlistItem {
@@ -72,9 +72,7 @@ export default function IAPage() {
     if (prob >= 80) {
       return {
         text: 'text-green-400',
-        border: 'border-green-500/50',
         bgBadge: 'bg-green-500/10 text-green-400 border-green-500/50',
-        strokeColor: '#22c55e',
         glowBg: 'bg-green-500/10 group-hover:bg-green-500/20',
         hoverBorder: 'group-hover:border-green-500/60'
       }
@@ -82,72 +80,16 @@ export default function IAPage() {
     if (prob >= 65) {
       return {
         text: 'text-yellow-400',
-        border: 'border-yellow-500/50',
         bgBadge: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/50',
-        strokeColor: '#eab308',
         glowBg: 'bg-yellow-500/10 group-hover:bg-yellow-500/20',
         hoverBorder: 'group-hover:border-yellow-500/60'
       }
     }
     return {
       text: 'text-red-400',
-      border: 'border-red-500/50',
       bgBadge: 'bg-red-500/10 text-red-400 border-red-500/50',
-      strokeColor: '#ef4444',
       glowBg: 'bg-red-500/10 group-hover:bg-red-500/20',
       hoverBorder: 'group-hover:border-red-500/60'
-    }
-  }
-
-  // NUEVA FUNCIÓN: Generador de Trend Preview 100% dinámico y único por activo
-  const generateUniqueTrendPath = (item: WatchlistItem) => {
-    const points = 7
-    const pathCoords: { x: number; y: number }[] = []
-    
-    const rsi = Number(item.rsi || 50)
-    const volatility = Number(item.volatility || 2)
-    const prob = Number(item.ai_probability || 50)
-    const current = Number(item.current_price || 100)
-    const target = Number(item.buy_target || 100)
-
-    // Factor de tendencia basado en si el precio busca el target y la confianza de la IA
-    const targetDiff = (target - current) / current
-    const isBullish = prob >= 65 || targetDiff > -0.05
-
-    for (let i = 0; i < points; i++) {
-      const x = (i / (points - 1)) * 120
-      let y = 30 // Chihuahua / Base central
-
-      if (i === 0) {
-        // Punto inicial influenciado por el nivel de RSI (si está alto empieza arriba, si está bajo empieza abajo)
-        y = 30 + ((rsi - 50) * 0.3)
-      } else if (i === points - 1) {
-        // Punto final dictado por la probabilidad de la IA y la tendencia
-        y = isBullish ? 15 : 45
-      } else {
-        // Puntos intermedios con ondulación orgánica basada en la volatilidad y el ID del activo para diferenciarlos
-        const seed = Number(item.id || 1) + i
-        const wave = Math.sin(seed) * (volatility * 3)
-        y = 30 + wave + (isBullish ? -i * 1.5 : i * 1.5)
-      }
-
-      // Limitar coordenadas dentro del viewBox (0 a 60)
-      y = Math.max(8, Math.min(52, y))
-      pathCoords.push({ x, y })
-    }
-
-    // Construir la ruta SVG con curvas Suaves (Bezier Q)
-    let path = `M ${pathCoords[0].x} ${pathCoords[0].y}`
-    for (let i = 1; i < pathCoords.length; i++) {
-      const prev = pathCoords[i - 1]
-      const curr = pathCoords[i]
-      const cpX = (prev.x + curr.x) / 2
-      path += ` Q ${cpX} ${prev.y}, ${curr.x} ${curr.y}`
-    }
-
-    return {
-      pathString: path,
-      endPoint: pathCoords[pathCoords.length - 1]
     }
   }
 
@@ -201,8 +143,6 @@ export default function IAPage() {
               const colors = getStatusColorConfig(probability)
               const aiTp = getAiTakeProfit(item)
               const aiSl = getAiStopLoss(item)
-              
-              const trendData = generateUniqueTrendPath(item)
 
               return (
                 <div 
@@ -221,33 +161,6 @@ export default function IAPage() {
                     </div>
                     <div className={`px-3 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider ${colors.bgBadge}`}>
                       {item.ai_signal || 'WAITING'}
-                    </div>
-                  </div>
-
-                  {/* Trend Preview (Gráfica única por activo) */}
-                  <div className="mb-4 bg-black/30 p-2.5 rounded-xl border border-white/5 relative h-16 flex items-center justify-between px-3">
-                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
-                      <FaChartArea className={colors.text} /> Trend Proyección
-                    </div>
-
-                    <div className="w-28 h-10 relative">
-                      <svg className="w-full h-full overflow-visible" viewBox="0 0 120 60">
-                        <path
-                          d={trendData.pathString}
-                          fill="none"
-                          stroke={colors.strokeColor}
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                        <circle 
-                          cx={trendData.endPoint.x} 
-                          cy={trendData.endPoint.y} 
-                          r="3.5" 
-                          fill={colors.strokeColor} 
-                          className="animate-pulse"
-                        />
-                      </svg>
                     </div>
                   </div>
 
