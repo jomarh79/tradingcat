@@ -1,4 +1,4 @@
-// Pruebas de la v0.19: banderas cierre_sobre_<nivel>, regla «dentro de la zona» contra zona_entrada y prompt tecnico.p6.
+// Pruebas de la v0.19: banderas cierre_sobre_<nivel>, regla «dentro de la zona» contra zona_entrada y prompt tecnico.p7.
 import { describe, expect, it } from 'vitest';
 import {
   PATRON_DENTRO_DE_ZONA, PATRON_NEGACION, PREFIJO_ITEM_SOBRE_NIVEL, PROMPT_TECNICO, VENTANA_NEGACION, VERIFICAR_DENTRO_DE_ZONA, VERSION_PROMPT_TECNICO,
@@ -141,8 +141,8 @@ describe('v0.19: «dentro de la zona» contra zona_entrada', () => {
   });
 });
 
-describe('v0.19: prompt tecnico.p6', () => {
-  it('versión', () => { expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p6'); });
+describe('v0.19: prompt tecnico.p7', () => {
+  it('versión', () => { expect(VERSION_PROMPT_TECNICO).toBe('tecnico.p7'); });
   it('la ubicación del cierre sale de las banderas, no de la comparación del modelo', () => {
     for (const t of ['no compares precios tú; usa los items `cierre_sobre_<id de nivel>`', 'DENTRO de la zona solo si', 'POR ENCIMA de la zona', 'POR DEBAJO', 'el código rechaza esa frase si no lo está']) expect(PROMPT_TECNICO).toContain(t);
     expect(PROMPT_TECNICO).not.toContain('Compara tú el último cierre');
@@ -151,6 +151,6 @@ describe('v0.19: prompt tecnico.p6', () => {
     for (const t of ['Tampoco hables de «confirmación»', 'ese criterio no está definido']) expect(PROMPT_TECNICO).toContain(t);
   });
   it('conserva las reglas de p3, p4 y p5', () => {
-    for (const t of ['NO perjudica', 'NUNCA es la condición que vuelve FAVORABLE', 'no puede ser mayor que 0.8', 'No compares tú precios entre sí', 'No digas que «faltan más señales»']) expect(PROMPT_TECNICO).toContain(t);
+    for (const t of ['NO perjudica', 'NUNCA es una condición de entrada', 'no puede ser mayor que 0.8', 'No compares tú precios entre sí', 'No digas que «faltan más señales»']) expect(PROMPT_TECNICO).toContain(t);
   });
 });

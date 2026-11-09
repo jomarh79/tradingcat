@@ -33,7 +33,11 @@ export interface ClienteOficina {
     };
   };
 }
-export interface OpcionesFlujo { user_id?: string | null }
+export interface OpcionesFlujo {
+  user_id?: string | null;
+  /** v0.21: operación que declara quien pide la corrida (hoy solo el monto). No tiene valor por omisión: sin declarar, el Auditor lo reporta como dato faltante. */
+  operacion?: { monto?: string | null };
+}
 
 export type ResultadoPortafolio = { ok: true; portfolio_id: string } | { ok: false; problemas: string[]; error_bd?: string };
 
@@ -60,6 +64,8 @@ export interface ArgumentosPreparacion {
   solicitud: SolicitudNormalizada & { portafolio: NonNullable<SolicitudNormalizada['portafolio']> };
   datos: DatosCongelados;
   user_id?: string | null;
+  /** v0.21: operación declarada por el llamador (se mezcla sobre los hechos de la base). */
+  operacion?: { monto?: string | null };
 }
 export type ResultadoPreparacion =
   | { ok: true; datos: DatosCongelados; expediente_id: string; portfolio_id: string; expediente_creado: boolean }
@@ -95,7 +101,7 @@ export async function prepararAuditoria(cliente: ClienteOficina, a: ArgumentosPr
     if (!hechos.ok) return falla('hechos', hechos.problemas);
 
     const base: DatosCongelados = { ...a.datos, expediente_id: exp.expediente_id };
-    const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: hechos.hechos });
+    const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: a.operacion === undefined ? hechos.hechos : { ...hechos.hechos, operacion: { ...hechos.hechos.operacion, ...a.operacion } } });
     if (!entrada.ok) return falla('entrada', entrada.problemas);
     return { ok: true, datos: conSobreAuditor(base, entrada.entrada), expediente_id: exp.expediente_id, portfolio_id: pf.portfolio_id, expediente_creado: exp.creado };
   } catch (e) {
@@ -136,7 +142,7 @@ export async function ejecutarCorridaConAuditoria(
   if (v.clase !== 'aceptada' || datos === null) {
     return { corrida: await ejecutarCorrida(solicitud, datos, { ...base, nuevoId, auditor: sinAuditor }, opciones), preparacion: null };
   }
-  const prep = await prepararAuditoria(cliente, { run_id, solicitud: v.solicitud, datos, user_id: flujo.user_id });
+  const prep = await prepararAuditoria(cliente, { run_id, solicitud: v.solicitud, datos, user_id: flujo.user_id, ...(flujo.operacion !== undefined ? { operacion: flujo.operacion } : {}) });
   if (prep.ok) {
     const auditor = puertoAuditorBd(cliente, { expediente_id: prep.expediente_id, user_id: flujo.user_id });
     return { corrida: await ejecutarCorrida(solicitud, prep.datos, { ...base, nuevoId, auditor }, opciones), preparacion: prep };

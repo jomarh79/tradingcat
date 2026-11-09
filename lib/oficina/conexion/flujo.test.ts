@@ -158,6 +158,12 @@ describe('prepararAuditoria', () => {
     expect(bd.inserts[0]?.fila).toMatchObject({ ticker: 'GKOS', mercado: 'US', portfolio_id: PF, portafolio_codigo: 'PMP', tesis_origen: 'al_entrar' });
     expect(Object.keys(bd.inserts[0]?.fila ?? {})).not.toContain('user_id');
   });
+  it('v0.21: el monto declarado llega a operacion.monto de la entrada del Auditor; sin declarar queda null (no hay monto por omisión)', async () => {
+    const con = await prepararAuditoria(nuevaBd().cliente, { run_id: 'r', solicitud: aceptada(), datos: datos(), operacion: { monto: '50' } });
+    expect((con.ok && (con.datos.sobre_auditor as { operacion: { monto: unknown } }).operacion.monto)).toBe('50');
+    const sin = await prepararAuditoria(nuevaBd().cliente, { run_id: 'r', solicitud: aceptada(), datos: datos() });
+    expect((sin.ok && (sin.datos.sobre_auditor as { operacion: { monto: unknown } }).operacion.monto)).toBeNull();
+  });
   it('si el expediente ya existe lo recupera sin insertar', async () => {
     const bd = nuevaBd({ oficina_expedientes: [{ id: EXP_EXISTENTE, user_id: US, ticker: 'GKOS', mercado: 'US', portfolio_id: PF, rol_posicion: null, ficha: {} }] });
     const r = await prepararAuditoria(bd.cliente, { run_id: 'run-1', solicitud: aceptada(), datos: datos() });

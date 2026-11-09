@@ -27,7 +27,9 @@ export type TesisEstado = 'intacta' | 'debilitada' | 'rota' | 'no_evaluable';
 /** Códigos de motivo del estado de la corrida (aprobados el 14-oct). */
 export type CodigoMotivo =
   | 'agente_requerido_fallo' | 'director_fallo' | 'auditor_bloqueo' | 'datos_faltantes'
-  | 'posicion_no_confirmada' | 'snapshot_vencido' | 'portafolio_no_declarado';
+  | 'posicion_no_confirmada' | 'snapshot_vencido' | 'portafolio_no_declarado'
+  /** v0.21 (aprobado el 7-nov): un analista OPCIONAL pedido por el usuario no entregó resultado. Es informativo: no cambia la decisión ni el estado de la corrida y el Motor no lo produce. */
+  | 'agente_opcional_fallo';
 
 export interface MotivoEstado { codigo: CodigoMotivo; detalle: string }
 

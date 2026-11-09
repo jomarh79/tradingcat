@@ -1,5 +1,6 @@
 # Prueba manual de POST /api/oficina/analisis-fundamental (solo ASCII). El SERVIDOR trae los datos (Webull y Finnhub): no hay que pegar JSON.
 # Sin -Guardar SOLO analiza: no guarda nada ni opera. Con -Guardar crea o recupera el expediente, guarda los analisis y registra la corrida (nunca opera).
+# -Monto 50 declara el monto de la operacion en USD (solo con -Guardar): PMP abrir = 50, PCP abrir = 25. Sin -Monto el Auditor no lo evalua (NO_EVALUABLE); nunca hay monto por omision.
 # Cuesta llamadas al proveedor de IA. No imprime tokens ni claves.
 # Pide tu access_token (con -ConToken) o tu correo y clave de Supabase (no se muestran ni se guardan).
 # Importante: el servidor necesita llegar a Webull; si en local da timeout, usa -Base con la URL de tu app desplegada.
@@ -9,7 +10,8 @@ param(
   [string]$Portafolio = "PMP",
   [switch]$SinDirector,
   [switch]$ConToken,
-  [switch]$Guardar
+  [switch]$Guardar,
+  [string]$Monto = ""
 )
 $ErrorActionPreference = "Stop"
 $proj = "C:\Users\dell\trading-journal"
@@ -66,7 +68,13 @@ if ($SinDirector) { $conDir = "false" }
 $guardarTxt = "false"
 if ($Guardar) { $guardarTxt = "true" }
 if ($Guardar -and $SinDirector) { Write-Host "Con -Guardar el Director siempre se ejecuta: quita -SinDirector."; exit 1 }
-$body = '{"ticker":"' + $tk + '","portafolio":"' + $Portafolio + '","con_director":' + $conDir + ',"guardar":' + $guardarTxt + '}'
+$montoTxt = ""
+if ($Monto -ne "") {
+  if ($Monto -notmatch '^\d{1,9}(\.\d{1,2})?$') { Write-Host "-Monto debe ser un numero positivo en USD con hasta 2 decimales, por ejemplo 50 o 25.5"; exit 1 }
+  if (-not $Guardar) { Write-Host "-Monto solo aplica con -Guardar (sin guardar no corre el Auditor)."; exit 1 }
+  $montoTxt = ',"monto":' + $Monto
+}
+$body = '{"ticker":"' + $tk + '","portafolio":"' + $Portafolio + '","con_director":' + $conDir + ',"guardar":' + $guardarTxt + $montoTxt + '}'
 
 # 2) Llamada (puede tardar uno o dos minutos: datos de Webull y Finnhub y dos llamadas al modelo)
 try {

@@ -684,3 +684,30 @@ describe('v0.20: el Director sabe qué analistas requeridos no entregaron result
     expect(r.fila_historial.motivos.map(m => m.detalle)).toContain('valuacion: error');
   });
 });
+
+describe('v0.21: un analista opcional pedido que no entregó resultado queda dicho en los motivos', () => {
+  const falla = (...caidos: Agente[]) => (a: Agente) => (caidos.includes(a) ? { estado: 'error' as const, error: 'sin respuesta' } : { estado: 'ok' as const, analisis_id: `an-${a}`, veredicto: VEREDICTO[a], salida: { de: a } });
+  const corridaPos = async (analista: ReturnType<typeof falla>, opciones: { agentes_opcionales?: Agente[] }) => corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'posicion_abierta' }), datos({ posicion_existe: true }), puertos({ analista }).p, opciones));
+  const opc = (r: ReturnType<typeof corrida>) => r.fila_historial.motivos.filter(m => m.codigo === 'agente_opcional_fallo');
+  it('opcional pedido y caído: el motivo lo nombra con su estado', async () => {
+    const r = await corridaPos(falla('valuacion'), { agentes_opcionales: ['valuacion'] });
+    expect(opc(r)).toEqual([{ codigo: 'agente_opcional_fallo', detalle: 'valuacion: error' }]);
+  });
+  it('es informativo: ni la decisión ni el estado de la corrida cambian respecto de la corrida sin ese opcional caído', async () => {
+    const con = await corridaPos(falla('valuacion'), { agentes_opcionales: ['valuacion'] });
+    const sin = await corridaPos(falla(), { agentes_opcionales: ['valuacion'] });
+    expect(con.salida_motor.decision).toBe(sin.salida_motor.decision);
+    expect(con.fila_historial.estado_final).toBe(sin.fila_historial.estado_final);
+  });
+  it('opcional pedido que responde: sin motivo', async () => {
+    expect(opc(await corridaPos(falla(), { agentes_opcionales: ['valuacion'] }))).toEqual([]);
+  });
+  it('opcional que no se pidió: no corre y no hay motivo', async () => {
+    expect(opc(await corridaPos(falla('valuacion'), {}))).toEqual([]);
+  });
+  it('un requerido caído sigue siendo agente_requerido_fallo y no agente_opcional_fallo', async () => {
+    const r = corrida(await ejecutarCorrida(sol(), datos(), puertos({ analista: falla('valuacion') }).p));
+    expect(r.fila_historial.motivos.some(m => m.codigo === 'agente_requerido_fallo' && m.detalle === 'valuacion: error')).toBe(true);
+    expect(opc(r)).toEqual([]);
+  });
+});

@@ -199,6 +199,15 @@ Decisiones del 7-nov: un analista requerido (R de la matriz v2) que falla no lo 
 
 Una corrida del Técnico se acepta si cumple A1 a A6 sin excepciones. Lo que ningún criterio cubre (por ejemplo, un resumen que exija una señal concreta que el usuario no definió) se registra como observación, no se aprueba ni se rechaza «por razonable».
 
-### Pendiente (no incluido en esta versión)
+## Negativos del Técnico, monto declarado y motivo del opcional caído (v0.21)
 
-Registrar en los motivos de la corrida que un analista OPCIONAL no estuvo. Requiere un código de motivo nuevo (`agente_opcional_fallo`); antes de tocar el Motor o la base hay que comprobar los CHECK de `oficina_corridas_historial` (ver consulta de `pg_constraint` en las instrucciones de la entrega).
+Corrida real (GKOS, 9-nov-2026, p6): criterios A1 a A6 cumplidos, con dos defectos semánticos fuera de ellos: (1) el resumen decía que FAVORABLE «requiere que se cumpla RSI_SOBREVENTA» con dos señales de entrada ya cumplidas (el criterio de entrada de PMP no está definido); (2) el único negativo era «RSI_SOBREVENTA no se cumple», que el prompt manda como neutral.
+
+1. **Regla de código `VERIFICAR_NEGATIVO_SENAL_NO_CUMPLIDA`:** un elemento de `negativos` que nombre por su id una señal calculada con `cumplida === false` se rechaza (con su índice). Una señal sin datos o cumplida no se rechaza; los hallazgos neutrales sí pueden describirla. Solo se contrasta el id de la señal, no el texto libre.
+2. **Prompt `tecnico.p7` (solo prompt):** el resumen describe el estado actual (ubicación del cierre y señales cumplidas) y NO afirma qué evento cambiaría el veredicto. Reemplaza la instrucción de p6 de «nombrar el evento concreto».
+3. **Monto declarado por corrida (`monto`):** campo opcional del cuerpo (número o texto positivo, hasta 2 decimales) y parámetro `-Monto` del script. Se pasa a `operacion.monto` de la entrada del Auditor (PMP-02 exige USD 50 y PCP USD 25 al abrir; con otro monto incumple, sin monto queda NO_EVALUABLE `monto_no_declarado`). No hay monto por omisión. Solo con `guardar` (sin guardar no corre el Auditor y se rechaza). La respuesta trae `monto_declarado`. Quien declara el monto es el usuario en cada corrida porque un mismo ticker puede entrar a PMP o a PCP.
+4. **Motivo `agente_opcional_fallo` (aprobado el 7-nov):** un analista opcional que se pidió y no entregó resultado queda en `motivos` (`<agente>: <estado>`). Es informativo: no cambia la decisión ni el estado de la corrida y el Motor no interviene (lo agrega el Orquestador). Un opcional no pedido no corre y no deja motivo. No requiere SQL: `motivos` es un arreglo jsonb sin CHECK sobre los códigos. Falta comprobar que `oficina_registrar_corrida` no valide los códigos (consulta en las instrucciones de la entrega).
+
+### Pendiente
+
+Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no lee `valuacion_base` de la ficha.

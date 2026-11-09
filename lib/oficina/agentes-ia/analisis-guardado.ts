@@ -173,13 +173,13 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     contrato: 'solicitud.v1', disparador: DISPARADOR_ANALISIS_GUARDADO, ticker, mercado: MERCADO_PRUEBA, portafolio_codigo: portafolio, tipo_evaluacion,
     origen: { watchlist_id: null, alerta_id: null }, solicitado_en: ahora,
   };
-  const flujo = await ejecutarCorridaConAuditoria(cliente, solicitud, datos, base);
+  const flujo = await ejecutarCorridaConAuditoria(cliente, solicitud, datos, base, undefined, v.cuerpo.monto !== undefined ? { operacion: { monto: v.cuerpo.monto } } : {});
 
   // (7) registro atómico de la corrida y sus ejecuciones
   const persistencia = await persistirResultado(flujo.corrida, almacenSupabase(cliente));
   const c = flujo.corrida;
   const cuerpo: Record<string, unknown> = {
-    ok: persistencia.estado === 'guardada', ticker, portafolio, guardado: true, run_id, tipo_evaluacion, posicion_existe,
+    ok: persistencia.estado === 'guardada', ticker, portafolio, guardado: true, run_id, tipo_evaluacion, posicion_existe, monto_declarado: v.cuerpo.monto ?? null,
     expediente: { id: exp.expediente_id, creado: exp.creado, tesis_vigente_previa },
     avisos_datos: armado.avisos, items: armado.items.length, items_finnhub: armado.items_finnhub, fuentes,
     fundamental: resumenAgente(respuestas.fundamental),

@@ -4,7 +4,7 @@
 import {
   AGENTE_TECNICO, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_TECNICO_CON_MODELO, ESTADO_TECNICO_PARCIAL, MAX_RESUMEN,
   MERCADOS_VALIDOS, PATRON_DENTRO_DE_ZONA, PATRON_NEGACION, TOPE_CONFIANZA_CON_FALTANTES, VENTANA_NEGACION, VEREDICTO_NO_EVALUABLE, VERIFICAR_CIFRAS_TECNICO,
-  VERIFICAR_COHERENCIA_VEREDICTO_TECNICO, VERIFICAR_DENTRO_DE_ZONA, VEREDICTO_TECNICO_DESFAVORABLE, VEREDICTO_TECNICO_FAVORABLE, SENALES_ENTRADA_TECNICO, SENALES_SALIDA_TECNICO,
+  VERIFICAR_COHERENCIA_VEREDICTO_TECNICO, VERIFICAR_DENTRO_DE_ZONA, VERIFICAR_NEGATIVO_SENAL_NO_CUMPLIDA, VEREDICTO_TECNICO_DESFAVORABLE, VEREDICTO_TECNICO_FAVORABLE, SENALES_ENTRADA_TECNICO, SENALES_SALIDA_TECNICO,
 } from './constantes';
 import { itemsDesdeSnapshotTecnico } from './datos-tecnico';
 import { erroresDeCifras, numerosPermitidos } from './verificar-cifras';
@@ -203,6 +203,15 @@ export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): V
         if (typeof t === 'string' && afirmaDentroDeZona(t)) e.push(`${origen} dice que el cierre está dentro de la zona de entrada, pero el último cierre (${String(cierre)}) queda ${donde} de la zona (${String(zmin)} a ${String(zmax)}): usa los items cierre_sobre_<nivel> de los niveles de la zona`);
       }
     }
+  }
+
+  // Una señal que simplemente no se cumple es neutral: un negativo no puede nombrarla por su id (v0.21)
+  if (VERIFICAR_NEGATIVO_SENAL_NO_CUMPLIDA && Array.isArray(neg)) {
+    const noCumplidas = sobre.snapshot.senales.filter(g => g.cumplida === false).map(g => g.id as string);
+    neg.forEach((n, i) => {
+      if (typeof n !== 'string') return;
+      for (const id of noCumplidas) if (n.includes(id)) e.push(`negativos[${i}] nombra la señal ${id}, que no se cumple: una señal sin cumplirse es neutral, no negativa; en negativos solo van señales adversas, riesgos o datos faltantes (si no hay nada negativo, di qué revisaste)`);
+    });
   }
 
   if (recolectarTextos(x, ['datos_fuente', 'evidencia', 'id', 'run_id', 'snapshot_id', 'contrato', 'agente', 'ticker']).some(contieneOrden)) e.push('la salida contiene una instrucción de compra o venta: los agentes no emiten órdenes');

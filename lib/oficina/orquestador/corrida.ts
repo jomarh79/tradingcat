@@ -552,7 +552,9 @@ export async function ejecutarCorrida(
     agentes_requeridos: requeridos, resultados_agentes: registros,
     auditoria_veredicto: salida_motor.auditoria_veredicto, auditoria_analisis_id: auditoria?.analisis_id ?? null,
     decision: salida_motor.decision, decision_id: null, director_estado: director, director_analisis_id,
-    estado_final: salida_motor.estado_final, motivos: salida_motor.motivos_estado,
+    estado_final: salida_motor.estado_final,
+    // Un analista opcional que se pidió y no entregó resultado queda dicho en los motivos (informativo: ni la decisión ni el estado cambian; el Motor no interviene).
+    motivos: [...salida_motor.motivos_estado, ...opcionales.filter(a => resultados_agentes[a]?.estado !== 'ok').map((a): MotivoEstado => ({ codigo: 'agente_opcional_fallo', detalle: `${a}: ${resultados_agentes[a]?.estado ?? 'sin resultado'}` }))],
     datos_vencidos: entrada_motor.datos_vencidos, referencias,
   };
 
