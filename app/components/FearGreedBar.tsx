@@ -57,7 +57,7 @@ export default function FearGreedBar({ compact = false }: { compact?: boolean })
     ...fg.components.map(x => `• ${x.label}: ${x.score} — ${x.detail}`),
     ...(fg.missing.length ? [`Sin datos: ${fg.missing.join(', ')}`] : []),
     ...(fg.missing.length && fg.notes?.length ? fg.notes.map(n => `  ↳ ${n}`) : []),
-    `Datos al ${fg.asOf} · índice propio, no es el de CNN`,
+    `Datos al ${fg.asOf} · índice propio`,
   ].join('\n')
 
   if (compact) {
