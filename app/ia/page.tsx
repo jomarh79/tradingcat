@@ -99,30 +99,44 @@ export default function IAPage() {
     }
   }
 
-  // Generador de Trend Preview mejorado y único basado en precios y tendencia real
-  const generateSmartTrendPath = (current = 100, target = 100, ema = 100, prob = 50) => {
-    const points = 6
+  // NUEVA FUNCIÓN: Generador de Trend Preview 100% dinámico y único por activo
+  const generateUniqueTrendPath = (item: WatchlistItem) => {
+    const points = 7
     const pathCoords: { x: number; y: number }[] = []
     
-    // Determinar la inclinación en base a la posición del precio actual frente a la EMA y el Target
-    const isBullish = current <= ema || target <= current || prob >= 65
-    
+    const rsi = Number(item.rsi || 50)
+    const volatility = Number(item.volatility || 2)
+    const prob = Number(item.ai_probability || 50)
+    const current = Number(item.current_price || 100)
+    const target = Number(item.buy_target || 100)
+
+    // Factor de tendencia basado en si el precio busca el target y la confianza de la IA
+    const targetDiff = (target - current) / current
+    const isBullish = prob >= 65 || targetDiff > -0.05
+
     for (let i = 0; i < points; i++) {
       const x = (i / (points - 1)) * 120
-      let y = 30
-      
+      let y = 30 // Chihuahua / Base central
+
       if (i === 0) {
-        y = isBullish ? 45 : 20 // Punto de partida
+        // Punto inicial influenciado por el nivel de RSI (si está alto empieza arriba, si está bajo empieza abajo)
+        y = 30 + ((rsi - 50) * 0.3)
       } else if (i === points - 1) {
-        y = isBullish ? 18 : 48 // Punto final (hacia arriba si es compra, hacia abajo si es rechazo)
+        // Punto final dictado por la probabilidad de la IA y la tendencia
+        y = isBullish ? 15 : 45
       } else {
-        // Curvatura orgánica intermedia
-        const offset = (i % 2 === 0 ? -5 : 5) * (isBullish ? 1 : -1)
-        y = 30 + offset
+        // Puntos intermedios con ondulación orgánica basada en la volatilidad y el ID del activo para diferenciarlos
+        const seed = Number(item.id || 1) + i
+        const wave = Math.sin(seed) * (volatility * 3)
+        y = 30 + wave + (isBullish ? -i * 1.5 : i * 1.5)
       }
+
+      // Limitar coordenadas dentro del viewBox (0 a 60)
+      y = Math.max(8, Math.min(52, y))
       pathCoords.push({ x, y })
     }
 
+    // Construir la ruta SVG con curvas Suaves (Bezier Q)
     let path = `M ${pathCoords[0].x} ${pathCoords[0].y}`
     for (let i = 1; i < pathCoords.length; i++) {
       const prev = pathCoords[i - 1]
@@ -188,12 +202,7 @@ export default function IAPage() {
               const aiTp = getAiTakeProfit(item)
               const aiSl = getAiStopLoss(item)
               
-              const trendData = generateSmartTrendPath(
-                Number(item.current_price || 100), 
-                Number(item.buy_target || 100), 
-                Number(item.ema20 || 100), 
-                probability
-              )
+              const trendData = generateUniqueTrendPath(item)
 
               return (
                 <div 
@@ -215,7 +224,7 @@ export default function IAPage() {
                     </div>
                   </div>
 
-                  {/* Trend Preview (Limpio, sin repetir RSI y con proyección real) */}
+                  {/* Trend Preview (Gráfica única por activo) */}
                   <div className="mb-4 bg-black/30 p-2.5 rounded-xl border border-white/5 relative h-16 flex items-center justify-between px-3">
                     <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
                       <FaChartArea className={colors.text} /> Trend Proyección
