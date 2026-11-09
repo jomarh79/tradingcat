@@ -4,7 +4,7 @@
 import {
   AGENTE_TECNICO, CONFIANZA_MAX, CONFIANZA_MIN, CONTRATO_ENTRADA, CONTRATO_SALIDA, ESTADOS_TECNICO_CON_MODELO, ESTADO_TECNICO_PARCIAL, MAX_RESUMEN,
   MERCADOS_VALIDOS, PATRON_DENTRO_DE_ZONA, PATRON_NEGACION, TOPE_CONFIANZA_CON_FALTANTES, VENTANA_NEGACION, VEREDICTO_NO_EVALUABLE, VERIFICAR_CIFRAS_TECNICO,
-  VERIFICAR_DENTRO_DE_ZONA,
+  VERIFICAR_COHERENCIA_VEREDICTO_TECNICO, VERIFICAR_DENTRO_DE_ZONA, VEREDICTO_TECNICO_DESFAVORABLE, VEREDICTO_TECNICO_FAVORABLE, SENALES_ENTRADA_TECNICO, SENALES_SALIDA_TECNICO,
 } from './constantes';
 import { itemsDesdeSnapshotTecnico } from './datos-tecnico';
 import { erroresDeCifras, numerosPermitidos } from './verificar-cifras';
@@ -180,6 +180,15 @@ export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): V
   const sop = x['soporte_clave']; const res = x['resistencia_clave'];
   if (cierre !== null && esObjeto(sop) && esNumeroFinito(Number(sop['precio'])) && Number(sop['precio']) > cierre) e.push(`soporte_clave (${String(sop['precio'])}) está por encima del último cierre (${String(cierre)}): un soporte va por debajo`);
   if (cierre !== null && esObjeto(res) && esNumeroFinito(Number(res['precio'])) && Number(res['precio']) < cierre) e.push(`resistencia_clave (${String(res['precio'])}) está por debajo del último cierre (${String(cierre)}): una resistencia va por encima`);
+
+  // Coherencia del veredicto con las señales calculadas (v0.20): FAVORABLE exige una señal de entrada cumplida; DESFAVORABLE, una de salida cumplida o el cierre bajo la EMA200 diaria
+  if (VERIFICAR_COHERENCIA_VEREDICTO_TECNICO) {
+    const cumplidas = sobre.snapshot.senales.filter(g => g.cumplida === true).map(g => g.id as string);
+    const entrada = cumplidas.filter(id => SENALES_ENTRADA_TECNICO.includes(id));
+    const salida = cumplidas.filter(id => SENALES_SALIDA_TECNICO.includes(id));
+    if (veredicto === VEREDICTO_TECNICO_FAVORABLE && entrada.length === 0) e.push(`veredicto ${VEREDICTO_TECNICO_FAVORABLE} sin ninguna señal de entrada cumplida (${SENALES_ENTRADA_TECNICO.join(', ')}): las señales calculadas no lo respaldan`);
+    if (veredicto === VEREDICTO_TECNICO_DESFAVORABLE && salida.length === 0 && sobre.snapshot.cierre_sobre_ema200_diaria !== false) e.push(`veredicto ${VEREDICTO_TECNICO_DESFAVORABLE} sin ninguna señal de salida cumplida (${SENALES_SALIDA_TECNICO.join(', ')}) ni cierre bajo la EMA200 diaria: las señales calculadas no lo respaldan`);
+  }
 
   // La frase «dentro de la zona» solo puede aparecer si el último cierre queda dentro de zona_entrada (comprobable en código; v0.19)
   const zona = x['zona_entrada'];

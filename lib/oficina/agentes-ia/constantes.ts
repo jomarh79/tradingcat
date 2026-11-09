@@ -52,7 +52,7 @@ export const ESTADO_HTTP_NO_AUTORIZADO = 401;
 export const ESTADO_HTTP_PROHIBIDO = 403;
 
 export const VERSION_PROMPT_FUNDAMENTAL = 'fundamental.p7';
-export const VERSION_PROMPT_DIRECTOR = 'director.p6';
+export const VERSION_PROMPT_DIRECTOR = 'director.p7';
 export const ESQUEMA_NOMBRE_FUNDAMENTAL = 'salida_fundamental_v1';
 export const ESQUEMA_NOMBRE_DIRECTOR = 'integracion_v1';
 
@@ -146,6 +146,10 @@ export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
 export const VERSION_PROMPT_TECNICO = 'tecnico.p6';
 // v0.17 [PROPUESTA]: señales de entrada y de salida según las reglas aprobadas (PCP-10, PCP-04, PLP-03 y salidas del PCP). Solo orientan el texto del modelo; no son criterio de decisión.
 export const SENALES_ENTRADA_TECNICO = ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'];
+/** v0.20 [PROPUESTA]: coherencia del veredicto con las señales calculadas (condiciones necesarias; ESPERAR no tiene restricción). */
+export const VERIFICAR_COHERENCIA_VEREDICTO_TECNICO = true;
+export const VEREDICTO_TECNICO_FAVORABLE = 'FAVORABLE';
+export const VEREDICTO_TECNICO_DESFAVORABLE = 'DESFAVORABLE';
 export const SENALES_SALIDA_TECNICO = ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'];
 /** Tope de confianza del Técnico cuando el veredicto depende de una condición que el modelo no puede verificar con los datos (por ejemplo, no hay señales de entrada definidas para el caso). */
 export const TOPE_CONFIANZA_CONDICION_NO_VERIFICABLE = 0.8;

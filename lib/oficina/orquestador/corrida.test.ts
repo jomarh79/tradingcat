@@ -647,3 +647,40 @@ describe('el Orquestador no decide: toda corrida válida llega al Motor', () => 
     expect(JSON.stringify(d)).toBe(copia);
   });
 });
+
+describe('v0.20: el Director sabe qué analistas requeridos no entregaron resultado', () => {
+  const falla = (...caidos: Agente[]) => (a: Agente) => (caidos.includes(a) ? { estado: 'error' as const, error: 'sin respuesta' } : { estado: 'ok' as const, analisis_id: `an-${a}`, veredicto: VEREDICTO[a], salida: { de: a } });
+  const sinResultado = (c: unknown): unknown => (c as { analistas_requeridos_sin_resultado?: unknown }).analistas_requeridos_sin_resultado;
+  it('todos responden: lista vacía', async () => {
+    const x = puertos();
+    await ejecutarCorrida(sol(), datos(), x.p);
+    expect(sinResultado(x.directorCtx())).toEqual([]);
+  });
+  it('dos requeridos caídos: la lista los trae, en el orden de la tabla, y las salidas solo las de los que respondieron', async () => {
+    const x = puertos({ analista: falla('valuacion', 'riesgo_capital') });
+    await ejecutarCorrida(sol(), datos(), x.p);
+    expect(sinResultado(x.directorCtx())).toEqual(['valuacion', 'riesgo_capital']);
+    expect(Object.keys((x.directorCtx() as { salidas_analistas: object }).salidas_analistas).sort()).toEqual(['fundamental', 'tecnico']);
+  });
+  it('un analista que falla en el primer intento y responde en el reintento no cuenta como faltante', async () => {
+    const x = puertos({ analista: (a, _s, i) => (a === 'valuacion' && i === 1 ? { estado: 'error', error: 'salida inválida' } : { estado: 'ok', analisis_id: `an-${a}`, veredicto: VEREDICTO[a], salida: { de: a } }) });
+    await ejecutarCorrida(sol(), datos(), x.p);
+    expect(sinResultado(x.directorCtx())).toEqual([]);
+  });
+  it('un opcional caído no figura: solo se listan los requeridos', async () => {
+    const x = puertos({ analista: falla('valuacion') });
+    await ejecutarCorrida(sol({ tipo_evaluacion: 'posicion_abierta' }), datos({ posicion_existe: true }), x.p, { agentes_opcionales: ['valuacion'] });
+    expect(sinResultado(x.directorCtx())).toEqual([]);
+  });
+  it('un requerido que responde con salida pero cuyo veredicto es NO_EVALUABLE sí respondió: no figura', async () => {
+    const x = puertos({ analista: (a) => ({ estado: 'ok', analisis_id: `an-${a}`, veredicto: a === 'tecnico' ? 'NO_EVALUABLE' : VEREDICTO[a], salida: { de: a } }) });
+    await ejecutarCorrida(sol(), datos(), x.p);
+    expect(sinResultado(x.directorCtx())).toEqual([]);
+  });
+  it('la decisión y el estado de la corrida no cambian por este campo: con los requeridos caídos sigue siendo NO_EVALUABLE incompleta', async () => {
+    const x = puertos({ analista: falla('valuacion') });
+    const r = corrida(await ejecutarCorrida(sol(), datos(), x.p));
+    expect(r.salida_motor).toMatchObject({ decision: 'NO_EVALUABLE', estado_final: 'incompleta' });
+    expect(r.fila_historial.motivos.map(m => m.detalle)).toContain('valuacion: error');
+  });
+});

@@ -118,7 +118,7 @@ describe('v0.5: la prueba entrega los avisos al modelo (acotados)', () => {
 describe('v0.5: prompts y versiones', () => {
   it('versiones vigentes', () => {
     expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p7');
-    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p6');
+    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p7');
   });
   it('Fundamental: escala 0-100, evidencia directa, avisos y datos ausentes', () => {
     expect(PROMPT_FUNDAMENTAL).toContain('escala de 0 a 100');

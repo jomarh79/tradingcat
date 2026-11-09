@@ -71,7 +71,7 @@ describe('v0.10: completar_datos exige un faltante crítico', () => {
 describe('v0.10: prompts p5', () => {
   it('las versiones suben a p5', () => {
     expect(VERSION_PROMPT_FUNDAMENTAL).toBe('fundamental.p7');
-    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p6');
+    expect(VERSION_PROMPT_DIRECTOR).toBe('director.p7');
   });
   it('el Fundamental pide invalidadores sobre periodos recientes y no sobre años cerrados', () => {
     expect(PROMPT_FUNDAMENTAL).toContain('Un invalidador vigila el FUTURO');

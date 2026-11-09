@@ -177,3 +177,28 @@ Corrida real (GKOS, 6-nov-2026, p5): el resumen decía que el cierre (224.2) est
 3. **Prompt p6:** se quita «compara tú»; la ubicación se deduce de las banderas (dentro = nivel de `min` en `si` y nivel de `max` en `no`; ambos `si` = por encima; ambos `no` = por debajo) y se citan en `datos_fuente`; se prohíbe hablar de «confirmación» (completa, técnica...) porque el criterio de entrada no está definido.
 
 Sigue sin validación en código que el modelo respete las banderas fuera de la frase «dentro de la zona».
+
+## Analistas requeridos faltantes en el Director, coherencia del Técnico y criterios de aceptación (v0.20)
+
+Decisiones del 7-nov: un analista requerido (R de la matriz v2) que falla no lo sustituye ni lo rellena el Director; los reintentos quedan registrados; un opcional caído no detiene la corrida; el fallo del Director nunca produce COMPRAR (el Motor no depende de él).
+
+1. **Contexto del Director:** el Orquestador agrega `analistas_requeridos_sin_resultado` (los requeridos de la corrida sin análisis válido tras el reintento, en el orden de la tabla; los opcionales nunca figuran). El campo es opcional en el tipo y vacío por defecto. Solo son nombres de analistas (datos públicos): no cambia lo que el Director ve de privado.
+2. **Director p7 y su validador:** con faltantes, `recomendacion_para_motor` no puede ser `continuar` (`completar_datos` o `detener`) y `datos_faltantes` debe nombrar a cada analista faltante (sin distinguir mayúsculas). Un requerido ausente cuenta como faltante crítico para poder usar `completar_datos`. Sin faltantes, todo sigue igual.
+3. **Coherencia del veredicto del Técnico (`VERIFICAR_COHERENCIA_VEREDICTO_TECNICO`):** condiciones NECESARIAS comprobadas contra las señales calculadas por código: FAVORABLE exige al menos una señal de entrada cumplida (`SENALES_ENTRADA_TECNICO`); DESFAVORABLE exige una señal de salida cumplida (`SENALES_SALIDA_TECNICO`) o el cierre bajo la EMA200 diaria; ESPERAR y NO_EVALUABLE no tienen restricción. Una señal sin datos no cuenta como cumplida. No es una definición de criterio de entrada de PMP (sigue sin definir): una señal de entrada cumplida no obliga a FAVORABLE.
+
+### Criterios de aceptación del Técnico (aprobados el 7-nov)
+
+| # | Criterio | Cómo se garantiza |
+|---|---|---|
+| A1 | El validador aprueba y `intentos` ≤ 2 | Si no aprueba, no se guarda. `intentos` se revisa por SQL: `salida->'trazabilidad'->>'intentos'` |
+| A2 | Ningún precio fuera de `niveles_calculados` | Código (`validarSalidaTecnico`: nivel_id y precio exacto) |
+| A3 | Toda cifra escrita coincide con un dato citado, redondeada | Código (v0.15) |
+| A4 | «Dentro de la zona» solo si el cierre está dentro | Código (v0.19) |
+| A5 | NO_EVALUABLE cuando faltan datos | Código: sin velas, cálculo pendiente o NO_EVALUABLE no llaman al modelo; parcial exige `datos_faltantes` y confianza ≤ 0.6 |
+| A6 | Veredicto coherente con las señales calculadas | Código (esta versión, condiciones necesarias) |
+
+Una corrida del Técnico se acepta si cumple A1 a A6 sin excepciones. Lo que ningún criterio cubre (por ejemplo, un resumen que exija una señal concreta que el usuario no definió) se registra como observación, no se aprueba ni se rechaza «por razonable».
+
+### Pendiente (no incluido en esta versión)
+
+Registrar en los motivos de la corrida que un analista OPCIONAL no estuvo. Requiere un código de motivo nuevo (`agente_opcional_fallo`); antes de tocar el Motor o la base hay que comprobar los CHECK de `oficina_corridas_historial` (ver consulta de `pg_constraint` en las instrucciones de la entrega).

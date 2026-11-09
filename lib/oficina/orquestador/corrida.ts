@@ -89,6 +89,8 @@ export interface ContextoDirector {
   tipo_evaluacion: TipoEvaluacion;
   /** Salidas validadas de los analistas que respondieron bien. */
   salidas_analistas: Partial<Record<Agente, unknown>>;
+  /** v0.20: analistas REQUERIDOS de esta corrida que no entregaron un análisis válido (error o ausente). El Director no los sustituye ni los rellena (decisión del 7-nov). Opcional por compatibilidad: si falta, se entiende vacío. */
+  analistas_requeridos_sin_resultado?: Agente[];
   /** Resultado del Auditor (el Director lo ve; el Auditor no ve al Director). */
   auditoria: { veredicto: VeredictoAuditor; reglas_revisadas: string[] } | null;
   reglas_versiones_ids: string[];
@@ -478,7 +480,8 @@ export async function ejecutarCorrida(
   if (ruta !== 'determinista' && bloqueoEstructural === null) {
     const id = await conReintentos(() => puertos.director({
       run_id: corrida_id, snapshot_id: datos.snapshot_id, ticker: sol.ticker, mercado: sol.mercado, portafolio_codigo: portafolio, tipo_evaluacion: tipo,
-      salidas_analistas, auditoria: auditoria === null ? null : { veredicto: auditoria.veredicto, reglas_revisadas: auditoria.reglas_revisadas },
+      salidas_analistas, analistas_requeridos_sin_resultado: requeridos.filter(a => resultados_agentes[a]?.estado !== 'ok'),
+      auditoria: auditoria === null ? null : { veredicto: auditoria.veredicto, reglas_revisadas: auditoria.reglas_revisadas },
       reglas_versiones_ids: datos.reglas_versiones_ids, contexto: datos.contexto_director ?? null,
     }), REINTENTOS_POR_AGENTE, () => puertos.ahora());
     director = id.respuesta.estado === 'ok' ? 'ok' : 'error';

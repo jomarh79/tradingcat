@@ -21,6 +21,8 @@ const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const;
 export interface ContextoDirectorValido {
   run_id: string; snapshot_id: string; ticker: string; mercado: string; portafolio_codigo: string; tipo_evaluacion: TipoEvaluacion;
   salidas_analistas: Partial<Record<Agente, Obj>>;
+  /** Analistas requeridos sin análisis válido (v0.20); vacío si todos respondieron. */
+  analistas_requeridos_sin_resultado: Agente[];
   auditoria: { veredicto: string; reglas_revisadas: string[] } | null;
   reglas_versiones_ids: string[];
   contexto: unknown;
@@ -42,17 +44,26 @@ export function validarContextoDirector(x: unknown): Validacion<ContextoDirector
     if (!enumDe(k, AGENTES_CONOCIDOS)) e.push(`analista desconocido: ${k}`);
     else if (!esObjeto(s) || s['agente'] !== k || !textoNoVacio(s['veredicto']) || !Array.isArray(s['hallazgos']) || !Array.isArray(s['datos_fuente'])) e.push(`la salida de ${k} no tiene la forma validada (agente, veredicto, hallazgos, datos_fuente)`);
   }
+  const sin = x['analistas_requeridos_sin_resultado'];
+  if (sin !== undefined) {
+    if (!Array.isArray(sin) || !sin.every(a => enumDe(a, AGENTES_CONOCIDOS))) e.push('analistas_requeridos_sin_resultado debe ser una lista de analistas conocidos');
+    else {
+      if (new Set(sin).size !== sin.length) e.push('analistas_requeridos_sin_resultado tiene analistas repetidos');
+      if (esObjeto(sa)) for (const a of sin) if (a in sa) e.push(`${String(a)} figura a la vez con salida y sin resultado`);
+    }
+  }
   const au = x['auditoria'];
   if (au !== null && au !== undefined && (!esObjeto(au) || !textoNoVacio(au['veredicto']) || !Array.isArray(au['reglas_revisadas']))) e.push('auditoria inválida (veredicto, reglas_revisadas)');
   if (!Array.isArray(x['reglas_versiones_ids'])) e.push('reglas_versiones_ids debe ser una lista');
   if (e.length > 0) return { ok: false, errores: e };
-  return { ok: true, valor: { ...x, auditoria: au ?? null, contexto: x['contexto'] ?? null } as unknown as ContextoDirectorValido };
+  return { ok: true, valor: { ...x, analistas_requeridos_sin_resultado: (sin ?? []) as Agente[], auditoria: au ?? null, contexto: x['contexto'] ?? null } as unknown as ContextoDirectorValido };
 }
 
 const ref = (agente: string, id: string): string => `${agente}:${id}`;
 
 /** ¿Algún analista declara un dato faltante crítico (`critico: true`)? */
 function hayFaltanteCritico(ctx: ContextoDirectorValido): boolean {
+  if (ctx.analistas_requeridos_sin_resultado.length > 0) return true;   // un analista requerido ausente es un faltante crítico (v0.20)
   return Object.keys(ctx.salidas_analistas).some(k => {
     const falt = ctx.salidas_analistas[k as Agente]?.['datos_faltantes'];
     return Array.isArray(falt) && falt.some(f => esObjeto(f) && f['critico'] === true);
@@ -164,6 +175,13 @@ export function validarSalidaDirector(x: unknown, ctx: ContextoDirectorValido): 
   const rec = x['recomendacion_para_motor'];
   if (!enumDe(rec, RECOMENDACIONES_MOTOR)) e.push(`recomendacion_para_motor debe ser ${RECOMENDACIONES_MOTOR.join('|')}`);
   if (rec === RECOMENDACION_COMPLETAR_DATOS && !hayFaltanteCritico(ctx)) e.push(`recomendacion_para_motor es ${RECOMENDACION_COMPLETAR_DATOS} pero ningún analista declara un dato faltante crítico (critico: true); con faltantes no críticos usa ${RECOMENDACION_CONTINUAR}`);
+  // v0.20: un analista requerido sin resultado no se sustituye ni se rellena: se declara y la recomendación no puede ser continuar
+  const sinRes = ctx.analistas_requeridos_sin_resultado;
+  if (sinRes.length > 0) {
+    if (rec === RECOMENDACION_CONTINUAR) e.push(`faltan analistas requeridos (${sinRes.join(', ')}): recomendacion_para_motor no puede ser ${RECOMENDACION_CONTINUAR}; usa ${RECOMENDACION_COMPLETAR_DATOS} o detener`);
+    const faltantes = Array.isArray(x['datos_faltantes']) ? (x['datos_faltantes'] as unknown[]).filter((t): t is string => typeof t === 'string').map(t => t.toLowerCase()) : [];
+    for (const a of sinRes) if (!faltantes.some(t => t.includes(a.toLowerCase()))) e.push(`datos_faltantes debe nombrar al analista requerido sin resultado: ${a}`);
+  }
   if (!enRango(x['nivel_confianza'], CONFIANZA_MIN, CONFIANZA_MAX)) e.push(`nivel_confianza debe estar entre ${CONFIANZA_MIN} y ${CONFIANZA_MAX}`);
   const nivel = x['nivel_confianza'];
   if (esNumeroFinito(nivel) && enRango(nivel, CONFIANZA_MIN, CONFIANZA_MAX)) {

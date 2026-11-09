@@ -52,7 +52,7 @@ export function modeloFalso(opciones: { fundamentalMalo?: boolean; directorMalo?
       portafolio_codigo: usuario['portafolio_codigo'], tipo_evaluacion: usuario['tipo_evaluacion'], resumen: 'No hay datos suficientes para integrar.',
       integracion: { coincidencias: [], contradicciones: [], no_comparables: [], discrepancias_con_auditoria: [] },
       tesis: opciones.directorPropone === true ? { estado: 'propuesta_cambio', propuesta: 'Negocio con margen bruto alto, pendiente de balance y flujo de caja.', pendiente_autorizacion: true } : { estado: 'sin_tesis', propuesta: null, pendiente_autorizacion: false }, riesgos_principales: ['Falta de datos de balance.'],
-      hallazgos_negativos_ids: ['fundamental:h2'], negativos: ['Falta de datos de balance.'], datos_faltantes: ['balance', 'flujo_caja_libre'],
+      hallazgos_negativos_ids: ['fundamental:h2'], negativos: ['Falta de datos de balance.'], datos_faltantes: ['balance', 'flujo_caja_libre', ...((usuario['analistas_requeridos_sin_resultado'] as string[] | undefined) ?? [])],
       condicion_que_cambiaria_la_conclusion: { texto: 'Disponer de balance y flujo de caja.', medible: false, umbral: null },
       recomendacion_para_motor: 'completar_datos', nivel_confianza: 0.3, explicacion_confianza: 'Cobertura muy parcial.',
     };

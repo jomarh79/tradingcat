@@ -269,7 +269,7 @@ describe('v0.9: análisis con datos reales', () => {
     let n = 0;
     await ejecutarAnalisisReal({ llamar: m.llamar, modelo_analista: 'a', modelo_director: 'd', nuevoId: () => (n++ === 0 ? RUN_ID : SNAP_ID), ahora: () => GEN }, deps(falso(todoBien()).fetchFn), { ticker: 'GKOS' });
     const ctx = JSON.parse(m.peticiones[1]!.mensajes[1]!.content) as Record<string, unknown>;
-    expect(Object.keys(ctx).sort()).toEqual(['auditoria', 'contexto', 'mercado', 'portafolio_codigo', 'reglas_versiones_ids', 'run_id', 'salidas_analistas', 'snapshot_id', 'ticker', 'tipo_evaluacion']);
+    expect(Object.keys(ctx).sort()).toEqual(['analistas_requeridos_sin_resultado', 'auditoria', 'contexto', 'mercado', 'portafolio_codigo', 'reglas_versiones_ids', 'run_id', 'salidas_analistas', 'snapshot_id', 'ticker', 'tipo_evaluacion']);
     expect(ctx['auditoria']).toBeNull();
     expect(ctx['contexto']).toBeNull();
     expect(ctx['reglas_versiones_ids']).toEqual([]);

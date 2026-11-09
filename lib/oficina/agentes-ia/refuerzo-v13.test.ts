@@ -204,7 +204,7 @@ describe('v0.13: privacidad del Director (capa gratuita)', () => {
     expect(ctx['auditoria']).toBeNull();
     expect(ctx['reglas_versiones_ids']).toEqual([]);
     expect(ctx['contexto']).toBeNull();
-    expect(Object.keys(ctx).sort()).toEqual(['auditoria', 'contexto', 'mercado', 'portafolio_codigo', 'reglas_versiones_ids', 'run_id', 'salidas_analistas', 'snapshot_id', 'tipo_evaluacion', 'ticker'].sort());
+    expect(Object.keys(ctx).sort()).toEqual(['analistas_requeridos_sin_resultado', 'auditoria', 'contexto', 'mercado', 'portafolio_codigo', 'reglas_versiones_ids', 'run_id', 'salidas_analistas', 'snapshot_id', 'tipo_evaluacion', 'ticker'].sort());
     const texto = t.m.peticiones.map(p => p.mensajes[1]!.content).join('\n');
     expect(texto).not.toContain('posicion_abierta');
     expect(texto).not.toContain('BLOQUEO');
