@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import AppShell from '../AppShell'
 import { 
   FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, 
-  FaSync, FaTimes, FaCalculator, FaShieldAlt, FaChartArea, FaCrosshairs, FaCheckCircle 
+  FaSync, FaChartArea, FaCrosshairs, FaArrowUp, FaArrowDown, FaMinus 
 } from 'react-icons/fa'
 
 interface WatchlistItem {
@@ -14,7 +14,7 @@ interface WatchlistItem {
   ai_probability: number
   ai_signal?: string
   current_price?: number
-  buy_target?: number // Precio objetivo de compra
+  buy_target?: number
   rsi?: number
   ema20?: number
   volatility?: number
@@ -26,11 +26,6 @@ export default function IAPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [mounted, setMounted] = useState(false)
-  
-  // Estado para el Modal y la Calculadora
-  const [selectedItem, setSelectedItem] = useState<WatchlistItem | null>(null)
-  const [capitalInput, setCapitalInput] = useState<string>('1000')
-  const [customStopLoss, setCustomStopLoss] = useState<string>('')
 
   const loadData = useCallback(async (isInitial = false) => {
     try {
@@ -73,55 +68,90 @@ export default function IAPage() {
     }
   }, [loadData])
 
-  const getSignalStyle = (prob: number) => {
-    if (prob >= 80) return 'bg-green-500/10 text-green-400 border-green-500/50'
-    if (prob >= 65) return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/50'
-    return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/50'
-  }
-
-  // Generador de Sparkline
-  const generateSparklinePath = (rsi = 50, vol = 2) => {
-    const points = 8
-    let currentY = 30 - (rsi / 3.3)
-    let path = `M 0 ${currentY}`
-    
-    for (let i = 1; i < points; i++) {
-      const x = (i / (points - 1)) * 120
-      const variance = (Math.sin(i + rsi) * vol * 4)
-      currentY = Math.max(5, Math.min(55, currentY + variance))
-      path += ` L ${x} ${currentY}`
+  const getStatusColorConfig = (prob: number) => {
+    if (prob >= 80) {
+      return {
+        text: 'text-green-400',
+        border: 'border-green-500/50',
+        bgBadge: 'bg-green-500/10 text-green-400 border-green-500/50',
+        strokeColor: '#22c55e',
+        glowBg: 'bg-green-500/10 group-hover:bg-green-500/20',
+        hoverBorder: 'group-hover:border-green-500/60'
+      }
     }
-    return path
+    if (prob >= 65) {
+      return {
+        text: 'text-yellow-400',
+        border: 'border-yellow-500/50',
+        bgBadge: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/50',
+        strokeColor: '#eab308',
+        glowBg: 'bg-yellow-500/10 group-hover:bg-yellow-500/20',
+        hoverBorder: 'group-hover:border-yellow-500/60'
+      }
+    }
+    return {
+      text: 'text-red-400',
+      border: 'border-red-500/50',
+      bgBadge: 'bg-red-500/10 text-red-400 border-red-500/50',
+      strokeColor: '#ef4444',
+      glowBg: 'bg-red-500/10 group-hover:bg-red-500/20',
+      hoverBorder: 'group-hover:border-red-500/60'
+    }
   }
 
-  // Cálculos dinámicos de IA (Take Profit y Stop Loss basados en el precio actual y volatilidad)
+  // NUEVA FUNCIÓN: Trend Preview Inteligente basado en Precios y Objetivos Reales
+  const generateSmartTrendPath = (current = 100, target = 100, rsi = 50, probability = 50) => {
+    const points = 6
+    const pathCoords: { x: number; y: number }[] = []
+    
+    // Normalizar la dirección del gráfico en base a si el target está arriba o abajo del precio actual
+    const isTargetHigher = target >= current
+    
+    for (let i = 0; i < points; i++) {
+      const x = (i / (points - 1)) * 120
+      let y = 30 // centro por defecto
+      
+      if (i === 0) {
+        y = 40 // Inicio (Precio actual relativo)
+      } else if (i === points - 1) {
+        // Punto final orientado por el target y la probabilidad
+        y = isTargetHigher ? (probability >= 80 ? 15 : 25) : 45
+      } else {
+        // Puntos intermedios con fluctuación orgánica basada en el RSI
+        const wave = Math.sin(i * 1.5) * (rsi > 60 ? -8 : 8)
+        y = 30 + wave
+      }
+      pathCoords.push({ x, y })
+    }
+
+    // Convertir coordenadas en string SVG Path (curva suave Bezier)
+    let path = `M ${pathCoords[0].x} ${pathCoords[0].y}`
+    for (let i = 1; i < pathCoords.length; i++) {
+      const prev = pathCoords[i - 1]
+      const curr = pathCoords[i]
+      const cpX = (prev.x + curr.x) / 2
+      path += ` Q ${cpX} ${prev.y}, ${curr.x} ${curr.y}`
+    }
+
+    return {
+      pathString: path,
+      endPoint: pathCoords[pathCoords.length - 1]
+    }
+  }
+
   const getCurrentPrice = (item: WatchlistItem) => Number(item.current_price || 0)
   
-  // Si la volatilidad no está definida, asumimos un 3% por defecto
   const getAiTakeProfit = (item: WatchlistItem) => {
     const price = getCurrentPrice(item)
     const vol = Number(item.volatility || 3)
-    return price * (1 + (vol * 1.5) / 100) // Take profit proyectado arriba
+    return price * (1 + (vol * 1.5) / 100)
   }
 
   const getAiStopLoss = (item: WatchlistItem) => {
     const price = getCurrentPrice(item)
     const vol = Number(item.volatility || 3)
-    return price * (1 - vol / 100) // Stop loss de protección abajo
+    return price * (1 - vol / 100)
   }
-
-  // Cálculos para la calculadora del Modal
-  const itemCurrentPrice = getCurrentPrice(selectedItem || {} as WatchlistItem)
-  const defaultStop = getAiStopLoss(selectedItem || {} as WatchlistItem)
-  const defaultTarget = getAiTakeProfit(selectedItem || {} as WatchlistItem)
-  
-  const capital = parseFloat(capitalInput) || 0
-  const stopLoss = parseFloat(customStopLoss) || defaultStop
-  
-  const potentialShares = itemCurrentPrice > 0 ? capital / itemCurrentPrice : 0
-  const potentialRisk = itemCurrentPrice > 0 && stopLoss > 0 ? (itemCurrentPrice - stopLoss) * potentialShares : 0
-  const potentialReward = itemCurrentPrice > 0 && defaultTarget > 0 ? (defaultTarget - itemCurrentPrice) * potentialShares : 0
-  const riskRewardRatio = potentialRisk > 0 ? (potentialReward / potentialRisk).toFixed(2) : '0.00'
 
   if (!mounted) return null
 
@@ -156,22 +186,24 @@ export default function IAPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {data.map((item) => {
               const probability = item.ai_probability || 0
+              const colors = getStatusColorConfig(probability)
               const aiTp = getAiTakeProfit(item)
               const aiSl = getAiStopLoss(item)
+              
+              const trendData = generateSmartTrendPath(
+                Number(item.current_price || 100), 
+                Number(item.buy_target || 100), 
+                Number(item.rsi || 50), 
+                probability
+              )
 
               return (
                 <div 
                   key={item.id} 
-                  onClick={() => {
-                    setSelectedItem(item)
-                    setCustomStopLoss(aiSl.toFixed(2))
-                  }}
-                  className="bg-zinc-900 border border-white/5 rounded-2xl p-5 hover:border-blue-500/50 transition-all group overflow-hidden relative shadow-xl cursor-pointer"
+                  className={`bg-zinc-900 border border-white/5 rounded-2xl p-5 transition-all group overflow-hidden relative shadow-xl ${colors.hoverBorder}`}
                 >
-                  {/* Glow effect */}
-                  {probability > 80 && (
-                    <div className="absolute -top-10 -right-10 w-24 h-24 bg-green-500/10 rounded-full blur-2xl group-hover:bg-green-500/20 transition-all" />
-                  )}
+                  {/* Glow effect dinámico */}
+                  <div className={`absolute -top-10 -right-10 w-24 h-24 rounded-full blur-2xl transition-all ${colors.glowBg}`} />
 
                   <div className="flex justify-between items-start mb-4">
                     <div>
@@ -180,26 +212,43 @@ export default function IAPage() {
                       </h2>
                       <p className="text-[10px] text-zinc-500 font-mono mt-1 uppercase tracking-widest">Prediction Engine v1.0</p>
                     </div>
-                    <div className={`px-3 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider ${getSignalStyle(probability)}`}>
+                    <div className={`px-3 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider ${colors.bgBadge}`}>
                       {item.ai_signal || 'WAITING'}
                     </div>
                   </div>
 
-                  {/* Mini-gráfico de Tendencia (Sparkline SVG) */}
-                  <div className="mb-4 bg-black/30 p-2 rounded-xl border border-white/5 relative h-16 flex items-center justify-center">
-                    <div className="absolute left-3 top-2 flex items-center gap-1 text-[9px] text-zinc-500 uppercase tracking-widest">
-                      <FaChartArea className="text-blue-400" /> Trend Preview
+                  {/* Trend Preview Mejorado (Inteligente y Sincronizado) */}
+                  <div className="mb-4 bg-black/30 p-2.5 rounded-xl border border-white/5 relative h-16 flex items-center justify-between px-3">
+                    <div className="flex flex-col">
+                      <span className="flex items-center gap-1 text-[9px] text-zinc-400 uppercase tracking-widest font-bold">
+                        <FaChartArea className={colors.text} /> Trend Proyección
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                        RSI: {item.rsi ? Number(item.rsi).toFixed(0) : '--'}
+                      </span>
                     </div>
-                    <svg className="w-full h-10 overflow-visible mt-2" viewBox="0 0 120 60">
-                      <path
-                        d={generateSparklinePath(item.rsi, item.volatility)}
-                        fill="none"
-                        stroke={probability >= 80 ? '#22c55e' : probability >= 65 ? '#eab308' : '#3b82f6'}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+
+                    <div className="w-28 h-10 relative">
+                      <svg className="w-full h-full overflow-visible" viewBox="0 0 120 60">
+                        {/* Línea de tendencia proyectada */}
+                        <path
+                          d={trendData.pathString}
+                          fill="none"
+                          stroke={colors.strokeColor}
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        {/* Punto indicador final */}
+                        <circle 
+                          cx={trendData.endPoint.x} 
+                          cy={trendData.endPoint.y} 
+                          r="3.5" 
+                          fill={colors.strokeColor} 
+                          className="animate-pulse"
+                        />
+                      </svg>
+                    </div>
                   </div>
 
                   {/* Precios: Current vs Buy Target */}
@@ -262,7 +311,7 @@ export default function IAPage() {
                   <div className="mt-4 pt-4 border-t border-white/10">
                     <div className="flex justify-between items-end mb-2">
                       <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">AI Confidence</span>
-                      <span className="text-xl font-black text-white">
+                      <span className={`text-xl font-black ${colors.text}`}>
                         {probability}%
                       </span>
                     </div>
@@ -270,8 +319,8 @@ export default function IAPage() {
                     <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
                       <div 
                         className={`h-full transition-all duration-1000 ${
-                          probability > 80 ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 
-                          probability > 65 ? 'bg-yellow-500' : 'bg-blue-600'
+                          probability >= 80 ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 
+                          probability >= 65 ? 'bg-yellow-500' : 'bg-red-500'
                         }`}
                         style={{ width: `${probability}%` }}
                       />
@@ -279,7 +328,7 @@ export default function IAPage() {
                     
                     <div className="flex justify-between mt-3">
                        <p className="text-[9px] text-zinc-600 italic">Score: {item.ai_score || 0} pts</p>
-                       <p className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">Click para calculadora</p>
+                       <p className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">Last Analysis: Live</p>
                     </div>
                   </div>
                 </div>
@@ -293,86 +342,6 @@ export default function IAPage() {
             <FaRobot className="mx-auto text-5xl text-zinc-700 mb-4" />
             <h3 className="text-white font-bold tracking-tight">No data available</h3>
             <p className="text-zinc-500 text-sm mt-1">Wait for the next engine update cycle.</p>
-          </div>
-        )}
-
-        {/* Modal de Detalle y Calculadora de Riesgo/Beneficio */}
-        {selectedItem && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-white/10 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
-              
-              <button 
-                onClick={() => setSelectedItem(null)}
-                className="absolute top-5 right-5 text-zinc-400 hover:text-white p-2 bg-zinc-800/50 rounded-full transition-all"
-              >
-                <FaTimes />
-              </button>
-
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl border border-blue-500/20">
-                  <FaCalculator className="text-xl" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black text-white">{selectedItem.ticker?.toUpperCase()} — Position Calculator</h2>
-                  <p className="text-xs text-zinc-400">Simulación basada en Take Profit y Stop Loss sugeridos por la IA</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Capital a Invertir ($)</label>
-                    <input 
-                      type="number" 
-                      value={capitalInput}
-                      onChange={(e) => setCapitalInput(e.target.value)}
-                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Stop Loss Personalizado ($)</label>
-                    <input 
-                      type="number" 
-                      value={customStopLoss}
-                      onChange={(e) => setCustomStopLoss(e.target.value)}
-                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 space-y-3">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Precio de Compra (Actual):</span>
-                    <span className="text-white font-mono font-bold">${itemCurrentPrice.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Acciones / Títulos estimados:</span>
-                    <span className="text-white font-mono font-bold">{potentialShares.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Riesgo estimado (Stop Loss):</span>
-                    <span className="text-rose-400 font-mono font-bold">-${potentialRisk.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Beneficio estimado (Take Profit):</span>
-                    <span className="text-emerald-400 font-mono font-bold">+${potentialReward.toFixed(2)}</span>
-                  </div>
-                  <div className="pt-2 border-t border-white/5 flex justify-between items-center text-sm">
-                    <span className="text-white font-bold flex items-center gap-1.5"><FaShieldAlt className="text-blue-400" /> Ratio Risk/Reward:</span>
-                    <span className={`font-mono font-black text-base ${Number(riskRewardRatio) >= 2 ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                      1 : {riskRewardRatio}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setSelectedItem(null)}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/20"
-              >
-                Cerrar Calculadora
-              </button>
-            </div>
           </div>
         )}
 
