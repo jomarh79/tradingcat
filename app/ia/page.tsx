@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import AppShell from '../AppShell'
 import { 
   FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, 
-  FaSync, FaChartArea, FaCrosshairs, FaArrowUp, FaArrowDown, FaMinus 
+  FaSync, FaChartArea, FaCrosshairs 
 } from 'react-icons/fa'
 
 interface WatchlistItem {
@@ -99,32 +99,30 @@ export default function IAPage() {
     }
   }
 
-  // NUEVA FUNCIÓN: Trend Preview Inteligente basado en Precios y Objetivos Reales
-  const generateSmartTrendPath = (current = 100, target = 100, rsi = 50, probability = 50) => {
+  // Generador de Trend Preview mejorado y único basado en precios y tendencia real
+  const generateSmartTrendPath = (current = 100, target = 100, ema = 100, prob = 50) => {
     const points = 6
     const pathCoords: { x: number; y: number }[] = []
     
-    // Normalizar la dirección del gráfico en base a si el target está arriba o abajo del precio actual
-    const isTargetHigher = target >= current
+    // Determinar la inclinación en base a la posición del precio actual frente a la EMA y el Target
+    const isBullish = current <= ema || target <= current || prob >= 65
     
     for (let i = 0; i < points; i++) {
       const x = (i / (points - 1)) * 120
-      let y = 30 // centro por defecto
+      let y = 30
       
       if (i === 0) {
-        y = 40 // Inicio (Precio actual relativo)
+        y = isBullish ? 45 : 20 // Punto de partida
       } else if (i === points - 1) {
-        // Punto final orientado por el target y la probabilidad
-        y = isTargetHigher ? (probability >= 80 ? 15 : 25) : 45
+        y = isBullish ? 18 : 48 // Punto final (hacia arriba si es compra, hacia abajo si es rechazo)
       } else {
-        // Puntos intermedios con fluctuación orgánica basada en el RSI
-        const wave = Math.sin(i * 1.5) * (rsi > 60 ? -8 : 8)
-        y = 30 + wave
+        // Curvatura orgánica intermedia
+        const offset = (i % 2 === 0 ? -5 : 5) * (isBullish ? 1 : -1)
+        y = 30 + offset
       }
       pathCoords.push({ x, y })
     }
 
-    // Convertir coordenadas en string SVG Path (curva suave Bezier)
     let path = `M ${pathCoords[0].x} ${pathCoords[0].y}`
     for (let i = 1; i < pathCoords.length; i++) {
       const prev = pathCoords[i - 1]
@@ -193,7 +191,7 @@ export default function IAPage() {
               const trendData = generateSmartTrendPath(
                 Number(item.current_price || 100), 
                 Number(item.buy_target || 100), 
-                Number(item.rsi || 50), 
+                Number(item.ema20 || 100), 
                 probability
               )
 
@@ -217,20 +215,14 @@ export default function IAPage() {
                     </div>
                   </div>
 
-                  {/* Trend Preview Mejorado (Inteligente y Sincronizado) */}
+                  {/* Trend Preview (Limpio, sin repetir RSI y con proyección real) */}
                   <div className="mb-4 bg-black/30 p-2.5 rounded-xl border border-white/5 relative h-16 flex items-center justify-between px-3">
-                    <div className="flex flex-col">
-                      <span className="flex items-center gap-1 text-[9px] text-zinc-400 uppercase tracking-widest font-bold">
-                        <FaChartArea className={colors.text} /> Trend Proyección
-                      </span>
-                      <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                        RSI: {item.rsi ? Number(item.rsi).toFixed(0) : '--'}
-                      </span>
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                      <FaChartArea className={colors.text} /> Trend Proyección
                     </div>
 
                     <div className="w-28 h-10 relative">
                       <svg className="w-full h-full overflow-visible" viewBox="0 0 120 60">
-                        {/* Línea de tendencia proyectada */}
                         <path
                           d={trendData.pathString}
                           fill="none"
@@ -239,7 +231,6 @@ export default function IAPage() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
-                        {/* Punto indicador final */}
                         <circle 
                           cx={trendData.endPoint.x} 
                           cy={trendData.endPoint.y} 
