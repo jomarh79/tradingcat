@@ -3,7 +3,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import AppShell from '../AppShell'
-import { FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, FaSync, FaTimes, FaCalculator } from 'react-icons/fa'
+import { 
+  FaBrain, FaRobot, FaChartLine, FaExclamationTriangle, 
+  FaSync, FaTimes, FaCalculator, FaShieldAlt, FaChartArea, FaCrosshairs, FaCheckCircle 
+} from 'react-icons/fa'
 
 interface WatchlistItem {
   id: string | number
@@ -11,34 +14,11 @@ interface WatchlistItem {
   ai_probability: number
   ai_signal?: string
   current_price?: number
-  buy_target?: number
+  buy_target?: number // Precio objetivo de compra
   rsi?: number
   ema20?: number
   volatility?: number
   ai_score?: number
-}
-
-// Componente Sparkline SVG para la microtendencia
-const Sparkline = ({ probability }: { probability: number }) => {
-  // Generamos una curva simulada basada en la probabilidad para efectos visuales limpios
-  const points = probability > 70 
-    ? "0,20 15,15 30,18 45,10 60,12 75,5 90,2" 
-    : "0,5 15,12 30,10 45,18 60,15 75,22 90,25"
-
-  const strokeColor = probability >= 80 ? '#22c55e' : probability >= 65 ? '#eab308' : '#3b82f6'
-
-  return (
-    <svg className="w-full h-8 overflow-visible" viewBox="0 0 90 30">
-      <path
-        d={`M ${points}`}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
 }
 
 export default function IAPage() {
@@ -47,10 +27,10 @@ export default function IAPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [mounted, setMounted] = useState(false)
   
-  // Estado para el Modal de Detalle / Calculadora
+  // Estado para el Modal y la Calculadora
   const [selectedItem, setSelectedItem] = useState<WatchlistItem | null>(null)
-  const [accountCapital, setAccountCapital] = useState<number>(10000)
-  const [riskPercentage, setRiskPercentage] = useState<number>(1)
+  const [capitalInput, setCapitalInput] = useState<string>('1000')
+  const [customStopLoss, setCustomStopLoss] = useState<string>('')
 
   const loadData = useCallback(async (isInitial = false) => {
     try {
@@ -76,9 +56,9 @@ export default function IAPage() {
     setMounted(true)
     loadData(true)
 
-    // Suscripción en Tiempo Real con Supabase Realtime
+    // Supabase Realtime (WebSockets)
     const channel = supabase
-      .channel('watchlist_realtime')
+      .channel('watchlist-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'watchlist' },
@@ -99,13 +79,51 @@ export default function IAPage() {
     return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/50'
   }
 
-  if (!mounted) return null
+  // Generador de Sparkline
+  const generateSparklinePath = (rsi = 50, vol = 2) => {
+    const points = 8
+    let currentY = 30 - (rsi / 3.3)
+    let path = `M 0 ${currentY}`
+    
+    for (let i = 1; i < points; i++) {
+      const x = (i / (points - 1)) * 120
+      const variance = (Math.sin(i + rsi) * vol * 4)
+      currentY = Math.max(5, Math.min(55, currentY + variance))
+      path += ` L ${x} ${currentY}`
+    }
+    return path
+  }
 
-  // Cálculos para la calculadora de posición en el modal
-  const currentPrice = Number(selectedItem?.current_price) || 0
-  const buyTarget = Number(selectedItem?.buy_target) || currentPrice
-  const riskAmount = (accountCapital * riskPercentage) / 100
-  const estimatedShares = currentPrice > 0 ? Math.floor(riskAmount / (currentPrice * 0.02)) : 0
+  // Cálculos dinámicos de IA (Take Profit y Stop Loss basados en el precio actual y volatilidad)
+  const getCurrentPrice = (item: WatchlistItem) => Number(item.current_price || 0)
+  
+  // Si la volatilidad no está definida, asumimos un 3% por defecto
+  const getAiTakeProfit = (item: WatchlistItem) => {
+    const price = getCurrentPrice(item)
+    const vol = Number(item.volatility || 3)
+    return price * (1 + (vol * 1.5) / 100) // Take profit proyectado arriba
+  }
+
+  const getAiStopLoss = (item: WatchlistItem) => {
+    const price = getCurrentPrice(item)
+    const vol = Number(item.volatility || 3)
+    return price * (1 - vol / 100) // Stop loss de protección abajo
+  }
+
+  // Cálculos para la calculadora del Modal
+  const itemCurrentPrice = getCurrentPrice(selectedItem || {} as WatchlistItem)
+  const defaultStop = getAiStopLoss(selectedItem || {} as WatchlistItem)
+  const defaultTarget = getAiTakeProfit(selectedItem || {} as WatchlistItem)
+  
+  const capital = parseFloat(capitalInput) || 0
+  const stopLoss = parseFloat(customStopLoss) || defaultStop
+  
+  const potentialShares = itemCurrentPrice > 0 ? capital / itemCurrentPrice : 0
+  const potentialRisk = itemCurrentPrice > 0 && stopLoss > 0 ? (itemCurrentPrice - stopLoss) * potentialShares : 0
+  const potentialReward = itemCurrentPrice > 0 && defaultTarget > 0 ? (defaultTarget - itemCurrentPrice) * potentialShares : 0
+  const riskRewardRatio = potentialRisk > 0 ? (potentialReward / potentialRisk).toFixed(2) : '0.00'
+
+  if (!mounted) return null
 
   return (
     <AppShell>
@@ -117,7 +135,7 @@ export default function IAPage() {
             <h1 className="text-3xl font-bold flex items-center gap-3 text-white leading-none">
               <FaBrain className="text-blue-500" /> IA Trading Signals
             </h1>
-            <p className="text-zinc-400 mt-2 text-sm">Monitoreo en tiempo real, análisis técnico y calculadora de riesgo</p>
+            <p className="text-zinc-400 mt-2 text-sm">Monitoreo en tiempo real con Supabase Realtime y análisis predictivo</p>
           </div>
           <button 
             onClick={() => loadData(false)}
@@ -138,11 +156,17 @@ export default function IAPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {data.map((item) => {
               const probability = item.ai_probability || 0
+              const aiTp = getAiTakeProfit(item)
+              const aiSl = getAiStopLoss(item)
+
               return (
                 <div 
                   key={item.id} 
-                  onClick={() => setSelectedItem(item)}
-                  className="bg-zinc-900 border border-white/5 rounded-2xl p-5 hover:border-blue-500/30 transition-all group overflow-hidden relative shadow-xl cursor-pointer"
+                  onClick={() => {
+                    setSelectedItem(item)
+                    setCustomStopLoss(aiSl.toFixed(2))
+                  }}
+                  className="bg-zinc-900 border border-white/5 rounded-2xl p-5 hover:border-blue-500/50 transition-all group overflow-hidden relative shadow-xl cursor-pointer"
                 >
                   {/* Glow effect */}
                   {probability > 80 && (
@@ -161,7 +185,24 @@ export default function IAPage() {
                     </div>
                   </div>
 
-                  {/* Precios */}
+                  {/* Mini-gráfico de Tendencia (Sparkline SVG) */}
+                  <div className="mb-4 bg-black/30 p-2 rounded-xl border border-white/5 relative h-16 flex items-center justify-center">
+                    <div className="absolute left-3 top-2 flex items-center gap-1 text-[9px] text-zinc-500 uppercase tracking-widest">
+                      <FaChartArea className="text-blue-400" /> Trend Preview
+                    </div>
+                    <svg className="w-full h-10 overflow-visible mt-2" viewBox="0 0 120 60">
+                      <path
+                        d={generateSparklinePath(item.rsi, item.volatility)}
+                        fill="none"
+                        stroke={probability >= 80 ? '#22c55e' : probability >= 65 ? '#eab308' : '#3b82f6'}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Precios: Current vs Buy Target */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div className="bg-black/40 p-3 rounded-xl border border-white/5">
                       <p className="text-[9px] text-zinc-500 uppercase font-bold mb-1 tracking-tighter">Current Price</p>
@@ -170,22 +211,32 @@ export default function IAPage() {
                       </p>
                     </div>
                     <div className="bg-black/40 p-3 rounded-xl border border-white/5">
-                      <p className="text-[9px] text-zinc-500 uppercase font-bold mb-1 tracking-tighter">Buy Target</p>
+                      <p className="text-[9px] text-blue-400 uppercase font-bold mb-1 tracking-tighter flex items-center gap-1">
+                        <FaCrosshairs className="text-[9px]" /> Buy Target
+                      </p>
                       <p className="text-lg font-semibold text-blue-400">
                         {item.buy_target ? `$${Number(item.buy_target).toFixed(2)}` : '---'}
                       </p>
                     </div>
                   </div>
 
-                  {/* Mini Sparkline */}
-                  <div className="mb-4 bg-black/20 p-2 rounded-xl border border-white/5">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[9px] text-zinc-500 uppercase font-mono">Micro Trend</span>
+                  {/* Niveles IA: Take Profit y Stop Loss */}
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <div className="bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-500/20">
+                      <p className="text-[8px] text-emerald-400 uppercase font-bold mb-0.5 tracking-tighter">AI Take Profit</p>
+                      <p className="text-sm font-bold text-emerald-400 font-mono">
+                        ${aiTp.toFixed(2)}
+                      </p>
                     </div>
-                    <Sparkline probability={probability} />
+                    <div className="bg-rose-950/20 p-2.5 rounded-xl border border-rose-500/20">
+                      <p className="text-[8px] text-rose-400 uppercase font-bold mb-0.5 tracking-tighter">AI Stop Loss</p>
+                      <p className="text-sm font-bold text-rose-400 font-mono">
+                        ${aiSl.toFixed(2)}
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Indicadores */}
+                  {/* Indicadores Técnicos */}
                   <div className="space-y-3 mb-6 bg-zinc-950/30 p-3 rounded-xl border border-white/5">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-zinc-500 flex items-center gap-2"><FaChartLine className="text-[10px]" /> RSI (14)</span>
@@ -228,7 +279,7 @@ export default function IAPage() {
                     
                     <div className="flex justify-between mt-3">
                        <p className="text-[9px] text-zinc-600 italic">Score: {item.ai_score || 0} pts</p>
-                       <p className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">Realtime Active</p>
+                       <p className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">Click para calculadora</p>
                     </div>
                   </div>
                 </div>
@@ -245,75 +296,79 @@ export default function IAPage() {
           </div>
         )}
 
-        {/* Modal de Detalle y Calculadora de Posición */}
+        {/* Modal de Detalle y Calculadora de Riesgo/Beneficio */}
         {selectedItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="bg-zinc-900 border border-white/10 rounded-3xl max-w-lg w-full p-6 relative shadow-2xl">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-white/10 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+              
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="absolute top-5 right-5 text-zinc-400 hover:text-white p-2 rounded-full bg-zinc-800/50"
+                className="absolute top-5 right-5 text-zinc-400 hover:text-white p-2 bg-zinc-800/50 rounded-full transition-all"
               >
                 <FaTimes />
               </button>
 
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-blue-500/10 rounded-2xl border border-blue-500/20 text-blue-400">
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl border border-blue-500/20">
                   <FaCalculator className="text-xl" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-white">{selectedItem.ticker?.toUpperCase()}</h3>
-                  <p className="text-xs text-zinc-400">Calculadora de Riesgo y Posición</p>
+                  <h2 className="text-2xl font-black text-white">{selectedItem.ticker?.toUpperCase()} — Position Calculator</h2>
+                  <p className="text-xs text-zinc-400">Simulación basada en Take Profit y Stop Loss sugeridos por la IA</p>
                 </div>
               </div>
 
               <div className="space-y-4 mb-6">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-black/40 p-3 rounded-xl border border-white/5">
-                    <p className="text-[10px] text-zinc-500 uppercase font-bold">Current Price</p>
-                    <p className="text-lg font-bold text-white">${currentPrice.toFixed(2)}</p>
-                  </div>
-                  <div className="bg-black/40 p-3 rounded-xl border border-white/5">
-                    <p className="text-[10px] text-zinc-500 uppercase font-bold">Buy Target</p>
-                    <p className="text-lg font-bold text-blue-400">${buyTarget.toFixed(2)}</p>
-                  </div>
-                </div>
-
-                <div className="bg-zinc-950/50 p-4 rounded-2xl border border-white/5 space-y-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Capital Total de Cuenta ($)</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Capital a Invertir ($)</label>
                     <input 
                       type="number" 
-                      value={accountCapital} 
-                      onChange={(e) => setAccountCapital(Number(e.target.value))}
-                      className="w-full bg-zinc-900 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                      value={capitalInput}
+                      onChange={(e) => setCapitalInput(e.target.value)}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1">Riesgo Máximo por Operación (%)</label>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Stop Loss Personalizado ($)</label>
                     <input 
                       type="number" 
-                      value={riskPercentage} 
-                      onChange={(e) => setRiskPercentage(Number(e.target.value))}
-                      className="w-full bg-zinc-900 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                      value={customStopLoss}
+                      onChange={(e) => setCustomStopLoss(e.target.value)}
+                      className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
 
-                <div className="bg-blue-950/20 p-4 rounded-2xl border border-blue-500/20 space-y-2">
+                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 space-y-3">
                   <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Riesgo Monetario Permitido:</span>
-                    <span className="font-mono font-bold text-red-400">${riskAmount.toFixed(2)}</span>
+                    <span className="text-zinc-400">Precio de Compra (Actual):</span>
+                    <span className="text-white font-mono font-bold">${itemCurrentPrice.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-zinc-400">Acciones / Títulos Sugeridos:</span>
-                    <span className="font-mono font-bold text-white">{estimatedShares} unidades</span>
+                    <span className="text-zinc-400">Acciones / Títulos estimados:</span>
+                    <span className="text-white font-mono font-bold">{potentialShares.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-400">Riesgo estimado (Stop Loss):</span>
+                    <span className="text-rose-400 font-mono font-bold">-${potentialRisk.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-400">Beneficio estimado (Take Profit):</span>
+                    <span className="text-emerald-400 font-mono font-bold">+${potentialReward.toFixed(2)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-white/5 flex justify-between items-center text-sm">
+                    <span className="text-white font-bold flex items-center gap-1.5"><FaShieldAlt className="text-blue-400" /> Ratio Risk/Reward:</span>
+                    <span className={`font-mono font-black text-base ${Number(riskRewardRatio) >= 2 ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                      1 : {riskRewardRatio}
+                    </span>
                   </div>
                 </div>
               </div>
 
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-blue-600/20"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-600/20"
               >
                 Cerrar Calculadora
               </button>
