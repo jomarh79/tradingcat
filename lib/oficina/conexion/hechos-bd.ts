@@ -4,7 +4,7 @@
 // No inventa nada: si falta un dato, o la base se contradice con lo que declaró el Orquestador, devuelve `problemas` y no estima ni rellena.
 // El error de la base se devuelve tal cual, sin reintentos. Funciones puras (`resolverHechosPosicion`) + lector (`cargarHechosPosicion`).
 import { aDec, REGEX_FECHA, textoDec } from '../auditor/numeros';
-import type { PlanPCP } from '../auditor';
+import type { DatoFuente, PlanPCP } from '../auditor';
 import type { HechosAuditor } from './entrada-auditor';
 
 export const TABLA_POSICIONES = 'oficina_v_posiciones';
@@ -39,6 +39,28 @@ export type ResultadoHechosPosicion =
   | { ok: false; problemas: string[] };
 
 const CERO = BigInt(0);
+
+/** v0.23: `ficha.valuacion_base` declarada por el usuario ({estado:'declarado', valor_estimado_base, fuente, fecha, horizonte_meses}) -> datos_fuente de PMP-01.
+ *  Solo cuenta si está declarada y es válida (valor positivo, fecha AAAA-MM-DD, fuente no vacía, horizonte entero positivo); si no, no se publica nada y PMP-01 queda NO_EVALUABLE. */
+export const ID_DATO_VALOR_ESTIMADO = 'ficha:valuacion_base:valor_estimado_base';
+export const ID_DATO_HORIZONTE = 'ficha:valuacion_base:horizonte_meses';
+function valuacionDeclarada(ficha: unknown): DatoFuente[] | null {
+  if (typeof ficha !== 'object' || ficha === null || Array.isArray(ficha)) return null;
+  const v = (ficha as Record<string, unknown>)['valuacion_base'];
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (o['estado'] !== 'declarado') return null;
+  const valor = aDec(typeof o['valor_estimado_base'] === 'number' || typeof o['valor_estimado_base'] === 'string' ? String(o['valor_estimado_base']) : null);
+  const fecha = o['fecha'];
+  const fuente = o['fuente'];
+  const h = o['horizonte_meses'];
+  if (valor === null || valor <= CERO || typeof fecha !== 'string' || !REGEX_FECHA.test(fecha)) return null;
+  if (typeof fuente !== 'string' || fuente.trim().length === 0 || typeof h !== 'number' || !Number.isInteger(h) || h <= 0) return null;
+  return [
+    { id: ID_DATO_VALOR_ESTIMADO, campo: 'valor_estimado_base', categoria: 'estimacion', valor: textoDec(valor), unidad: 'USD', fuente: fuente.trim(), fecha_dato: fecha },
+    { id: ID_DATO_HORIZONTE, campo: 'horizonte_meses', categoria: 'parametro_usuario', valor: h, unidad: 'meses', fuente: fuente.trim(), fecha_dato: fecha },
+  ];
+}
 
 /** Plan declarado en la ficha: null si no hay plan o no está declarado; `problema` si está declarado con modalidad inválida (declarado con modalidad inválida). */
 function planDeclarado(ficha: unknown): { plan: PlanPCP } | { problema: string } | null {
@@ -113,6 +135,8 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     const plan = planDeclarado(x0.ficha);
     if (plan !== null && 'problema' in plan) problemas.push(`${q.ticker}: ${plan.problema}`);
     else if (plan !== null && q.posicion_existe) hechos.posicion = { ...hechos.posicion, plan_pcp: plan.plan };
+    const val = valuacionDeclarada(x0.ficha);
+    if (val !== null) hechos.datos_fuente = [...(hechos.datos_fuente ?? []), ...val];
   }
   if (problemas.length > 0) return { ok: false, problemas };
   return { ok: true, hechos, trade_id, expediente_id };

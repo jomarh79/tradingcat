@@ -14,7 +14,10 @@ import { validarSolicitud } from '../orquestador/solicitud';
 import type { SolicitudNormalizada } from '../orquestador/solicitud';
 import { puertoAuditor } from '../auditor/puerto';
 import { esUuid } from '../orquestador/persistencia';
+import type { DatoFuente } from '../auditor/tipos';
+import { prepararTecnico } from '../orquestador/preparar-tecnico';
 import { conSobreAuditor, construirEntradaAuditor } from './entrada-auditor';
+import type { HechosAuditor } from './entrada-auditor';
 import { obtenerOCrearExpediente } from './expediente-bd';
 import { cargarHechosPosicion } from './hechos-bd';
 import type { ConsultaFiltrable } from './hechos-bd';
@@ -59,6 +62,16 @@ export async function resolverPortfolioId(cliente: ClienteOficina, codigo: strin
   }
 }
 
+export const ID_DATO_PRECIO_CIERRE = 'velas:cierre_ultima_vela_cerrada';
+/** Cierre de la última vela diaria cerrada (regla de cierre del Orquestador). null si no hay velas o no se puede confirmar: PMP-01 queda NO_EVALUABLE (`dato_faltante`). */
+export function precioCierreUltimaVela(s: SolicitudNormalizada, datos: DatosCongelados): DatoFuente | null {
+  if (datos.velas === undefined || datos.velas === null) return null;
+  const t = prepararTecnico({ ticker: s.ticker, mercado: s.mercado, evaluado_en: s.solicitado_en, fuente: datos.velas.fuente, velas_diarias: datos.velas.diarias, velas_semanales: datos.velas.semanales });
+  const u = t.snapshot?.ultima_vela_diaria ?? null;
+  if (u === null || (t.estado !== 'completo' && t.estado !== 'parcial')) return null;
+  return { id: ID_DATO_PRECIO_CIERRE, campo: 'precio_actual', categoria: 'precio', valor: u.cierre, unidad: 'USD', fuente: `${datos.velas.fuente}: cierre de la última vela diaria cerrada`, fecha_dato: u.fecha };
+}
+
 export interface ArgumentosPreparacion {
   run_id: string;
   solicitud: SolicitudNormalizada & { portafolio: NonNullable<SolicitudNormalizada['portafolio']> };
@@ -101,7 +114,10 @@ export async function prepararAuditoria(cliente: ClienteOficina, a: ArgumentosPr
     if (!hechos.ok) return falla('hechos', hechos.problemas);
 
     const base: DatosCongelados = { ...a.datos, expediente_id: exp.expediente_id };
-    const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: a.operacion === undefined ? hechos.hechos : { ...hechos.hechos, operacion: { ...hechos.hechos.operacion, ...a.operacion } } });
+    // v0.23: PMP-01 usa el cierre de la última vela cerrada como precio (decisión 10-nov); lo calcula la misma preparación del Técnico.
+    const precio = s.portafolio === 'PMP' ? precioCierreUltimaVela(s, a.datos) : null;
+    const hechosBase: HechosAuditor = precio === null ? hechos.hechos : { ...hechos.hechos, datos_fuente: [...(hechos.hechos.datos_fuente ?? []), precio] };
+    const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: a.operacion === undefined ? hechosBase : { ...hechosBase, operacion: { ...hechosBase.operacion, ...a.operacion } } });
     if (!entrada.ok) return falla('entrada', entrada.problemas);
     return { ok: true, datos: conSobreAuditor(base, entrada.entrada), expediente_id: exp.expediente_id, portfolio_id: pf.portfolio_id, expediente_creado: exp.creado };
   } catch (e) {

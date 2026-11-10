@@ -219,3 +219,10 @@ Decisión del 9-nov: la entrada de PMP la da el Técnico por código, con las mi
 ### Pendiente
 
 Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no lee `valuacion_base` de la ficha.
+
+## v0.23 — PMP-01 recibe sus datos (10-nov-2026)
+- Requiere el parche de reglas 8 (`oficina_parche_reglas_pmp_v4.sql`: PMP-01 v2 y PMP-11 v2) ya aplicado.
+- `ficha.valuacion_base` **declarada** (`estado:'declarado'`, valor positivo, fuente, fecha AAAA-MM-DD, `horizonte_meses` entero) se publica al Auditor como `valor_estimado_base` y `horizonte_meses` en `datos_fuente`. Si falta o es inválida, no se publica nada y PMP-01 queda NO_EVALUABLE (`dato_faltante`).
+- `precio_actual` para PMP = cierre de la última vela diaria **cerrada** (misma regla de cierre del Técnico; la vela del día en formación se descarta). Sin velas o sin poder confirmar el cierre: no se publica precio.
+- El 14% ya se evalúa en la corrida PMP `nueva_posicion`. Con el 45 de ejemplo en GKOS dará "incumple" (45 es mucho menor que el precio): reemplázalo por tu estimación real.
+- Pendiente (siguiente versión): plan de 2 o 3 salidas de PMP, revisión semestral PMP-11 con el 14% y fundamentales, PMP-05 (nombres de análisis).
