@@ -226,3 +226,8 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - `precio_actual` para PMP = cierre de la última vela diaria **cerrada** (misma regla de cierre del Técnico; la vela del día en formación se descarta). Sin velas o sin poder confirmar el cierre: no se publica precio.
 - El 14% ya se evalúa en la corrida PMP `nueva_posicion`. Con el 45 de ejemplo en GKOS dará "incumple" (45 es mucho menor que el precio): reemplázalo por tu estimación real.
 - Pendiente (siguiente versión): plan de 2 o 3 salidas de PMP, revisión semestral PMP-11 con el 14% y fundamentales, PMP-05 (nombres de análisis).
+
+## v0.24 — el 14% solo se evalúa con señal de entrada (10-nov-2026)
+- Decisión: el valor estimado a 36 meses no se declara hasta que haya señal de entrada de PMP (≥2 de 5 señales).
+- La capa de datos publica `senal_entrada_pmp` (booleano, con la cuenta de señales en la fuente) junto al cierre de la última vela cerrada (`datosPmp01`, sustituye a `precioCierreUltimaVela`).
+- PMP-01: sin señal → `no_aplica` ("el 14% se evalúa cuando haya señal"); con señal y sin `valuacion_base` → `no_evaluable` motivo `valor_estimado_por_declarar`; con ambos → cálculo del 14% como antes. Sin el dato de señal (entradas antiguas) se evalúa como en v0.23.

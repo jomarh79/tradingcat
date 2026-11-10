@@ -747,3 +747,24 @@ describe('adaptador al puerto del Orquestador', () => {
     expect((await puertoAuditor(null)).estado).toBe('error');
   });
 });
+
+describe('v0.24 PMP-01 y la señal de entrada (decisión 10-nov)', () => {
+  const senal = (v: boolean) => ds('d-s', 'senal_entrada_pmp', v as never, 'indicador_tecnico');
+  it('sin señal: el 14% aún no aplica (no_aplica), sin pedir valor estimado ni bloquear', () => {
+    const s = auditar(pmpApertura({ datos_fuente: [ds('d-p', 'precio_actual', '1000', 'precio'), senal(false)] }));
+    expect(res(s, 'PMP-01')).toMatchObject({ resultado: 'no_aplica' });
+    expect(res(s, 'PMP-01').detalle).toMatch(/señal de entrada/);
+    expect(s.filtros_fallidos).toEqual([]);
+  });
+  it('con señal y sin valor estimado: no_evaluable valor_estimado_por_declarar', () => {
+    const s = auditar(pmpApertura({ datos_fuente: [ds('d-p', 'precio_actual', '1000', 'precio'), senal(true)] }));
+    expect(res(s, 'PMP-01')).toMatchObject({ resultado: 'no_evaluable', motivo: 'valor_estimado_por_declarar' });
+  });
+  it('con señal y valor estimado: calcula el 14% como siempre', () => {
+    const s = auditar(pmpApertura({ datos_fuente: [...valoracion('1613.96'), senal(true)] }));
+    expect(res(s, 'PMP-01')).toMatchObject({ resultado: 'cumple', valor_observado: '17.30' });
+  });
+  it('sin el dato de señal se evalúa como antes (compatibilidad)', () => {
+    expect(res(auditar(pmpApertura({ datos_fuente: [ds('d-p', 'precio_actual', '1000')] })), 'PMP-01').motivo).toBe('dato_faltante');
+  });
+});

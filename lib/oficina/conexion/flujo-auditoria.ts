@@ -63,13 +63,19 @@ export async function resolverPortfolioId(cliente: ClienteOficina, codigo: strin
 }
 
 export const ID_DATO_PRECIO_CIERRE = 'velas:cierre_ultima_vela_cerrada';
-/** Cierre de la última vela diaria cerrada (regla de cierre del Orquestador). null si no hay velas o no se puede confirmar: PMP-01 queda NO_EVALUABLE (`dato_faltante`). */
-export function precioCierreUltimaVela(s: SolicitudNormalizada, datos: DatosCongelados): DatoFuente | null {
-  if (datos.velas === undefined || datos.velas === null) return null;
+export const ID_DATO_SENAL_ENTRADA_PMP = 'tecnico:senal_entrada_pmp';
+/** Cierre de la última vela diaria cerrada y si hay señal de entrada de PMP (≥2 señales), con la misma preparación del Técnico.
+ *  Sin velas o sin poder confirmar el cierre: lista vacía (PMP-01 queda NO_EVALUABLE por dato faltante). */
+export function datosPmp01(s: SolicitudNormalizada, datos: DatosCongelados): DatoFuente[] {
+  if (datos.velas === undefined || datos.velas === null) return [];
   const t = prepararTecnico({ ticker: s.ticker, mercado: s.mercado, evaluado_en: s.solicitado_en, fuente: datos.velas.fuente, velas_diarias: datos.velas.diarias, velas_semanales: datos.velas.semanales });
   const u = t.snapshot?.ultima_vela_diaria ?? null;
-  if (u === null || (t.estado !== 'completo' && t.estado !== 'parcial')) return null;
-  return { id: ID_DATO_PRECIO_CIERRE, campo: 'precio_actual', categoria: 'precio', valor: u.cierre, unidad: 'USD', fuente: `${datos.velas.fuente}: cierre de la última vela diaria cerrada`, fecha_dato: u.fecha };
+  if (u === null || (t.estado !== 'completo' && t.estado !== 'parcial')) return [];
+  const fuente = `${datos.velas.fuente}: última vela diaria cerrada`;
+  const out: DatoFuente[] = [{ id: ID_DATO_PRECIO_CIERRE, campo: 'precio_actual', categoria: 'precio', valor: u.cierre, unidad: 'USD', fuente: `${fuente} (cierre)`, fecha_dato: u.fecha }];
+  const d = t.detonantes?.apertura_pmp;
+  if (d !== undefined) out.push({ id: ID_DATO_SENAL_ENTRADA_PMP, campo: 'senal_entrada_pmp', categoria: 'indicador_tecnico', valor: d.detonante_confirmado, unidad: null, fuente: `${fuente}: ${d.senales_cumplidas?.length ?? 0} de ${d.senales_minimas} señales mínimas`, fecha_dato: u.fecha });
+  return out;
 }
 
 export interface ArgumentosPreparacion {
@@ -115,8 +121,8 @@ export async function prepararAuditoria(cliente: ClienteOficina, a: ArgumentosPr
 
     const base: DatosCongelados = { ...a.datos, expediente_id: exp.expediente_id };
     // v0.23: PMP-01 usa el cierre de la última vela cerrada como precio (decisión 10-nov); lo calcula la misma preparación del Técnico.
-    const precio = s.portafolio === 'PMP' ? precioCierreUltimaVela(s, a.datos) : null;
-    const hechosBase: HechosAuditor = precio === null ? hechos.hechos : { ...hechos.hechos, datos_fuente: [...(hechos.hechos.datos_fuente ?? []), precio] };
+    const extra = s.portafolio === 'PMP' ? datosPmp01(s, a.datos) : [];
+    const hechosBase: HechosAuditor = extra.length === 0 ? hechos.hechos : { ...hechos.hechos, datos_fuente: [...(hechos.hechos.datos_fuente ?? []), ...extra] };
     const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: a.operacion === undefined ? hechosBase : { ...hechosBase, operacion: { ...hechosBase.operacion, ...a.operacion } } });
     if (!entrada.ok) return falla('entrada', entrada.problemas);
     return { ok: true, datos: conSobreAuditor(base, entrada.entrada), expediente_id: exp.expediente_id, portfolio_id: pf.portfolio_id, expediente_creado: exp.creado };

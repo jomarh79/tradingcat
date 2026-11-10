@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolverHechosPosicion } from './index';
 import type { FilasPosicion } from './index';
-import { ID_DATO_PRECIO_CIERRE, precioCierreUltimaVela } from './flujo-auditoria';
+import { ID_DATO_PRECIO_CIERRE, ID_DATO_SENAL_ENTRADA_PMP, datosPmp01 } from './flujo-auditoria';
 import { ID_DATO_HORIZONTE, ID_DATO_VALOR_ESTIMADO } from './hechos-bd';
 
 const PF = '11111111-1111-4111-8111-111111111111';
@@ -48,17 +48,26 @@ const datos = (diarias: ReturnType<typeof velas>) => ({ velas: { diarias, semana
 describe('v0.23 precio = cierre de la última vela cerrada', () => {
   it('con la vela del día en formación usa la del día anterior', () => {
     const d = velas('2026-10-27', 300);
-    const p = precioCierreUltimaVela(sol('2026-10-27T10:00:00-06:00'), datos(d));
+    const p = datosPmp01(sol('2026-10-27T10:00:00-06:00'), datos(d)).find((x) => x.campo === 'precio_actual');
     const ayer = d[d.length - 2]!;
-    expect(p).not.toBeNull();
+    expect(p).toBeDefined();
     expect(p).toMatchObject({ id: ID_DATO_PRECIO_CIERRE, campo: 'precio_actual', categoria: 'precio', fecha_dato: '2026-10-26' });
     expect(Number(p!.valor)).toBeCloseTo(ayer.close, 4);
   });
   it('sin velas congeladas no inventa precio', () => {
-    expect(precioCierreUltimaVela(sol('2026-10-27T10:00:00-06:00'), { velas: null } as never)).toBeNull();
-    expect(precioCierreUltimaVela(sol('2026-10-27T10:00:00-06:00'), {} as never)).toBeNull();
+    expect(datosPmp01(sol('2026-10-27T10:00:00-06:00'), { velas: null } as never)).toEqual([]);
+    expect(datosPmp01(sol('2026-10-27T10:00:00-06:00'), {} as never)).toEqual([]);
   });
   it('velas inválidas (serie vacía): sin precio', () => {
-    expect(precioCierreUltimaVela(sol('2026-10-27T10:00:00-06:00'), datos([]))).toBeNull();
+    expect(datosPmp01(sol('2026-10-27T10:00:00-06:00'), datos([]))).toEqual([]);
+  });
+});
+
+describe('v0.24 señal de entrada de PMP como dato', () => {
+  it('publica senal_entrada_pmp (booleano) con las señales mínimas en su fuente', () => {
+    const s = datosPmp01(sol('2026-10-27T10:00:00-06:00'), datos(velas('2026-10-27', 300))).find((x) => x.id === ID_DATO_SENAL_ENTRADA_PMP);
+    expect(s).toBeDefined();
+    expect(typeof s!.valor).toBe('boolean');
+    expect(s!.fuente).toContain('señales mínimas');
   });
 });
