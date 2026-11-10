@@ -107,3 +107,30 @@ describe('v0.21: el monto llega al Auditor en una corrida guardada', () => {
     expect(reglaPmp02(m)).toMatchObject({ resultado: 'no_evaluable', motivo: 'monto_no_declarado' });
   });
 });
+
+describe('v0.27: Riesgo y Capital por código en la corrida guardada', () => {
+  const rc = (r: Awaited<ReturnType<ReturnType<typeof montar>['ejecutar']>>) => r.cuerpo['riesgo_capital'] as Record<string, unknown>;
+  const motivos = (r: Awaited<ReturnType<ReturnType<typeof montar>['ejecutar']>>) => (r.cuerpo['motivos'] as { codigo: string; detalle: string }[]).map(x => `${x.codigo}:${x.detalle}`);
+  it('con efectivo 100 (fixture) y monto 50: VIABLE, no llama a ningún modelo para ello y ya no falla como agente requerido', async () => {
+    const m = montar({ bd: { oficina_v_posiciones: [], trade_executions: [] } });
+    const r = await m.ejecutar({ ticker: 'GKOS', guardar: true, portafolio: 'PMP', monto: 50 });
+    expect(rc(r)).toMatchObject({ estado: 'ok', origen: 'codigo', veredicto: 'VIABLE', efectivo_disponible: '100', monto_requerido: '50' });
+    expect(motivos(r).join(' ')).not.toMatch(/riesgo_capital: error/);
+  });
+  it('con efectivo menor al monto: NO_VIABLE con el faltante', async () => {
+    const m = montar({ bd: { oficina_v_posiciones: [], trade_executions: [], oficina_v_capital: [{ portfolio_id: PF, efectivo: 10, posiciones_abiertas: 3 }] } });
+    const r = await m.ejecutar({ ticker: 'GKOS', guardar: true, portafolio: 'PMP', monto: 50 });
+    expect(rc(r)).toMatchObject({ veredicto: 'NO_VIABLE', faltante: '40' });
+  });
+  it('sin monto: DATOS_INSUFICIENTES y no se supone ninguno', async () => {
+    const m = montar({ bd: { oficina_v_posiciones: [], trade_executions: [] } });
+    const r = await m.ejecutar({ ticker: 'GKOS', guardar: true, portafolio: 'PMP' });
+    expect(rc(r)).toMatchObject({ veredicto: 'DATOS_INSUFICIENTES', monto_requerido: null });
+  });
+  it('si no se puede leer oficina_v_capital la corrida sigue y lo declara como aviso (no bloquea)', async () => {
+    const m = montar({ bd: { oficina_v_posiciones: [], trade_executions: [] }, errores: { tablas: { oficina_v_capital: 'sin permiso' } } });
+    const r = await m.ejecutar({ ticker: 'GKOS', guardar: true, portafolio: 'PMP', monto: 50 });
+    expect(rc(r)).toMatchObject({ veredicto: 'DATOS_INSUFICIENTES' });
+    expect(rc(r)['avisos']).toEqual(expect.arrayContaining([expect.stringContaining('sin permiso')]));
+  });
+});

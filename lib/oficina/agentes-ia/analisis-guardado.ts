@@ -25,6 +25,8 @@ import type { TrazabilidadIa } from './persistencia-ia';
 import { construirSobreFundamental } from './prueba-fundamental';
 import type { DepsPrueba, ResultadoPrueba } from './prueba-fundamental';
 import { crearPuertoAnalista, crearPuertoDirector } from './puertos-ia';
+import { calcularRiesgoCapital, salidaComoAnalista } from './riesgo-capital';
+import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
 import { COLUMNAS_POSICIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
 import { obtenerOCrearExpediente } from '../conexion/expediente-bd';
@@ -114,6 +116,14 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if (pos.filas.length > 1) return falla('posicion', [`${TABLA_POSICIONES}: hay ${pos.filas.length} posiciones abiertas de ${ticker} en ${portafolio} (ambiguo)`]);
   const posicion_existe = pos.filas.length === 1;
   const tipo_evaluacion = posicion_existe ? TIPO_EVALUACION_ABIERTA : TIPO_EVALUACION_NUEVA;
+  // v0.27: Riesgo y Capital por código. El efectivo se lee de `oficina_v_capital`; si no se puede leer NO se bloquea la corrida: el agente reporta DATOS_INSUFICIENTES.
+  const cap = await leerFilas(cliente, 'oficina_v_capital', 'portfolio_id,efectivo', [['portfolio_id', pf.portfolio_id]]);
+  const avisos_capital: string[] = [];
+  let efectivo: unknown = null;
+  if ('error' in cap) avisos_capital.push(cap.error);
+  else if (cap.filas.length !== 1) avisos_capital.push(`oficina_v_capital: se esperaba 1 fila del portafolio y hay ${cap.filas.length}`);
+  else efectivo = cap.filas[0]?.['efectivo'] ?? null;
+  const riesgo: ResultadoRiesgoCapital = calcularRiesgoCapital({ efectivo, monto: v.cuerpo.monto ?? null });
   const par = await leerFilas(cliente, TABLA_PARAMETROS, COLUMNAS_PARAMETROS, []);
   if ('error' in par) return falla('parametros', [par.error]);
 
@@ -145,12 +155,16 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     llamar: deps.llamar, modelo_analista: deps.modelo_analista, modelo_director: deps.modelo_director, ahora: deps.ahora,
     guardar_analista: guardar, guardar_director: guardarDirector, ...(deps.proveedor !== undefined ? { proveedor: deps.proveedor } : {}),
   };
-  const respuestas: { fundamental?: RespuestaAgente; tecnico?: RespuestaAgente; director?: RespuestaAgente } = {};
+  const respuestas: { fundamental?: RespuestaAgente; tecnico?: RespuestaAgente; riesgo_capital?: RespuestaAgente; director?: RespuestaAgente } = {};
   const analistaIa = crearPuertoAnalista(opc);
   const directorIa = crearPuertoDirector(opc);
   const base: Omit<Puertos, 'auditor'> = {
     nuevoId: () => run_id, ahora: deps.ahora,
     analista: async (agente, sobre) => {
+      if (agente === 'riesgo_capital') {
+        respuestas.riesgo_capital = { estado: 'ok', veredicto: riesgo.veredicto, salida: salidaComoAnalista(riesgo, fechaEnZona(new Date(ahora), ZONA_OFICINA)) };
+        return respuestas.riesgo_capital;
+      }
       const r = await analistaIa(agente, sobre);
       if (agente === AGENTE_FUNDAMENTAL) respuestas.fundamental = r;
       if (agente === AGENTE_TECNICO) respuestas.tecnico = r;
@@ -167,7 +181,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const datos: DatosCongelados = {
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
-    sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null, motor: {},
+    sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
+    motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
+      ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
+      : {},
   };
   const solicitud = {
     contrato: 'solicitud.v1', disparador: DISPARADOR_ANALISIS_GUARDADO, ticker, mercado: MERCADO_PRUEBA, portafolio_codigo: portafolio, tipo_evaluacion,
@@ -185,6 +202,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     fundamental: resumenAgente(respuestas.fundamental),
     tecnico: resumenAgente(respuestas.tecnico, resumenTecnicoCodigo(flujo.corrida)),
     avisos_velas,
+    riesgo_capital: { estado: 'ok', origen: 'codigo', ...riesgo, ...(avisos_capital.length > 0 ? { avisos: avisos_capital } : {}) },
     director: resumenAgente(respuestas.director, respuestas.director?.estado === 'ok' ? { clasificacion_tesis } : {}),
     analisis_completo: respuestas.fundamental?.estado === 'ok' && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',
     resultado_corrida: c.resultado,

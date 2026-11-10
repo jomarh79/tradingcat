@@ -243,3 +243,9 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Con señal confirmada Valuación corre normalmente y usa `ficha.valuacion_base`. Si el Técnico no es evaluable (sin velas, cierre dudoso) NO se quita nada: no se supone que no hay señal.
 - Auditor: con `senal_entrada_pmp = false` PMP-05 no exige `valuacion`.
 - No cambia el orden de precedencia: un BLOQUEO_REGLA del Auditor (p. ej. PMP-04 sin rol) sigue prevaleciendo sobre ESPERAR; por eso GKOS necesita su rol en el expediente.
+
+## v0.27 — Riesgo y Capital por código (10-nov-2026)
+- Sin IA, sin modelo: `riesgo-capital.ts` compara el `efectivo` de `oficina_v_capital` (del portafolio) con el monto declarado (`-Monto`). VIABLE si efectivo ≥ monto; NO_VIABLE si falta efectivo (con el faltante exacto); DATOS_INSUFICIENTES si falta el monto o el efectivo (o no es un decimal exacto): no se supone nada. No hay otros límites duros definidos todavía.
+- Alimenta `motor.capital` (el Motor ya compara efectivo vs. monto y responde ESPERAR `capital_insuficiente`) y entra al Director con la forma de analista (hallazgo positivo/negativo/neutral con evidencia). Ya no falla como `agente_requerido_fallo`. No se guarda en `oficina_analisis` (no es un análisis de IA); queda en la respuesta (`riesgo_capital`) y en la ejecución de la corrida.
+- Si `oficina_v_capital` no se puede leer, la corrida sigue: DATOS_INSUFICIENTES con el error como aviso.
+- Sin `-Monto` el Motor devuelve NO_EVALUABLE ("Falta el monto de la operación"): ahora conviene correr siempre con `-Monto "50"` en PMP.

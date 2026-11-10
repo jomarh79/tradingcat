@@ -525,7 +525,7 @@ describe('v0.14: guardado con el Técnico', () => {
     const t = montar();
     await t.ejecutar();
     const ctx = peticion(t.m, 'integracion_v1');
-    expect(Object.keys(ctx['salidas_analistas'] as Obj).sort()).toEqual(['fundamental', 'tecnico']);
+    expect(Object.keys(ctx['salidas_analistas'] as Obj).sort()).toEqual(['fundamental', 'riesgo_capital', 'tecnico']);
     expect(((ctx['salidas_analistas'] as Obj)['tecnico'] as Obj)['veredicto']).toBe('ESPERAR');
   });
   it('el Técnico se ejecuta después de traer los datos y antes de registrar la corrida', async () => {
