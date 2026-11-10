@@ -109,6 +109,15 @@ export interface Puertos {
 
 // ----------------------------------------------------------------------------------------------- datos congelados
 
+/** v0.25: al Auditor solo le llegan los NOMBRES de los análisis que terminaron bien (PMP-05 / PLP), nunca sus salidas. Si el sobre no trae `datos`, se deja igual. */
+export function conAnalisisPresentes(sobre: unknown, resultados: Partial<Record<Agente, ResultadoAgente>>): unknown {
+  if (typeof sobre !== 'object' || sobre === null) return sobre;
+  const o = sobre as { datos?: unknown };
+  if (typeof o.datos !== 'object' || o.datos === null || Array.isArray(o.datos)) return sobre;
+  const presentes = AGENTES_ORDEN.filter(a => resultados[a]?.estado === 'ok');
+  return { ...o, datos: { ...(o.datos as object), analisis_presentes: presentes } };
+}
+
 export interface DatosCongelados {
   snapshot_id: string;
   /** ISO 8601 con zona. */
@@ -455,7 +464,7 @@ export async function ejecutarCorrida(
   // ---- Auditor (siempre)
   const ia = bloqueoEstructural !== null
     ? { respuesta: { estado: 'ok' as const, veredicto: 'BLOQUEO_REGLA' as VeredictoAuditor, reglas_revisadas: [bloqueoEstructural.regla] } as RespuestaAuditor, reintentos: 0, started_at: puertos.ahora(), finished_at: puertos.ahora() }
-    : await conReintentos(() => puertos.auditor(datos.sobre_auditor), REINTENTOS_AUDITOR, () => puertos.ahora());
+    : await conReintentos(() => puertos.auditor(conAnalisisPresentes(datos.sobre_auditor, resultados_agentes)), REINTENTOS_AUDITOR, () => puertos.ahora());
   const ra = ia.respuesta;
   let auditoria: Auditoria | null = null;
   let auditorError = ra.estado === 'error' ? (ra.error ?? 'error del Auditor') : null;

@@ -231,3 +231,9 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Decisión: el valor estimado a 36 meses no se declara hasta que haya señal de entrada de PMP (≥2 de 5 señales).
 - La capa de datos publica `senal_entrada_pmp` (booleano, con la cuenta de señales en la fuente) junto al cierre de la última vela cerrada (`datosPmp01`, sustituye a `precioCierreUltimaVela`).
 - PMP-01: sin señal → `no_aplica` ("el 14% se evalúa cuando haya señal"); con señal y sin `valuacion_base` → `no_evaluable` motivo `valor_estimado_por_declarar`; con ambos → cálculo del 14% como antes. Sin el dato de señal (entradas antiguas) se evalúa como en v0.23.
+
+## v0.25 — PMP-05 con los análisis reales (10-nov-2026)
+- Requiere el parche de reglas 9 (`oficina_parche_reglas_pmp05_v2.sql`): PMP-05 v2 exige `fundamental`, `valuacion`, `tecnico`, `riesgo_capital`.
+- Antes, `datos.analisis_presentes` llegaba siempre vacío al Auditor, así que PMP-05 nunca podía cumplir. Ahora el Orquestador (`conAnalisisPresentes`) le entrega solo los NOMBRES de los agentes que terminaron en `ok` (nunca sus salidas); un agente en error queda fuera y PMP-05 lo nombra.
+- Pendiente conocido: PLP-01 (sustitución) revisa otros nombres (`calidad_negocio`, `fundamentales`, `dividendos`...) que tampoco coinciden con los agentes; no se toca hasta que lo decidas.
+- Pendiente conocido: con la decisión del 10-nov, Valuación no debería ser agente requerido en PMP mientras no haya señal de entrada; hoy lo sigue siendo (por eso GKOS sale BLOQUEADO con `valuacion: error`).

@@ -768,3 +768,20 @@ describe('v0.24 PMP-01 y la señal de entrada (decisión 10-nov)', () => {
     expect(res(auditar(pmpApertura({ datos_fuente: [ds('d-p', 'precio_actual', '1000')] })), 'PMP-01').motivo).toBe('dato_faltante');
   });
 });
+
+describe('v0.25 PMP-05 con los nombres de los agentes (parche de reglas 9)', () => {
+  const V2 = CATALOGO_FIXTURE.map((r) => r.codigo === 'PMP-05' ? { ...r, version_id: 'v-PMP-05-2', definicion: { tipo: 'proceso', orden: ['fundamental', 'valuacion', 'tecnico', 'riesgo_capital'] } } : r);
+  const con = (presentes: string[], tipo = 'nueva_posicion') => auditar(pmpApertura({ reglas_vigentes: V2, tipo_evaluacion: tipo, datos: { analisis_presentes: presentes, ficha_pmp: FICHA, fundamentos: ['d-v'] } }));
+  it('con los cuatro agentes ok: cumple', () => {
+    expect(res(con(['fundamental', 'valuacion', 'tecnico', 'riesgo_capital']), 'PMP-05').resultado).toBe('cumple');
+  });
+  it('si falla uno, lo nombra y queda no_evaluable', () => {
+    const r = res(con(['fundamental', 'tecnico', 'riesgo_capital']), 'PMP-05');
+    expect(r.resultado).toBe('no_evaluable');
+    expect(r.detalle).toContain('valuacion');
+    expect(r.detalle).not.toContain('tecnico');
+  });
+  it('los nombres viejos ya no cuentan', () => {
+    expect(res(con(['radiografia', 'valuacion', 'ganancia_anualizada', 'grafico_riesgo_ejecucion']), 'PMP-05').resultado).toBe('no_evaluable');
+  });
+});
