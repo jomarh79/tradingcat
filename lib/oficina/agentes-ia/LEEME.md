@@ -208,6 +208,14 @@ Corrida real (GKOS, 9-nov-2026, p6): criterios A1 a A6 cumplidos, con dos defect
 3. **Monto declarado por corrida (`monto`):** campo opcional del cuerpo (número o texto positivo, hasta 2 decimales) y parámetro `-Monto` del script. Se pasa a `operacion.monto` de la entrada del Auditor (PMP-02 exige USD 50 y PCP USD 25 al abrir; con otro monto incumple, sin monto queda NO_EVALUABLE `monto_no_declarado`). No hay monto por omisión. Solo con `guardar` (sin guardar no corre el Auditor y se rechaza). La respuesta trae `monto_declarado`. Quien declara el monto es el usuario en cada corrida porque un mismo ticker puede entrar a PMP o a PCP.
 4. **Motivo `agente_opcional_fallo` (aprobado el 7-nov):** un analista opcional que se pidió y no entregó resultado queda en `motivos` (`<agente>: <estado>`). Es informativo: no cambia la decisión ni el estado de la corrida y el Motor no interviene (lo agrega el Orquestador). Un opcional no pedido no corre y no deja motivo. No requiere SQL: `motivos` es un arreglo jsonb sin CHECK sobre los códigos. Falta comprobar que `oficina_registrar_corrida` no valide los códigos (consulta en las instrucciones de la entrega).
 
+## Entrada de PMP: al menos dos señales técnicas (v0.22)
+
+Decisión del 9-nov: la entrada de PMP la da el Técnico por código, con las mismas cinco señales de entrada que calcula (`RSI_SOBREVENTA`, `KONCORDE_BAJO_CERO`, `EMA8_SOBRE_EMA21`, `MOGALEF_BANDA_INFERIOR`, `NIVEL_PASADO`) y exigiendo AL MENOS DOS cumplidas (`MINIMO_SENALES_POR_USO.apertura_pmp = 2`; el resto de usos sigue en una). Una señal sin datos no cuenta como cumplida. Fibonacci y figuras chartistas no se calculan: quedan como `discrecionales_pendientes` que revisa el usuario en TradingView.
+
+- `detonantePara(snapshot, 'apertura_pmp')` agrega `senales_minimas` al detonante. En el Orquestador, `PMP:nueva_posicion` toma `momento.detonante_confirmado` del Técnico (C6); el `momento` que entregue el llamador para PMP abrir se ignora, igual que en PCP. PMP recompra no cambia: solo el `momento` del llamador, y sin él el Motor responde ESPERAR.
+- Precio de entrada (decisión, pendiente de construir): con señal, el cierre de la última vela cerrada; sin señal, espera con `buy_target` de la watchlist solo como referencia y la decisión no es COMPRAR.
+- Pendiente de decisión del usuario: cómo se elige el take profit calculado para el filtro PMP-01 (14% a 36 meses).
+
 ### Pendiente
 
 Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no lee `valuacion_base` de la ficha.

@@ -193,7 +193,7 @@ describe('cableado hacia el Motor', () => {
   it('una racha bajista da sobreventa: apertura, recompra y DCA del PLP con detonante; senal_salida = false', () => {
     const r = corre(baja);
     expect(senal(r, 'RSI_SOBREVENTA')).toBe(true);
-    expect(r.momento).toEqual({ apertura_pcp: { detonante_confirmado: true }, recompra_pcp: { detonante_confirmado: true }, dca_plp: { detonante_confirmado: true } });
+    expect(r.momento).toEqual({ apertura_pcp: { detonante_confirmado: true }, recompra_pcp: { detonante_confirmado: true }, dca_plp: { detonante_confirmado: true }, apertura_pmp: { detonante_confirmado: expect.any(Boolean) } });
     expect(r.senal_salida).toBe(false);
   });
   it('momento.detonante_confirmado de cada uso es el del Técnico; la salida del PCP no va en momento', () => {

@@ -350,13 +350,23 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect(x.log).not.toContain('analista:tecnico');          // el agente Técnico de PLP es opcional y no se pidió; el cálculo de código sí corre (C10)
     expect(b.tecnico).not.toBeNull();
   });
-  it('PMP no tiene detonante del Técnico: se usa el momento que entrega el llamador; sin él, el Motor responde ESPERAR', async () => {
-    const sinMomento = datos({ motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50' } });
-    const r = corrida(await ejecutarCorrida(sol(), sinMomento, puertos().p));
+  it('v0.22: PMP abrir toma el detonante del Técnico (apertura_pmp: al menos dos señales de entrada) y ya no el que entrega el llamador', async () => {
+    const sinMomento = datos({ velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50' } });
+    const a = corrida(await ejecutarCorrida(sol(), sinMomento, puertos().p));
+    expect(a.tecnico!.detonantes!.apertura_pmp.senales_cumplidas.length).toBeGreaterThanOrEqual(2);
+    expect(a.entrada_motor.momento).toEqual({ detonante_confirmado: true });
+    // el momento que entregue el llamador se ignora: manda el código
+    const b = corrida(await ejecutarCorrida(sol(), datos({ velas: velas(baja), motor: { ...sinMomento.motor!, momento: { detonante_confirmado: false } } }), puertos().p));
+    expect(b.entrada_motor.momento).toEqual({ detonante_confirmado: true });
+  });
+  it('v0.22: PMP abrir con menos de dos señales cumplidas no confirma el detonante', async () => {
+    const r = corrida(await ejecutarCorrida(sol(), datos({ velas: velas(sinSenal), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50', momento: { detonante_confirmado: true } } }), puertos().p));
+    expect(r.tecnico!.detonantes!.apertura_pmp.senales_cumplidas.length).toBeLessThan(2);
+    expect(r.entrada_motor.momento).toEqual({ detonante_confirmado: false });
+  });
+  it('v0.22: PMP recompra sigue sin detonante del Técnico: solo el momento que entregue el llamador; sin él, ESPERAR', async () => {
+    const r = corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'recompra' }), datos({ posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '10', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '10' } }), puertos().p));
     expect(r.entrada_motor.momento).toBeUndefined();
-    expect(r.salida_motor.decision).toBe('ESPERAR');
-    const conMomento = corrida(await ejecutarCorrida(sol(), datos(), puertos().p));
-    expect(conMomento.entrada_motor.momento).toEqual({ detonante_confirmado: true });
   });
   it('la condición de ejecución del llamador se conserva junto al detonante del Técnico', async () => {
     const r = corrida(await ejecutarCorrida(pcp(), datosPcp({ velas: velas(baja), motor: { condicion_ejecucion: 'cierre sobre 10', capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '25' } }), puertos().p));

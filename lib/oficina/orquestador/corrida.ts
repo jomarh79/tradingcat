@@ -12,7 +12,7 @@
 //   C4. Un agente opcional corre únicamente si se pide expresamente (`opciones.agentes_opcionales`); su falla no vuelve la corrida incompleta.
 //   C5. Ruta determinista: no se llama a ningún puerto; los resultados de agentes requeridos (p. ej. Riesgo y Capital del aporte de ETFs) los entrega el
 //       llamador ya calculados por código en `resultados_codigo`; si falta alguno queda `ausente` y el Motor responde NO_EVALUABLE.
-//   C6. `momento` del Motor: PCP abrir = apertura_pcp, PCP recompra = recompra_pcp, PLP recompra = dca_plp, tomados del Técnico. Para los demás casos
+//   C6. `momento` del Motor: PMP abrir = apertura_pmp (al menos dos señales de entrada, 9-nov), PCP abrir = apertura_pcp, PCP recompra = recompra_pcp, PLP recompra = dca_plp, tomados del Técnico. Para los demás casos
 //       el Técnico no define detonante: solo se usa `datos.motor.momento` si el llamador lo entrega; si no, el Motor responderá ESPERAR (sin detonante).
 //   C7. Coherencia con la posición (tabla 1.3b): sin confirmar, o con una posición que contradice el tipo, `posicion_confirmada = false`
 //       (el Motor da NO_EVALUABLE / posicion_no_confirmada) y la inconsistencia se guarda en `referencias.posicion_inconsistencia`.
@@ -52,6 +52,7 @@ export const VEREDICTOS_AUDITOR: readonly VeredictoAuditor[] = ['CUMPLE', 'BLOQU
 /** Uso del detonante del Técnico que alimenta `momento` del Motor, por portafolio + tipo (C6). */
 export const USO_MOMENTO_POR_CASO: Readonly<Record<string, UsoMomento>> = {
   'PCP:nueva_posicion': 'apertura_pcp',
+  'PMP:nueva_posicion': 'apertura_pmp',
   'PCP:recompra': 'recompra_pcp',
   'PLP:recompra': 'dca_plp',
 };

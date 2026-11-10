@@ -502,6 +502,23 @@ describe('detonantes por uso', () => {
     expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'apertura_pcp').detonante_confirmado).toBe(true);
     expect(detonantePara(sn({ NIVEL_PASADO: true }), 'apertura_pcp').detonante_confirmado).toBe(false);
   });
+  it('v0.22 apertura PMP: exige al menos DOS de las cinco señales de entrada (el nivel pasado sí cuenta); las de salida no', () => {
+    const d = (c: Record<string, boolean | null>) => detonantePara(sn(c), 'apertura_pmp');
+    expect(d({ EMA8_SOBRE_EMA21: true }).detonante_confirmado).toBe(false);
+    expect(d({ EMA8_SOBRE_EMA21: true, KONCORDE_BAJO_CERO: true }).detonante_confirmado).toBe(true);
+    expect(d({ NIVEL_PASADO: true, RSI_SOBREVENTA: true }).detonante_confirmado).toBe(true);
+    expect(d({ RSI_SOBRECOMPRA: true, MOGALEF_BANDA_SUPERIOR: true, RESISTENCIA_PASADA: true }).detonante_confirmado).toBe(false);
+    expect(d({ EMA8_SOBRE_EMA21: true, RSI_SOBRECOMPRA: true }).detonante_confirmado).toBe(false);
+    expect(d({ EMA8_SOBRE_EMA21: true }).senales_minimas).toBe(2);
+    expect(detonantePara(sn({}), 'apertura_pcp').senales_minimas).toBe(1);
+  });
+  it('v0.22 apertura PMP: una señal sin datos no cuenta como cumplida; figura chartista y Fibonacci quedan como discrecionales del usuario', () => {
+    const d = detonantePara(sn({ EMA8_SOBRE_EMA21: true, KONCORDE_BAJO_CERO: null }), 'apertura_pmp');
+    expect(d.detonante_confirmado).toBe(false);
+    expect(d.senales_no_evaluables).toEqual(['KONCORDE_BAJO_CERO']);
+    expect(d.discrecionales_pendientes).toEqual(['figura chartista', 'Fibonacci']);
+    expect(d.aviso).toContain('al menos dos');
+  });
   it('recompra PCP: el nivel pasado (soporte o resistencia) cuenta; EMA 8>21 y las señales de salida no', () => {
     expect(detonantePara(sn({ NIVEL_PASADO: true }), 'recompra_pcp').detonante_confirmado).toBe(true);
     expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'recompra_pcp').detonante_confirmado).toBe(false);
