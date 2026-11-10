@@ -115,7 +115,10 @@ function pmp05(c: Ctx): Eval {
   const orden = strs(c.r.definicion['orden']);
   if (!orden) return defInvalida(c.r, 'orden');
   // [PROPUESTA] En una recompra no se exige la ganancia anualizada: el 14% no aplica a recompras (PMP-01).
-  const requeridos = c.e.tipo_evaluacion === 'recompra' ? orden.filter((x) => x !== 'ganancia_anualizada') : orden;
+  let requeridos = c.e.tipo_evaluacion === 'recompra' ? orden.filter((x) => x !== 'ganancia_anualizada') : orden;
+  // v0.26: sin señal de entrada de PMP no se corre Valuación (decisión 10-nov), así que no se exige.
+  const se = dato(c.e, CAMPO_SENAL_ENTRADA_PMP);
+  if (se !== null && se.valor === false && c.e.tipo_evaluacion === 'nueva_posicion') requeridos = requeridos.filter((x) => x !== 'valuacion');
   const faltan = requeridos.filter((x) => !c.e.datos.analisis_presentes.includes(x));
   return faltan.length === 0
     ? ok(`Análisis completos: ${requeridos.join(', ')}`)

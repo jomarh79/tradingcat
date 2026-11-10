@@ -237,3 +237,9 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Antes, `datos.analisis_presentes` llegaba siempre vacío al Auditor, así que PMP-05 nunca podía cumplir. Ahora el Orquestador (`conAnalisisPresentes`) le entrega solo los NOMBRES de los agentes que terminaron en `ok` (nunca sus salidas); un agente en error queda fuera y PMP-05 lo nombra.
 - Pendiente conocido: PLP-01 (sustitución) revisa otros nombres (`calidad_negocio`, `fundamentales`, `dividendos`...) que tampoco coinciden con los agentes; no se toca hasta que lo decidas.
 - Pendiente conocido: con la decisión del 10-nov, Valuación no debería ser agente requerido en PMP mientras no haya señal de entrada; hoy lo sigue siendo (por eso GKOS sale BLOQUEADO con `valuacion: error`).
+
+## v0.26 — sin señal de entrada, PMP no corre Valuación (10-nov-2026)
+- PMP + nueva_posicion con el detonante `apertura_pmp` NO confirmado (menos de 2 señales): Valuación no corre y deja de ser requerida (no entra en `agentes_requeridos` ni en `analistas_requeridos_sin_resultado`); queda un aviso en la corrida. La decisión es ESPERAR, no BLOQUEADO por `agente_requerido_fallo`.
+- Con señal confirmada Valuación corre normalmente y usa `ficha.valuacion_base`. Si el Técnico no es evaluable (sin velas, cierre dudoso) NO se quita nada: no se supone que no hay señal.
+- Auditor: con `senal_entrada_pmp = false` PMP-05 no exige `valuacion`.
+- No cambia el orden de precedencia: un BLOQUEO_REGLA del Auditor (p. ej. PMP-04 sin rol) sigue prevaleciendo sobre ESPERAR; por eso GKOS necesita su rol en el expediente.

@@ -364,6 +364,33 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect(r.tecnico!.detonantes!.apertura_pmp.senales_cumplidas.length).toBeLessThan(2);
     expect(r.entrada_motor.momento).toEqual({ detonante_confirmado: false });
   });
+  it('v0.26: PMP abrir sin señal de entrada NO corre Valuación y la decisión es ESPERAR (no BLOQUEADO)', async () => {
+    const x = puertos();
+    const d = datos({ velas: velas(sinSenal), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50' } });
+    const r = corrida(await ejecutarCorrida(sol(), d, x.p));
+    expect(x.log).not.toContain('analista:valuacion');
+    expect(x.log).toEqual(expect.arrayContaining(['analista:fundamental', 'analista:tecnico', 'analista:riesgo_capital', 'auditor', 'director']));
+    expect(r.entrada_motor.agentes_requeridos).toEqual(['fundamental', 'tecnico', 'riesgo_capital']);
+    expect(r.avisos.join(' ')).toMatch(/valuacion no se ejecuta/);
+    expect((x.directorCtx() as { analistas_requeridos_sin_resultado: string[] }).analistas_requeridos_sin_resultado).toEqual([]);
+    expect(r.salida_motor.decision).toBe('ESPERAR');
+    expect(r.salida_motor.estado_final).not.toBe('bloqueada');
+  });
+  it('v0.26: PMP abrir CON señal de entrada sí corre Valuación', async () => {
+    const x = puertos();
+    corrida(await ejecutarCorrida(sol(), datos({ velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50' } }), x.p));
+    expect(x.log).toContain('analista:valuacion');
+  });
+  it('v0.26: sin Técnico evaluable (sin velas) no se quita Valuación: no se supone la señal', async () => {
+    const x = puertos();
+    corrida(await ejecutarCorrida(sol(), datos({ velas: null }), x.p));
+    expect(x.log).toContain('analista:valuacion');
+  });
+  it('v0.26: PMP recompra y otros portafolios no pierden Valuación', async () => {
+    const x = puertos();
+    corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'recompra' }), datos({ velas: velas(sinSenal), posicion_existe: true }), x.p));
+    expect(x.log).toContain('analista:valuacion');
+  });
   it('v0.22: PMP recompra sigue sin detonante del Técnico: solo el momento que entregue el llamador; sin él, ESPERAR', async () => {
     const r = corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'recompra' }), datos({ posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '10', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '10' } }), puertos().p));
     expect(r.entrada_motor.momento).toBeUndefined();

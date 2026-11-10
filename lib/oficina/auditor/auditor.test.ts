@@ -785,3 +785,18 @@ describe('v0.25 PMP-05 con los nombres de los agentes (parche de reglas 9)', () 
     expect(res(con(['radiografia', 'valuacion', 'ganancia_anualizada', 'grafico_riesgo_ejecucion']), 'PMP-05').resultado).toBe('no_evaluable');
   });
 });
+
+describe('v0.26 PMP-05 sin señal de entrada no exige Valuación', () => {
+  const V2 = CATALOGO_FIXTURE.map((r) => r.codigo === 'PMP-05' ? { ...r, definicion: { tipo: 'proceso', orden: ['fundamental', 'valuacion', 'tecnico', 'riesgo_capital'] } } : r);
+  const sin = (senal: boolean, tipo = 'nueva_posicion') => auditar(pmpApertura({
+    reglas_vigentes: V2, tipo_evaluacion: tipo,
+    datos_fuente: [ds('d-p', 'precio_actual', '1000', 'precio'), ds('d-s', 'senal_entrada_pmp', senal as never, 'indicador_tecnico')],
+    datos: { analisis_presentes: ['fundamental', 'tecnico', 'riesgo_capital'], ficha_pmp: FICHA, fundamentos: ['d-p'] },
+  }));
+  it('sin señal y sin Valuación: PMP-05 cumple', () => { expect(res(sin(false), 'PMP-05').resultado).toBe('cumple'); });
+  it('con señal y sin Valuación: PMP-05 no_evaluable y nombra valuacion', () => {
+    const r = res(sin(true), 'PMP-05');
+    expect(r.resultado).toBe('no_evaluable');
+    expect(r.detalle).toContain('valuacion');
+  });
+});

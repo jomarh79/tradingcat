@@ -387,11 +387,11 @@ export async function ejecutarCorrida(
   const avisos: string[] = [];
   const fecha_evaluacion = fechaEnZona(instante, ZONA_OFICINA);
   const ag = agentesDeCorrida(portafolio, tipo) ?? { accion: 'abrir' as const, requeridos: [], opcionales: [] };   // estructural: sin agentes
-  const requeridos = ag.requeridos;
+  let requeridos = ag.requeridos;
   const pedidos = opciones.agentes_opcionales ?? [];
   const opcionales = AGENTES_ORDEN.filter(a => pedidos.includes(a) && ag.opcionales.includes(a));
   for (const a of pedidos) if (!ag.opcionales.includes(a) && !requeridos.includes(a)) avisos.push(`el agente ${a} no es opcional para ${portafolio} + ${tipo}: no se activa`);
-  const ejecutar = AGENTES_ORDEN.filter(a => requeridos.includes(a) || opcionales.includes(a));
+  let ejecutar = AGENTES_ORDEN.filter(a => requeridos.includes(a) || opcionales.includes(a));
 
   const params = resolverParametros(datos.parametros, fecha_evaluacion);
   for (const p of params.problemas) avisos.push(`parametro_invalido: ${p}`);
@@ -418,6 +418,15 @@ export async function ejecutarCorrida(
       );
       faltantes.push(...tecnico.datos_faltantes);
     }
+  }
+
+  // v0.26 (decisión 10-nov): PMP + nueva_posicion sin señal de entrada (menos de 2 señales) NO corre Valuación: no se estima valor a 36 meses
+  // hasta que el trade dé entrada. Con señal, Valuación corre y usa `ficha.valuacion_base`. Sin Técnico evaluable no se quita nada (no se supone la señal).
+  if (portafolio === 'PMP' && tipo === 'nueva_posicion' && tecnico !== null && tecnico.detonantes !== null
+    && tecnico.detonantes.apertura_pmp.detonante_confirmado === false && requeridos.includes('valuacion')) {
+    requeridos = requeridos.filter(a => a !== 'valuacion');
+    ejecutar = ejecutar.filter(a => a !== 'valuacion');
+    avisos.push('valuacion no se ejecuta: PMP sin señal de entrada (menos de 2 señales); se estima el valor solo cuando el trade dé entrada');
   }
 
   // ---- Analistas (paralelo, aislados) o resultados por código (ruta determinista)
