@@ -249,3 +249,9 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Alimenta `motor.capital` (el Motor ya compara efectivo vs. monto y responde ESPERAR `capital_insuficiente`) y entra al Director con la forma de analista (hallazgo positivo/negativo/neutral con evidencia). Ya no falla como `agente_requerido_fallo`. No se guarda en `oficina_analisis` (no es un análisis de IA); queda en la respuesta (`riesgo_capital`) y en la ejecución de la corrida.
 - Si `oficina_v_capital` no se puede leer, la corrida sigue: DATOS_INSUFICIENTES con el error como aviso.
 - Sin `-Monto` el Motor devuelve NO_EVALUABLE ("Falta el monto de la operación"): ahora conviene correr siempre con `-Monto "50"` en PMP.
+
+## v0.28 — GLB-03 recibe los fundamentos (10-nov-2026)
+- GLB-03 (la decisión no se apoya solo en una noticia) quedaba siempre NO_EVALUABLE (`fundamento_no_declarado`) porque nadie declaraba los fundamentos. Ahora, al llamar al Auditor, cada análisis que terminó `ok` con `analisis_id` (Fundamental, Valuación, Técnico) entra a `datos_fuente` como REFERENCIA al análisis guardado (no su contenido; categorías estado_financiero / estimacion / indicador_tecnico) y se lista en `datos.fundamentos`.
+- Riesgo y Capital (por código, sin análisis guardado) no se cita. Sin ningún análisis ok, `fundamentos` queda vacío y GLB-03 sigue NO_EVALUABLE (no se finge).
+- El sistema no ingiere noticias: GLB-03 cumple siempre que haya análisis de datos. Si algún día entran noticias como fundamento, deberán declararse con categoría `noticia`.
+- Lo que sigue bloqueando a GKOS: PMP-04 (rol). PMP-09 (ficha de 11 apartados) queda NO_EVALUABLE hasta que se llene; GLB-02 (rol, no forzoso).

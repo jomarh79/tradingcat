@@ -134,3 +134,15 @@ describe('v0.27: Riesgo y Capital por código en la corrida guardada', () => {
     expect(rc(r)['avisos']).toEqual(expect.arrayContaining([expect.stringContaining('sin permiso')]));
   });
 });
+
+describe('v0.28: GLB-03 con los análisis de la corrida como fundamento', () => {
+  it('el Auditor ve GLB-03 cumple y cita los análisis guardados del Fundamental y del Técnico', async () => {
+    const m = montar({ bd: { oficina_v_posiciones: [], trade_executions: [] } });
+    await m.ejecutar({ ticker: 'GKOS', guardar: true, portafolio: 'PMP', monto: 50 });
+    const aud = insertsDe(m.b, 'oficina_analisis').find(f => f['agente'] === 'auditor_reglas');
+    const salida = (aud?.['salida'] ?? {}) as { resultados_reglas?: { codigo: string; resultado: string; evidencia?: string[] }[] };
+    const g = salida.resultados_reglas?.find(x => x.codigo === 'GLB-03');
+    expect(g?.resultado).toBe('cumple');
+    expect(g?.evidencia).toEqual(['analisis:fundamental', 'analisis:tecnico']);
+  });
+});

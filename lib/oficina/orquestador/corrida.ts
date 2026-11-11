@@ -109,13 +109,30 @@ export interface Puertos {
 
 // ----------------------------------------------------------------------------------------------- datos congelados
 
-/** v0.25: al Auditor solo le llegan los NOMBRES de los análisis que terminaron bien (PMP-05 / PLP), nunca sus salidas. Si el sobre no trae `datos`, se deja igual. */
-export function conAnalisisPresentes(sobre: unknown, resultados: Partial<Record<Agente, ResultadoAgente>>): unknown {
+/** Categoría de dato (Auditor) de cada análisis cuando se cita como fundamento de la decisión (GLB-03). */
+const CATEGORIA_FUNDAMENTO: Partial<Record<Agente, string>> = { fundamental: 'estado_financiero', valuacion: 'estimacion', tecnico: 'indicador_tecnico' };
+
+/** v0.25: al Auditor solo le llegan los NOMBRES de los análisis que terminaron bien (PMP-05 / PLP), nunca sus salidas. Si el sobre no trae `datos`, se deja igual.
+ *  v0.28: además cada análisis ok con `analisis_id` se cita como fundamento de la decisión (GLB-03: la decisión no se apoya solo en una noticia):
+ *  entra a `datos_fuente` como referencia al análisis guardado (no su contenido) y sus ids a `datos.fundamentos`. Sin ningún análisis, `fundamentos` queda como venía. */
+export function conAnalisisPresentes(sobre: unknown, resultados: Partial<Record<Agente, ResultadoAgente>>, fecha?: string): unknown {
   if (typeof sobre !== 'object' || sobre === null) return sobre;
-  const o = sobre as { datos?: unknown };
+  const o = sobre as { datos?: unknown; datos_fuente?: unknown };
   if (typeof o.datos !== 'object' || o.datos === null || Array.isArray(o.datos)) return sobre;
   const presentes = AGENTES_ORDEN.filter(a => resultados[a]?.estado === 'ok');
-  return { ...o, datos: { ...(o.datos as object), analisis_presentes: presentes } };
+  const datos: Record<string, unknown> = { ...(o.datos as object), analisis_presentes: presentes };
+  let datos_fuente = o.datos_fuente;
+  if (fecha !== undefined && Array.isArray(o.datos_fuente)) {
+    const citados = presentes.filter(a => CATEGORIA_FUNDAMENTO[a] !== undefined && typeof resultados[a]?.analisis_id === 'string');
+    if (citados.length > 0) {
+      datos_fuente = [...o.datos_fuente, ...citados.map(a => ({
+        id: `analisis:${a}`, campo: `analisis_${a}`, categoria: CATEGORIA_FUNDAMENTO[a], valor: resultados[a]!.analisis_id as string, unidad: null,
+        fuente: 'oficina_analisis (análisis guardado de esta corrida)', fecha_dato: fecha,
+      }))];
+      datos['fundamentos'] = citados.map(a => `analisis:${a}`);
+    }
+  }
+  return { ...o, datos, ...(datos_fuente !== o.datos_fuente ? { datos_fuente } : {}) };
 }
 
 export interface DatosCongelados {
@@ -473,7 +490,7 @@ export async function ejecutarCorrida(
   // ---- Auditor (siempre)
   const ia = bloqueoEstructural !== null
     ? { respuesta: { estado: 'ok' as const, veredicto: 'BLOQUEO_REGLA' as VeredictoAuditor, reglas_revisadas: [bloqueoEstructural.regla] } as RespuestaAuditor, reintentos: 0, started_at: puertos.ahora(), finished_at: puertos.ahora() }
-    : await conReintentos(() => puertos.auditor(conAnalisisPresentes(datos.sobre_auditor, resultados_agentes)), REINTENTOS_AUDITOR, () => puertos.ahora());
+    : await conReintentos(() => puertos.auditor(conAnalisisPresentes(datos.sobre_auditor, resultados_agentes, fecha_evaluacion)), REINTENTOS_AUDITOR, () => puertos.ahora());
   const ra = ia.respuesta;
   let auditoria: Auditoria | null = null;
   let auditorError = ra.estado === 'error' ? (ra.error ?? 'error del Auditor') : null;
