@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Cat, BarChart3, TrendingUp, History, PieChart, Wallet,
-  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode, Menu, X
+  LogOut, Activity, Coins, LayoutDashboard, Eye, EyeOff, SearchCode, Menu, X, Briefcase
 } from 'lucide-react'
 import FearGreedBar from './components/FearGreedBar'
 
@@ -378,6 +378,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 INFORMES
+                              <div style={sectionLabel}>
+                <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
+                OFICINA
+              </div>
+              <MenuLink touch={isMobile} href="/oficina" icon={<Briefcase size={15} />} label="Oficina IA" active={pathname === '/oficina'} />
               </div>
               <MenuLink touch={isMobile} href="/informe-abiertos"   icon={<Coins size={15} />} label="Trades Abiertos"  active={pathname === '/informe-abiertos'}  isSubItem />
               <MenuLink touch={isMobile} href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados"  active={pathname === '/informe-trades'}    isSubItem />
