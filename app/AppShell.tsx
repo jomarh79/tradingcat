@@ -378,17 +378,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div style={sectionLabel}>
                 <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
                 INFORMES
-                              <div style={sectionLabel}>
-                <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
-                OFICINA
-              </div>
-              <MenuLink touch={isMobile} href="/oficina" icon={<Briefcase size={15} />} label="Oficina IA" active={pathname === '/oficina'} />
+                
               </div>
               <MenuLink touch={isMobile} href="/informe-abiertos"   icon={<Coins size={15} />} label="Trades Abiertos"  active={pathname === '/informe-abiertos'}  isSubItem />
               <MenuLink touch={isMobile} href="/informe-trades"     icon={<Coins size={15} />} label="Trades Cerrados"  active={pathname === '/informe-trades'}    isSubItem />
               <MenuLink touch={isMobile} href="/informe-dinero"     icon={<Coins size={15} />} label="Dinero"           active={pathname === '/informe-dinero'} isSubItem />
               <MenuLink touch={isMobile} href="/dividendos-informe" icon={<Coins size={15} />} label="Dividendos"       active={pathname === '/dividendos-informe'} isSubItem />
             </div>
+
+                          <div style={sectionLabel}>
+                <Paw size={7} color="#555" opacity={0.8} style={{ marginRight: 4 }} />
+                OFICINA
+              </div>
+              <MenuLink touch={isMobile} href="/oficina" icon={<Briefcase size={15} />} label="Oficina IA" active={pathname === '/oficina'} />
 
             {/* ── Botón privacidad + huellas al fondo ── */}
             <div style={{ marginTop: 'auto', borderTop: '1px solid #111', padding: '10px 12px', flexShrink: 0, position: 'relative', zIndex: 1 }}>
