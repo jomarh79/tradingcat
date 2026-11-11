@@ -260,3 +260,8 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - PMP-09 siempre decía "Ficha sin: todos los apartados" porque nadie le entregaba la ficha al Auditor. Ahora se lee `oficina_expedientes.ficha.ficha_pmp` = `{ <apartado>: { estado: 'aprobado', texto: '...' } }` y se entrega como `datos.ficha_pmp` (booleanos).
 - Un apartado cuenta solo con estado exactamente `aprobado` y texto no vacío. Borrador, pendiente o sin texto NO cuentan. Sin `ficha_pmp`, todo queda como antes.
 - Apartados: identidad, rol, negocio, rendimiento, volatilidad_riesgo, dividendos_fundamentales, correlacion, plan_ejecucion, decision_final, indices_referencia, competidores.
+
+## v0.30 — reintento con espera ante fallos temporales de Gemini (10-nov-2026)
+- Los 503 (UNAVAILABLE) de Gemini tumbaban agentes sueltos (Técnico, Director, Fundamental) en 4 de las últimas 6 corridas. El reintento inmediato de la corrida (1) cae en la misma ráfaga.
+- `conReintentoTransitorio` (cliente-gemini.ts) envuelve el cliente de Gemini en el selector de proveedor: ante HTTP 429/500/502/503/504 o error de red espera 2 s y reintenta; si falla otra vez espera 5 s y reintenta (3 llamadas como máximo). NO reintenta claves inválidas (401/403), 400, respuestas bloqueadas, truncadas, vacías ni tiempo de espera agotado.
+- El reintento de la corrida (1 por agente) sigue igual encima de esto. En el peor caso un agente tarda ~7 s más.

@@ -1,7 +1,7 @@
 // Selector de proveedor de IA según el entorno. PROVEEDOR_IA es obligatorio (sin valor por omisión: así no se gasta en un proveedor sin querer).
 // En los errores solo van NOMBRES de variables, nunca valores.
 import { ENV_PROVEEDOR_IA, PROVEEDORES_IA, PROVEEDOR_GEMINI, PROVEEDOR_OPENAI } from './constantes';
-import { crearLlamadaGemini, leerConfigGemini } from './cliente-gemini';
+import { conReintentoTransitorio, crearLlamadaGemini, leerConfigGemini } from './cliente-gemini';
 import { crearLlamadaOpenAi, leerConfigOpenAi } from './cliente-openai';
 import type { LlamadaModelo, OpcionesClienteOpenAi } from './cliente-openai';
 
@@ -20,7 +20,7 @@ export function resolverProveedorIa(env: Record<string, string | undefined>, fet
   if (nombre === PROVEEDOR_GEMINI) {
     const c = leerConfigGemini(env);
     if (!c.ok) return c;
-    return { ok: true, proveedor: PROVEEDOR_GEMINI, llamar: crearLlamadaGemini({ api_key: c.api_key, ...extra }), modelo_analista: c.modelo_analista, modelo_director: c.modelo_director };
+    return { ok: true, proveedor: PROVEEDOR_GEMINI, llamar: conReintentoTransitorio(crearLlamadaGemini({ api_key: c.api_key, ...extra })), modelo_analista: c.modelo_analista, modelo_director: c.modelo_director };
   }
   return { ok: false, faltan: [`${ENV_PROVEEDOR_IA} (valores válidos: ${PROVEEDORES_IA.join(' o ')})`] };
 }
