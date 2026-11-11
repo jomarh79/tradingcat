@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolverHechosPosicion } from './index';
 import type { FilasPosicion } from './index';
 import { ID_DATO_PRECIO_CIERRE, ID_DATO_SENAL_ENTRADA_PMP, datosPmp01 } from './flujo-auditoria';
-import { ID_DATO_HORIZONTE, ID_DATO_VALOR_ESTIMADO } from './hechos-bd';
+import { ID_DATO_HORIZONTE, ID_DATO_VALOR_ESTIMADO, fichaPmpAprobada } from './hechos-bd';
 
 const PF = '11111111-1111-4111-8111-111111111111';
 const EX = '33333333-3333-4333-8333-333333333333';
@@ -69,5 +69,25 @@ describe('v0.24 señal de entrada de PMP como dato', () => {
     expect(s).toBeDefined();
     expect(typeof s!.valor).toBe('boolean');
     expect(s!.fuente).toContain('señales mínimas');
+  });
+});
+
+describe('v0.29 ficha PMP: solo cuentan los apartados aprobados con texto', () => {
+  const ap = (texto: unknown, estado: unknown = 'aprobado') => ({ estado, texto });
+  it('aprobado con texto = true; borrador, sin texto, texto vacío o formato raro = false', () => {
+    const r = fichaPmpAprobada({ ficha_pmp: { identidad: ap('GKOS'), rol: ap('mixto', 'borrador'), negocio: ap(''), correlacion: ap('   '), competidores: { estado: 'aprobado' }, otro: 'x', n: null } });
+    expect(r).toEqual({ identidad: true, rol: false, negocio: false, correlacion: false, competidores: false, otro: false, n: false });
+  });
+  it('solo el estado exacto "aprobado" cuenta: pendiente, rechazado, mayúsculas o vacío no', () => {
+    for (const e of ['pendiente', 'rechazado', 'Aprobado', '', null, 1]) expect(fichaPmpAprobada({ ficha_pmp: { identidad: ap('GKOS', e) } })).toEqual({ identidad: false });
+  });
+  it('sin ficha_pmp (o ficha rara) devuelve null: PMP-09 queda como antes', () => {
+    for (const f of [{}, null, undefined, [], 'x', { ficha_pmp: null }, { ficha_pmp: [] }, { ficha_pmp: 'x' }]) expect(fichaPmpAprobada(f)).toBeNull();
+  });
+  it('llega a los hechos del Auditor como datos.ficha_pmp', () => {
+    const r = resolverHechosPosicion(filas({ ficha_pmp: { identidad: ap('GKOS'), rol: ap('mixto', 'borrador') } }), Q);
+    expect(r.ok && r.hechos.datos?.ficha_pmp).toEqual({ identidad: true, rol: false });
+    const sin = resolverHechosPosicion(filas({}), Q);
+    expect(sin.ok && sin.hechos.datos).toBeUndefined();
   });
 });

@@ -62,6 +62,20 @@ function valuacionDeclarada(ficha: unknown): DatoFuente[] | null {
   ];
 }
 
+/** v0.29: `ficha.ficha_pmp` = { <apartado>: { estado: 'aprobado', texto } }. Un apartado cuenta como completo (PMP-09) solo si el usuario lo aprobó y trae texto;
+ *  un borrador, un apartado vacío o cualquier otro estado NO cuenta. Sin `ficha_pmp` devuelve null y PMP-09 queda como antes (ficha sin apartados). */
+export function fichaPmpAprobada(ficha: unknown): Record<string, boolean> | null {
+  if (typeof ficha !== 'object' || ficha === null || Array.isArray(ficha)) return null;
+  const f = (ficha as Record<string, unknown>)['ficha_pmp'];
+  if (typeof f !== 'object' || f === null || Array.isArray(f)) return null;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(f as Record<string, unknown>)) {
+    const o = typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    out[k] = o !== null && o['estado'] === 'aprobado' && typeof o['texto'] === 'string' && o['texto'].trim().length > 0;
+  }
+  return out;
+}
+
 /** Plan declarado en la ficha: null si no hay plan o no está declarado; `problema` si está declarado con modalidad inválida (declarado con modalidad inválida). */
 function planDeclarado(ficha: unknown): { plan: PlanPCP } | { problema: string } | null {
   if (typeof ficha !== 'object' || ficha === null || Array.isArray(ficha)) return null;
@@ -135,6 +149,8 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     const plan = planDeclarado(x0.ficha);
     if (plan !== null && 'problema' in plan) problemas.push(`${q.ticker}: ${plan.problema}`);
     else if (plan !== null && q.posicion_existe) hechos.posicion = { ...hechos.posicion, plan_pcp: plan.plan };
+    const fp = fichaPmpAprobada(x0.ficha);
+    if (fp !== null) hechos.datos = { ...hechos.datos, ficha_pmp: fp };
     const val = valuacionDeclarada(x0.ficha);
     if (val !== null) hechos.datos_fuente = [...(hechos.datos_fuente ?? []), ...val];
   }

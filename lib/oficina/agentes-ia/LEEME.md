@@ -255,3 +255,8 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Riesgo y Capital (por código, sin análisis guardado) no se cita. Sin ningún análisis ok, `fundamentos` queda vacío y GLB-03 sigue NO_EVALUABLE (no se finge).
 - El sistema no ingiere noticias: GLB-03 cumple siempre que haya análisis de datos. Si algún día entran noticias como fundamento, deberán declararse con categoría `noticia`.
 - Lo que sigue bloqueando a GKOS: PMP-04 (rol). PMP-09 (ficha de 11 apartados) queda NO_EVALUABLE hasta que se llene; GLB-02 (rol, no forzoso).
+
+## v0.29 — PMP-09 lee la ficha aprobada (10-nov-2026)
+- PMP-09 siempre decía "Ficha sin: todos los apartados" porque nadie le entregaba la ficha al Auditor. Ahora se lee `oficina_expedientes.ficha.ficha_pmp` = `{ <apartado>: { estado: 'aprobado', texto: '...' } }` y se entrega como `datos.ficha_pmp` (booleanos).
+- Un apartado cuenta solo con estado exactamente `aprobado` y texto no vacío. Borrador, pendiente o sin texto NO cuentan. Sin `ficha_pmp`, todo queda como antes.
+- Apartados: identidad, rol, negocio, rendimiento, volatilidad_riesgo, dividendos_fundamentales, correlacion, plan_ejecucion, decision_final, indices_referencia, competidores.
