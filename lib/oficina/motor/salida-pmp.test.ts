@@ -11,10 +11,15 @@ function e(p: Partial<EntradaSalidaPMP> = {}): EntradaSalidaPMP {
 }
 
 describe('salidas de PMP: cuántas', () => {
-  it('50 o menos: 2 salidas; más de 50: 3', () => {
+  it('50 o menos: 2 salidas; más de 50: 3 (con tolerancia de 1 USD por las fracciones)', () => {
     expect(totalSalidasPMP('50')).toBe(2);
     expect(totalSalidasPMP('49.99')).toBe(2);
-    expect(totalSalidasPMP('50.00000001')).toBe(3);
+    expect(totalSalidasPMP('50.4')).toBe(2);
+    expect(totalSalidasPMP('51')).toBe(2);
+    expect(totalSalidasPMP('51.00000001')).toBe(3);
+    expect(totalSalidasPMP('60')).toBe(3);
+  });
+  it('una recompra de 10 USD sobre 50 pasa a 3 salidas', () => {
     expect(totalSalidasPMP('60')).toBe(3);
   });
 });
@@ -29,7 +34,7 @@ describe('salidas de PMP: nivel planeado', () => {
   it('el nivel planeado basta solo (2 salidas: primera es REDUCIR 25)', () => {
     const r = evaluarSalidaPMP(e({ precio_actual: '120' }));
     expect(r.exigida).toMatchObject({ decision: 'REDUCIR', porcentaje: 25, regla: 'PMP-SALIDA' });
-    expect(r.exigida?.detalle).toContain('posición original');
+    expect(r.exigida?.detalle).toContain('que tengas en ese momento');
     expect(r.motivo).toBe('nivel_planeado');
   });
   it('con 2 salidas, la segunda es VENDER 100 en TP2 (TP3 no cuenta)', () => {
@@ -39,7 +44,7 @@ describe('salidas de PMP: nivel planeado', () => {
     expect(r.total_salidas).toBe(2);
   });
   it('con 3 salidas: 25, 25 y el resto', () => {
-    const base = { monto_invertido: '75' };
+    const base = { monto_invertido: '75' };   // 75 > 51: tres salidas
     expect(evaluarSalidaPMP(e({ ...base, precio_actual: '121' })).exigida).toMatchObject({ decision: 'REDUCIR', porcentaje: 25 });
     expect(evaluarSalidaPMP(e({ ...base, precio_actual: '141', niveles: [nv('120', true), nv('140'), nv('160')] })).exigida).toMatchObject({ decision: 'REDUCIR', porcentaje: 25 });
     expect(evaluarSalidaPMP(e({ ...base, precio_actual: '161', niveles: [nv('120', true), nv('140', true), nv('160')] })).exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });

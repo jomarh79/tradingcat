@@ -3,15 +3,19 @@ import type { SalidaExigida } from './tipos';
 
 /** Plan de salidas de PMP (reglas aprobadas el 10-nov). Código determinista; el Motor solo recibe el resultado.
  *
- *  - Cuántas salidas: 2 si lo invertido es 50 USD o menos (25% y el resto), 3 si es más (25%, 25% y el resto).
+ *  - Cuántas salidas: 2 si lo invertido es 50 USD o menos (25% y el resto), 3 si es más (25%, 25% y el resto). Las compras en fracciones de acción casi nunca
+ *    cierran justo en 50: se tolera hasta `TOLERANCIA_MONTO` USD de más (50.40 sigue siendo «50»). Las recompras suman al monto invertido.
  *  - Los niveles planeados de cada salida son TP1, TP2 y TP3 del trade (soportes/resistencias que se fijan al entrar); la casilla «cumplido» dice cuáles ya se hicieron.
  *  - Un nivel planeado basta solo: precio actual ≥ nivel de la siguiente salida.
  *  - Los demás criterios (banda superior de Mogalef, RSI sobrecomprado, resistencia pasada) piden DOS confirmaciones. Tras una salida, esas dos tienen que ser
  *    NUEVAS: señales que hoy se cumplen y que NO se cumplían en la vela de la salida anterior [PROPUESTA de lectura de «dos confirmaciones nuevas»].
- *  - Los porcentajes de REDUCIR son de la POSICIÓN ORIGINAL (25% de lo comprado); la última salida es VENDER todo lo que queda.
+ *  - El 25% de REDUCIR es sobre la posición que se tenga EN ESE MOMENTO (con las recompras que haya habido); la última salida es VENDER todo lo que queda.
+ *  - Cuando una salida se cumple, el usuario marca su casilla «cumplido» (TP1/TP2/TP3) en Trades abiertos y la siguiente pasa a evaluarse; la Oficina no escribe en `trades`.
  *  - Nunca decide el 14% anualizado (eso es una revisión semestral aparte) ni vende por stop. */
 
 export const MONTO_LIMITE_DOS_SALIDAS = '50';
+/** USD de más que se toleran sobre el límite por compras en fracciones [PROPUESTA: 1 USD]. */
+export const TOLERANCIA_MONTO = '1';
 export const PORCENTAJE_SALIDA_PARCIAL = 25;
 export const REGLA_SALIDA_PMP = 'PMP-SALIDA';
 export const SENALES_SALIDA_PMP = ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'] as const;
@@ -45,7 +49,7 @@ export interface ResultadoSalidaPMP {
 }
 
 export function totalSalidasPMP(monto_invertido: string): 2 | 3 {
-  return dec(monto_invertido) <= dec(MONTO_LIMITE_DOS_SALIDAS) ? 2 : 3;
+  return dec(monto_invertido) <= dec(MONTO_LIMITE_DOS_SALIDAS) + dec(TOLERANCIA_MONTO) ? 2 : 3;
 }
 
 export function evaluarSalidaPMP(e: EntradaSalidaPMP): ResultadoSalidaPMP {
@@ -92,6 +96,6 @@ export function evaluarSalidaPMP(e: EntradaSalidaPMP): ResultadoSalidaPMP {
   }
   const exigida: SalidaExigida = ultima
     ? { decision: 'VENDER', porcentaje: 100, regla: REGLA_SALIDA_PMP, detalle: `Salida ${numero} de ${total} (última): ${detalleMotivo}; se vende todo lo que queda` }
-    : { decision: 'REDUCIR', porcentaje: PORCENTAJE_SALIDA_PARCIAL, regla: REGLA_SALIDA_PMP, detalle: `Salida ${numero} de ${total}: ${detalleMotivo}; se reduce el ${PORCENTAJE_SALIDA_PARCIAL}% de la posición original` };
+    : { decision: 'REDUCIR', porcentaje: PORCENTAJE_SALIDA_PARCIAL, regla: REGLA_SALIDA_PMP, detalle: `Salida ${numero} de ${total}: ${detalleMotivo}; se reduce el ${PORCENTAJE_SALIDA_PARCIAL}% de la posición que tengas en ese momento` };
   return { ...base, confirmaciones_nuevas: nuevas, exigida, siguiente: numero, nivel_siguiente: nivel, motivo };
 }

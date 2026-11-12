@@ -270,10 +270,10 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 
 Reglas aprobadas el 10-nov. Solo lectura: la Oficina propone, no vende ni escribe en `trades`.
 
-- **Cuántas salidas:** 2 si lo invertido (suma de compras) es 50 USD o menos (25% y el resto); 3 si es más (25%, 25% y el resto).
+- **Cuántas salidas:** 2 si lo invertido (suma de compras y recompras) es 50 USD o menos (25% y el resto); 3 si es más (25%, 25% y el resto). Se tolera 1 USD de más por las fracciones de acción (`TOLERANCIA_MONTO`).
 - **Niveles planeados:** `take_profit_1..3` del trade; las casillas `tp1_hit..tp3_hit` dicen cuáles ya se hicieron. Un nivel basta solo (precio ≥ nivel de la siguiente salida).
 - **Confirmaciones:** RSI sobrecomprado, banda superior de Mogalef y resistencia pasada; se piden DOS. Tras una salida deben ser NUEVAS: no cumplirse en la última vela cerrada anterior a la venta anterior [PROPUESTA de lectura].
-- **Porcentajes:** REDUCIR 25% es de la posición ORIGINAL; la última salida es VENDER todo lo que queda.
+- **Porcentajes:** el 25% es sobre la posición que se tenga en ese momento (con las recompras que haya habido); la última salida es VENDER todo lo que queda. Tú marcas «cumplido» el TP en Trades abiertos y la siguiente pasa a evaluarse.
 - **Sin datos:** sin velas/cierre no se evalúa y se declara en `datos_faltantes`; un nivel sin declarar o sin poder reconstruir la vela anterior se declara como aviso y el resto sigue valiendo.
 - **Archivos nuevos:** `motor/salida-pmp.ts`, `orquestador/senales-previas.ts`, `conexion/salida-pmp-bd.ts` (+ pruebas) y `agentes-ia/refuerzo-v31.test.ts`.
 - **Cambios:** nuevo uso `salida_pmp` del Técnico (2 de 3 señales), `corrida.ts` (`datos.salida_pmp`, `referencias.salida_pmp`; el cálculo de código del Técnico corre en PMP abierta), `analisis-guardado.ts` (lee `trades` y `trade_executions`; si no se pueden leer o son inválidos responde 422 sin llamar a ningún modelo).
