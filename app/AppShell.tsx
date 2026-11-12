@@ -80,18 +80,23 @@ const Whiskers = ({ color = '#00bfff', opacity = 0.1, w = 80 }: any) => (
 
 // `touch` agranda el área de toque en el celular (≈44px, el mínimo cómodo para el dedo)
 function MenuLink({ href, icon, label, active, isSubItem, touch }: any) {
+  const [hover, setHover] = useState(false)
+  const hot = hover && !active && !touch   // en el celular no hay "pasar el mouse"
   return (
-    <Link href={href} style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      textDecoration: 'none', transition: 'all 0.15s',
-      background: active ? 'rgba(0,191,255,0.07)' : 'transparent',
-      color: active ? '#00bfff' : isSubItem ? '#888' : '#bbb',
-      borderLeft: active ? '2px solid #00bfff' : '2px solid transparent',
-      paddingRight: 14,
-      paddingLeft: isSubItem ? 38 : 14,
-      height: touch ? (isSubItem ? 40 : 46) : (isSubItem ? 28 : 38),
-    }}>
-      {icon && <span style={{ opacity: active ? 1 : 0.6 }}>{icon}</span>}
+    <Link href={href}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        textDecoration: 'none', transition: 'all 0.15s',
+        background: active ? 'rgba(0,191,255,0.07)' : hot ? 'rgba(0,191,255,0.13)' : 'transparent',
+        color: active || hot ? '#00bfff' : isSubItem ? '#888' : '#bbb',
+        borderLeft: active ? '2px solid #00bfff' : hot ? '2px solid rgba(0,191,255,0.5)' : '2px solid transparent',
+        paddingRight: 14,
+        paddingLeft: isSubItem ? 38 : 14,
+        height: touch ? (isSubItem ? 40 : 46) : (isSubItem ? 28 : 38),
+      }}>
+      {icon && <span style={{ opacity: active || hot ? 1 : 0.6 }}>{icon}</span>}
       {/* Huella mini solo en items activos */}
       {active && !isSubItem && (
         <Paw size={7} color="#00bfff" opacity={0.5} style={{ marginLeft: -4 }} />
