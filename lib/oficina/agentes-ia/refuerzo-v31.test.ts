@@ -103,4 +103,13 @@ describe('v0.31: plan de salidas de PMP en la corrida guardada', () => {
     await m.ejecutar();
     expect(m.b.e.filtros['trades']).toBeUndefined();
   });
+  it('caso META: trade abierto SIN ejecuciones (la apertura vive en trades): la corrida se prepara y el plan tiene 2 salidas', async () => {
+    const meta = TRADE({ entry_price: 615.755, initial_quantity: 0.08099, take_profit_1: 780, take_profit_2: 870, take_profit_3: null });
+    const m = montar({ bd: bdAbierta([meta], []) });
+    const r = await m.ejecutar();
+    expect(r.http).toBe(200);
+    expect(r.cuerpo['auditoria_veredicto']).toBe('CUMPLE');   // sin la compra inicial el Auditor quedaba sin hechos («no tiene compras registradas»)
+    const ref = (corridaRpc(m)?.['referencias'] as Fila)['salida_pmp'] as Fila;
+    expect(ref).toMatchObject({ total_salidas: 2, hechas: 0, siguiente: 1, nivel_siguiente: '780' });
+  });
 });

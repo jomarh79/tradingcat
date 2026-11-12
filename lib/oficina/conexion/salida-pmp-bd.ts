@@ -1,17 +1,19 @@
 // Datos para el plan de salidas de PMP, leídos de la base (solo lectura):
 //   trades(id, take_profit_1..3, tp1_hit..tp3_hit)  -> niveles planeados y casillas «cumplido» (las que llenas en Nuevo Trade / Trades abiertos)
-//   trade_executions(execution_type, executed_at, total) -> monto invertido (suma de compras) y fecha de la última venta.
+//   trades(entry_price, initial_quantity) -> compra inicial (la apertura NO tiene fila en trade_executions)
+//   trade_executions(execution_type, executed_at, total) -> recompras (suman al monto invertido) y fecha de la última venta.
 // No inventa nada: un dato inválido devuelve `problemas` y la corrida no se prepara. El cálculo de la salida NO está aquí (ver motor/salida-pmp.ts).
 
 import { aDec, REGEX_FECHA, textoDec } from '../auditor/numeros';
 import type { NivelSalidaPMP } from '../motor/salida-pmp';
 import { senalesDeSalidaAntesDe } from '../orquestador/senales-previas';
 import type { Candle } from '../tecnico';
+import { compraDeApertura } from './apertura-trade';
 import { EJECUCION_COMPRA, EJECUCION_VENTA } from './hechos-bd';
 import type { FilaEjecucion } from './hechos-bd';
 
 export const TABLA_TRADES = 'trades';
-export const COLUMNAS_TRADE_SALIDA = 'id,take_profit_1,take_profit_2,take_profit_3,tp1_hit,tp2_hit,tp3_hit';
+export const COLUMNAS_TRADE_SALIDA = 'id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3,tp1_hit,tp2_hit,tp3_hit';
 
 export interface DatosSalidaPmp {
   monto_invertido: string;
@@ -45,7 +47,8 @@ export function construirDatosSalidaPmp(
     nivelDe(trade['take_profit_3'], trade['tp3_hit'], 'take_profit_3', problemas),
   ];
 
-  let invertido = BigInt(0);
+  const apertura = compraDeApertura(trade, ejecuciones.filter(x => x.execution_type === EJECUCION_COMPRA));
+  let invertido = apertura !== null ? apertura.total : BigInt(0);
   let ultima: string | null = null;
   for (const x of ejecuciones) {
     if (x.execution_type === EJECUCION_COMPRA) {

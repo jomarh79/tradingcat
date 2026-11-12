@@ -223,7 +223,7 @@ describe('correrAporteEtf', () => {
     expect(b.tablas['oficina_expedientes']?.[0]).toMatchObject({ ticker: 'XLK', portafolio_codigo: 'ETF', tesis_origen: 'reconstruida' });
     // solo analiza y registra: nada de operaciones ni de TradingCat
     expect(b.e.inserts.map((i) => i.tabla).sort()).toEqual(['oficina_analisis', 'oficina_expedientes']);
-    expect(b.e.orden.filter((o) => o.startsWith('select:trades') || o.startsWith('insert:trade'))).toEqual([]);
+    expect(b.e.orden.filter((o) => o.startsWith('insert:trade') || o.startsWith('update:trade') || o.startsWith('delete:trade'))).toEqual([]);
     expect(b.e.orden.indexOf('rpc:oficina_registrar_corrida')).toBeGreaterThan(b.e.orden.indexOf('insert:oficina_analisis'));
   });
   it('la respuesta no contiene tokens, claves ni cabeceras', async () => {

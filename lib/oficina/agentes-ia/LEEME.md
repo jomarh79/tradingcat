@@ -279,3 +279,9 @@ Reglas aprobadas el 10-nov. Solo lectura: la Oficina propone, no vende ni escrib
 - **Cambios:** nuevo uso `salida_pmp` del Técnico (2 de 3 señales), `corrida.ts` (`datos.salida_pmp`, `referencias.salida_pmp`; el cálculo de código del Técnico corre en PMP abierta), `analisis-guardado.ts` (lee `trades` y `trade_executions`; si no se pueden leer o son inválidos responde 422 sin llamar a ningún modelo).
 - **Pantalla /oficina:** el detalle muestra «Plan de salidas (PMP)».
 - **Fuera de esta versión:** revisión semestral del 14% y «pierde fundamentales» (PMP-11); la figura chartista sigue siendo confirmación tuya.
+
+## v0.33 — La compra inicial vive en `trades`
+
+La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ventas). Caso real: META en PMP, 615.755 × 0.08099 = 49.87 USD y cero ejecuciones.
+- Nuevo `conexion/apertura-trade.ts`: compra inicial = `entry_price × initial_quantity`, redondeada al centavo; si una ejecución de compra ya trae esa cantidad no se suma dos veces.
+- `hechos-bd.ts` (hechos del Auditor) y `salida-pmp-bd.ts` (monto invertido del plan de salidas) la usan; `cargarHechosPosicion` lee ahora `trades(id, entry_price, initial_quantity)`.

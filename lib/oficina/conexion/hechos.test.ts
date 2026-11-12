@@ -186,16 +186,17 @@ function clienteLectura(datos: Record<string, unknown[] | { error: string }>, ll
     },
   };
 }
-const DATOS = () => { const f = filas(); return { oficina_v_posiciones: f.posiciones, trade_executions: f.ejecuciones, oficina_v_capital: f.capital, oficina_expedientes: f.expedientes }; };
+const DATOS = () => { const f = filas(); return { oficina_v_posiciones: f.posiciones, trade_executions: f.ejecuciones, trades: [] as unknown[], oficina_v_capital: f.capital, oficina_expedientes: f.expedientes }; };
 
 describe('cargarHechosPosicion', () => {
-  it('lee las 4 tablas con los filtros correctos y devuelve los mismos hechos que la función pura', async () => {
+  it('lee las 5 tablas con los filtros correctos y devuelve los mismos hechos que la función pura', async () => {
     const ll: Llamada[] = [];
     const r = await cargarHechosPosicion(clienteLectura(DATOS(), ll), Q);
     expect(r).toEqual(resolverHechosPosicion(filas(), Q));
     expect(ll).toEqual([
       { tabla: 'oficina_v_posiciones', cols: 'trade_id,portfolio_id,ticker,fecha_apertura', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
       { tabla: 'trade_executions', cols: 'id,trade_id,execution_type,price,quantity,executed_at,total', filtros: [['trade_id', TR]] },
+      { tabla: 'trades', cols: 'id,entry_price,initial_quantity', filtros: [['id', TR]] },
       { tabla: 'oficina_v_capital', cols: 'portfolio_id,posiciones_abiertas', filtros: [['portfolio_id', PF]] },
       { tabla: 'oficina_expedientes', cols: 'id,ticker,portfolio_id,rol_posicion,ficha', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
     ]);
@@ -205,7 +206,7 @@ describe('cargarHechosPosicion', () => {
     const d = { ...DATOS(), oficina_v_posiciones: [] };
     const r = await cargarHechosPosicion(clienteLectura(d, ll), { ...Q, posicion_existe: false });
     expect(r.ok).toBe(true);
-    expect(ll.map((x) => x.tabla)).toEqual(['oficina_v_posiciones', 'oficina_v_capital', 'oficina_expedientes']);
+    expect(ll.map((x) => x.tabla)).toEqual(['oficina_v_posiciones', 'oficina_v_capital', 'oficina_expedientes']);   // sin posición tampoco lee trades
   });
   it('si la posición no coincide con lo declarado no consulta ejecuciones y devuelve el problema', async () => {
     const ll: Llamada[] = [];
@@ -222,7 +223,7 @@ describe('cargarHechosPosicion', () => {
     expect(l2.map((x) => x.tabla)).not.toContain('trade_executions');
     expect(r.ok).toBe(false);
   });
-  for (const t of ['oficina_v_posiciones', 'trade_executions', 'oficina_v_capital', 'oficina_expedientes']) {
+  for (const t of ['oficina_v_posiciones', 'trade_executions', 'trades', 'oficina_v_capital', 'oficina_expedientes']) {
     it(`devuelve el error de la base de ${t} tal cual y se detiene`, async () => {
       const ll: Llamada[] = [];
       const r = await cargarHechosPosicion(clienteLectura({ ...DATOS(), [t]: { error: 'boom' } }, ll), Q);
@@ -316,5 +317,30 @@ describe('guardarAnalisisAuditor', () => {
     expect(r).toEqual({ ok: false, problemas: ['oficina_analisis: red caída'], error_bd: 'red caída' });
     const s = await guardarAnalisisAuditor({ from() { throw 'texto'; } } as unknown as ClienteInsercion, SALIDA, IDS);
     expect(s).toEqual({ ok: false, problemas: ['oficina_analisis: texto'], error_bd: 'texto' });
+  });
+});
+
+describe('v0.33: la compra inicial vive en trades (la apertura no tiene ejecución)', () => {
+  const trade = { id: TR, entry_price: 615.755, initial_quantity: 0.08099 };
+  it('sin ejecuciones, la compra inicial entra como compra y fija el costo promedio', () => {
+    const r = resolverHechosPosicion({ ...filas({ ejecuciones: [] }), trades: [trade] }, Q);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.hechos.posicion?.compras).toEqual([{ fecha: '2026-10-06', monto: '49.87' }]);
+    expect(r.hechos.posicion?.costo_promedio_ponderado).toBe('615.755');
+  });
+  it('sin trades (comportamiento anterior) una posición sin ejecuciones sigue sin compras', () => {
+    const r = resolverHechosPosicion(filas({ ejecuciones: [] }), Q);
+    expect(r.ok).toBe(false);
+  });
+  it('la compra inicial va primero y las recompras de las ejecuciones se suman', () => {
+    const rec = { id: 'x1', trade_id: TR, execution_type: 'buy', price: 500, quantity: 0.02, executed_at: '2026-10-20T10:00:00', total: 10 };
+    const r = resolverHechosPosicion({ ...filas({ ejecuciones: [rec] }), trades: [trade] }, Q);
+    expect(r.ok && r.hechos.posicion?.compras).toEqual([{ fecha: '2026-10-06', monto: '49.87' }, { fecha: '2026-10-20', monto: '10' }]);
+  });
+  it('si una ejecución de compra ya trae la cantidad inicial, no se suma dos veces', () => {
+    const ap = { id: 'x0', trade_id: TR, execution_type: 'buy', price: 615.755, quantity: 0.08099, executed_at: '2026-10-06T10:00:00', total: 49.87 };
+    const r = resolverHechosPosicion({ ...filas({ ejecuciones: [ap] }), trades: [trade] }, Q);
+    expect(r.ok && r.hechos.posicion?.compras).toHaveLength(1);
   });
 });

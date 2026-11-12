@@ -6,6 +6,8 @@
 import { aDec, REGEX_FECHA, textoDec } from '../auditor/numeros';
 import type { DatoFuente, PlanPCP } from '../auditor';
 import type { HechosAuditor } from './entrada-auditor';
+import { COLUMNAS_TRADE_APERTURA, compraDeApertura } from './apertura-trade';
+export const TABLA_TRADES_APERTURA = 'trades';
 
 export const TABLA_POSICIONES = 'oficina_v_posiciones';
 export const TABLA_EJECUCIONES = 'trade_executions';
@@ -32,6 +34,8 @@ export interface FilaExpediente { id: string; ticker: string; portfolio_id: stri
 
 export interface FilasPosicion {
   posiciones: FilaPosicion[]; ejecuciones: FilaEjecucion[]; capital: FilaCapital[]; expedientes: FilaExpediente[];
+  /** v0.33: filas de `trades` del trade de la posición (compra inicial: entry_price × initial_quantity). Ausente = comportamiento anterior. */
+  trades?: unknown[];
 }
 export interface ConsultaPosicion { portfolio_id: string; ticker: string; posicion_existe: boolean }
 export type ResultadoHechosPosicion =
@@ -124,6 +128,14 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
       sumaPQ += precio * cant;
       sumaQ += cant;
     }
+    // v0.33: la compra inicial vive en `trades` (no en trade_executions). Va primero; si una ejecución ya la contiene no se suma otra vez.
+    const tradeFila = (filas.trades ?? []).find((t) => typeof t === 'object' && t !== null && (t as Record<string, unknown>)['id'] === p.trade_id);
+    const apertura = tradeFila === undefined ? null : compraDeApertura(tradeFila, ej.filter((e) => e.execution_type === EJECUCION_COMPRA));
+    if (apertura !== null && typeof p.fecha_apertura === 'string' && REGEX_FECHA.test(p.fecha_apertura)) {
+      compras.unshift({ fecha: p.fecha_apertura, monto: textoDec(apertura.total) });
+      sumaPQ += apertura.precio * apertura.cantidad;
+      sumaQ += apertura.cantidad;
+    }
     if (compras.length === 0) problemas.push(`${q.ticker}: la posición no tiene compras registradas`);
     let cpp: string | null = null;
     if (sumaQ > CERO) cpp = textoDec((BigInt(2) * sumaPQ + sumaQ) / (BigInt(2) * sumaQ)); // half-up a la escala interna
@@ -184,9 +196,15 @@ export async function cargarHechosPosicion(cliente: ClienteLectura, q: ConsultaP
     if ('error' in b) return falla(b.error);
     ejecuciones = b.filas as FilaEjecucion[];
   }
+  let trades: unknown[] = [];
+  if (q.posicion_existe && posiciones.length === 1 && posiciones[0]?.trade_id) {
+    const tr = await leer(TABLA_TRADES_APERTURA, COLUMNAS_TRADE_APERTURA, [['id', posiciones[0].trade_id]]);
+    if ('error' in tr) return falla(tr.error);
+    trades = tr.filas;
+  }
   const c = await leer(TABLA_CAPITAL, COLUMNAS_CAPITAL, [['portfolio_id', q.portfolio_id]]);
   if ('error' in c) return falla(c.error);
   const d = await leer(TABLA_EXPEDIENTES, COLUMNAS_EXPEDIENTES, [['portfolio_id', q.portfolio_id], ['ticker', q.ticker]]);
   if ('error' in d) return falla(d.error);
-  return resolverHechosPosicion({ posiciones, ejecuciones, capital: c.filas as FilaCapital[], expedientes: d.filas as FilaExpediente[] }, q);
+  return resolverHechosPosicion({ posiciones, ejecuciones, trades, capital: c.filas as FilaCapital[], expedientes: d.filas as FilaExpediente[] }, q);
 }

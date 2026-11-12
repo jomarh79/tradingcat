@@ -37,4 +37,18 @@ describe('construirDatosSalidaPmp', () => {
     expect(construirDatosSalidaPmp(trade({ take_profit_2: 'doce' }), [compra('a', 50)], null, 'GKOS', 'x')).toMatchObject({ ok: false });
     expect(construirDatosSalidaPmp(trade(), [compra('a', 50), { ...venta('v', '2026-10-05'), executed_at: null }], null, 'GKOS', 'x')).toMatchObject({ ok: false });
   });
+  it('META real: sin ejecuciones, el monto invertido sale de la compra inicial del trade (49.87)', () => {
+    const t = trade({ entry_price: 615.755, initial_quantity: 0.08099, take_profit_1: 780, take_profit_2: 870, take_profit_3: null });
+    const r = construirDatosSalidaPmp(t, [], null, 'META', 'x');
+    expect(r).toMatchObject({ ok: true, datos: { monto_invertido: '49.87', ultima_venta: null } });
+  });
+  it('la compra inicial se suma a las recompras', () => {
+    const r = construirDatosSalidaPmp(trade({ entry_price: 100, initial_quantity: 0.5 }), [compra('rec', 10)], null, 'META', 'x');
+    expect(r).toMatchObject({ ok: true, datos: { monto_invertido: '60' } });
+  });
+  it('no se suma dos veces si una ejecución ya es la apertura', () => {
+    const ap = { ...compra('ap', 50), quantity: 0.5 };
+    const r = construirDatosSalidaPmp(trade({ entry_price: 100, initial_quantity: 0.5 }), [ap], null, 'META', 'x');
+    expect(r).toMatchObject({ ok: true, datos: { monto_invertido: '50' } });
+  });
 });
