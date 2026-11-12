@@ -37,6 +37,16 @@ interface Agente {
 }
 interface Regla { codigo: string; resultado: string; detalle: string }
 interface Motivo { codigo: string; detalle: string }
+interface PlanSalida {
+  total_salidas: number | null
+  hechas: number | null
+  siguiente: number | null
+  nivel_siguiente: string | null
+  motivo: string | null
+  confirmaciones_nuevas: string[]
+  faltantes: string[]
+  exigida: { decision: string; porcentaje: number | null; detalle: string } | null
+}
 interface Detalle {
   corrida: Corrida & { ruta: string | null; disparador: string | null; snapshot_fecha_datos: string | null }
   agentes: Agente[]
@@ -46,6 +56,7 @@ interface Detalle {
   datos_faltantes: string[]
   avisos: string[]
   datos_vencidos: string[]
+  salida_pmp: PlanSalida | null
 }
 
 // Verde = comprar, amarillo = esperar / mantener, rojo = bloqueado o salida, gris = sin decisión
@@ -226,6 +237,21 @@ export default function OficinaPage() {
             </div>
           )}
         </Seccion>
+
+        {d.salida_pmp && (
+          <Seccion titulo="Plan de salidas (PMP)">
+            <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>
+              {d.salida_pmp.hechas ?? 0} de {d.salida_pmp.total_salidas ?? '—'} salidas hechas
+              {d.salida_pmp.siguiente !== null && <> · siguiente: salida {d.salida_pmp.siguiente}{d.salida_pmp.nivel_siguiente ? <> en nivel {d.salida_pmp.nivel_siguiente}</> : <> sin nivel planeado</>}</>}
+              {d.salida_pmp.siguiente === null && <> · ya no quedan salidas por hacer</>}
+            </div>
+            {d.salida_pmp.exigida
+              ? <div style={{ fontSize: 12, color: C.danger, fontWeight: 700 }}>{d.salida_pmp.exigida.decision}{d.salida_pmp.exigida.porcentaje !== null ? ` ${d.salida_pmp.exigida.porcentaje}%` : ''} · {d.salida_pmp.exigida.detalle}</div>
+              : <Vacio texto="Hoy no se cumple ninguna condición de salida." />}
+            {d.salida_pmp.confirmaciones_nuevas.length > 0 && <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Confirmaciones: {d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')}</div>}
+            {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
 
         <Seccion titulo="Datos faltantes">
           {d.datos_faltantes.length === 0 && d.datos_vencidos.length === 0

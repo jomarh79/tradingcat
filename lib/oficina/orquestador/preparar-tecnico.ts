@@ -29,7 +29,7 @@ import { registrarRachaMogalefSuperior } from './racha';
 import type { RachaRegistrada, ResultadoRacha } from './racha';
 
 /** Usos del detonante que se calculan en cada corrida. */
-export const USOS_DETONANTE = ['apertura_pcp', 'recompra_pcp', 'dca_plp', 'salida_pcp', 'apertura_pmp'] as const satisfies readonly UsoSenales[];
+export const USOS_DETONANTE = ['apertura_pcp', 'recompra_pcp', 'dca_plp', 'salida_pcp', 'apertura_pmp', 'salida_pmp'] as const satisfies readonly UsoSenales[];
 export type UsoDetonante = (typeof USOS_DETONANTE)[number];
 /** Usos que alimentan `momento.detonante_confirmado` del Motor (la salida del PCP va por `senal_salida`). */
 export const USOS_MOMENTO = ['apertura_pcp', 'recompra_pcp', 'dca_plp', 'apertura_pmp'] as const satisfies readonly UsoDetonante[];

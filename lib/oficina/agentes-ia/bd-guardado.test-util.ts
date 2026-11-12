@@ -21,7 +21,7 @@ export const PARAMS: Fila[] = [
 
 export function nuevaBdGuardado(extra: Record<string, Fila[]> = {}, errores: ErroresBd = {}, portafolio = 'PMP') {
   const tablas: Record<string, Fila[]> = {
-    ...filasReglas(), oficina_portafolios_config: [{ portfolio_id: PF, codigo: portafolio }], oficina_v_posiciones: [], trade_executions: [],
+    ...filasReglas(), oficina_portafolios_config: [{ portfolio_id: PF, codigo: portafolio }], oficina_v_posiciones: [], trade_executions: [], trades: [{ id: 't-1', take_profit_1: null, take_profit_2: null, take_profit_3: null, tp1_hit: false, tp2_hit: false, tp3_hit: false }],
     oficina_v_capital: [{ portfolio_id: PF, efectivo: 100, posiciones_abiertas: 3 }], oficina_expedientes: [], oficina_analisis: [], oficina_parametros: PARAMS, ...extra,
   };
   const e: Espia = { orden: [], inserts: [], rpc: [], filtros: {} };

@@ -28,7 +28,10 @@ import { crearPuertoAnalista, crearPuertoDirector } from './puertos-ia';
 import { calcularRiesgoCapital, salidaComoAnalista } from './riesgo-capital';
 import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
-import { COLUMNAS_POSICIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
+import { COLUMNAS_EJECUCIONES, COLUMNAS_POSICIONES, TABLA_EJECUCIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
+import type { FilaEjecucion } from '../conexion/hechos-bd';
+import { COLUMNAS_TRADE_SALIDA, TABLA_TRADES, construirDatosSalidaPmp } from '../conexion/salida-pmp-bd';
+import type { DatosSalidaPmp } from '../conexion/salida-pmp-bd';
 import { obtenerOCrearExpediente } from '../conexion/expediente-bd';
 import { ejecutarCorridaConAuditoria, resolverPortfolioId } from '../conexion/flujo-auditoria';
 import type { ClienteOficina } from '../conexion/flujo-auditoria';
@@ -116,6 +119,20 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if (pos.filas.length > 1) return falla('posicion', [`${TABLA_POSICIONES}: hay ${pos.filas.length} posiciones abiertas de ${ticker} en ${portafolio} (ambiguo)`]);
   const posicion_existe = pos.filas.length === 1;
   const tipo_evaluacion = posicion_existe ? TIPO_EVALUACION_ABIERTA : TIPO_EVALUACION_NUEVA;
+  // v0.31: plan de salidas de PMP (solo lectura). Con una posición PMP abierta, un dato ilegible o inválido NO se rellena: no se llama a ningún modelo.
+  let salida_pmp: DatosSalidaPmp | undefined;
+  if (portafolio === 'PMP' && posicion_existe) {
+    const trade_id = pos.filas[0]?.['trade_id'];
+    if (typeof trade_id !== 'string' || trade_id === '') return falla('salida_pmp', [`${ticker}: la posición no trae trade_id`]);
+    const tr = await leerFilas(cliente, TABLA_TRADES, COLUMNAS_TRADE_SALIDA, [['id', trade_id]]);
+    if ('error' in tr) return falla('salida_pmp', [tr.error]);
+    if (tr.filas.length !== 1) return falla('salida_pmp', [`${TABLA_TRADES}: se esperaba 1 trade y hay ${tr.filas.length}`]);
+    const ej = await leerFilas(cliente, TABLA_EJECUCIONES, COLUMNAS_EJECUCIONES, [['trade_id', trade_id]]);
+    if ('error' in ej) return falla('salida_pmp', [ej.error]);
+    const c = construirDatosSalidaPmp(tr.filas[0], ej.filas as unknown as FilaEjecucion[], velas.ok ? velas.velas : null, ticker, velas.ok ? velas.velas.fuente : '');
+    if (!c.ok) return falla('salida_pmp', c.problemas);
+    salida_pmp = c.datos;
+  }
   // v0.27: Riesgo y Capital por código. El efectivo se lee de `oficina_v_capital`; si no se puede leer NO se bloquea la corrida: el agente reporta DATOS_INSUFICIENTES.
   const cap = await leerFilas(cliente, 'oficina_v_capital', 'portfolio_id,efectivo', [['portfolio_id', pf.portfolio_id]]);
   const avisos_capital: string[] = [];
@@ -182,6 +199,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
+    ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
       : {},

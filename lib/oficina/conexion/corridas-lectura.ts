@@ -45,6 +45,16 @@ export interface AgenteDetalle {
   textos: string[];
   negativos: string[];
 }
+export interface PlanSalidaPmp {
+  total_salidas: number | null;
+  hechas: number | null;
+  siguiente: number | null;
+  nivel_siguiente: string | null;
+  motivo: string | null;
+  confirmaciones_nuevas: string[];
+  faltantes: string[];
+  exigida: { decision: string; porcentaje: number | null; detalle: string } | null;
+}
 export interface CorridaDetalle {
   corrida: CorridaResumen & { ruta: string | null; disparador: string | null; snapshot_fecha_datos: string | null };
   agentes: AgenteDetalle[];
@@ -54,6 +64,8 @@ export interface CorridaDetalle {
   datos_faltantes: string[];
   avisos: string[];
   datos_vencidos: string[];
+  /** Plan de salidas de PMP (posición abierta); null si la corrida no lo calculó. */
+  salida_pmp: PlanSalidaPmp | null;
 }
 
 export type ResultadoLectura<T> = { ok: true; datos: T } | { ok: false; http: number; error: string };
@@ -131,6 +143,19 @@ export function reglasDe(analisisAuditor: Record<string, unknown> | undefined): 
   return reglas.sort((a, b) => (ORDEN_REGLA[a.resultado] ?? 2) - (ORDEN_REGLA[b.resultado] ?? 2) || a.codigo.localeCompare(b.codigo));
 }
 
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export function planSalidaDe(ref: Record<string, unknown>): PlanSalidaPmp | null {
+  const x = ref['salida_pmp'];
+  if (!esObj(x)) return null;
+  const e = x['exigida'];
+  return {
+    total_salidas: num(x['total_salidas']), hechas: num(x['hechas']), siguiente: num(x['siguiente']), nivel_siguiente: txt(x['nivel_siguiente']), motivo: txt(x['motivo']),
+    confirmaciones_nuevas: arr(x['confirmaciones_nuevas']).map(textoCorto), faltantes: arr(x['faltantes']).map(textoCorto),
+    exigida: esObj(e) ? { decision: txt(e['decision']) ?? '', porcentaje: num(e['porcentaje']), detalle: textoCorto(e['detalle'] ?? '') } : null,
+  };
+}
+
 export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknown): Promise<ResultadoLectura<CorridaDetalle>> {
   if (!esUuid(corrida_id)) return { ok: false, http: 400, error: 'Identificador de corrida inválido' };
   const rc = await cliente.from('oficina_corridas_historial').select('*').eq('corrida_id', corrida_id).order('version', { ascending: false }).limit(1);
@@ -169,6 +194,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       datos_faltantes: arr(ref['datos_faltantes']).map(textoCorto),
       avisos: arr(ref['avisos']).map(textoCorto),
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
+      salida_pmp: planSalidaDe(ref),
     },
   };
 }

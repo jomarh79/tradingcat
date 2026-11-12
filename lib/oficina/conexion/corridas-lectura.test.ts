@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, limiteSeguro, limpiarTicker, listarCorridas, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -126,5 +126,16 @@ describe('detalleCorrida', () => {
     const r = await detalleCorrida(c, U(2));
     expect(r.ok && r.datos.reglas_auditor).toEqual([]);
     expect(c.llamadas.some(x => x.tabla === 'oficina_analisis')).toBe(false);
+  });
+});
+
+describe('plan de salidas de PMP en el detalle', () => {
+  it('sin plan en referencias: null', () => { expect(planSalidaDe({})).toBeNull(); expect(planSalidaDe({ salida_pmp: 'x' })).toBeNull(); });
+  it('normaliza el plan y la salida exigida', () => {
+    const p = planSalidaDe({ salida_pmp: { total_salidas: 2, hechas: 1, siguiente: 2, nivel_siguiente: '140', motivo: 'nivel_planeado', confirmaciones_nuevas: ['RSI_SOBRECOMPRA'], faltantes: [], exigida: { decision: 'VENDER', porcentaje: 100, detalle: 'x', regla: 'PMP-SALIDA' } } });
+    expect(p).toEqual({ total_salidas: 2, hechas: 1, siguiente: 2, nivel_siguiente: '140', motivo: 'nivel_planeado', confirmaciones_nuevas: ['RSI_SOBRECOMPRA'], faltantes: [], exigida: { decision: 'VENDER', porcentaje: 100, detalle: 'x' } });
+  });
+  it('sin salida exigida: exigida null', () => {
+    expect(planSalidaDe({ salida_pmp: { total_salidas: 3, exigida: null } })?.exigida).toBeNull();
   });
 });

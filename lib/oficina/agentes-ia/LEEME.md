@@ -265,3 +265,17 @@ Valuación (con `ficha.valuacion_base`) y Riesgo y Capital; el Auditor aún no l
 - Los 503 (UNAVAILABLE) de Gemini tumbaban agentes sueltos (Técnico, Director, Fundamental) en 4 de las últimas 6 corridas. El reintento inmediato de la corrida (1) cae en la misma ráfaga.
 - `conReintentoTransitorio` (cliente-gemini.ts) envuelve el cliente de Gemini en el selector de proveedor: ante HTTP 429/500/502/503/504 o error de red espera 2 s y reintenta; si falla otra vez espera 5 s y reintenta (3 llamadas como máximo). NO reintenta claves inválidas (401/403), 400, respuestas bloqueadas, truncadas, vacías ni tiempo de espera agotado.
 - El reintento de la corrida (1 por agente) sigue igual encima de esto. En el peor caso un agente tarda ~7 s más.
+
+## v0.31 — Plan de salidas de PMP (posición abierta)
+
+Reglas aprobadas el 10-nov. Solo lectura: la Oficina propone, no vende ni escribe en `trades`.
+
+- **Cuántas salidas:** 2 si lo invertido (suma de compras) es 50 USD o menos (25% y el resto); 3 si es más (25%, 25% y el resto).
+- **Niveles planeados:** `take_profit_1..3` del trade; las casillas `tp1_hit..tp3_hit` dicen cuáles ya se hicieron. Un nivel basta solo (precio ≥ nivel de la siguiente salida).
+- **Confirmaciones:** RSI sobrecomprado, banda superior de Mogalef y resistencia pasada; se piden DOS. Tras una salida deben ser NUEVAS: no cumplirse en la última vela cerrada anterior a la venta anterior [PROPUESTA de lectura].
+- **Porcentajes:** REDUCIR 25% es de la posición ORIGINAL; la última salida es VENDER todo lo que queda.
+- **Sin datos:** sin velas/cierre no se evalúa y se declara en `datos_faltantes`; un nivel sin declarar o sin poder reconstruir la vela anterior se declara como aviso y el resto sigue valiendo.
+- **Archivos nuevos:** `motor/salida-pmp.ts`, `orquestador/senales-previas.ts`, `conexion/salida-pmp-bd.ts` (+ pruebas) y `agentes-ia/refuerzo-v31.test.ts`.
+- **Cambios:** nuevo uso `salida_pmp` del Técnico (2 de 3 señales), `corrida.ts` (`datos.salida_pmp`, `referencias.salida_pmp`; el cálculo de código del Técnico corre en PMP abierta), `analisis-guardado.ts` (lee `trades` y `trade_executions`; si no se pueden leer o son inválidos responde 422 sin llamar a ningún modelo).
+- **Pantalla /oficina:** el detalle muestra «Plan de salidas (PMP)».
+- **Fuera de esta versión:** revisión semestral del 14% y «pierde fundamentales» (PMP-11); la figura chartista sigue siendo confirmación tuya.

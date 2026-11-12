@@ -20,7 +20,8 @@
 //   C9. `senal_salida` no evaluable (null) nunca se convierte en false: no se evalúa la salida del PCP y se declara en `datos_faltantes`.
 //   C10. El cálculo de código del Técnico corre siempre que haga falta para `momento` o la salida del PCP, aunque el agente Técnico de IA sea opcional (PLP).
 
-import { RUTA_POR_TIPO, decidir, evaluarSalidaPCP } from '../motor';
+import { RUTA_POR_TIPO, decidir, evaluarSalidaPCP, evaluarSalidaPMP } from '../motor';
+import type { EntradaSalidaPMP, ResultadoSalidaPMP } from '../motor';
 import type {
   Agente, Auditoria, Capital, ContextoAporte, ContextoRetiro, ContextoRevisionETF, ContextoSalida, EntradaMotor, EntradaSalidaPCP, EstadoDirector,
   EstadoFinal, MotivoEstado, PortafolioCodigo, ResultadoAgente, Ruta, SalidaMotor, TesisEstado, TipoEvaluacion, VeredictoAuditor,
@@ -167,6 +168,9 @@ export interface DatosCongelados {
   dinero_nuevo?: boolean | null;
   /** Plan y compras del PCP para evaluar la salida; la señal de salida la pone el Técnico. */
   salida_pcp?: Omit<EntradaSalidaPCP, 'senal_salida'>;
+  /** Plan de salidas de PMP (posición abierta): monto invertido, niveles TP1..TP3 con su casilla «cumplido» y las señales de la vela de la salida anterior.
+   *  El precio de hoy y las señales de hoy los pone el Técnico. */
+  salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'>;
   corrida_previa_id?: string | null;
   motor?: {
     capital?: Capital;
@@ -421,7 +425,8 @@ export async function ejecutarCorrida(
   // Técnico de IA sea opcional y no se haya pedido: es determinista y de él salen el detonante del Motor (`momento`) y la señal de salida del PCP.
   // (PCP posición abierta ya incluye al Técnico como requerido en la tabla 1.4, de ahí sale la señal de salida.)
   const necesitaTecnico = ruta !== 'determinista'
-    && (ejecutar.includes('tecnico') || USO_MOMENTO_POR_CASO[`${portafolio}:${tipo}`] !== undefined);
+    && (ejecutar.includes('tecnico') || USO_MOMENTO_POR_CASO[`${portafolio}:${tipo}`] !== undefined
+      || (portafolio === 'PMP' && tipo === 'posicion_abierta' && datos.salida_pmp !== undefined));   // v0.31: el plan de salidas de PMP necesita el cálculo de código
   if (necesitaTecnico) {
     if (datos.velas === undefined || datos.velas === null) {
       faltantes.push('tecnico: no hay velas congeladas en el snapshot');
@@ -538,6 +543,20 @@ export async function ejecutarCorrida(
     }
   }
 
+  // v0.31: plan de salidas de PMP. Sin datos técnicos NO se supone que no hay salida: se declara en `datos_faltantes`.
+  let salida_pmp: ResultadoSalidaPMP | null = null;
+  if (portafolio === 'PMP' && tipo === 'posicion_abierta' && datos.salida_pmp !== undefined) {
+    const det = tecnico?.detonantes?.salida_pmp;
+    const precio = tecnico?.snapshot?.ultima_vela_diaria?.cierre;
+    if (det === undefined || precio === undefined) {
+      faltantes.push('salida_pmp: sin cierre ni señales técnicas; no se evalúa el plan de salidas de PMP (no se supone que no hay salida)');
+    } else {
+      salida_pmp = evaluarSalidaPMP({ ...datos.salida_pmp, precio_actual: precio, senales_hoy: det.senales_cumplidas });
+      for (const f of salida_pmp.faltantes) avisos.push(`salida_pmp: ${f}`);
+      salida = { ...(datos.motor?.salida ?? {}), exigida: salida_pmp.exigida };
+    }
+  }
+
   const usoMomento = USO_MOMENTO_POR_CASO[`${portafolio}:${tipo}`];
   let momento: EntradaMotor['momento'];
   if (usoMomento !== undefined) {
@@ -575,6 +594,7 @@ export async function ejecutarCorrida(
     ...(bloqueoEstructural !== null ? { bloqueo_estructural: bloqueoEstructural } : {}),
     ...(aporte !== null && aporte.modo !== null ? { aporte_modo: aporte.modo } : {}),
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
+    ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),
     ...(datos.datos_faltantes !== undefined || faltantes.length > 0 ? { datos_faltantes: faltantes } : {}),
     ...(tecnico !== null && tecnico.datos_faltantes_detalle.length > 0 ? { datos_faltantes_detalle: tecnico.datos_faltantes_detalle } : {}),

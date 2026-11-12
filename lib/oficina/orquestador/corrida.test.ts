@@ -748,3 +748,44 @@ describe('v0.21: un analista opcional pedido que no entregó resultado queda dic
     expect(opc(r)).toEqual([]);
   });
 });
+
+describe('plan de salidas de PMP (v0.31)', () => {
+  const nv = (nivel: string | null, cumplido = false) => ({ nivel, cumplido });
+  const posPmp = (extra: Partial<DatosCongelados> = {}, niveles: [ReturnType<typeof nv>, ReturnType<typeof nv>, ReturnType<typeof nv>] = [nv('200'), nv('300'), nv('400')]) => datos({
+    posicion_existe: true, sobres: { fundamental: { f: 1 } },
+    salida_pmp: { monto_invertido: '50', niveles, senales_previas: null },
+    motor: { tesis_estado: 'intacta' }, ...extra,
+  });
+  const solPmp = () => sol({ portafolio_codigo: 'PMP', tipo_evaluacion: 'posicion_abierta' });
+
+  it('el precio llega al nivel planeado: REDUCIR 25%, pendiente de autorización, y queda en referencias', async () => {
+    const r = corrida(await ejecutarCorrida(solPmp(), posPmp({ velas: velas(sube) }), puertos().p));
+    expect(r.entrada_motor.salida!.exigida).toMatchObject({ decision: 'REDUCIR', porcentaje: 25, regla: 'PMP-SALIDA' });
+    expect(r.salida_motor).toMatchObject({ decision: 'REDUCIR', requiere_autorizacion: true });
+    expect(r.fila_historial.referencias['salida_pmp']).toMatchObject({ total_salidas: 2, hechas: 0, siguiente: 1, nivel_siguiente: '200', motivo: 'nivel_planeado' });
+  });
+  it('corre el cálculo de código del Técnico aunque el agente Técnico sea opcional y no se pida', async () => {
+    const r = corrida(await ejecutarCorrida(solPmp(), posPmp({ velas: velas(sube) }), puertos().p));
+    expect(r.tecnico).not.toBeNull();
+  });
+  it('sin llegar al nivel ni dos confirmaciones: no exige salida (queda el nivel siguiente)', async () => {
+    const r = corrida(await ejecutarCorrida(solPmp(), posPmp({ velas: velas(baja) }, [nv('9999'), nv('99999'), nv('999999')]), puertos().p));
+    expect(r.entrada_motor.salida!.exigida).toBeNull();
+    expect(r.fila_historial.referencias['salida_pmp']).toMatchObject({ siguiente: 1, nivel_siguiente: '9999', motivo: null });
+  });
+  it('sin velas no se evalúa el plan: se declara en datos_faltantes y no se supone que no hay salida', async () => {
+    const r = corrida(await ejecutarCorrida(solPmp(), posPmp({ velas: null }), puertos().p));
+    expect(r.entrada_motor.salida).toBeUndefined();
+    expect(r.entrada_motor.datos_faltantes.join('|')).toContain('salida_pmp:');
+  });
+  it('ya cumplida la primera salida, la segunda usa TP2 y es VENDER 100', async () => {
+    const r = corrida(await ejecutarCorrida(solPmp(), posPmp({ velas: velas(sube) }, [nv('200', true), nv('220'), nv('400')]), puertos().p));
+    expect(r.entrada_motor.salida!.exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
+  });
+  it('no aplica a PMP nueva_posicion ni a otros portafolios', async () => {
+    const a = corrida(await ejecutarCorrida(sol(), posPmp({ velas: velas(sube), posicion_existe: false }), puertos().p));
+    expect(a.entrada_motor.salida).toBeUndefined();
+    const b = corrida(await ejecutarCorrida(sol({ portafolio_codigo: 'PCP', tipo_evaluacion: 'posicion_abierta' }), posPmp({ velas: velas(sube) }), puertos().p));
+    expect(b.fila_historial.referencias['salida_pmp']).toBeUndefined();
+  });
+});

@@ -8,4 +8,6 @@ export { evaluarExpiracion, calcularVencimiento, siguienteDiaHabil, ZONA_CALENDA
 export type { CalendarioHabil, ResultadoExpiracion } from './expiracion';
 export { evaluarSalidaPCP } from './salida-pcp';
 export type { EntradaSalidaPCP, CompraPCP } from './salida-pcp';
+export { evaluarSalidaPMP, totalSalidasPMP, REGLA_SALIDA_PMP } from './salida-pmp';
+export type { EntradaSalidaPMP, ResultadoSalidaPMP, NivelSalidaPMP } from './salida-pmp';
 export { verificarInvariantes } from './invariantes';
