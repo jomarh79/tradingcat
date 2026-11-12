@@ -82,6 +82,7 @@ const Whiskers = ({ color = '#00bfff', opacity = 0.1, w = 80 }: any) => (
 function MenuLink({ href, icon, label, active, isSubItem, touch }: any) {
   const [hover, setHover] = useState(false)
   const hot = hover && !active && !touch   // en el celular no hay "pasar el mouse"
+  
   return (
     <Link href={href}
       onMouseEnter={() => setHover(true)}
@@ -89,13 +90,17 @@ function MenuLink({ href, icon, label, active, isSubItem, touch }: any) {
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
         textDecoration: 'none', transition: 'all 0.15s',
-        background: active ? 'rgba(0,191,255,0.07)' : hot ? 'rgba(0,191,255,0.13)' : 'transparent',
+        // 1. Fondo siempre transparente cuando no está activo
+        background: active ? 'rgba(0,191,255,0.07)' : 'transparent',
+        // 2. Color de texto azul (#00bfff) cuando está activo o cuando pasa el mouse (hot)
         color: active || hot ? '#00bfff' : isSubItem ? '#888' : '#bbb',
+        // 3. Borde izquierdo opcional al pasar el mouse (puedes quitarlo si tampoco lo quieres)
         borderLeft: active ? '2px solid #00bfff' : hot ? '2px solid rgba(0,191,255,0.5)' : '2px solid transparent',
         paddingRight: 14,
         paddingLeft: isSubItem ? 38 : 14,
         height: touch ? (isSubItem ? 40 : 46) : (isSubItem ? 28 : 38),
       }}>
+      {/* El icono también cambiará de opacidad/color junto con el texto */}
       {icon && <span style={{ opacity: active || hot ? 1 : 0.6 }}>{icon}</span>}
       {/* Huella mini solo en items activos */}
       {active && !isSubItem && (
