@@ -50,6 +50,8 @@ export interface PlanSalidaPmp {
   hechas: number | null;
   siguiente: number | null;
   nivel_siguiente: string | null;
+  precio_actual: string | null;
+  confirmaciones_minimas: number | null;
   motivo: string | null;
   confirmaciones_nuevas: string[];
   faltantes: string[];
@@ -150,7 +152,7 @@ export function planSalidaDe(ref: Record<string, unknown>): PlanSalidaPmp | null
   if (!esObj(x)) return null;
   const e = x['exigida'];
   return {
-    total_salidas: num(x['total_salidas']), hechas: num(x['hechas']), siguiente: num(x['siguiente']), nivel_siguiente: txt(x['nivel_siguiente']), motivo: txt(x['motivo']),
+    total_salidas: num(x['total_salidas']), hechas: num(x['hechas']), siguiente: num(x['siguiente']), nivel_siguiente: txt(x['nivel_siguiente']), precio_actual: txt(x['precio_actual']), confirmaciones_minimas: num(x['confirmaciones_minimas']), motivo: txt(x['motivo']),
     confirmaciones_nuevas: arr(x['confirmaciones_nuevas']).map(textoCorto), faltantes: arr(x['faltantes']).map(textoCorto),
     exigida: esObj(e) ? { decision: txt(e['decision']) ?? '', porcentaje: num(e['porcentaje']), detalle: textoCorto(e['detalle'] ?? '') } : null,
   };

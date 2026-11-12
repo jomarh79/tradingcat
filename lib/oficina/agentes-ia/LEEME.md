@@ -285,3 +285,8 @@ Reglas aprobadas el 10-nov. Solo lectura: la Oficina propone, no vende ni escrib
 La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ventas). Caso real: META en PMP, 615.755 × 0.08099 = 49.87 USD y cero ejecuciones.
 - Nuevo `conexion/apertura-trade.ts`: compra inicial = `entry_price × initial_quantity`, redondeada al centavo; si una ejecución de compra ya trae esa cantidad no se suma dos veces.
 - `hechos-bd.ts` (hechos del Auditor) y `salida-pmp-bd.ts` (monto invertido del plan de salidas) la usan; `cargarHechosPosicion` lee ahora `trades(id, entry_price, initial_quantity)`.
+
+## v0.34 — Pantalla: plan de salidas más claro
+
+- El plan guarda el precio con el que evaluó y cuántas confirmaciones pide; la pantalla muestra «Precio (último cierre)», la distancia al nivel de la siguiente salida y «Confirmaciones: N de 2».
+- El aviso de «no se pudo reconstruir la vela de la venta anterior» ahora dice la causa probable: una salida marcada como cumplida sin venta registrada en el trade.

@@ -42,6 +42,8 @@ interface PlanSalida {
   hechas: number | null
   siguiente: number | null
   nivel_siguiente: string | null
+  precio_actual: string | null
+  confirmaciones_minimas: number | null
   motivo: string | null
   confirmaciones_nuevas: string[]
   faltantes: string[]
@@ -76,6 +78,14 @@ const fecha = (s: string | null) =>
   s ? new Date(s).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
 
 const etiqueta = (s: string | null) => (s ? s.replace(/_/g, ' ') : '—')
+
+// Distancia del precio al nivel de la siguiente salida: «faltan +24.0% para llegar» o «ya pasó el nivel por 3.2%»
+const distanciaANivel = (precio: string | null, nivel: string | null): string | null => {
+  const p = Number(precio), n = Number(nivel)
+  if (!precio || !nivel || !isFinite(p) || !isFinite(n) || p <= 0) return null
+  const pct = ((n - p) / p) * 100
+  return pct > 0 ? `faltan +${pct.toFixed(1)}% para llegar al nivel` : `ya pasó el nivel por ${Math.abs(pct).toFixed(1)}%`
+}
 
 const Badge = ({ texto, color }: { texto: string; color: string }) => (
   <span style={{
@@ -245,10 +255,19 @@ export default function OficinaPage() {
               {d.salida_pmp.siguiente !== null && <> · siguiente: salida {d.salida_pmp.siguiente}{d.salida_pmp.nivel_siguiente ? <> en nivel {d.salida_pmp.nivel_siguiente}</> : <> sin nivel planeado</>}</>}
               {d.salida_pmp.siguiente === null && <> · ya no quedan salidas por hacer</>}
             </div>
+            {d.salida_pmp.precio_actual && (
+              <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
+                Precio (último cierre): {d.salida_pmp.precio_actual}
+                {distanciaANivel(d.salida_pmp.precio_actual, d.salida_pmp.nivel_siguiente) !== null && <> · {distanciaANivel(d.salida_pmp.precio_actual, d.salida_pmp.nivel_siguiente)}</>}
+              </div>
+            )}
             {d.salida_pmp.exigida
               ? <div style={{ fontSize: 12, color: C.danger, fontWeight: 700 }}>{d.salida_pmp.exigida.decision}{d.salida_pmp.exigida.porcentaje !== null ? ` ${d.salida_pmp.exigida.porcentaje}%` : ''} · {d.salida_pmp.exigida.detalle}</div>
               : <Vacio texto="Hoy no se cumple ninguna condición de salida." />}
-            {d.salida_pmp.confirmaciones_nuevas.length > 0 && <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Confirmaciones: {d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')}</div>}
+            <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+              Confirmaciones: {d.salida_pmp.confirmaciones_nuevas.length} de {d.salida_pmp.confirmaciones_minimas ?? 2}
+              {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
+            </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}

@@ -37,6 +37,9 @@ export interface EntradaSalidaPMP {
 
 export interface ResultadoSalidaPMP {
   exigida: SalidaExigida | null;
+  /** Precio con el que se evaluó (cierre de la última vela cerrada) y cuántas confirmaciones se piden: para mostrarlos. */
+  precio_actual: string;
+  confirmaciones_minimas: number;
   total_salidas: 2 | 3;
   hechas: number;
   /** Número (1..total) de la siguiente salida; null si ya se hicieron todas. */
@@ -58,7 +61,7 @@ export function evaluarSalidaPMP(e: EntradaSalidaPMP): ResultadoSalidaPMP {
   const hechas = planeados.filter(n => n.cumplido).length;
   const idx = planeados.findIndex(n => !n.cumplido);   // índice 0-based de la siguiente salida
   const faltantes: string[] = [];
-  const base = { total_salidas: total, hechas, confirmaciones_nuevas: [] as string[], faltantes };
+  const base = { total_salidas: total, hechas, precio_actual: e.precio_actual, confirmaciones_minimas: CONFIRMACIONES_MINIMAS, confirmaciones_nuevas: [] as string[], faltantes };
 
   if (idx === -1) {
     return { ...base, exigida: null, siguiente: null, nivel_siguiente: null, motivo: null };
@@ -81,7 +84,7 @@ export function evaluarSalidaPMP(e: EntradaSalidaPMP): ResultadoSalidaPMP {
   let nuevas: string[] = [];
   const habiaSalida = hechas > 0;
   if (habiaSalida && e.senales_previas === null) {
-    faltantes.push('senales_previas_salida_pmp: no se pudo reconstruir la vela de la salida anterior; no se evalúan las confirmaciones nuevas');
+    faltantes.push('senales_previas_salida_pmp: hay una salida marcada como cumplida pero no se pudo reconstruir la vela de la venta anterior (¿el trade no tiene la venta registrada?); no se evalúan las confirmaciones nuevas, solo el nivel planeado');
   } else {
     const previas = habiaSalida ? new Set(e.senales_previas ?? []) : new Set<string>();
     nuevas = SENALES_SALIDA_PMP.filter(s => e.senales_hoy.includes(s) && !previas.has(s));

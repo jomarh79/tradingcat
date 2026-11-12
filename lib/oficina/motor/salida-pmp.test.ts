@@ -64,6 +64,12 @@ describe('salidas de PMP: nivel planeado', () => {
   });
 });
 
+describe('salidas de PMP: datos para mostrar', () => {
+  it('devuelve el precio con el que evaluó y cuántas confirmaciones se piden', () => {
+    expect(evaluarSalidaPMP(e({ precio_actual: '628.77' }))).toMatchObject({ precio_actual: '628.77', confirmaciones_minimas: 2 });
+  });
+});
+
 describe('salidas de PMP: dos confirmaciones', () => {
   it('una sola confirmación no basta', () => {
     expect(evaluarSalidaPMP(e({ senales_hoy: ['RSI_SOBRECOMPRA'] })).exigida).toBeNull();
