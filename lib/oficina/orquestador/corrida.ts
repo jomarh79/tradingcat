@@ -41,6 +41,7 @@ import { MOTIVO_PORTAFOLIO_SIN_REGLAS, normalizarCodigoPortafolio, validarSolici
 import type { SolicitudNormalizada } from './solicitud';
 import type { Candle } from '../tecnico';
 import type { DatosWatchlist } from '../conexion/watchlist-datos';
+import { proponerFichaPmp } from '../conexion/ficha-propuesta';
 
 /** Reintentos por agente de IA tras una salida inválida o un error (el validador permite uno; contrato 1.2 paso 7). */
 export const REINTENTOS_POR_AGENTE = 1;
@@ -600,6 +601,8 @@ export async function ejecutarCorrida(
     ...(aporte !== null && aporte.modo !== null ? { aporte_modo: aporte.modo } : {}),
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
+    // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas
+    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null }) } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),
     ...(datos.datos_faltantes !== undefined || faltantes.length > 0 ? { datos_faltantes: faltantes } : {}),
     ...(tecnico !== null && tecnico.datos_faltantes_detalle.length > 0 ? { datos_faltantes_detalle: tecnico.datos_faltantes_detalle } : {}),

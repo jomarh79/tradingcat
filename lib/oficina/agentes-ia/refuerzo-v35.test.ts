@@ -93,4 +93,12 @@ describe('v0.35: watchlist en la corrida guardada', () => {
     await m.ejecutar();
     expect(m.b.e.inserts.some(i => i.tabla === 'watchlist')).toBe(false);
   });
+  it('v0.36: la corrida de PMP deja el borrador de la ficha en referencias (identidad con rol y negocio de la watchlist)', async () => {
+    const m = montar({ bd: { ...bdAbierta(), watchlist: [WL()] } });
+    await m.ejecutar();
+    const f = (corridaRpc(m)?.['referencias'] as Fila)['ficha_propuesta'] as { propuesta: Record<string, { texto: string }>; no_propuestos: string[] };
+    expect(f.propuesta['identidad']?.texto).toBe('GKOS · mercado US · portafolio PMP · rol mixto · negocio: Oftalmología');
+    expect(f.propuesta['indices_referencia']).toBeDefined();
+    expect(f.no_propuestos.join('|')).toContain('plan_ejecucion');
+  });
 });

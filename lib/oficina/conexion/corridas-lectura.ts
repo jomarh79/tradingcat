@@ -57,6 +57,10 @@ export interface PlanSalidaPmp {
   faltantes: string[];
   exigida: { decision: string; porcentaje: number | null; detalle: string } | null;
 }
+export interface FichaPropuestaDetalle {
+  propuesta: Array<{ apartado: string; texto: string; fuente: string }>;
+  no_propuestos: string[];
+}
 export interface CorridaDetalle {
   corrida: CorridaResumen & { ruta: string | null; disparador: string | null; snapshot_fecha_datos: string | null };
   agentes: AgenteDetalle[];
@@ -68,6 +72,8 @@ export interface CorridaDetalle {
   datos_vencidos: string[];
   /** Plan de salidas de PMP (posición abierta); null si la corrida no lo calculó. */
   salida_pmp: PlanSalidaPmp | null;
+  /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
+  ficha_propuesta: FichaPropuestaDetalle | null;
 }
 
 export type ResultadoLectura<T> = { ok: true; datos: T } | { ok: false; http: number; error: string };
@@ -158,6 +164,17 @@ export function planSalidaDe(ref: Record<string, unknown>): PlanSalidaPmp | null
   };
 }
 
+export function fichaPropuestaDe(ref: Record<string, unknown>): FichaPropuestaDetalle | null {
+  const x = ref['ficha_propuesta'];
+  if (!esObj(x)) return null;
+  const p = esObj(x['propuesta']) ? (x['propuesta'] as Record<string, unknown>) : {};
+  const propuesta = Object.entries(p).filter(([, v]) => esObj(v)).map(([apartado, v]) => {
+    const o = v as Record<string, unknown>;
+    return { apartado, texto: textoCorto(o['texto'] ?? ''), fuente: textoCorto(o['fuente'] ?? '') };
+  });
+  return { propuesta, no_propuestos: arr(x['no_propuestos']).map(textoCorto) };
+}
+
 export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknown): Promise<ResultadoLectura<CorridaDetalle>> {
   if (!esUuid(corrida_id)) return { ok: false, http: 400, error: 'Identificador de corrida inválido' };
   const rc = await cliente.from('oficina_corridas_historial').select('*').eq('corrida_id', corrida_id).order('version', { ascending: false }).limit(1);
@@ -197,6 +214,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       avisos: arr(ref['avisos']).map(textoCorto),
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
       salida_pmp: planSalidaDe(ref),
+      ficha_propuesta: fichaPropuestaDe(ref),
     },
   };
 }

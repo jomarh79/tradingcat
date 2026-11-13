@@ -300,3 +300,11 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
   - **Negocio** = texto de Notas. Rol, negocio y competidores llenos cuentan como apartados completos de la ficha de PMP-09 (solo suma, nunca marca incompleto).
   - **Portafolios**: si el portafolio analizado no está marcado, solo avisa; la corrida sigue. También avisa si el ticker no está en la watchlist, está repetido o el rol no es válido.
 - Los avisos salen en «Avisos» de la pantalla /oficina.
+
+## v0.36 — Ficha PMP-09 propuesta desde datos
+
+- Cada corrida de PMP calcula un BORRADOR de apartados con lo que ya tiene y lo guarda en `referencias.ficha_propuesta` (la pantalla /oficina lo muestra en «Ficha PMP-09 propuesta (borrador, sin aprobar)»):
+  - `identidad` (ticker, mercado, portafolio, rol y negocio de la watchlist), `indices_referencia` (SPY, QQQ, DIA, QUAL), `rendimiento` (1 mes a 3 años según velas) y `volatilidad_riesgo` (volatilidad anualizada, caída máxima, distancia al máximo; mínimo 60 retornos).
+  - NO propone `dividendos_fundamentales`, `correlacion`, `plan_ejecucion` ni `decision_final`: los declara como no propuestos.
+- Un borrador NO cuenta para PMP-09. Se aprueba con `sql/aprobar-ficha-pmp-v036.sql` (probado en Postgres): copia los textos de la última corrida PMP del ticker a `ficha.ficha_pmp.<apartado>` con estado 'aprobado'; también acepta tus propios textos. Lo que no listas no se toca; se puede repetir.
+- Rol, negocio y competidores siguen viniendo de la watchlist (v0.35).

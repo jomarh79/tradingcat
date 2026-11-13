@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -137,5 +137,13 @@ describe('plan de salidas de PMP en el detalle', () => {
   });
   it('sin salida exigida: exigida null', () => {
     expect(planSalidaDe({ salida_pmp: { total_salidas: 3, exigida: null } })?.exigida).toBeNull();
+  });
+});
+
+describe('ficha propuesta en el detalle', () => {
+  it('sin ficha en referencias: null', () => { expect(fichaPropuestaDe({})).toBeNull(); expect(fichaPropuestaDe({ ficha_propuesta: 'x' })).toBeNull(); });
+  it('normaliza los apartados propuestos y los no propuestos', () => {
+    const f = fichaPropuestaDe({ ficha_propuesta: { propuesta: { identidad: { texto: 'SE · US', fuente: 'watchlist' }, roto: 5 }, no_propuestos: ['correlacion: x'] } });
+    expect(f).toEqual({ propuesta: [{ apartado: 'identidad', texto: 'SE · US', fuente: 'watchlist' }], no_propuestos: ['correlacion: x'] });
   });
 });

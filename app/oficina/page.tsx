@@ -59,6 +59,7 @@ interface Detalle {
   avisos: string[]
   datos_vencidos: string[]
   salida_pmp: PlanSalida | null
+  ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
 
 // Verde = comprar, amarillo = esperar / mantener, rojo = bloqueado o salida, gris = sin decisión
@@ -269,6 +270,19 @@ export default function OficinaPage() {
               {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
             </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.ficha_propuesta && (
+          <Seccion titulo="Ficha PMP-09 propuesta (borrador, sin aprobar)">
+            {d.ficha_propuesta.propuesta.map(p => (
+              <div key={p.apartado} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{etiqueta(p.apartado)}</div>
+                <div style={{ fontSize: 12, color: '#ccc', wordBreak: 'break-word' }}>{p.texto}</div>
+                <div style={{ fontSize: 10, color: '#555' }}>Fuente: {p.fuente}</div>
+              </div>
+            ))}
+            {d.ficha_propuesta.no_propuestos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 
