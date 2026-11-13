@@ -320,3 +320,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - La corrida de PMP propone también `plan_ejecucion` (entrada 50 USD con 2 de 5 señales, Auditor CUMPLE y 14% anualizado; salidas de 2 o 3; niveles TP1–TP3) y `decision_final` (la Oficina propone y el usuario autoriza; revisar la venta del 100% si el semestral baja de 14% o pierde fundamentales). Ambos salen de las reglas aprobadas el 10-nov y se aprueban con el botón como los demás.
 - Quedan para escribir a mano solo `dividendos_fundamentales` y `correlacion`.
 - Las corridas anteriores a esta versión no traen esos dos borradores: hay que correr el ticker otra vez.
+
+## v0.39 — Botón «Analizar en la Oficina» en la watchlist
+
+- `app/watchlist/BotonAnalizarOficina.tsx` (icono ▶): hace lo mismo que `analizar-fundamental.ps1 -ConToken -Guardar` desde la página: llama a `/api/oficina/analisis-fundamental` con ticker, portafolio (el marcado en la fila, o PMP), monto (PMP 50, PCP 25, editable) y guarda la corrida. Muestra decisión, estado, veredicto del Auditor y motivos, con enlace a /oficina. No compra ni vende.
+- La página solo suma el import y dos botones (escritorio y celular).
+- El servidor sigue limitando a un análisis cada 30 s.
