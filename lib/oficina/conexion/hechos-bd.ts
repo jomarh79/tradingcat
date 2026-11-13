@@ -7,6 +7,8 @@ import { aDec, REGEX_FECHA, textoDec } from '../auditor/numeros';
 import type { DatoFuente, PlanPCP } from '../auditor';
 import type { HechosAuditor } from './entrada-auditor';
 import { COLUMNAS_TRADE_APERTURA, compraDeApertura } from './apertura-trade';
+import { apartadosDeclarados } from './watchlist-datos';
+import type { DatosWatchlist } from './watchlist-datos';
 export const TABLA_TRADES_APERTURA = 'trades';
 
 export const TABLA_POSICIONES = 'oficina_v_posiciones';
@@ -37,7 +39,11 @@ export interface FilasPosicion {
   /** v0.33: filas de `trades` del trade de la posición (compra inicial: entry_price × initial_quantity). Ausente = comportamiento anterior. */
   trades?: unknown[];
 }
-export interface ConsultaPosicion { portfolio_id: string; ticker: string; posicion_existe: boolean }
+export interface ConsultaPosicion {
+  portfolio_id: string; ticker: string; posicion_existe: boolean;
+  /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores). El rol de la watchlist manda sobre el del expediente. */
+  watchlist?: DatosWatchlist | null;
+}
 export type ResultadoHechosPosicion =
   | { ok: true; hechos: HechosAuditor; trade_id: string | null; expediente_id: string | null }
   | { ok: false; problemas: string[] };
@@ -165,6 +171,13 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     if (fp !== null) hechos.datos = { ...hechos.datos, ficha_pmp: fp };
     const val = valuacionDeclarada(x0.ficha);
     if (val !== null) hechos.datos_fuente = [...(hechos.datos_fuente ?? []), ...val];
+  }
+  // v0.35: la watchlist declara rol, negocio y competidores. Solo suma apartados completos; el rol de la watchlist manda sobre el del expediente.
+  const w = q.watchlist ?? null;
+  if (w !== null) {
+    if (w.rol !== null) hechos.posicion = { ...hechos.posicion, rol: w.rol };
+    const decl = apartadosDeclarados(w);
+    if (Object.keys(decl).length > 0) hechos.datos = { ...hechos.datos, ficha_pmp: { ...(hechos.datos?.ficha_pmp ?? {}), ...decl } };
   }
   if (problemas.length > 0) return { ok: false, problemas };
   return { ok: true, hechos, trade_id, expediente_id };

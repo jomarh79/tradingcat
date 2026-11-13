@@ -30,6 +30,7 @@ import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
 import { COLUMNAS_EJECUCIONES, COLUMNAS_POSICIONES, TABLA_EJECUCIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
 import type { FilaEjecucion } from '../conexion/hechos-bd';
+import { COLUMNAS_WATCHLIST, TABLA_WATCHLIST, interpretarWatchlist } from '../conexion/watchlist-datos';
 import { COLUMNAS_TRADE_SALIDA, TABLA_TRADES, construirDatosSalidaPmp } from '../conexion/salida-pmp-bd';
 import type { DatosSalidaPmp } from '../conexion/salida-pmp-bd';
 import { obtenerOCrearExpediente } from '../conexion/expediente-bd';
@@ -133,6 +134,12 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     if (!c.ok) return falla('salida_pmp', c.problemas);
     salida_pmp = c.datos;
   }
+  // v0.35: lo que llenaste en la watchlist (rol, negocio = Notas, competidores, portafolios). Es un dato auxiliar: si no se puede leer (por ejemplo
+  // aún no existen las columnas) la corrida sigue y lo declara como aviso; no se rellena nada.
+  const wl = await leerFilas(cliente, TABLA_WATCHLIST, COLUMNAS_WATCHLIST, [['ticker', ticker]]);
+  const watchlist = 'error' in wl
+    ? { datos: null, avisos: [`${wl.error}; no se usan rol, negocio ni competidores de la watchlist`] }
+    : interpretarWatchlist(wl.filas, ticker, portafolio);
   // v0.27: Riesgo y Capital por código. El efectivo se lee de `oficina_v_capital`; si no se puede leer NO se bloquea la corrida: el agente reporta DATOS_INSUFICIENTES.
   const cap = await leerFilas(cliente, 'oficina_v_capital', 'portfolio_id,efectivo', [['portfolio_id', pf.portfolio_id]]);
   const avisos_capital: string[] = [];
@@ -199,6 +206,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
+    watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }

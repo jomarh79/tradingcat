@@ -290,3 +290,13 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 - El plan guarda el precio con el que evaluó y cuántas confirmaciones pide; la pantalla muestra «Precio (último cierre)», la distancia al nivel de la siguiente salida y «Confirmaciones: N de 2».
 - El aviso de «no se pudo reconstruir la vela de la venta anterior» ahora dice la causa probable: una salida marcada como cumplida sin venta registrada en el trade.
+
+## v0.35 — La Oficina lee la watchlist (rol, negocio, competidores, portafolios)
+
+- Antes de desplegar, corre `sql/watchlist-oficina-v035.sql` en Supabase (agrega `rol`, `portafolios`, `competidores` a `watchlist`; repetirlo no hace daño). Sin las columnas la corrida sigue y deja el aviso «watchlist: … no se usan rol, negocio ni competidores».
+- Página Watchlist: columnas Rol, Portafolios (casillas PMP/PCP/PLP/ETF/SEMILLA) y Competidores; «Notas» pasa a llamarse «Notas / negocio».
+- La Oficina lee la fila de la watchlist por ticker (solo lectura):
+  - **Rol**: el de la watchlist manda sobre el del expediente (el expediente solo si la watchlist no tiene rol).
+  - **Negocio** = texto de Notas. Rol, negocio y competidores llenos cuentan como apartados completos de la ficha de PMP-09 (solo suma, nunca marca incompleto).
+  - **Portafolios**: si el portafolio analizado no está marcado, solo avisa; la corrida sigue. También avisa si el ticker no está en la watchlist, está repetido o el rol no es válido.
+- Los avisos salen en «Avisos» de la pantalla /oficina.

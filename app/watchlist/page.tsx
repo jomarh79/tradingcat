@@ -66,7 +66,11 @@ type SortField =
   | 'rsi'
   | 'notes'
 
-type EditableField = 'buy_target' | 'analyst_target' | 'notes'
+type EditableField = 'buy_target' | 'analyst_target' | 'notes' | 'competidores'
+
+// Datos que lee la Oficina de Inversiones IA (rol, portafolios, competidores y Notas como descripción del negocio)
+const ROLES = ['flujo', 'crecimiento', 'mixto'] as const
+const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 
 const SORT_OPTIONS: { key: SortField; label: string }[] = [
   { key: 'buy_target',     label: 'Mi objetivo (distancia)' },
@@ -77,7 +81,7 @@ const SORT_OPTIONS: { key: SortField; label: string }[] = [
   { key: 'ema200_day',     label: 'EMA 200 Diaria' },
   { key: 'sma200_weekly',  label: 'SMA 200 Semanal' },
   { key: 'rsi',            label: 'RSI' },
-  { key: 'notes',          label: 'Notas' },
+  { key: 'notes',          label: 'Notas / negocio' },
 ]
 
 interface WatchItem {
@@ -86,6 +90,9 @@ interface WatchItem {
   buy_target:         number
   analyst_target:     number
   notes:              string
+  rol:                string | null
+  portafolios:        string[] | null
+  competidores:       string | null
   current_price:      number | null
   price_change:       number | null
   price_name:         string | null
@@ -224,15 +231,15 @@ export default function WatchlistIAPage() {
     try {
       const item = list.find(i => i.id === id)
       let value: string | number
-      if (field === 'notes') {
-        value = raw
+      if (field === 'notes' || field === 'competidores') {
+        value = field === 'competidores' ? raw.trim() : raw
       } else {
         const parsed = parseFloat(parseFloat(raw || '0').toFixed(2))
         value = isNaN(parsed) ? 0 : parsed
         // La lista solo muestra objetivos > 0: guardar 0 haría desaparecer el ticker
         if (field === 'buy_target' && value <= 0) { alert('Tu precio objetivo debe ser mayor a 0'); return }
       }
-      if (item && item[field] === value) return // sin cambios
+      if (item && (item[field] ?? (typeof value === 'string' ? '' : 0)) === value) return // sin cambios
       const { error } = await supabase.from('watchlist').update({ [field]: value }).eq('id', id)
       if (error) { alert('No se pudo guardar: ' + error.message); return }
       if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
@@ -417,6 +424,29 @@ export default function WatchlistIAPage() {
     pollTicker(ticker, () => { if (alive.current) setAddingNew(false) })
   }
 
+  // ── Rol y portafolios (los lee la Oficina). Cambio inmediato; si la base falla se regresa al valor anterior ──
+  const cambiarRol = async (id: number, rol: string) => {
+    const previo = list.find(i => i.id === id)?.rol ?? null
+    const nuevo = rol === '' ? null : rol
+    setList(prev => prev.map(i => i.id === id ? { ...i, rol: nuevo } : i))
+    const { error } = await supabase.from('watchlist').update({ rol: nuevo }).eq('id', id)
+    if (error) {
+      alert('No se pudo guardar el rol: ' + error.message)
+      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, rol: previo } : i))
+    }
+  }
+
+  const togglePortafolio = async (id: number, codigo: string) => {
+    const previo = list.find(i => i.id === id)?.portafolios ?? []
+    const nuevo = previo.includes(codigo) ? previo.filter(p => p !== codigo) : [...previo, codigo]
+    setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: nuevo } : i))
+    const { error } = await supabase.from('watchlist').update({ portafolios: nuevo }).eq('id', id)
+    if (error) {
+      alert('No se pudo guardar los portafolios: ' + error.message)
+      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: previo } : i))
+    }
+  }
+
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
     const { error } = await supabase.from('watchlist').delete().eq('id', id)
@@ -461,7 +491,8 @@ export default function WatchlistIAPage() {
       filtered = enrichedList.filter(i =>
         i.ticker.toLowerCase().includes(q) ||
         (i.price_name || '').toLowerCase().includes(q) ||
-        (i.notes || '').toLowerCase().includes(q)
+        (i.notes || '').toLowerCase().includes(q) ||
+        (i.competidores || '').toLowerCase().includes(q)
       )
     }
     const dir = sortDir === 'asc' ? 1 : -1
@@ -528,6 +559,28 @@ export default function WatchlistIAPage() {
     </>
   )
 
+  // Selector de rol y casillas de portafolio (iguales en escritorio y celular)
+  const rolSelect = (item: WatchItem, estilo: React.CSSProperties) => (
+    <select value={item.rol ?? ''} onChange={e => cambiarRol(item.id, e.target.value)} aria-label={`Rol de ${item.ticker}`} style={estilo}>
+      <option value="">—</option>
+      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+    </select>
+  )
+  const portafolioChips = (item: WatchItem, alto: number) => (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+      {PORTAFOLIOS.map(p => {
+        const on = (item.portafolios ?? []).includes(p)
+        return (
+          <button key={p} onClick={() => togglePortafolio(item.id, p)} aria-pressed={on} title={on ? `Quitar de ${p}` : `Marcar para ${p}`}
+            style={{ minHeight: alto, padding: '0 7px', fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: 'pointer',
+              border: `1px solid ${on ? '#2d4a2d' : '#1a1a1a'}`, background: on ? '#1b2a1b' : '#0a0a0a', color: on ? '#22c55e' : '#555' }}>
+            {p}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   // ── Tarjeta del celular ──
   const renderCard = (item: EnrichedItem) => {
     const rsiValue = Number(item.rsi)
@@ -540,6 +593,7 @@ export default function WatchlistIAPage() {
     const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
     const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
     const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
+    const editingComp     = editingCell?.id === item.id && editingCell.field === 'competidores'
 
     const editInputProps = {
       autoFocus: true,
@@ -604,7 +658,7 @@ export default function WatchlistIAPage() {
           </div>
         </div>
 
-        {/* Datos (toca Mi objetivo, Analistas o Notas para editar) */}
+        {/* Datos (toca Mi objetivo, Analistas, Competidores o Notas para editar) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
           <Metric label="Mi objetivo ✎" onClick={editingTarget ? undefined : () => startEdit(item.id, 'buy_target', item.buy_target.toString())}>
             {editingTarget
@@ -627,9 +681,26 @@ export default function WatchlistIAPage() {
           </Metric>
         </div>
 
-        {/* Notas */}
+        {/* Rol y portafolios (los lee la Oficina) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
+          <Metric label="Rol">{rolSelect(item, { ...mobInp, padding: '8px 6px' })}</Metric>
+          <Metric label="Portafolios">{portafolioChips(item, 36)}</Metric>
+        </div>
+
+        {/* Competidores */}
         <div style={{ marginBottom: 10 }}>
-          <Metric label="Notas ✎" onClick={editingNotes ? undefined : () => startEdit(item.id, 'notes', item.notes || '')}>
+          <Metric label="Competidores ✎" onClick={editingComp ? undefined : () => startEdit(item.id, 'competidores', item.competidores || '')}>
+            {editingComp
+              ? <input type="text" value={tempValue} onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
+              : item.competidores
+                ? <span style={{ color: '#999', fontSize: 12, wordBreak: 'break-word' }}>{item.competidores}</span>
+                : <span style={{ color: '#333' }}>—</span>}
+          </Metric>
+        </div>
+
+        {/* Notas / negocio */}
+        <div style={{ marginBottom: 10 }}>
+          <Metric label="Notas / negocio ✎" onClick={editingNotes ? undefined : () => startEdit(item.id, 'notes', item.notes || '')}>
             {editingNotes
               ? <input type="text" value={tempValue} onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
               : item.notes
@@ -728,7 +799,7 @@ export default function WatchlistIAPage() {
             onChange={e => setNewTarget(posAmount(e.target.value))} />
           <input style={isMobile ? mobileInp : inpStyle} type="number" inputMode="decimal" min="0" placeholder="Analistas (opc.)" value={newAnalyst}
             onChange={e => setNewAnalyst(posAmount(e.target.value))} />
-          <input style={isMobile ? mobileInp : { ...inpStyle, flex: 2, minWidth: 160 }} placeholder="Notas (opc.)" value={newNotes}
+          <input style={isMobile ? mobileInp : { ...inpStyle, flex: 2, minWidth: 160 }} placeholder="Notas / negocio (opc.)" value={newNotes}
             onChange={e => setNewNotes(e.target.value)} />
           <button onClick={agregarEmpresa} disabled={addingNew}
             style={isMobile ? { ...btnStyle, gridColumn: '1 / -1', justifyContent: 'center', padding: '12px 14px', fontSize: '0.9rem' } : btnStyle}>
@@ -741,7 +812,7 @@ export default function WatchlistIAPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : {}) }}>
             <FaSearch style={{ color: '#666', fontSize: 12 }} />
-            <input style={isMobile ? { ...mobileInp, flex: 1 } : { ...inpStyle, width: 220, fontSize: '0.8rem' }} placeholder="Filtrar ticker, nombre o nota..."
+            <input style={isMobile ? { ...mobileInp, flex: 1 } : { ...inpStyle, width: 220, fontSize: '0.8rem' }} placeholder="Filtrar ticker, nombre, nota o competidor..."
               value={filterText} onChange={e => setFilterText(e.target.value)} />
             {filterText && <span style={{ fontSize: 10, color: '#666' }}>{displayList.length} resultado(s)</span>}
           </div>
@@ -770,7 +841,7 @@ export default function WatchlistIAPage() {
               </button>
             </div>
             <div style={{ fontSize: 9, color: '#555', marginBottom: 10 }}>
-              Verde = ±2% de tu objetivo · Dist (+) = falta bajar · (−) = ya pasó · toca Mi objetivo, Analistas o Notas para editar
+              Verde = ±2% de tu objetivo · Dist (+) = falta bajar · (−) = ya pasó · toca Mi objetivo, Analistas, Competidores o Notas para editar
             </div>
 
             {/* ── TARJETAS ── */}
@@ -789,7 +860,7 @@ export default function WatchlistIAPage() {
         ) : (
         /* ── TABLA ── */
         <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
                 {([
@@ -801,7 +872,10 @@ export default function WatchlistIAPage() {
                   ['ema200_day',    'EMA 200 Diaria'],
                   ['sma200_weekly', 'SMA 200 Semanal'],
                   ['rsi',           'RSI'],
-                  ['notes',         'Notas'],
+                  [null,            'Rol'],
+                  [null,            'Portafolios'],
+                  [null,            'Competidores'],
+                  ['notes',         'Notas / negocio'],
                   [null,            'Acciones'],
                 ] as [string | null, string][]).map(([field, label], idx) => (
                   <th key={idx}
@@ -817,7 +891,7 @@ export default function WatchlistIAPage() {
             </thead>
             <tbody>
               {displayList.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                <tr><td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                     <Paw size={28} color="#333" opacity={0.5} />
                     No hay activos. Agrega uno arriba.
@@ -835,6 +909,7 @@ export default function WatchlistIAPage() {
                 const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
                 const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
                 const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
+                const editingComp     = editingCell?.id === item.id && editingCell.field === 'competidores'
 
                 const editInputProps = {
                   autoFocus: true,
@@ -962,7 +1037,31 @@ export default function WatchlistIAPage() {
                         : <span style={{ color: '#333' }}>—</span>}
                     </td>
 
-                    {/* Notas — editable directo en la celda */}
+                    {/* Rol */}
+                    <td style={tdStyle}>{rolSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
+
+                    {/* Portafolios */}
+                    <td style={tdStyle}>{portafolioChips(item, 22)}</td>
+
+                    {/* Competidores — editable directo en la celda */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 170 }}>
+                      {editingComp ? (
+                        <input type="text" value={tempValue}
+                          onChange={e => setTempValue(e.target.value)}
+                          {...editInputProps}
+                          style={{ ...inpStyle, width: 150, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }} />
+                      ) : (
+                        <span onClick={() => startEdit(item.id, 'competidores', item.competidores || '')} style={{ cursor: 'pointer' }} title="Clic para editar">
+                          {item.competidores
+                            ? <span style={{ color: '#888', fontSize: 11 }} title={item.competidores}>
+                                {item.competidores.length > 24 ? item.competidores.slice(0, 24) + '…' : item.competidores}
+                              </span>
+                            : <span style={{ color: '#333' }}>—</span>}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Notas / negocio — editable directo en la celda */}
                     <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 180 }}>
                       {editingNotes ? (
                         <input type="text" value={tempValue}

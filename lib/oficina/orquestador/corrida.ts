@@ -40,6 +40,7 @@ import type { RachaRegistrada } from './racha';
 import { MOTIVO_PORTAFOLIO_SIN_REGLAS, normalizarCodigoPortafolio, validarSolicitud } from './solicitud';
 import type { SolicitudNormalizada } from './solicitud';
 import type { Candle } from '../tecnico';
+import type { DatosWatchlist } from '../conexion/watchlist-datos';
 
 /** Reintentos por agente de IA tras una salida inválida o un error (el validador permite uno; contrato 1.2 paso 7). */
 export const REINTENTOS_POR_AGENTE = 1;
@@ -172,6 +173,10 @@ export interface DatosCongelados {
    *  El precio de hoy y las señales de hoy los pone el Técnico. */
   salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'>;
   corrida_previa_id?: string | null;
+  /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores, portafolios); lo usa la preparación del Auditor. */
+  watchlist?: DatosWatchlist | null;
+  /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
+  avisos?: string[];
   motor?: {
     capital?: Capital;
     tesis_estado?: TesisEstado;
@@ -405,7 +410,7 @@ export async function ejecutarCorrida(
     bloqueoEstructural = { regla: estr.regla, fuente: estr.fuente };
   }
 
-  const avisos: string[] = [];
+  const avisos: string[] = [...(datos.avisos ?? [])];
   const fecha_evaluacion = fechaEnZona(instante, ZONA_OFICINA);
   const ag = agentesDeCorrida(portafolio, tipo) ?? { accion: 'abrir' as const, requeridos: [], opcionales: [] };   // estructural: sin agentes
   let requeridos = ag.requeridos;

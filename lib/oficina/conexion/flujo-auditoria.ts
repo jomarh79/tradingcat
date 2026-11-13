@@ -116,7 +116,7 @@ export async function prepararAuditoria(cliente: ClienteOficina, a: ArgumentosPr
     });
     if (reglas.problemas.length > 0) return falla('reglas', reglas.problemas);
 
-    const hechos = await cargarHechosPosicion(cliente, { portfolio_id: pf.portfolio_id, ticker: s.ticker, posicion_existe: a.datos.posicion_existe });
+    const hechos = await cargarHechosPosicion(cliente, { portfolio_id: pf.portfolio_id, ticker: s.ticker, posicion_existe: a.datos.posicion_existe, watchlist: a.datos.watchlist ?? null });
     if (!hechos.ok) return falla('hechos', hechos.problemas);
 
     const base: DatosCongelados = { ...a.datos, expediente_id: exp.expediente_id };
