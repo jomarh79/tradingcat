@@ -78,8 +78,6 @@ const SORT_OPTIONS: { key: SortField; label: string }[] = [
   { key: 'price_change',   label: 'Var. día %' },
   { key: 'current_price',  label: 'Precio' },
   { key: 'analyst_target', label: 'Analistas' },
-  { key: 'ema200_day',     label: 'EMA 200 Diaria' },
-  { key: 'sma200_weekly',  label: 'SMA 200 Semanal' },
   { key: 'rsi',            label: 'RSI' },
   { key: 'notes',          label: 'Notas / negocio' },
 ]
@@ -436,13 +434,14 @@ export default function WatchlistIAPage() {
     }
   }
 
-  const togglePortafolio = async (id: number, codigo: string) => {
-    const previo = list.find(i => i.id === id)?.portafolios ?? []
-    const nuevo = previo.includes(codigo) ? previo.filter(p => p !== codigo) : [...previo, codigo]
+  const cambiarPortafolio = async (id: number, codigo: string) => {
+    const previo = list.find(i => i.id === id)?.portafolios ?? null
+    const nuevo = codigo === '' ? [] : codigo.split(',')
+    if (previo && previo.join(',') === nuevo.join(',')) return
     setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: nuevo } : i))
     const { error } = await supabase.from('watchlist').update({ portafolios: nuevo }).eq('id', id)
     if (error) {
-      alert('No se pudo guardar los portafolios: ' + error.message)
+      alert('No se pudo guardar el portafolio: ' + error.message)
       if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: previo } : i))
     }
   }
@@ -566,20 +565,20 @@ export default function WatchlistIAPage() {
       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
     </select>
   )
-  const portafolioChips = (item: WatchItem, alto: number) => (
-    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
-      {PORTAFOLIOS.map(p => {
-        const on = (item.portafolios ?? []).includes(p)
-        return (
-          <button key={p} onClick={() => togglePortafolio(item.id, p)} aria-pressed={on} title={on ? `Quitar de ${p}` : `Marcar para ${p}`}
-            style={{ minHeight: alto, padding: '0 7px', fontSize: 10, fontWeight: 700, borderRadius: 5, cursor: 'pointer',
-              border: `1px solid ${on ? '#2d4a2d' : '#1a1a1a'}`, background: on ? '#1b2a1b' : '#0a0a0a', color: on ? '#22c55e' : '#555' }}>
-            {p}
-          </button>
-        )
-      })}
-    </div>
-  )
+  // Un solo portafolio por ticker, como el rol (se guarda como arreglo de un elemento porque así lo lee la Oficina).
+  // Si un ticker ya tenía varios guardados, se muestran juntos hasta que elijas uno.
+  const portafolioSelect = (item: WatchItem, estilo: React.CSSProperties) => {
+    const actuales = item.portafolios ?? []
+    const valor = actuales.join(',')
+    const esMulti = actuales.length > 1
+    return (
+      <select value={valor} onChange={e => cambiarPortafolio(item.id, e.target.value)} aria-label={`Portafolio de ${item.ticker}`} style={estilo}>
+        <option value="">—</option>
+        {esMulti && <option value={valor}>{actuales.join(' + ')}</option>}
+        {PORTAFOLIOS.map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    )
+  }
 
   // ── Tarjeta del celular ──
   const renderCard = (item: EnrichedItem) => {
@@ -672,8 +671,6 @@ export default function WatchlistIAPage() {
                   onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
               : pctCell(item.analyst_target > 0 ? item.analyst_target : null)}
           </Metric>
-          <Metric label="EMA 200 Diaria">{pctCell(item.ema200_day && item.ema200_day > 0 ? item.ema200_day : null)}</Metric>
-          <Metric label="SMA 200 Semanal">{pctCell(item.sma200_weekly && item.sma200_weekly > 0 ? item.sma200_weekly : null)}</Metric>
           <Metric label="RSI">
             {rsiOk
               ? <span style={{ color: rsiColor(rsiValue), fontWeight: 700, fontSize: 14 }}>{rsiValue.toFixed(1)}</span>
@@ -684,7 +681,7 @@ export default function WatchlistIAPage() {
         {/* Rol y portafolios (los lee la Oficina) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
           <Metric label="Rol">{rolSelect(item, { ...mobInp, padding: '8px 6px' })}</Metric>
-          <Metric label="Portafolios">{portafolioChips(item, 36)}</Metric>
+          <Metric label="Portafolio">{portafolioSelect(item, { ...mobInp, padding: '8px 6px' })}</Metric>
         </div>
 
         {/* Competidores */}
@@ -860,7 +857,7 @@ export default function WatchlistIAPage() {
         ) : (
         /* ── TABLA ── */
         <div style={{ overflowX: 'auto', background: '#050505', borderRadius: 12, border: '1px solid #1a1a1a' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1250 }}>
             <thead>
               <tr style={{ background: '#0a0a0a' }}>
                 {([
@@ -869,11 +866,9 @@ export default function WatchlistIAPage() {
                   ['current_price', 'Precio'],
                   ['buy_target',    'Mi objetivo'],
                   ['analyst_target','Analistas'],
-                  ['ema200_day',    'EMA 200 Diaria'],
-                  ['sma200_weekly', 'SMA 200 Semanal'],
                   ['rsi',           'RSI'],
                   [null,            'Rol'],
-                  [null,            'Portafolios'],
+                  [null,            'Portafolio'],
                   [null,            'Competidores'],
                   ['notes',         'Notas / negocio'],
                   [null,            'Acciones'],
@@ -891,7 +886,7 @@ export default function WatchlistIAPage() {
             </thead>
             <tbody>
               {displayList.length === 0 && (
-                <tr><td colSpan={13} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#555' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                     <Paw size={28} color="#333" opacity={0.5} />
                     No hay activos. Agrega uno arriba.
@@ -1006,30 +1001,6 @@ export default function WatchlistIAPage() {
                       )}
                     </td>
 
-                    {/* EMA 200 diaria — % arriba / precio abajo (solo lectura, viene del cron) */}
-                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
-                      {item.ema200_day && item.ema200_day > 0 ? (
-                        <>
-                          <div style={{ color: item.current_price && item.ema200_day >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
-                            {item.current_price ? `${item.ema200_day >= item.current_price ? '+' : ''}${((item.ema200_day - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
-                          </div>
-                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.ema200_day).toFixed(2)}</div>
-                        </>
-                      ) : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-
-                    {/* SMA 200 semanal — % arriba / precio abajo (solo lectura, viene del cron) */}
-                    <td style={{ ...tdStyle, fontWeight: 600, fontSize: 10 }}>
-                      {item.sma200_weekly && item.sma200_weekly > 0 ? (
-                        <>
-                          <div style={{ color: item.current_price && item.sma200_weekly >= item.current_price ? '#22c55e' : '#f43f5e', fontWeight: 700, fontSize: 12 }}>
-                            {item.current_price ? `${item.sma200_weekly >= item.current_price ? '+' : ''}${((item.sma200_weekly - item.current_price) / item.current_price * 100).toFixed(2)}%` : '—'}
-                          </div>
-                          <div style={{ color: '#aaa', marginTop: 2 }}>${Number(item.sma200_weekly).toFixed(2)}</div>
-                        </>
-                      ) : <span style={{ color: '#333' }}>—</span>}
-                    </td>
-
                     {/* RSI */}
                     <td style={{ ...tdStyle, fontWeight: 700, fontSize: 13 }}>
                       {rsiOk
@@ -1041,7 +1012,7 @@ export default function WatchlistIAPage() {
                     <td style={tdStyle}>{rolSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
 
                     {/* Portafolios */}
-                    <td style={tdStyle}>{portafolioChips(item, 22)}</td>
+                    <td style={tdStyle}>{portafolioSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
 
                     {/* Competidores — editable directo en la celda */}
                     <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 170 }}>
