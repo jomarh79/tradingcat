@@ -308,3 +308,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
   - NO propone `dividendos_fundamentales`, `correlacion`, `plan_ejecucion` ni `decision_final`: los declara como no propuestos.
 - Un borrador NO cuenta para PMP-09. Se aprueba con `sql/aprobar-ficha-pmp-v036.sql` (probado en Postgres): copia los textos de la última corrida PMP del ticker a `ficha.ficha_pmp.<apartado>` con estado 'aprobado'; también acepta tus propios textos. Lo que no listas no se toca; se puede repetir.
 - Rol, negocio y competidores siguen viniendo de la watchlist (v0.35).
+
+## v0.37 — Botón «Ficha PMP» en la watchlist (aprobar la ficha PMP-09 sin SQL)
+
+- `app/watchlist/BotonAprobarFicha.tsx`: componente con todo el código (ventana con el borrador de la última corrida PMP del ticker, casillas para aprobar identidad/rendimiento/volatilidad_riesgo/indices_referencia, y cuatro cajas para lo que escribes tú: dividendos_fundamentales, correlacion, plan_ejecucion, decision_final). La página solo dibuja `<BotonAprobarFicha ticker=... />` (3 líneas: import, botón de escritorio y botón de celular).
+- `app/api/oficina/ficha/route.ts`: GET estado y POST aprobar. Usa la sesión del usuario (RLS), solo dueño; solo escribe `ficha.ficha_pmp` del expediente PMP del ticker. Si la base no deja actualizar (0 filas) responde 403 con el mensaje.
+- Lógica pura y probada: `conexion/ficha-aprobacion.ts` y `conexion/ficha-aprobacion-bd.ts`. Solo se aprueba lo que se pide; un texto vacío no aprueba ni borra; lo aprobado antes se conserva.

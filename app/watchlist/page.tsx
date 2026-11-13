@@ -12,6 +12,7 @@ import {
 import { AlertTriangle, BarChart2, FileText } from 'lucide-react'
 
 import { authedFetch } from "@/lib/authed-fetch";
+import BotonAprobarFicha from './BotonAprobarFicha'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -716,6 +717,7 @@ export default function WatchlistIAPage() {
             style={{ ...actionBase, color: '#00bfff' }}>
             <FileText size={18} />
           </a>
+          <BotonAprobarFicha ticker={item.ticker} grande />
           <button onClick={() => refreshTicker(item.ticker, item.last_updated)} disabled={!canRefresh} aria-label="Reanalizar"
             title={
               refreshingThis ? 'Analizando...' :
@@ -1073,6 +1075,7 @@ export default function WatchlistIAPage() {
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                           <FileText size={14} />
                         </a>
+                        <BotonAprobarFicha ticker={item.ticker} />
                         <button
                           onClick={() => refreshTicker(item.ticker, item.last_updated)}
                           disabled={!canRefresh}
