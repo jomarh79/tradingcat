@@ -99,6 +99,7 @@ describe('v0.35: watchlist en la corrida guardada', () => {
     const f = (corridaRpc(m)?.['referencias'] as Fila)['ficha_propuesta'] as { propuesta: Record<string, { texto: string }>; no_propuestos: string[] };
     expect(f.propuesta['identidad']?.texto).toBe('GKOS · mercado US · portafolio PMP · rol mixto · negocio: Oftalmología');
     expect(f.propuesta['indices_referencia']).toBeDefined();
-    expect(f.no_propuestos.join('|')).toContain('plan_ejecucion');
+    expect(f.propuesta['plan_ejecucion']).toBeDefined();
+    expect(f.no_propuestos.join('|')).toContain('correlacion');
   });
 });

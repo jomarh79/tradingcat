@@ -314,3 +314,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - `app/watchlist/BotonAprobarFicha.tsx`: componente con todo el código (ventana con el borrador de la última corrida PMP del ticker, casillas para aprobar identidad/rendimiento/volatilidad_riesgo/indices_referencia, y cuatro cajas para lo que escribes tú: dividendos_fundamentales, correlacion, plan_ejecucion, decision_final). La página solo dibuja `<BotonAprobarFicha ticker=... />` (3 líneas: import, botón de escritorio y botón de celular).
 - `app/api/oficina/ficha/route.ts`: GET estado y POST aprobar. Usa la sesión del usuario (RLS), solo dueño; solo escribe `ficha.ficha_pmp` del expediente PMP del ticker. Si la base no deja actualizar (0 filas) responde 403 con el mensaje.
 - Lógica pura y probada: `conexion/ficha-aprobacion.ts` y `conexion/ficha-aprobacion-bd.ts`. Solo se aprueba lo que se pide; un texto vacío no aprueba ni borra; lo aprobado antes se conserva.
+
+## v0.38 — plan_ejecucion y decision_final propuestos con las reglas de PMP
+
+- La corrida de PMP propone también `plan_ejecucion` (entrada 50 USD con 2 de 5 señales, Auditor CUMPLE y 14% anualizado; salidas de 2 o 3; niveles TP1–TP3) y `decision_final` (la Oficina propone y el usuario autoriza; revisar la venta del 100% si el semestral baja de 14% o pierde fundamentales). Ambos salen de las reglas aprobadas el 10-nov y se aprueban con el botón como los demás.
+- Quedan para escribir a mano solo `dividendos_fundamentales` y `correlacion`.
+- Las corridas anteriores a esta versión no traen esos dos borradores: hay que correr el ticker otra vez.

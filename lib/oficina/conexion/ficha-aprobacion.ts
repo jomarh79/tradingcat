@@ -6,9 +6,9 @@ export const APARTADOS_FICHA_PMP = [
   'identidad', 'rol', 'negocio', 'rendimiento', 'volatilidad_riesgo', 'dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final', 'indices_referencia', 'competidores',
 ] as const;
 /** Los que puede proponer la corrida (y que el usuario aprueba tal cual). */
-export const APARTADOS_PROPUESTOS = ['identidad', 'rendimiento', 'volatilidad_riesgo', 'indices_referencia'] as const;
+export const APARTADOS_PROPUESTOS = ['identidad', 'rendimiento', 'volatilidad_riesgo', 'plan_ejecucion', 'decision_final', 'indices_referencia'] as const;
 /** Los que escribe el usuario. */
-export const APARTADOS_PROPIOS = ['dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final'] as const;
+export const APARTADOS_PROPIOS = ['dividendos_fundamentales', 'correlacion'] as const;
 /** Los que salen de la página Watchlist (rol, negocio = Notas, competidores). */
 export const APARTADOS_DE_WATCHLIST = ['rol', 'negocio', 'competidores'] as const;
 export const MAX_TEXTO_APARTADO = 4000;

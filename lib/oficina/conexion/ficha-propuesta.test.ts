@@ -20,19 +20,22 @@ describe('proponerFichaPmp', () => {
   const hoy = '2026-11-12';
   it('propone identidad, índices, rendimiento y volatilidad con velas suficientes', () => {
     const r = proponerFichaPmp({ ticker: 'SE', hoy, velas: serie(900), watchlist: WL });
-    expect(Object.keys(r.propuesta).sort()).toEqual(['identidad', 'indices_referencia', 'rendimiento', 'volatilidad_riesgo']);
+    expect(Object.keys(r.propuesta).sort()).toEqual(['decision_final', 'identidad', 'indices_referencia', 'plan_ejecucion', 'rendimiento', 'volatilidad_riesgo']);
     expect(r.propuesta['identidad']?.texto).toBe('SE · mercado US · portafolio PMP · rol mixto · negocio: Comercio electrónico y pagos');
     expect(r.propuesta['indices_referencia']?.texto).toContain('SPY, QQQ, DIA, QUAL');
     expect(r.propuesta['rendimiento']?.texto).toMatch(/1 mes \+2\.1%.*1 año \+28\.6%.*3 años \+112\.9%/);
     expect(r.propuesta['volatilidad_riesgo']?.texto).toMatch(/Volatilidad anualizada 0\.0%.*caída máxima desde un máximo \+0\.0%/);
   });
-  it('los apartados que dependen de ti o de datos que no hay no se proponen y quedan declarados', () => {
+  it('dividendos y correlación no se proponen y quedan declarados; plan y decisión salen de las reglas aprobadas', () => {
     const r = proponerFichaPmp({ ticker: 'SE', hoy, velas: serie(900), watchlist: null });
-    for (const a of ['dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final']) {
+    for (const a of ['dividendos_fundamentales', 'correlacion']) {
       expect(r.propuesta[a]).toBeUndefined();
       expect(r.no_propuestos.join('|')).toContain(`${a}:`);
     }
     expect(r.propuesta['identidad']?.texto).toBe('SE · mercado US · portafolio PMP · rol sin definir');
+    expect(r.propuesta['plan_ejecucion']?.texto).toMatch(/50 USD.*2 de las 5 señales.*14% anualizado/);
+    expect(r.propuesta['decision_final']?.texto).toMatch(/yo autorizo.*revisar la venta del 100%/);
+    expect(r.no_propuestos.join('|')).not.toMatch(/plan_ejecucion|decision_final/);
   });
   it('descarta la vela del día en curso', () => {
     const v = serie(300);
