@@ -326,3 +326,13 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - `app/watchlist/BotonAnalizarOficina.tsx` (icono ▶): hace lo mismo que `analizar-fundamental.ps1 -ConToken -Guardar` desde la página: llama a `/api/oficina/analisis-fundamental` con ticker, portafolio (el marcado en la fila, o PMP), monto (PMP 50, PCP 25, editable) y guarda la corrida. Muestra decisión, estado, veredicto del Auditor y motivos, con enlace a /oficina. No compra ni vende.
 - La página solo suma el import y dos botones (escritorio y celular).
 - El servidor sigue limitando a un análisis cada 30 s.
+
+## v0.40 — Ficha PMP-09: dividendos, fundamentales y correlación automáticos
+
+- La corrida de PMP ahora reúne sola, sin bloquearse si algo falla:
+  - dividendos del ticker por `/api/dividends` (la misma ruta de las gráficas de /chart; 10 años);
+  - un resumen de fundamentales con las cifras que ya baja la corrida (ingresos, utilidad neta, márgenes, razón corriente y prueba ácida);
+  - las velas diarias de SPY, QQQ, DIA y QUAL por `/api/chart-data` (4 llamadas más a TwelveData por análisis de PMP).
+- Apartados nuevos del borrador: `dividendos_fundamentales` (pagos, último pago, total y rendimiento sin anualizar como en la gráfica, más fundamentales) y `correlacion` (correlación de retornos diarios con cada índice, hasta 252 días en común; mínimo 120).
+- Un error al consultar dividendos NO se interpreta como «sin dividendos»: el apartado no se propone y se dice por qué. Igual con fundamentales o índices sin datos.
+- Ya no hay apartados que escribas a mano: el botón de la ficha propone los 8 y tú apruebas.

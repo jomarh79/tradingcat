@@ -6,9 +6,10 @@ export const APARTADOS_FICHA_PMP = [
   'identidad', 'rol', 'negocio', 'rendimiento', 'volatilidad_riesgo', 'dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final', 'indices_referencia', 'competidores',
 ] as const;
 /** Los que puede proponer la corrida (y que el usuario aprueba tal cual). */
-export const APARTADOS_PROPUESTOS = ['identidad', 'rendimiento', 'volatilidad_riesgo', 'plan_ejecucion', 'decision_final', 'indices_referencia'] as const;
+export const APARTADOS_PROPUESTOS = ['identidad', 'rendimiento', 'volatilidad_riesgo', 'dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final', 'indices_referencia'] as const;
 /** Los que escribe el usuario. */
-export const APARTADOS_PROPIOS = ['dividendos_fundamentales', 'correlacion'] as const;
+/** Ninguno: con la v0.40 la corrida propone los 8; se deja la lista por si algún día hay un apartado que solo escribes tú. */
+export const APARTADOS_PROPIOS = [] as readonly string[];
 /** Los que salen de la página Watchlist (rol, negocio = Notas, competidores). */
 export const APARTADOS_DE_WATCHLIST = ['rol', 'negocio', 'competidores'] as const;
 export const MAX_TEXTO_APARTADO = 4000;
@@ -48,7 +49,7 @@ export function construirAprobacion(e: {
   const textos = e.textos === undefined ? {} : e.textos;
   if (!esObj(textos)) return { ok: false, error: 'textos debe ser un objeto apartado → texto' };
   for (const [k, v] of Object.entries(textos)) {
-    if (!(APARTADOS_PROPIOS as readonly string[]).includes(k)) return { ok: false, error: `«${k}» no es un apartado que escribas tú (${APARTADOS_PROPIOS.join(', ')})` };
+    if (!APARTADOS_PROPIOS.includes(k)) return { ok: false, error: `«${k}» no es un apartado que escribas tú (${APARTADOS_PROPIOS.join(', ')})` };
     if (typeof v !== 'string') return { ok: false, error: `el texto de «${k}» debe ser texto` };
     const t = v.trim();
     if (t === '') continue;   // vacío: no se aprueba ni se borra nada

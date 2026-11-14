@@ -203,3 +203,7 @@ export const ESCALAS_CIFRA = [1, 100, 1e-3, 1e-6, 1e-9] as const;
 export const EPSILON_CIFRA = 1e-9;
 /** Datos citados que se listan en el mensaje de error de una cifra sin respaldo (para que el modelo corrija al reintentar). */
 export const MAX_VALORES_EN_MENSAJE = 12;
+
+/** v0.40: dividendos por la ruta interna de la app (la misma de las gráficas de /chart): { dividends: [{ date, amount }] } o { error }. */
+export const RUTA_DIVIDENDOS = '/api/dividends';
+export const ANIOS_DIVIDENDOS = 10;

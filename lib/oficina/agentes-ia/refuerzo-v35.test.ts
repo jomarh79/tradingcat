@@ -17,6 +17,7 @@ const entrada = (fy: number, ingresos: number) => ({
   opIncome: ingresos * 0.2, otherNetIncome: null, ebt: null, incomeTax: null, netIncome: ingresos * 0.1, dilutedAvgShares: 1000, dilutedEps: 0.1, interestNet: null,
 });
 const RESP: Record<string, unknown> = {
+  '/api/dividends': { dividends: [{ date: '2026-03-31', amount: 0.5 }, { date: '2026-06-30', amount: 0.55 }] },
   '/api/webull/income-statement': { success: true, symbol: 'GKOS', annual: [entrada(2023, 1200), entrada(2024, 1500)], ttm: null, forwardEps: null },
   'freq=annual': { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] },
   'freq=quarterly': { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] },
@@ -100,6 +101,8 @@ describe('v0.35: watchlist en la corrida guardada', () => {
     expect(f.propuesta['identidad']?.texto).toBe('GKOS · mercado US · portafolio PMP · rol mixto · negocio: Oftalmología');
     expect(f.propuesta['indices_referencia']).toBeDefined();
     expect(f.propuesta['plan_ejecucion']).toBeDefined();
-    expect(f.no_propuestos.join('|')).toContain('correlacion');
+    expect(f.propuesta['dividendos_fundamentales']?.texto).toMatch(/^2 pagos en los últimos 10 años.*último pago \$0\.550 el 2026-06-30.*Fundamentales: /);
+    expect(f.propuesta['correlacion']?.texto).toMatch(/^Correlación de los retornos diarios con SPY .*QQQ .*DIA .*QUAL /);
+    expect(f.no_propuestos).toEqual([]);
   });
 });

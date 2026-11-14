@@ -488,7 +488,7 @@ describe('v0.14: guardado con el Técnico', () => {
     expect(r.http).toBe(200);
     expect(r.cuerpo).toMatchObject({ ok: true, analisis_completo: true, avisos_velas: [] });
     expect(r.cuerpo['tecnico']).toMatchObject({ estado: 'ok', veredicto: 'ESPERAR', confianza: 0.5, calculo_codigo: { estado: 'parcial', fecha_evaluacion: '2026-11-04', ultima_vela_diaria: '2026-11-03', ultima_vela_semanal: '2026-10-26' } });
-    expect(t.llamadas.filter(u => u.includes('/api/chart-data'))).toHaveLength(2);
+    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u))).toHaveLength(2);   // v0.40: además se piden las velas de los 4 índices de la ficha
     const an = insertsDe(t.b, 'oficina_analisis').find(x => x['agente'] === 'tecnico')!;
     expect(an).toMatchObject({ veredicto: 'ESPERAR', puntaje: null, expediente_id: expect.any(String) });
     expect((an['salida'] as Obj)['trazabilidad']).toMatchObject({ version_prompt: 'tecnico.p7', contrato: 'salida.v1', run_id: r.cuerpo['run_id'] });
@@ -497,7 +497,7 @@ describe('v0.14: guardado con el Técnico', () => {
     expect((cc['motivos'] as string[]).some(m => m.startsWith('sma200_semanal'))).toBe(true);
     expect((an['salida'] as Obj)['snapshot_id']).toBe(((peticion(t.m, 'salida_fundamental_v1')['snapshot']) as Obj)['id']);
     expect(((an['salida'] as Obj)['trazabilidad'] as Obj)['snapshot_id']).toBe((peticion(t.m, 'salida_fundamental_v1')['snapshot'] as Obj)['id']);
-    expect(t.llamadas.filter(u => u.includes('/api/chart-data')).every(u => u.includes('symbol=GKOS'))).toBe(true);
+    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u)).every(u => u.includes('symbol=GKOS'))).toBe(true);
     const corrida = t.b.e.rpc[0]!.args['p_corrida'] as Fila;
     const ref = (corrida['referencias'] as Obj)['tecnico'] as Obj;
     expect(ref).toMatchObject({ estado: 'parcial', ultima_vela_diaria: '2026-11-03', ultima_vela_semanal: '2026-10-26' });

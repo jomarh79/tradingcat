@@ -49,3 +49,8 @@ export async function obtenerVelas(deps: DepsDatosReales, ticker: string): Promi
   }
   return { ok: true, velas: { diarias: dia.velas, semanales: sem.velas, fuente: FUENTE_VELAS }, avisos: [] };
 }
+
+/** Solo las velas diarias de un símbolo (para los índices de referencia de la ficha). Si falla devuelve el motivo; nunca se rellena. */
+export async function obtenerVelasDiariasDe(deps: DepsDatosReales, simbolo: string): Promise<{ ok: true; velas: Candle[] } | { ok: false; error: string }> {
+  return pedir(deps, encodeURIComponent(simbolo), INTERVALO_VELAS_DIARIAS);
+}

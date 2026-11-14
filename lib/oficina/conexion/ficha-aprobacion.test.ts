@@ -4,26 +4,25 @@ import { construirAprobacion, mezclarFicha, textosAprobados } from './ficha-apro
 import { fichaPmpAprobada } from './hechos-bd';
 
 const AHORA = '2026-11-13T14:00:00.000Z';
-const PROP = { identidad: { texto: 'SE · US' }, rendimiento: { texto: '1 mes +2%' }, volatilidad_riesgo: { texto: '' }, plan_ejecucion: { texto: 'Plan base' } };
+const PROP = { identidad: { texto: 'SE · US' }, rendimiento: { texto: '1 mes +2%' }, volatilidad_riesgo: { texto: '' }, plan_ejecucion: { texto: 'Plan base' }, correlacion: { texto: 'SPY 0.6' } };
 
 describe('construirAprobacion', () => {
-  it('aprueba lo marcado de la corrida y los textos propios', () => {
-    const r = construirAprobacion({ propuesta: PROP, aprobar: ['identidad'], textos: { correlacion: '  0.8 con SPY  ', dividendos_fundamentales: '   ' }, ahora: AHORA });
+  it('aprueba lo marcado de la corrida', () => {
+    const r = construirAprobacion({ propuesta: PROP, aprobar: ['identidad', 'correlacion'], textos: undefined, ahora: AHORA });
     expect(r).toEqual({ ok: true, nuevos: {
       identidad: { estado: 'aprobado', texto: 'SE · US', aprobado_at: AHORA, origen: 'propuesta_oficina' },
-      correlacion: { estado: 'aprobado', texto: '0.8 con SPY', aprobado_at: AHORA, origen: 'usuario' },
+      correlacion: { estado: 'aprobado', texto: 'SPY 0.6', aprobado_at: AHORA, origen: 'propuesta_oficina' },
     } });
   });
   it('rechaza apartados que no se proponen, sin propuesta o con texto vacío', () => {
-    for (const aprobar of [['correlacion'], ['rol'], ['xyz'], [5], ['indices_referencia'], ['volatilidad_riesgo']]) {
+    for (const aprobar of [['rol'], ['negocio'], ['xyz'], [5], ['indices_referencia'], ['volatilidad_riesgo']]) {
       expect(construirAprobacion({ propuesta: PROP, aprobar, textos: {}, ahora: AHORA }).ok).toBe(false);
     }
   });
-  it('rechaza textos de apartados que no son tuyos, no-texto o demasiado largos; y no aprobar nada es error', () => {
+  it('ningún apartado se escribe a mano: textos se rechaza; no aprobar nada o mal formado es error', () => {
     expect(construirAprobacion({ propuesta: PROP, aprobar: [], textos: { identidad: 'x' }, ahora: AHORA }).ok).toBe(false);
-    expect(construirAprobacion({ propuesta: PROP, aprobar: [], textos: { correlacion: 5 }, ahora: AHORA }).ok).toBe(false);
-    expect(construirAprobacion({ propuesta: PROP, aprobar: [], textos: { correlacion: 'x'.repeat(4001) }, ahora: AHORA }).ok).toBe(false);
-    expect(construirAprobacion({ propuesta: PROP, aprobar: [], textos: { correlacion: ' ' }, ahora: AHORA })).toMatchObject({ ok: false, error: expect.stringContaining('nada que aprobar') });
+    expect(construirAprobacion({ propuesta: PROP, aprobar: ['identidad'], textos: { correlacion: 'x' }, ahora: AHORA }).ok).toBe(false);
+    expect(construirAprobacion({ propuesta: PROP, aprobar: [], textos: {}, ahora: AHORA })).toMatchObject({ ok: false, error: expect.stringContaining('nada que aprobar') });
     expect(construirAprobacion({ propuesta: PROP, aprobar: 'identidad', textos: {}, ahora: AHORA }).ok).toBe(false);
     expect(construirAprobacion({ propuesta: PROP, aprobar: ['identidad'], textos: [], ahora: AHORA }).ok).toBe(false);
   });
@@ -84,7 +83,7 @@ describe('leerEstadoFicha / aprobarFicha', () => {
   it('lee el borrador de la última corrida de PMP y lo ya aprobado', async () => {
     const r = await leerEstadoFicha(falso(base()), 'se');
     expect(r.ok && r.datos.propuesta.map(p => p.apartado)).toEqual(['identidad', 'rendimiento']);   // solo los que la corrida trae
-    expect(r.ok && r.datos.propios.map(p => p.apartado)).toEqual(['dividendos_fundamentales', 'correlacion']);
+    expect(r.ok && r.datos.propios.map(p => p.apartado)).toEqual([]);
     expect(r.ok && r.datos.aprobados).toEqual(['negocio']);
   });
   it('sin expediente: 404; ticker inválido: 400; sin corrida con borrador: sin propuesta', async () => {
@@ -97,13 +96,13 @@ describe('leerEstadoFicha / aprobarFicha', () => {
   });
   it('aprueba, mezcla con lo que ya había y solo escribe oficina_expedientes del expediente PMP', async () => {
     const c = falso(base());
-    const r = await aprobarFicha(c, { ticker: 'SE', aprobar: ['identidad'], textos: { correlacion: '0.8' } }, AHORA);
-    expect(r).toEqual({ ok: true, datos: { aprobados: ['identidad', 'correlacion'] } });
+    const r = await aprobarFicha(c, { ticker: 'SE', aprobar: ['identidad', 'rendimiento'] }, AHORA);
+    expect(r).toEqual({ ok: true, datos: { aprobados: ['identidad', 'rendimiento'] } });
     expect(c.updates).toHaveLength(1);
     expect(c.updates[0]).toMatchObject({ tabla: 'oficina_expedientes', filtros: [['id', 'e1']] });
     expect(Object.keys(c.updates[0]!.valores)).toEqual(['ficha']);
     const f = (c.updates[0]!.valores['ficha'] as { ficha_pmp: Record<string, unknown> }).ficha_pmp;
-    expect(Object.keys(f).sort()).toEqual(['correlacion', 'identidad', 'negocio']);
+    expect(Object.keys(f).sort()).toEqual(['identidad', 'negocio', 'rendimiento']);
   });
   it('no aprueba un apartado sin propuesta ni escribe nada si la validación falla', async () => {
     const c = falso({ ...base(), oficina_corridas_historial: [] });

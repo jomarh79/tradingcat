@@ -42,6 +42,7 @@ import type { SolicitudNormalizada } from './solicitud';
 import type { Candle } from '../tecnico';
 import type { DatosWatchlist } from '../conexion/watchlist-datos';
 import { proponerFichaPmp } from '../conexion/ficha-propuesta';
+import type { DatosFichaExtra } from '../conexion/ficha-propuesta';
 
 /** Reintentos por agente de IA tras una salida inválida o un error (el validador permite uno; contrato 1.2 paso 7). */
 export const REINTENTOS_POR_AGENTE = 1;
@@ -176,6 +177,8 @@ export interface DatosCongelados {
   corrida_previa_id?: string | null;
   /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores, portafolios); lo usa la preparación del Auditor. */
   watchlist?: DatosWatchlist | null;
+  /** v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP. */
+  ficha_datos?: DatosFichaExtra;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
   avisos?: string[];
   motor?: {
@@ -602,7 +605,7 @@ export async function ejecutarCorrida(
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas
-    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null }) } : {}),
+    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null }) } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),
     ...(datos.datos_faltantes !== undefined || faltantes.length > 0 ? { datos_faltantes: faltantes } : {}),
     ...(tecnico !== null && tecnico.datos_faltantes_detalle.length > 0 ? { datos_faltantes_detalle: tecnico.datos_faltantes_detalle } : {}),

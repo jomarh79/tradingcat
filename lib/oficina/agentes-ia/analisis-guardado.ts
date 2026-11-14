@@ -19,6 +19,7 @@ import { validarCuerpoAnalisis } from './analisis-real';
 import { clasificarTesisPropuesta, hayTesisVigente } from './clasificar-tesis';
 import { obtenerDatosFundamental } from './datos-reales';
 import { obtenerVelas } from './datos-velas';
+import { reunirDatosFicha } from './datos-ficha';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
 import type { TrazabilidadIa } from './persistencia-ia';
@@ -103,6 +104,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   // velas del Técnico (chart-data): si fallan NO se aborta; el Técnico queda sin calcular y se declara (no se rellena)
   const velas = await obtenerVelas(datosDeps, ticker);
   const avisos_velas = velas.ok ? velas.avisos : [velas.error];
+  // v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP (si algo falla, la ficha lo declara; no bloquea)
+  const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
 
   // (3) sobre del Fundamental
   const run_id = deps.nuevoId();
@@ -206,7 +209,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }

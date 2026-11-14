@@ -119,7 +119,7 @@ export default function BotonAprobarFicha({ ticker, grande = false }: { ticker: 
                   </label>
                 ))}
 
-                <div style={{ fontSize: 11, color: '#888', margin: '12px 0 6px' }}>Los escribes tú</div>
+                {estado.propios.length > 0 && <div style={{ fontSize: 11, color: '#888', margin: '12px 0 6px' }}>Los escribes tú</div>}
                 {estado.propios.map(p => (
                   <div key={p.apartado} style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 11, color: '#00bfff', fontWeight: 700, marginBottom: 3 }}>
