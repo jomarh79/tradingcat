@@ -336,3 +336,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Apartados nuevos del borrador: `dividendos_fundamentales` (pagos, último pago, total y rendimiento sin anualizar como en la gráfica, más fundamentales) y `correlacion` (correlación de retornos diarios con cada índice, hasta 252 días en común; mínimo 120).
 - Un error al consultar dividendos NO se interpreta como «sin dividendos»: el apartado no se propone y se dice por qué. Igual con fundamentales o índices sin datos.
 - Ya no hay apartados que escribas a mano: el botón de la ficha propone los 8 y tú apruebas.
+
+## v0.41 — Fundamental parcial sin flujo de caja
+- Si el snapshot no trae NINGÚN item `flujo_*` (p. ej. SE, emisor 20-F: Finnhub financials-reported no tiene sus reportes), el Fundamental ya no cae en NO_EVALUABLE: evalúa crecimiento, rentabilidad y balance, pone `subpuntajes.flujo_caja` en null y declara `datos_faltantes: flujo_caja` con `critico` false (confianza topada).
+- El validador solo acepta ese null si no hay items `flujo_*` y el faltante está declarado como no crítico; cualquier otra dimensión en null sigue exigiendo NO_EVALUABLE.
+- Sin items de crecimiento, rentabilidad o balance sigue siendo NO_EVALUABLE.
+- Archivos: validar-fundamental.ts, prompts.ts, refuerzo-v41.test.ts (nuevo), refuerzo-v06.test.ts (1 línea).

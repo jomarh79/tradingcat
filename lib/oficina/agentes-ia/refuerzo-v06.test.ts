@@ -94,7 +94,7 @@ describe('v0.6: prompts p3', () => {
     expect(PROMPT_FUNDAMENTAL).toContain('Cada subpuntaje debe respaldarse con al menos un hallazgo');
     expect(PROMPT_FUNDAMENTAL).toContain('`flujo_caja_libre_*`');
     expect(PROMPT_FUNDAMENTAL).toContain('no puntúes una dimensión sin citarla');
-    expect(PROMPT_FUNDAMENTAL).toContain('NINGÚN item de una dimensión, el veredicto es NO_EVALUABLE');
+    expect(PROMPT_FUNDAMENTAL).toContain('NINGÚN item de crecimiento, rentabilidad o balance, el veredicto es NO_EVALUABLE');
     expect(PROMPT_FUNDAMENTAL).toContain('EXACTAMENTE el `campo` de un item numérico');
     expect(PROMPT_FUNDAMENTAL).toContain('`medible` es false y `umbral` es null');
   });

@@ -168,12 +168,16 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
   const conf = x['confianza'];
   if (enRango(conf, CONFIANZA_MIN, CONFIANZA_MAX) && Array.isArray(falt) && falt.length > 0 && conf > TOPE_CONFIANZA_CON_FALTANTES) e.push(`confianza (${String(conf)}) no puede superar ${String(TOPE_CONFIANZA_CON_FALTANTES)} cuando hay datos_faltantes`);
 
+  // Evaluación parcial: sin NINGÚN item de flujo de caja en los datos (p. ej. emisores 20-F), el flujo_caja puede ir null si se declara como faltante no crítico.
+  const sinItemsFlujo = !sobre.snapshot.datos.items.some(it => it.campo.startsWith('flujo_'));
+  const flujoDeclarado = Array.isArray(falt) && falt.some(f => esObjeto(f) && typeof f['campo'] === 'string' && f['campo'].includes('flujo_caja') && f['critico'] === false);
+  const flujoCajaSinDato = sinItemsFlujo && flujoDeclarado;
   const sub = x['subpuntajes'];
   if (!esObjeto(sub)) e.push('subpuntajes ausente');
   else for (const k of SUBPUNTAJES_FUNDAMENTAL) {
     const v = sub[k];
     if (v !== null && !enRango(v, PUNTAJE_MIN, PUNTAJE_MAX)) e.push(`subpuntajes.${k} debe ser número ${PUNTAJE_MIN}-${PUNTAJE_MAX} o null`);
-    if (v === null && !noEval) e.push(`subpuntajes.${k} null solo se permite con NO_EVALUABLE`);
+    if (v === null && !noEval && !(k === 'flujo_caja' && flujoCajaSinDato)) e.push(`subpuntajes.${k} null solo se permite con NO_EVALUABLE (excepto flujo_caja cuando no hay ningún item de flujo de caja y se declara en datos_faltantes)`);
   }
 
   const tp = x['tesis_propuesta'];
