@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { perdidaDeFundamentales, rendimientoAnualizado, revisionSemestralPMP, type DatosFundamentalesPMP } from './revision-pmp';
 
 const sano = (): DatosFundamentalesPMP => ({
-  ingresos_ttm: 110, ingresos_ttm_previo: 100, margen_operativo_ttm: 0.2, margen_operativo_previo: 0.19,
+  ingresos_actual: 110, ingresos_previo: 100, margen_operativo_actual: 0.2, margen_operativo_previo: 0.19,
   deuda_total: 105, deuda_total_previa: 100, fcf_trimestres: [5, 6, 7, 8], fcf_anuales: [20, 25], deterioro_activos: 0, activos_totales: 1000,
 });
 
@@ -50,8 +50,8 @@ describe('perdidaDeFundamentales (2 de 4)', () => {
     expect(r.estado).toBe('no_evaluable');
   });
   it('ingresos caen más de 10%: deterioro; margen cae 5 pp: deterioro', () => {
-    expect(perdidaDeFundamentales({ ...sano(), ingresos_ttm: 85 }).criterios[0]!.estado).toBe('deterioro');
-    expect(perdidaDeFundamentales({ ...sano(), margen_operativo_ttm: 0.14 }).criterios[0]!.estado).toBe('deterioro');
+    expect(perdidaDeFundamentales({ ...sano(), ingresos_actual: 85 }).criterios[0]!.estado).toBe('deterioro');
+    expect(perdidaDeFundamentales({ ...sano(), margen_operativo_actual: 0.14 }).criterios[0]!.estado).toBe('deterioro');
   });
 });
 

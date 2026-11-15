@@ -4,7 +4,7 @@
  *  - «Pierde fundamentales» = al menos 2 de 4 deterioros: (1) ingresos y márgenes, (2) deuda vs ingresos (+25 pp), (3) flujo de caja libre negativo
  *    (4 trimestres seguidos o 2 años fiscales seguidos), (4) deterioro de activos reconocido > 5% de los activos totales. Un criterio sin datos es NO_EVALUABLE (nunca se supone).
  *  - El resultado es una TAREA de revisión: la venta nunca es automática (`venta_automatica` siempre false) y la decide el usuario.
- *  - [PROPUESTA] umbrales del criterio 1 (no estaban fijados): ingresos TTM caen más de 10% contra el TTM del año previo, o el margen operativo cae 5 pp o más. */
+ *  - [PROPUESTA] umbrales del criterio 1 (no estaban fijados): ingresos caen más de 10% contra el periodo previo, o el margen operativo cae 5 pp o más. */
 
 export const RENDIMIENTO_MINIMO_PCT = 14;
 export const HORIZONTE_MESES_PMP = 36;
@@ -39,9 +39,9 @@ export function rendimientoAnualizado(valor_estimado: number | null, cierre: num
 }
 
 export interface DatosFundamentalesPMP {
-  ingresos_ttm: number | null;
-  ingresos_ttm_previo: number | null;
-  margen_operativo_ttm: number | null;      // ratio 0..1
+  ingresos_actual: number | null;
+  ingresos_previo: number | null;
+  margen_operativo_actual: number | null;      // ratio 0..1
   margen_operativo_previo: number | null;   // ratio 0..1, mismo periodo del año previo
   deuda_total: number | null;
   deuda_total_previa: number | null;
@@ -61,8 +61,8 @@ export function evaluarCriterios(d: DatosFundamentalesPMP): CriterioFundamental[
 
   // 1. ingresos y márgenes
   {
-    const ing = finito(d.ingresos_ttm) && finito(d.ingresos_ttm_previo) && d.ingresos_ttm_previo !== 0 ? crece(d.ingresos_ttm, d.ingresos_ttm_previo) : null;
-    const mar = finito(d.margen_operativo_ttm) && finito(d.margen_operativo_previo) ? Math.round((d.margen_operativo_ttm - d.margen_operativo_previo) * 1e6) / 1e4 : null;
+    const ing = finito(d.ingresos_actual) && finito(d.ingresos_previo) && d.ingresos_previo !== 0 ? crece(d.ingresos_actual, d.ingresos_previo) : null;
+    const mar = finito(d.margen_operativo_actual) && finito(d.margen_operativo_previo) ? Math.round((d.margen_operativo_actual - d.margen_operativo_previo) * 1e6) / 1e4 : null;
     if (ing === null && mar === null) out.push({ codigo: 'ingresos_margenes', estado: 'no_evaluable', detalle: 'Sin ingresos ni margen operativo comparables' });
     else if ((ing !== null && ing < -CAIDA_INGRESOS_PCT) || (mar !== null && mar <= -CAIDA_MARGEN_PP)) {
       out.push({ codigo: 'ingresos_margenes', estado: 'deterioro', detalle: `Ingresos ${ing === null ? 'sin dato' : ing.toFixed(1) + '%'}; margen operativo ${mar === null ? 'sin dato' : mar.toFixed(1) + ' pp'}` });
@@ -73,7 +73,7 @@ export function evaluarCriterios(d: DatosFundamentalesPMP): CriterioFundamental[
 
   // 2. deuda vs ingresos
   {
-    const ing = finito(d.ingresos_ttm) && finito(d.ingresos_ttm_previo) && d.ingresos_ttm_previo !== 0 ? crece(d.ingresos_ttm, d.ingresos_ttm_previo) : null;
+    const ing = finito(d.ingresos_actual) && finito(d.ingresos_previo) && d.ingresos_previo !== 0 ? crece(d.ingresos_actual, d.ingresos_previo) : null;
     const deu = finito(d.deuda_total) && finito(d.deuda_total_previa) && d.deuda_total_previa > 0 ? crece(d.deuda_total, d.deuda_total_previa) : null;
     if (ing === null || deu === null) out.push({ codigo: 'deuda_vs_ingresos', estado: 'no_evaluable', detalle: 'Sin deuda o ingresos comparables' });
     else {

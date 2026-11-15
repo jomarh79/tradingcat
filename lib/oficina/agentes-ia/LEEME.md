@@ -348,3 +348,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Criterio sin datos = no_evaluable (nunca se supone). 1 deterioro + algún criterio sin datos = NO_EVALUABLE.
 - [PROPUESTA] umbrales del criterio 1 (no fijados): ingresos TTM −10% o margen operativo −5 pp contra el año previo.
 - Pendiente: conectarlo a una corrida `revision_tesis` (datos: valuacion_base vigente, cierre, ingresos/deuda/FCF/deterioro de Finnhub y Webull) y mostrarlo en /oficina.
+
+## v0.43 — Revisión semestral PMP-11 conectada (solo lectura)
+- `POST /api/oficina/revision-pmp { ticker }` y panel «Revisión semestral PMP (PMP-11)» en /oficina (`app/oficina/RevisionPmp.tsx`). No guarda ni vende; devuelve `revisar_venta_100 | mantener | no_evaluable`.
+- Valor estimado = `ficha.valuacion_base` del expediente PMP (declarado por el usuario); cierre = última vela diaria cerrada; fundamentales = Webull + Finnhub (mismos items del Fundamental).
+- Los fundamentales comparan los DOS ÚLTIMOS años fiscales consecutivos. Aún sin datos (quedan no_evaluable): FCF por trimestre y deterioro de activos.
+- Renombrados los campos del módulo del motor: `ingresos_actual`, `ingresos_previo`, `margen_operativo_actual`.
+- Archivos: motor/revision-pmp.ts(+test), conexion/revision-pmp-datos.ts, revision-pmp-bd.ts, revision-pmp.test.ts, app/api/oficina/revision-pmp/route.ts, app/oficina/RevisionPmp.tsx. `app/oficina/page.tsx` requiere 2 líneas a mano (import y `<RevisionPmp />`).
