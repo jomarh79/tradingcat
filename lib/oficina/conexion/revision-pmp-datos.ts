@@ -2,12 +2,13 @@
 // Compara los DOS ÚLTIMOS años fiscales consecutivos (el TTM no tiene un TTM previo comparable). Lo que no existe queda null: nunca se rellena ni se supone cero.
 import type { DatosFundamentalesPMP } from '../motor/revision-pmp';
 import type { ItemDato } from '../agentes-ia/validar-fundamental';
+import type { DatosFinnhubRevision } from './revision-pmp-finnhub';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export interface ResultadoDatosRevision { datos: DatosFundamentalesPMP; periodo: string | null; avisos: string[] }
 
-export function datosFundamentalesDeItems(items: readonly ItemDato[]): ResultadoDatosRevision {
+export function datosFundamentalesDeItems(items: readonly ItemDato[], extra?: DatosFinnhubRevision): ResultadoDatosRevision {
   const valor = (campo: string, fy: number): number | null => num(items.find(i => i.campo === `${campo}_fy${fy}`)?.valor);
   const anios = Array.from(new Set(items.map(i => /_fy(\d{4})$/.exec(i.campo)?.[1]).filter((x): x is string => x !== undefined).map(Number))).sort((a, b) => b - a);
   const avisos: string[] = [];
@@ -24,7 +25,7 @@ export function datosFundamentalesDeItems(items: readonly ItemDato[]): Resultado
   const anFcf = anios.find(a => valor('flujo_caja_libre', a) !== null && valor('flujo_caja_libre', a - 1) !== null) ?? null;
   const fcfAnuales = anFcf === null ? null : [valor('flujo_caja_libre', anFcf - 1), valor('flujo_caja_libre', anFcf)];
   if (anFcf === null) avisos.push('Sin dos años fiscales consecutivos con flujo de caja libre');
-  avisos.push('Flujo de caja libre por trimestre y deterioro de activos aún no se leen de las fuentes: esos criterios quedan sin datos');
+  if (extra) avisos.push(...extra.avisos);
   return {
     periodo: act === null ? null : `FY${act} vs FY${prev}`,
     avisos,
@@ -34,8 +35,8 @@ export function datosFundamentalesDeItems(items: readonly ItemDato[]): Resultado
       margen_operativo_actual: act === null ? null : valor('margen_operativo', act),
       margen_operativo_previo: prev === null ? null : valor('margen_operativo', prev),
       deuda_total: deuda(act), deuda_total_previa: deuda(prev),
-      fcf_trimestres: null, fcf_anuales: fcfAnuales,
-      deterioro_activos: null, activos_totales: act === null ? null : valor('activos_totales', act),
+      fcf_trimestres: extra?.fcf_trimestres ?? null, fcf_anuales: fcfAnuales,
+      deterioro_activos: extra?.deterioro?.valor ?? null, activos_totales: extra?.deterioro ? valor('activos_totales', extra.deterioro.fy) : act === null ? null : valor('activos_totales', act),
     },
   };
 }

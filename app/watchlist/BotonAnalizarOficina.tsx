@@ -11,7 +11,7 @@ const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 const MONTO_POR_PORTAFOLIO: Record<string, string> = { PMP: '50', PCP: '25' }
 const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '—')
 
-interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[] }
+interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[] }
 
 // Código de portafolio (PMP, PCP...) a partir del nombre del portafolio de Trades abiertos (por ejemplo «PMP» o «PMP · Mediano plazo»); null si no coincide.
 function codigoDeNombre(nombre: string | null | undefined): string | null {
@@ -100,6 +100,14 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
                     <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 4 }}>Corrida guardada</div>
                     <div style={{ color: '#ccc' }}>Decisión: <b>{etiqueta(res.decision)}</b> · Estado: {etiqueta(res.estado_final)} · Auditor: {etiqueta(res.auditoria_veredicto)}</div>
                     {(res.motivos ?? []).slice(0, 4).map((m, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {etiqueta(m.codigo)}: {m.detalle}</div>)}
+                    {(res.avisos_datos ?? []).length > 0 && (
+                      <details style={{ marginTop: 8 }}>
+                        <summary style={{ cursor: 'pointer', color: '#888', fontSize: 11 }}>Avisos de datos ({(res.avisos_datos ?? []).length})</summary>
+                        <div style={{ maxHeight: 160, overflowY: 'auto', marginTop: 4, fontSize: 10, color: '#777' }}>
+                          {(res.avisos_datos ?? []).map((x, i) => <div key={i}>• {x}</div>)}
+                        </div>
+                      </details>
+                    )}
                     <a href="/oficina" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 8, color: '#00bfff', textDecoration: 'none', fontWeight: 700 }}>Ver el detalle en Oficina →</a>
                   </>
                 ) : (

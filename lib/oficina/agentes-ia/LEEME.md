@@ -355,3 +355,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Los fundamentales comparan los DOS ÚLTIMOS años fiscales consecutivos. Aún sin datos (quedan no_evaluable): FCF por trimestre y deterioro de activos.
 - Renombrados los campos del módulo del motor: `ingresos_actual`, `ingresos_previo`, `margen_operativo_actual`.
 - Archivos: motor/revision-pmp.ts(+test), conexion/revision-pmp-datos.ts, revision-pmp-bd.ts, revision-pmp.test.ts, app/api/oficina/revision-pmp/route.ts, app/oficina/RevisionPmp.tsx. `app/oficina/page.tsx` requiere 2 líneas a mano (import y `<RevisionPmp />`).
+
+## v0.45 — PMP-11: flujo de caja por trimestre y deterioro de activos; avisos de datos en el botón
+- `conexion/revision-pmp-finnhub.ts`: FCF por trimestre desde los reportes de Finnhub (acumulado del año fiscal → trimestre por diferencia; Q4 = anual − acumulado Q3; 4 trimestres consecutivos o null) y deterioro de activos del último FY (suma de partidas de deterioro del flujo de caja en USD).
+- [PROPUESTA] flujo de caja anual completo (trae flujo operativo) sin partidas de deterioro = 0 deterioro; flujo incompleto = NO_EVALUABLE.
+- El deterioro se compara con los activos totales del mismo año fiscal.
+- El botón ▶ muestra «Avisos de datos» (antes solo salían por PowerShell) para diagnosticar fuentes sin abrir la consola.

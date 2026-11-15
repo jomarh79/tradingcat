@@ -12,6 +12,8 @@ import { fechaDeVela } from './ficha-propuesta';
 import { limpiarTicker } from './corridas-lectura';
 import type { ClienteLectura, ResultadoLectura } from './corridas-lectura';
 import { datosFundamentalesDeItems } from './revision-pmp-datos';
+import { datosFinnhubRevision } from './revision-pmp-finnhub';
+import type { DatosFinnhubRevision } from './revision-pmp-finnhub';
 
 const esObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -60,16 +62,18 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   }
 
   let items: ItemDato[] = [];
+  let extra: DatosFinnhubRevision | undefined;
   const dr = await obtenerDatosFundamental(deps, ticker);
   if (!dr.ok) avisos.push(`No se pudieron leer los fundamentales: ${dr.error}`);
   else {
     avisos.push(...dr.datos.avisos_obtencion);
+    extra = datosFinnhubRevision(dr.datos.finnhub_reportado, dr.datos.finnhub_reportado_trimestral);
     const inc = itemsDesdeIncomeStatement(dr.datos.income_statement, { generado_en: ahora });
     if (inc.ok) items = items.concat(inc.items); else avisos.push(...inc.errores);
     const fin = itemsDesdeFinnhub({ reportado: dr.datos.finnhub_reportado, reportado_trimestral: dr.datos.finnhub_reportado_trimestral, metric: dr.datos.finnhub_metric }, { generado_en: ahora });
     if (fin.ok) items = items.concat(fin.items); else avisos.push(...fin.errores);
   }
-  const f = datosFundamentalesDeItems(items);
+  const f = datosFundamentalesDeItems(items, extra);
   avisos.push(...f.avisos);
 
   const r = revisionSemestralPMP({ valor_estimado: valuacion?.valor ?? null, cierre: cierre?.valor ?? null, horizonte_meses: valuacion?.horizonte_meses, fundamentales: f.datos });
