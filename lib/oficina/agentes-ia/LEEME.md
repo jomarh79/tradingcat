@@ -361,3 +361,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - [PROPUESTA] flujo de caja anual completo (trae flujo operativo) sin partidas de deterioro = 0 deterioro; flujo incompleto = NO_EVALUABLE.
 - El deterioro se compara con los activos totales del mismo año fiscal.
 - El botón ▶ muestra «Avisos de datos» (antes solo salían por PowerShell) para diagnosticar fuentes sin abrir la consola.
+
+## v0.47 — Finnhub entrega la unidad como `usd`
+- Diagnóstico con META (10-K): todos los conceptos de balance y flujo de caja se descartaban porque `unit` llegaba como `usd` (no `u_usd`). `esUnidadUsdFinnhub` ahora acepta `usd` exacta; `usdPerShare`, `shares` y mayúsculas siguen rechazadas.
+- Consecuencia: balance, flujo de caja y FCF aparecen para los emisores de 10-K; los de 20-F (SE) pueden seguir sin ellos.
+- v0.46 hizo que el aviso diga qué unidad llegó (por eso se pudo ver).

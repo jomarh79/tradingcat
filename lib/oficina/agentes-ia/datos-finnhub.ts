@@ -65,7 +65,8 @@ function leerReportes(resp: unknown, nombre: string, avisos: string[]): Reporte[
 /** Unidad USD de Finnhub: `u_usd` exacta, o el prefijo `unit_standard_usd_` seguido de un código no vacío. */
 export function esUnidadUsdFinnhub(u: unknown): boolean {
   if (typeof u !== 'string') return false;
-  return u === UNIDAD_USD_FINNHUB || (u.startsWith(PREFIJO_UNIDAD_USD_FINNHUB) && u.length > PREFIJO_UNIDAD_USD_FINNHUB.length);
+  // `usd` (visto en META, 14-nov): Finnhub la entrega así en los 10-K/10-Q; `usdPerShare`, `shares` y demás NO son dinero y siguen descartándose.
+  return u === UNIDAD_USD_FINNHUB || u === 'usd' || (u.startsWith(PREFIJO_UNIDAD_USD_FINNHUB) && u.length > PREFIJO_UNIDAD_USD_FINNHUB.length);
 }
 
 /** Primer concepto de la lista con valor numérico en USD; si existe con otra unidad se avisa y se sigue con el siguiente. */

@@ -36,3 +36,13 @@ describe('v0.41 evaluación parcial sin flujo de caja', () => {
     expect(PROMPT_FUNDAMENTAL).toContain('subpuntajes.flujo_caja');
   });
 });
+
+import { esUnidadUsdFinnhub } from './datos-finnhub';
+describe('v0.47 unidad usd de Finnhub', () => {
+  it('acepta u_usd, usd y unit_standard_usd_*; rechaza acciones, por acción y otras', () => {
+    expect(esUnidadUsdFinnhub('usd')).toBe(true);
+    expect(esUnidadUsdFinnhub('u_usd')).toBe(true);
+    expect(esUnidadUsdFinnhub('unit_standard_usd_1')).toBe(true);
+    for (const u of ['usdPerShare', 'USD', 'shares', 'u_shares', 'unit12', '', null, 5]) expect(esUnidadUsdFinnhub(u)).toBe(false);
+  });
+});

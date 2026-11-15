@@ -19,7 +19,8 @@ describe('v0.6: unidad USD de Finnhub', () => {
     expect(esUnidadUsdFinnhub(HASH_2024)).toBe(true);
     expect(esUnidadUsdFinnhub(HASH_2023)).toBe(true);
     expect(esUnidadUsdFinnhub('unit_standard_usd_x')).toBe(true);
-    for (const u of ['unit_standard_usd_', 'unit12', 'u_eur', 'U_USD', 'usd', 'x_unit_standard_usd_a', 'unit_standard_eur_a', '', undefined, null, 5, {}]) expect(esUnidadUsdFinnhub(u)).toBe(false);
+    expect(esUnidadUsdFinnhub('usd')).toBe(true); // v0.47: META (10-K) llega con `usd`
+    for (const u of ['unit_standard_usd_', 'unit12', 'u_eur', 'U_USD', 'x_unit_standard_usd_a', 'unit_standard_eur_a', '', undefined, null, 5, {}]) expect(esUnidadUsdFinnhub(u)).toBe(false);
   });
   const reporte = (year: number, unit: string, valor: number) => ({ year, quarter: 0, form: '10-K', endDate: `${year}-12-31`, filedDate: `${year + 1}-02-20`, report: { bs: [{ concept: 'us-gaap_CashAndCashEquivalentsAtCarryingValue', unit, value: valor }], cf: [] } });
   it('los reportes con unidad de código distinto por año generan items en USD', () => {
