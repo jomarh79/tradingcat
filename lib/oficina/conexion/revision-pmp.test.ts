@@ -75,3 +75,13 @@ describe('ejecutarRevisionPmp', () => {
     expect(!b.ok && b.http).toBe(409);
   });
 });
+
+describe('deuda sin parte corriente (v0.48)', () => {
+  it('compara solo la deuda de largo plazo en ambos años y lo avisa', () => {
+    const r = datosFundamentalesDeItems([
+      it0('ingresos_fy2024', 100), it0('ingresos_fy2025', 120), it0('deuda_largo_plazo_fy2024', 50), it0('deuda_largo_plazo_fy2025', 60), it0('deuda_corriente_fy2025', 15),
+    ]);
+    expect(r.datos).toMatchObject({ deuda_total: 60, deuda_total_previa: 50 });
+    expect(r.avisos.join(' ')).toContain('solo la deuda de largo plazo');
+  });
+});

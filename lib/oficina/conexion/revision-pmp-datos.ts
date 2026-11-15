@@ -16,11 +16,16 @@ export function datosFundamentalesDeItems(items: readonly ItemDato[], extra?: Da
   const act = anios.find(a => valor('ingresos', a) !== null && valor('ingresos', a - 1) !== null) ?? null;
   if (act === null) avisos.push('Sin dos años fiscales consecutivos con ingresos: ingresos, márgenes y deuda no se pueden comparar');
   const prev = act === null ? null : act - 1;
+  // Deuda: largo plazo + corriente cuando AMBAS existen en los dos años; si la corriente no existe en alguno (p. ej. META no la reporta), se compara solo la deuda
+  // de largo plazo en los dos años (misma base en ambos; no se supone cero la corriente) y se avisa.
+  const lp = (fy: number | null) => (fy === null ? null : valor('deuda_largo_plazo', fy));
+  const co = (fy: number | null) => (fy === null ? null : valor('deuda_corriente', fy));
+  const conCorriente = act !== null && prev !== null && lp(act) !== null && lp(prev) !== null && co(act) !== null && co(prev) !== null;
   const deuda = (fy: number | null): number | null => {
-    if (fy === null) return null;
-    const l = valor('deuda_largo_plazo', fy); const c = valor('deuda_corriente', fy);
-    return l !== null && c !== null ? l + c : null;
+    if (fy === null || lp(fy) === null) return null;
+    return conCorriente ? (lp(fy) as number) + (co(fy) as number) : (lp(fy) as number);
   };
+  if (act !== null && prev !== null && lp(act) !== null && lp(prev) !== null && !conCorriente) avisos.push('Deuda: sin deuda corriente en alguno de los dos años; se compara solo la deuda de largo plazo');
   // FCF anual: los dos últimos años fiscales consecutivos con flujo de caja libre
   const anFcf = anios.find(a => valor('flujo_caja_libre', a) !== null && valor('flujo_caja_libre', a - 1) !== null) ?? null;
   const fcfAnuales = anFcf === null ? null : [valor('flujo_caja_libre', anFcf - 1), valor('flujo_caja_libre', anFcf)];

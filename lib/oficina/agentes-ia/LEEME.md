@@ -366,3 +366,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Diagnóstico con META (10-K): todos los conceptos de balance y flujo de caja se descartaban porque `unit` llegaba como `usd` (no `u_usd`). `esUnidadUsdFinnhub` ahora acepta `usd` exacta; `usdPerShare`, `shares` y mayúsculas siguen rechazadas.
 - Consecuencia: balance, flujo de caja y FCF aparecen para los emisores de 10-K; los de 20-F (SE) pueden seguir sin ellos.
 - v0.46 hizo que el aviso diga qué unidad llegó (por eso se pudo ver).
+
+## v0.48 — Revisión PMP-11: deuda sin parte corriente
+- Si algún año no trae deuda corriente (META), el criterio «deuda vs ingresos» compara solo la deuda de largo plazo en los dos años (misma base) y lo avisa; no se supone cero.
