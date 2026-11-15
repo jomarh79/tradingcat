@@ -342,3 +342,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - El validador solo acepta ese null si no hay items `flujo_*` y el faltante está declarado como no crítico; cualquier otra dimensión en null sigue exigiendo NO_EVALUABLE.
 - Sin items de crecimiento, rentabilidad o balance sigue siendo NO_EVALUABLE.
 - Archivos: validar-fundamental.ts, prompts.ts, refuerzo-v41.test.ts (nuevo), refuerzo-v06.test.ts (1 línea).
+
+## v0.42 — Motor de la revisión semestral PMP-11 (módulo puro, aún no conectado)
+- `lib/oficina/motor/revision-pmp.ts`: `rendimientoAnualizado` ((valor estimado ÷ cierre)^(12/36) − 1; mínimo 14%, comparado redondeado a 2 decimales), `perdidaDeFundamentales` (2 de 4: ingresos/márgenes, deuda +25 pp sobre ingresos, FCF negativo 4 trimestres o 2 años, deterioro de activos > 5%), `revisionSemestralPMP` → `revisar_venta_100 | mantener | no_evaluable`, `venta_automatica` siempre false.
+- Criterio sin datos = no_evaluable (nunca se supone). 1 deterioro + algún criterio sin datos = NO_EVALUABLE.
+- [PROPUESTA] umbrales del criterio 1 (no fijados): ingresos TTM −10% o margen operativo −5 pp contra el año previo.
+- Pendiente: conectarlo a una corrida `revision_tesis` (datos: valuacion_base vigente, cierre, ingresos/deuda/FCF/deterioro de Finnhub y Webull) y mostrarlo en /oficina.
