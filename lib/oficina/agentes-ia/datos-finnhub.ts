@@ -73,7 +73,7 @@ function buscar(seccion: unknown[], conceptos: readonly string[], etiqueta: stri
   for (const c of conceptos) {
     const it = seccion.find(x => esObjeto(x) && x['concept'] === c);
     if (it === undefined || !esObjeto(it)) continue;
-    if (!esUnidadUsdFinnhub(it['unit'])) { avisos.push(`${etiqueta}: ${c} con unidad inesperada, se omite`); continue; }
+    if (!esUnidadUsdFinnhub(it['unit'])) { avisos.push(`${etiqueta}: ${c} con unidad inesperada (${typeof it['unit'] === 'string' ? it['unit'].slice(0, 40) : 'sin unidad'}), se omite`); continue; }
     if (esNumeroFinito(it['value'])) return it['value'];
   }
   return null;

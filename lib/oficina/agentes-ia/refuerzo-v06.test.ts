@@ -35,7 +35,7 @@ describe('v0.6: unidad USD de Finnhub', () => {
     const r = itemsDesdeFinnhub({ reportado: { data: [reporte(2018, 'unit12', 5), reporte(2025, 'u_usd', 1)] } }, { generado_en: GEN, anios: 2 });
     if (!r.ok) throw new Error('debía ser ok');
     expect(r.items.find(i => i.id === 'efectivo_fy2018')).toBeUndefined();
-    expect(r.avisos).toContain('fy2018: us-gaap_CashAndCashEquivalentsAtCarryingValue con unidad inesperada, se omite');
+    expect(r.avisos).toContain('fy2018: us-gaap_CashAndCashEquivalentsAtCarryingValue con unidad inesperada (unit12), se omite');
   });
 });
 

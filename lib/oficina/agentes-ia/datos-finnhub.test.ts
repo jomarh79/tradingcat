@@ -69,7 +69,7 @@ describe('itemsDesdeFinnhub: reporte anual', () => {
     expect(porId(r.items, 'activos_totales_fy2025')).toBeUndefined();
     expect(porId(r.items, 'pasivos_totales_fy2025')).toBeUndefined();
     expect(porId(r.items, 'activos_corrientes_fy2025')).toBeUndefined();
-    expect(r.avisos).toContain('fy2025: us-gaap_Assets con unidad inesperada, se omite');
+    expect(r.avisos).toContain('fy2025: us-gaap_Assets con unidad inesperada (u_shares), se omite');
   });
   it('usa el siguiente concepto candidato si el primero falta o tiene otra unidad', () => {
     const r = ok(itemsDesdeFinnhub({ reportado: { data: [rep(2025, 0, '10-K', '2025-12-31', '2026-02-23', [c('us-gaap_LongTermDebtNoncurrent', 1, 'u_shares'), c('us-gaap_LongTermDebt', 77), c('us-gaap_MarketableSecuritiesCurrent', 9)], cf2025)] } }, { generado_en: GEN }));
