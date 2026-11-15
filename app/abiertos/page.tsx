@@ -8,6 +8,7 @@ import AppShell from "../AppShell"
 import TradeManagerModal from "../components/TradeManagerModal"
 import { FaSort, FaSortUp, FaSortDown, FaSync } from 'react-icons/fa'
 import { TrendingUp, Settings, Trash2, Star, BarChart2, FileText, Activity } from 'lucide-react'
+import BotonAnalizarOficina from "../watchlist/BotonAnalizarOficina"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const r2 = (n: number) => Math.round(n * 100) / 100 + 0
@@ -473,6 +474,8 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
         <IconLink big={big} href={`/chart?ticker=${ticker}`} title="Ver gráficos">
           <BarChart2 size={sz} />
         </IconLink>
+
+        <BotonAnalizarOficina ticker={trade.ticker} abierta grande={big} portafolioNombre={portfolios.find((p: any) => p.id === trade.portfolio_id)?.name} />
 
         <IconLink big={big} href={`/position?ticker=${ticker}&tradeId=${encodeURIComponent(trade.id)}`} title="Ver radiografía de la posición">
           <Activity size={sz} />
