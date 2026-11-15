@@ -13,20 +13,29 @@ const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '
 
 interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[] }
 
-export default function BotonAnalizarOficina({ ticker, portafolios, grande = false }: { ticker: string; portafolios?: string[] | null; grande?: boolean }) {
-  const inicial = (portafolios ?? []).find(p => (PORTAFOLIOS as readonly string[]).includes(p)) ?? 'PMP'
+// Código de portafolio (PMP, PCP...) a partir del nombre del portafolio de Trades abiertos (por ejemplo «PMP» o «PMP · Mediano plazo»); null si no coincide.
+function codigoDeNombre(nombre: string | null | undefined): string | null {
+  const n = (nombre ?? '').toUpperCase()
+  return (PORTAFOLIOS as readonly string[]).find(p => new RegExp(`(^|[^A-Z])${p}([^A-Z]|$)`).test(n)) ?? null
+}
+
+// `abierta` = se usa desde Trades abiertos: la posición ya existe, así que no se pide monto. `portafolioNombre` = nombre del portafolio del trade.
+export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNombre, abierta = false, grande = false }: { ticker: string; portafolios?: string[] | null; portafolioNombre?: string | null; abierta?: boolean; grande?: boolean }) {
+  const elegir = (): string => (portafolios ?? []).find(p => (PORTAFOLIOS as readonly string[]).includes(p)) ?? codigoDeNombre(portafolioNombre) ?? 'PMP'
+  const montoPor = (p: string): string => (abierta ? '' : MONTO_POR_PORTAFOLIO[p] ?? '')
+  const inicial = elegir()
   const [abierto, setAbierto] = useState(false)
   const [portafolio, setPortafolio] = useState<string>(inicial)
-  const [monto, setMonto] = useState<string>(MONTO_POR_PORTAFOLIO[inicial] ?? '')
+  const [monto, setMonto] = useState<string>(montoPor(inicial))
   const [corriendo, setCorriendo] = useState(false)
   const [res, setRes] = useState<Resultado | null>(null)
   const [fallo, setFallo] = useState('')
 
   const abrir = () => {
-    const p = (portafolios ?? []).find(x => (PORTAFOLIOS as readonly string[]).includes(x)) ?? 'PMP'
-    setPortafolio(p); setMonto(MONTO_POR_PORTAFOLIO[p] ?? ''); setRes(null); setFallo(''); setAbierto(true)
+    const p = elegir()
+    setPortafolio(p); setMonto(montoPor(p)); setRes(null); setFallo(''); setAbierto(true)
   }
-  const cambiarPortafolio = (p: string) => { setPortafolio(p); setMonto(MONTO_POR_PORTAFOLIO[p] ?? '') }
+  const cambiarPortafolio = (p: string) => { setPortafolio(p); setMonto(montoPor(p)) }
 
   const analizar = async () => {
     const m = monto.trim()
@@ -79,7 +88,7 @@ export default function BotonAnalizarOficina({ ticker, portafolios, grande = fal
                 <input value={monto} onChange={e => setMonto(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" disabled={corriendo} placeholder="opcional" style={{ ...sel, marginTop: 4 }} />
               </label>
             </div>
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). Guarda la corrida; no compra ni vende nada.</div>
+            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). '}Guarda la corrida; no compra ni vende nada.</div>
 
             {corriendo && <div style={{ color: '#00bfff', fontSize: 12, marginBottom: 10 }}>Analizando… puede tardar uno o dos minutos. No cierres esta ventana.</div>}
             {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginBottom: 10 }}>{fallo}</div>}
