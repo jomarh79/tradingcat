@@ -369,3 +369,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.48 — Revisión PMP-11: deuda sin parte corriente
 - Si algún año no trae deuda corriente (META), el criterio «deuda vs ingresos» compara solo la deuda de largo plazo en los dos años (misma base) y lo avisa; no se supone cero.
+
+## v0.49 — Revisión PMP-11: el valor estimado son los take profit del trade
+- Decisión del usuario (14-nov): valor estimado vigente = take profit registrados. Se toma el TP más lejano (TP1..TP3 > 0) del trade abierto único del ticker (`trades`, status open). Con 0 o 2+ trades abiertos o sin TP, cae a `ficha.valuacion_base` y lo avisa.
+- Horizonte 36 meses (el aprobado), no el tiempo restante.
+- Panel de /oficina: muestra de dónde sale el valor estimado.

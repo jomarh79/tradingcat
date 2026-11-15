@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ejecutarRevisionPmp, valuacionVigente } from './revision-pmp-bd';
+import { ejecutarRevisionPmp, valorDeTakeProfit, valuacionVigente } from './revision-pmp-bd';
 import { datosFundamentalesDeItems } from './revision-pmp-datos';
 import type { FetchDatos } from '../agentes-ia';
 import { DIARIAS_PRUEBA, respuestaChart } from '../agentes-ia/velas.test-util';
@@ -20,7 +20,7 @@ const fetchFn: FetchDatos = async url => {
   return { ok: true, status: 200, json: async () => RESP[k] };
 };
 const deps = { fetchFn, origen: 'https://x.test', authorization: 'Bearer T', finnhub_key: 'K' };
-const clienteCon = (filas: unknown[]) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: filas, error: null }) }) }) }) });
+const clienteCon = (filas: unknown[], trades: unknown[] = []) => ({ from: (t: string) => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: t === 'trades' ? trades : filas, error: null }) }) }) }) });
 const ficha = (valor: unknown) => ({ valuacion_base: { estado: 'declarado', valor_estimado_base: valor, fuente: 'mi análisis', fecha: '2026-11-01', horizonte_meses: 36 } });
 const AHORA = '2026-11-10T15:00:00.000Z';
 
@@ -83,5 +83,28 @@ describe('deuda sin parte corriente (v0.48)', () => {
     ]);
     expect(r.datos).toMatchObject({ deuda_total: 60, deuda_total_previa: 50 });
     expect(r.avisos.join(' ')).toContain('solo la deuda de largo plazo');
+  });
+});
+
+describe('valor estimado = take profit del trade abierto (v0.49)', () => {
+  it('toma el TP más lejano registrado e ignora 0/vacíos', () => {
+    expect(valorDeTakeProfit({ take_profit_1: 780, take_profit_2: 870, take_profit_3: 0 }, '2026-11-14')).toMatchObject({ valor: 870, fuente: 'TP2 registrado en el trade abierto', horizonte_meses: 36 });
+    expect(valorDeTakeProfit({ take_profit_1: '780', take_profit_2: null, take_profit_3: '' }, 'x')?.valor).toBe(780);
+    expect(valorDeTakeProfit({ take_profit_1: 0, take_profit_2: null }, 'x')).toBeNull();
+    expect(valorDeTakeProfit(null, 'x')).toBeNull();
+  });
+  it('META: 870 contra el cierre da menos de 14% → revisar venta del 100%', async () => {
+    const cierre = DIARIAS_PRUEBA().filter(v => v.close > 0).slice(-1)[0]!.close;
+    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: {} }], [{ id: 't1', ticker: 'META', status: 'open', take_profit_1: cierre * 1.2, take_profit_2: cierre * 1.3, take_profit_3: null }]), 'META', AHORA);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.datos.valuacion?.fuente).toContain('TP2');
+    expect(r.datos.rendimiento.por_debajo).toBe(true);
+    expect(r.datos.resultado).toBe('revisar_venta_100');
+  });
+  it('dos trades abiertos: no elige uno, cae a la ficha y avisa', async () => {
+    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: ficha(500) }], [{ take_profit_1: 9 }, { take_profit_1: 8 }]), 'META', AHORA);
+    expect(r.ok && r.datos.valuacion?.valor).toBe(500);
+    expect(r.ok && r.datos.avisos.some(a => a.includes('2 trades abiertos'))).toBe(true);
   });
 });

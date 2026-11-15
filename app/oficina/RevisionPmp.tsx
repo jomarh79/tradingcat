@@ -13,7 +13,7 @@ interface Resultado {
   motivos?: string[]
   rendimiento?: { estado: string; anualizado_pct: number | null; detalle: string }
   fundamentales?: { estado: string; deterioros: number; sin_datos: number; criterios: Criterio[] }
-  valuacion?: { valor: number; fecha: string; horizonte_meses: number } | null
+  valuacion?: { valor: number; fecha: string; horizonte_meses: number; fuente?: string } | null
   cierre?: { valor: number; fecha: string } | null
   periodo_fundamentales?: string | null
   avisos?: string[]
@@ -57,7 +57,7 @@ export default function RevisionPmp() {
           style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : '#00bfff', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: cargando ? 'default' : 'pointer', fontSize: 12 }}>
           {cargando ? 'Revisando…' : 'Revisar'}
         </button>
-        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Pide el valor estimado declarado en la ficha (valuacion_base).</span>
+        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. El valor estimado es el take profit más lejano del trade abierto.</span>
       </div>
       {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{fallo}</div>}
 
@@ -70,7 +70,7 @@ export default function RevisionPmp() {
           {(res.motivos ?? []).map((m, i) => <div key={i} style={{ color: '#eab308', marginBottom: 3 }}>• {m}</div>)}
           <div style={{ marginTop: 8 }}><b>Rendimiento:</b> {res.rendimiento?.detalle}</div>
           <div style={{ color: '#666', marginBottom: 8 }}>
-            Valor estimado: {res.valuacion ? `${res.valuacion.valor} (${res.valuacion.fecha}, ${res.valuacion.horizonte_meses} meses)` : 'sin declarar'} · Cierre: {res.cierre ? `${res.cierre.valor} (${res.cierre.fecha})` : 'sin dato'}
+            Valor estimado: {res.valuacion ? `${res.valuacion.valor} (${res.valuacion.fuente || res.valuacion.fecha}, horizonte ${res.valuacion.horizonte_meses} meses)` : 'sin declarar'} · Cierre: {res.cierre ? `${res.cierre.valor} (${res.cierre.fecha})` : 'sin dato'}
           </div>
           <div><b>Fundamentales</b> ({res.periodo_fundamentales ?? 'sin periodo comparable'}): {res.fundamentales?.deterioros} de 4 deterioros · {res.fundamentales?.sin_datos} sin datos</div>
           {(res.fundamentales?.criterios ?? []).map(c => (

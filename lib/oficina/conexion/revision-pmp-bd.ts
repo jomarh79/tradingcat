@@ -29,6 +29,18 @@ export function valuacionVigente(ficha: unknown): ValuacionVigente | null {
   return { valor, fecha: typeof v['fecha'] === 'string' ? v['fecha'] : '', horizonte_meses: h, fuente: typeof v['fuente'] === 'string' ? v['fuente'] : '' };
 }
 
+/** Valor estimado de la posición abierta = el nivel más lejano que registraste en el trade (TP1, TP2 o TP3). Los niveles en 0, vacíos o negativos cuentan como «sin nivel». */
+export function valorDeTakeProfit(trade: unknown, hoy: string): ValuacionVigente | null {
+  if (!esObj(trade)) return null;
+  let mejor: { n: number; v: number } | null = null;
+  for (const n of [1, 2, 3]) {
+    const raw = trade[`take_profit_${n}`];
+    const v = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+    if (Number.isFinite(v) && v > 0 && (mejor === null || v > mejor.v)) mejor = { n, v };
+  }
+  return mejor === null ? null : { valor: mejor.v, fecha: hoy, horizonte_meses: 36, fuente: `TP${mejor.n} registrado en el trade abierto` };
+}
+
 export interface RevisionPmpResumen extends ResultadoRevisionPMP {
   ticker: string; fecha: string;
   valuacion: ValuacionVigente | null;
@@ -47,9 +59,22 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   if (re.error) return { ok: false, http: 500, error: 'No se pudo leer el expediente' };
   const exps = Array.isArray(re.data) ? re.data.filter(esObj) : [];
   if (exps.length > 1) return { ok: false, http: 409, error: `${ticker} tiene ${exps.length} expedientes en PMP (ambiguo)` };
-  const valuacion = exps.length === 1 ? valuacionVigente(exps[0]!['ficha']) : null;
-  if (exps.length === 0) avisos.push('El ticker no tiene expediente en PMP: no hay valor estimado declarado');
-  else if (valuacion === null) avisos.push('Falta declarar el valor estimado (ficha.valuacion_base): el 14% no se puede calcular');
+  const fichaVal = exps.length === 1 ? valuacionVigente(exps[0]!['ficha']) : null;
+  // Valor estimado: los take profit del trade abierto (lo que registras en Trades abiertos); si no hay un trade único o no tiene niveles, la valuación declarada en la ficha.
+  let valuacion: ValuacionVigente | null = null;
+  const rt = await cliente.from('trades').select('id,ticker,status,take_profit_1,take_profit_2,take_profit_3').eq('ticker', ticker).eq('status', 'open');
+  if (rt.error) avisos.push('No se pudieron leer los trades abiertos');
+  else {
+    const abiertos = Array.isArray(rt.data) ? rt.data.filter(esObj) : [];
+    if (abiertos.length === 1) valuacion = valorDeTakeProfit(abiertos[0], hoy);
+    else if (abiertos.length > 1) avisos.push(`${ticker} tiene ${abiertos.length} trades abiertos: no se elige un take profit entre ellos`);
+    else avisos.push(`${ticker} no tiene un trade abierto: no hay take profit registrado`);
+  }
+  if (valuacion === null) {
+    valuacion = fichaVal;
+    if (valuacion === null) avisos.push('Sin take profit en el trade ni valuacion_base declarada en la ficha: el 14% no se puede calcular');
+    else avisos.push('Valor estimado tomado de ficha.valuacion_base (el trade no tiene take profit)');
+  }
 
   const velas = await obtenerVelasDiariasDe(deps, ticker);
   let cierre: RevisionPmpResumen['cierre'] = null;
