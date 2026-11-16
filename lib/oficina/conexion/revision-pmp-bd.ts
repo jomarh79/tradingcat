@@ -14,6 +14,8 @@ import type { ResultadoValuacion } from './valuacion-modelos';
 import { limpiarTicker } from './corridas-lectura';
 import type { ClienteLectura, ResultadoLectura } from './corridas-lectura';
 import { datosFundamentalesDeItems } from './revision-pmp-datos';
+import { agregarRevision, sumarMeses, MESES_ENTRE_REVISIONES } from './revision-pmp-historial';
+import type { EntradaRevision } from './revision-pmp-historial';
 import { datosFinnhubRevision } from './revision-pmp-finnhub';
 import type { DatosFinnhubRevision } from './revision-pmp-finnhub';
 
@@ -39,9 +41,13 @@ export interface RevisionPmpResumen extends ResultadoRevisionPMP {
   cierre: { valor: number; fecha: string } | null;
   periodo_fundamentales: string | null;
   avisos: string[];
+  /** true si la revisión quedó guardada en el historial del expediente PMP. */
+  guardada: boolean;
+  guardada_motivo: string | null;
+  proxima_revision: string | null;
 }
 
-export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: ClienteLectura, tickerCrudo: unknown, ahora: string, aniosCrudo?: unknown): Promise<ResultadoLectura<RevisionPmpResumen>> {
+export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: ClienteLectura, tickerCrudo: unknown, ahora: string, aniosCrudo?: unknown, guardar = false): Promise<ResultadoLectura<RevisionPmpResumen>> {
   const ticker = limpiarTicker(tickerCrudo);
   if (ticker === '') return { ok: false, http: 400, error: 'Ticker inválido' };
   const hoy = ahora.slice(0, 10);
@@ -93,5 +99,21 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   avisos.push(...f.avisos);
 
   const r = revisionSemestralPMP({ valor_estimado: valuacion?.valor ?? null, cierre: cierre?.valor ?? null, horizonte_meses: valuacion?.horizonte_meses, fundamentales: f.datos });
-  return { ok: true, datos: { ...r, ticker, fecha: hoy, valuacion, modelo, cierre, periodo_fundamentales: f.periodo, avisos } };
+  // Historial: solo con `guardar` y si el ticker tiene UN expediente PMP (no se crea nada). Si la base no deja escribir, se dice.
+  let guardada = false; let guardada_motivo: string | null = null; let proxima: string | null = null;
+  if (guardar) {
+    if (exps.length !== 1) guardada_motivo = 'El ticker no tiene expediente en PMP: la consulta no se guarda';
+    else {
+      const entrada: EntradaRevision = {
+        fecha: hoy, resultado: r.resultado, anios: modelo.precio_objetivo !== null ? modelo.anios : null,
+        anualizada_pct: r.rendimiento.anualizado_pct, precio_objetivo: modelo.precio_objetivo, cierre: cierre?.valor ?? null,
+        deterioros: r.fundamentales.deterioros, sin_datos: r.fundamentales.sin_datos, motivos: r.motivos.slice(0, 5).map(m => m.slice(0, 200)),
+      };
+      const w = await cliente.from('oficina_expedientes').update({ ficha: agregarRevision(exps[0]!['ficha'], entrada) }).eq('id', String(exps[0]!['id'])).select('id');
+      if (w.error) guardada_motivo = 'No se pudo guardar la revisión';
+      else if (!Array.isArray(w.data) || w.data.length !== 1) guardada_motivo = 'La base no permitió guardar (revisa el permiso de actualización de oficina_expedientes)';
+      else { guardada = true; proxima = sumarMeses(hoy, MESES_ENTRE_REVISIONES); }
+    }
+  }
+  return { ok: true, datos: { ...r, ticker, fecha: hoy, valuacion, modelo, cierre, periodo_fundamentales: f.periodo, avisos, guardada, guardada_motivo, proxima_revision: proxima } };
 }

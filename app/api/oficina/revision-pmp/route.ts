@@ -10,10 +10,10 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * POST /api/oficina/revision-pmp { ticker, anios? }   (anios 1..10, por omisión 1, como la tarjeta de valuación de /position)
+ * POST /api/oficina/revision-pmp { ticker, anios?, guardar? }   (anios 1..10, por omisión 1, como la tarjeta de valuación de /position)
  * Cabecera: Authorization: Bearer <access_token de la sesión de Supabase>
  * Revisión semestral de PMP (PMP-11): rendimiento anualizado contra 14% y pérdida de fundamentales (2 de 4).
- * Solo lectura: no guarda nada, no compra ni vende. El resultado es una tarea de revisión; la venta nunca es automática.
+ * Con `guardar: true` agrega la revisión al historial del expediente PMP del ticker (ficha.revisiones_pmp11); sin él es solo lectura. Nunca compra ni vende. El resultado es una tarea de revisión; la venta nunca es automática.
  * Usa la sesión del usuario (clave anónima + su token: el RLS aplica); no usa la clave de servicio.
  */
 let lastCall = 0
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     }) as unknown as ClienteLectura
     const deps = { fetchFn: fetch, origen: datos.base_url ?? new URL(request.url).origin, authorization, finnhub_key: datos.finnhub_key }
-    const r = await ejecutarRevisionPmp(deps, cliente, ticker, new Date().toISOString(), anios)
+    const r = await ejecutarRevisionPmp(deps, cliente, ticker, new Date().toISOString(), anios, o['guardar'] === true)
     return r.ok ? NextResponse.json({ ok: true, ...r.datos }) : NextResponse.json({ ok: false, error: r.error }, { status: r.http })
   } catch (e) {
     console.error('oficina/revision-pmp: error inesperado', e instanceof Error ? e.name : 'desconocido')

@@ -147,3 +147,48 @@ describe('revisión PMP-11 con el modelo de valuación', () => {
     expect(r.ok && r.datos.avisos.some(a => a.includes('valuacion_base'))).toBe(true);
   });
 });
+
+// v0.53: guardar la revisión en ficha.revisiones_pmp11
+const clienteEscribe = (filas: unknown[], upd: { filas: unknown[] | null; error?: boolean }) => {
+  const guardado: { ficha?: Record<string, unknown>; id?: string } = {};
+  const cliente = { from: (t: string) => ({
+    select: () => ({ eq: () => ({ eq: async () => ({ data: t === 'trades' ? [] : filas, error: null }) }) }),
+    update: (v: { ficha: Record<string, unknown> }) => { guardado.ficha = v.ficha; return { eq: (_c: string, id: string) => { guardado.id = id; return { select: async () => ({ data: upd.filas, error: upd.error ? { message: 'x' } : null }) }; } }; },
+  }) };
+  return { cliente, guardado };
+};
+describe('guardar la revisión PMP-11 (v0.53)', () => {
+  it('sin guardar: no escribe nada', async () => {
+    const { cliente, guardado } = clienteEscribe([{ id: 'e1', ficha: { rol: 'x' } }], { filas: [{ id: 'e1' }] });
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, cliente, 'META', AHORA);
+    expect(r.ok && r.datos.guardada).toBe(false);
+    expect(guardado.ficha).toBeUndefined();
+  });
+  it('guardar: agrega al historial conservando el resto de la ficha y da la próxima fecha', async () => {
+    const { cliente, guardado } = clienteEscribe([{ id: 'e1', ficha: { rol: 'x', ...ficha(50) } }], { filas: [{ id: 'e1' }] });
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, cliente, 'META', AHORA, undefined, true);
+    expect(r.ok && r.datos.guardada).toBe(true);
+    expect(r.ok && r.datos.proxima_revision).toBe('2027-05-10');
+    expect(guardado.id).toBe('e1');
+    expect(guardado.ficha?.['rol']).toBe('x');
+    const h = guardado.ficha?.['revisiones_pmp11'] as Array<Record<string, unknown>>;
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({ fecha: '2026-11-10', resultado: 'revisar_venta_100' });
+  });
+  it('sin expediente PMP: no crea nada y lo dice', async () => {
+    const { cliente, guardado } = clienteEscribe([], { filas: [] });
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, cliente, 'META', AHORA, undefined, true);
+    expect(r.ok && r.datos.guardada).toBe(false);
+    expect(r.ok && r.datos.guardada_motivo).toContain('no tiene expediente');
+    expect(guardado.ficha).toBeUndefined();
+  });
+  it('la base no actualiza ninguna fila (permiso) o falla: guardada false con motivo', async () => {
+    const a = clienteEscribe([{ id: 'e1', ficha: {} }], { filas: [] });
+    const ra = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, a.cliente, 'META', AHORA, undefined, true);
+    expect(ra.ok && ra.datos.guardada).toBe(false);
+    expect(ra.ok && ra.datos.guardada_motivo).toContain('permiso');
+    const b = clienteEscribe([{ id: 'e1', ficha: {} }], { filas: null, error: true });
+    const rb = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, b.cliente, 'META', AHORA, undefined, true);
+    expect(rb.ok && rb.datos.guardada).toBe(false);
+  });
+});

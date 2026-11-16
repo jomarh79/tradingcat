@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 import { authedFetch } from '@/lib/authed-fetch'
 import { supabase } from '@/lib/supabase'
+import { estadoRevision, leerHistorial } from '@/lib/oficina/conexion/revision-pmp-historial'
 
-// Panel «Revisión semestral PMP» (PMP-11): escribes el ticker de una posición PMP abierta y pulsas. Solo lectura: no guarda, no compra ni vende.
+// Panel «Revisión semestral PMP» (PMP-11): eliges o escribes un ticker y pulsas. Cada revisión se guarda en el historial del expediente PMP del ticker (si lo tiene) y el panel
+// muestra cuándo toca la siguiente (cada 6 meses). Nunca compra ni vende.
 // Todo el código vive aquí; la página solo dibuja <RevisionPmp />.
 
 interface Criterio { codigo: string; estado: string; detalle: string }
@@ -19,6 +21,7 @@ interface Resultado {
   cierre?: { valor: number; fecha: string } | null
   periodo_fundamentales?: string | null
   avisos?: string[]
+  guardada?: boolean; guardada_motivo?: string | null; proxima_revision?: string | null
 }
 
 const COLOR: Record<string, string> = { revisar_venta_100: '#f43f5e', mantener: '#22c55e', no_evaluable: '#eab308' }
@@ -36,6 +39,8 @@ export default function RevisionPmp() {
   const [cargando, setCargando] = useState(false)
   const [res, setRes] = useState<Resultado | null>(null)
   const [fallo, setFallo] = useState('')
+  const [guardar, setGuardar] = useState(true)
+  const [fichas, setFichas] = useState<Record<string, unknown>>({})
 
   // Posiciones abiertas de PMP (trades abiertos cuyo portafolio se llama PMP): la primera queda elegida por omisión.
   useEffect(() => {
@@ -53,9 +58,20 @@ export default function RevisionPmp() {
     return () => { vivo = false }
   }, [])
 
+  // Historial guardado: la ficha de cada expediente PMP (la lectura usa tu sesión; solo ves lo tuyo).
+  const cargarFichas = async () => {
+    const { data, error } = await supabase.from('oficina_expedientes').select('ticker, ficha').eq('portafolio_codigo', 'PMP')
+    if (error) return
+    const m: Record<string, unknown> = {}
+    for (const f of (data ?? []) as any[]) m[String(f.ticker).toUpperCase()] = f.ficha
+    setFichas(m)
+  }
+  useEffect(() => { cargarFichas() }, [])
+  const hoy = new Date().toISOString().slice(0, 10)
+
   const pedir = async (t: string): Promise<Resultado> => {
     try {
-      const r = await authedFetch('/api/oficina/revision-pmp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, anios }) })
+      const r = await authedFetch('/api/oficina/revision-pmp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, anios, guardar }) })
       const j = (await r.json().catch(() => null)) as Resultado | null
       if (!j) return { ok: false, error: `El servidor respondió ${r.status} sin detalle` }
       return j
@@ -74,7 +90,7 @@ export default function RevisionPmp() {
       setTodas(prev => ({ ...prev, [t]: r }))
       if (i < abiertas.length - 1) await new Promise(ok => setTimeout(ok, 6000)) // el servidor exige unos segundos entre consultas
     }
-    setProgreso(''); setCargando(false)
+    setProgreso(''); setCargando(false); cargarFichas()
   }
 
   const revisar = async () => {
@@ -82,7 +98,7 @@ export default function RevisionPmp() {
     if (!/^[A-Z0-9.\-]{1,10}$/.test(t)) { setFallo('Escribe un ticker válido'); return }
     setCargando(true); setRes(null); setFallo('')
     try {
-      const r = await authedFetch('/api/oficina/revision-pmp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, anios }) })
+      const r = await authedFetch('/api/oficina/revision-pmp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, anios, guardar }) })
       const j = (await r.json().catch(() => null)) as Resultado | null
       if (!j) { setFallo(`El servidor respondió ${r.status} sin detalle`); return }
       if (!j.ok) { setFallo(j.error ?? 'Error desconocido'); return }
@@ -90,7 +106,7 @@ export default function RevisionPmp() {
     } catch {
       setFallo('No se pudo conectar con el servidor')
     } finally {
-      setCargando(false)
+      setCargando(false); cargarFichas()
     }
   }
 
@@ -116,6 +132,9 @@ export default function RevisionPmp() {
               <span style={{ color: COLOR_CRITERIO[c.estado] ?? '#aaa', fontWeight: 700 }}>{etiqueta(c.estado)}</span> · {etiqueta(c.codigo)}: <span style={{ color: '#888' }}>{c.detalle}</span>
             </div>
           ))}
+          <div style={{ marginTop: 8, color: res.guardada ? '#22c55e' : '#888', fontSize: 11 }}>
+            {res.guardada ? `Guardada en el historial · próxima revisión: ${res.proxima_revision}` : res.guardada_motivo ? `No se guardó: ${res.guardada_motivo}` : 'No se guardó (casilla desmarcada)'}
+          </div>
           {(res.avisos ?? []).length > 0 && (
             <div style={{ marginTop: 8, color: '#666', fontSize: 11 }}>{(res.avisos ?? []).slice(0, 8).map((a, i) => <div key={i}>• {a}</div>)}</div>
           )}
@@ -147,8 +166,34 @@ export default function RevisionPmp() {
             Revisar todas ({abiertas.length})
           </button>
         )}
-        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Elige una posición PMP abierta o escribe cualquier ticker. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
+        <label style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={guardar} onChange={e => setGuardar(e.target.checked)} disabled={cargando} /> Guardar en el historial
+        </label>
+        <span style={{ fontSize: 10, color: '#555' }}>Elige una posición PMP abierta o escribe cualquier ticker. Nunca vende ni compra. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
       </div>
+      {abiertas.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 11 }}>
+          <div style={{ color: '#666', marginBottom: 4 }}>Calendario semestral (primera revisión formal de la regla: 2027-04-06)</div>
+          {abiertas.map(t => {
+            const e = estadoRevision(fichas[t], hoy)
+            const color = e.estado === 'vencida' ? '#f43f5e' : e.estado === 'al_dia' ? '#22c55e' : '#eab308'
+            return (
+              <div key={t} style={{ color: '#aaa', marginBottom: 2 }}>
+                <b style={{ color: 'white' }}>{t}</b> · <span style={{ color, fontWeight: 700 }}>{e.estado === 'nunca' ? 'sin revisar' : e.estado === 'vencida' ? 'revisión vencida' : 'al día'}</span>
+                {e.ultima && <span style={{ color: '#888' }}> · última {e.ultima.fecha}: {TEXTO[e.ultima.resultado] ?? e.ultima.resultado}{e.ultima.anualizada_pct != null ? ` (${e.ultima.anualizada_pct}% anualizado)` : ''} · próxima {e.proxima}</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {ticker !== '' && leerHistorial(fichas[ticker]).length > 0 && (
+        <details style={{ marginTop: 8, fontSize: 11, color: '#888' }}>
+          <summary style={{ cursor: 'pointer' }}>Historial de {ticker} ({leerHistorial(fichas[ticker]).length})</summary>
+          {leerHistorial(fichas[ticker]).slice().reverse().map(h => (
+            <div key={h.fecha} style={{ marginTop: 3 }}>{h.fecha} · <b style={{ color: COLOR[h.resultado] ?? '#aaa' }}>{TEXTO[h.resultado] ?? h.resultado}</b> · {h.anualizada_pct != null ? `${h.anualizada_pct}% a ${h.anios} año(s)` : 'sin rendimiento'} · {h.deterioros} deterioros, {h.sin_datos} sin datos{h.motivos.length > 0 ? ` · ${h.motivos[0]}` : ''}</div>
+          ))}
+        </details>
+      )}
       {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{fallo}</div>}
 
       {progreso && <div style={{ color: '#00bfff', fontSize: 12, marginTop: 10 }}>{progreso}</div>}

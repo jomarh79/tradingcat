@@ -386,3 +386,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.52 — Panel PMP-11: cualquier ticker
 - El campo es un input con lista (datalist) de las posiciones PMP abiertas: se puede escribir cualquier ticker; no requiere corrida previa ni expediente (el expediente solo se lee como respaldo de `valuacion_base`).
+
+## v0.53 — Guardar la revisión PMP-11 (cierra PMP-11)
+- Cada revisión se guarda en `oficina_expedientes.ficha.revisiones_pmp11` (últimas 24; una por día, la del mismo día se reemplaza). No toca el resto de la ficha ni crea expedientes: sin expediente PMP único, la consulta no se guarda y lo dice.
+- Usa tu sesión y el permiso «propias»; si la base no actualiza exactamente 1 fila, avisa en vez de fingir que guardó.
+- La ruta acepta `guardar: true`; el panel trae la casilla «Guardar en el historial» (marcada), un calendario semestral de tus posiciones PMP abiertas (sin revisar / al día / vencida, próxima = última + 6 meses) y el historial por ticker.
+- Sigue siendo una tarea de revisión: nunca vende ni compra.
