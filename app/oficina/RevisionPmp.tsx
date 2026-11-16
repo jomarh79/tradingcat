@@ -174,21 +174,32 @@ export default function RevisionPmp() {
         </label>
         <span style={{ fontSize: 10, color: '#555' }}>Elige una posición PMP abierta o escribe cualquier ticker. Nunca vende ni compra. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
       </div>
-      {calendario.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 11 }}>
-          <div style={{ color: '#666', marginBottom: 4 }}>Calendario semestral (primera revisión formal de la regla: 2027-04-06)</div>
-          {calendario.map(t => {
-            const e = estadoRevision(fichas[t], hoy)
-            const color = e.estado === 'vencida' ? '#f43f5e' : e.estado === 'al_dia' ? '#22c55e' : '#eab308'
-            return (
-              <div key={t} style={{ color: '#aaa', marginBottom: 2 }}>
-                <b style={{ color: 'white' }}>{t}</b> · <span style={{ color, fontWeight: 700 }}>{e.estado === 'nunca' ? 'sin revisar' : e.estado === 'vencida' ? 'revisión vencida' : 'al día'}</span>
-                {e.ultima && <span style={{ color: '#888' }}> · última {e.ultima.fecha}: {TEXTO[e.ultima.resultado] ?? e.ultima.resultado}{e.ultima.anualizada_pct != null ? ` (${e.ultima.anualizada_pct}% anualizado)` : ''} · próxima {e.proxima}</span>}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {calendario.length > 0 && (() => {
+        // Una línea por ticker (solo su última revisión). Los que nunca se han revisado van plegados para que la lista no crezca.
+        const filas = calendario.map(t => ({ t, e: estadoRevision(fichas[t], hoy) }))
+        const revisados = filas.filter(x => x.e.estado !== 'nunca')
+        const pendientes = filas.filter(x => x.e.estado === 'nunca')
+        return (
+          <div style={{ marginTop: 12, fontSize: 11 }}>
+            <div style={{ color: '#666', marginBottom: 4 }}>Calendario semestral (primera revisión formal de la regla: 2027-04-06)</div>
+            {revisados.map(({ t, e }) => {
+              const color = e.estado === 'vencida' ? '#f43f5e' : '#22c55e'
+              return (
+                <div key={t} style={{ color: '#aaa', marginBottom: 2 }}>
+                  <b style={{ color: 'white', cursor: 'pointer' }} onClick={() => setTicker(t)}>{t}</b> · <span style={{ color, fontWeight: 700 }}>{e.estado === 'vencida' ? 'revisión vencida' : 'al día'}</span>
+                  {e.ultima && <span style={{ color: '#888' }}> · última {e.ultima.fecha}: {TEXTO[e.ultima.resultado] ?? e.ultima.resultado}{e.ultima.anualizada_pct != null ? ` (${e.ultima.anualizada_pct}% anualizado)` : ''} · próxima {e.proxima}</span>}
+                </div>
+              )
+            })}
+            {pendientes.length > 0 && (
+              <details style={{ color: '#888', marginTop: 4 }}>
+                <summary style={{ cursor: 'pointer', color: '#eab308' }}>Sin revisar ({pendientes.length})</summary>
+                <div style={{ marginTop: 3 }}>{pendientes.map(({ t }) => <span key={t} onClick={() => setTicker(t)} style={{ cursor: 'pointer', marginRight: 10, color: 'white', fontWeight: 700 }}>{t}</span>)}</div>
+              </details>
+            )}
+          </div>
+        )
+      })()}
       {ticker !== '' && leerHistorial(fichas[ticker]).length > 0 && (
         <details style={{ marginTop: 8, fontSize: 11, color: '#888' }}>
           <summary style={{ cursor: 'pointer' }}>Historial de {ticker} ({leerHistorial(fichas[ticker]).length})</summary>
