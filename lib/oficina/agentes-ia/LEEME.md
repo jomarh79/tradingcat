@@ -374,3 +374,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Decisión del usuario (14-nov): valor estimado vigente = take profit registrados. Se toma el TP más lejano (TP1..TP3 > 0) del trade abierto único del ticker (`trades`, status open). Con 0 o 2+ trades abiertos o sin TP, cae a `ficha.valuacion_base` y lo avisa.
 - Horizonte 36 meses (el aprobado), no el tiempo restante.
 - Panel de /oficina: muestra de dónde sale el valor estimado.
+
+## v0.50 — PMP-11 usa el modelo de valuación de /position
+- Corrección del usuario (15-nov): el 14% se mide con la «Ganancia anualizada» de ValuationModelsCard (P/E objetivo × EPS a N años), no con los take profit. Se quitó la lectura de take profit.
+- `conexion/valuacion-modelos.ts` replica la fórmula de la tarjeta (P/E histórico = promedio de cierre cercano ÷ EPS por año con tope de 10 días; si no hay, P/E actual; EPS a 1 año = estimado de analistas si existe, si no EPS TTM × (1+CAGR acotado 4–12%)^N). Fuentes: /api/fundamentals, /api/webull/income-statement y POST /api/chart-data.
+- Horizonte por omisión 1 año (como la tarjeta); el panel de /oficina trae selector 1–10. El precio de comparación es el último cierre cerrado (la tarjeta usa el precio vivo del trade: puede diferir unos decimales).
+- Si el modelo no se calcula, cae a `ficha.valuacion_base` y lo avisa. `FetchDatos` admite ahora `method` y `body` (POST).

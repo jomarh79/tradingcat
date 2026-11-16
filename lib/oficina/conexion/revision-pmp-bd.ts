@@ -9,6 +9,8 @@ import type { ItemDato } from '../agentes-ia/validar-fundamental';
 import { revisionSemestralPMP } from '../motor/revision-pmp';
 import type { ResultadoRevisionPMP } from '../motor/revision-pmp';
 import { fechaDeVela } from './ficha-propuesta';
+import { calcularValuacion, leerEntradaValuacion } from './valuacion-modelos';
+import type { ResultadoValuacion } from './valuacion-modelos';
 import { limpiarTicker } from './corridas-lectura';
 import type { ClienteLectura, ResultadoLectura } from './corridas-lectura';
 import { datosFundamentalesDeItems } from './revision-pmp-datos';
@@ -29,27 +31,17 @@ export function valuacionVigente(ficha: unknown): ValuacionVigente | null {
   return { valor, fecha: typeof v['fecha'] === 'string' ? v['fecha'] : '', horizonte_meses: h, fuente: typeof v['fuente'] === 'string' ? v['fuente'] : '' };
 }
 
-/** Valor estimado de la posición abierta = el nivel más lejano que registraste en el trade (TP1, TP2 o TP3). Los niveles en 0, vacíos o negativos cuentan como «sin nivel». */
-export function valorDeTakeProfit(trade: unknown, hoy: string): ValuacionVigente | null {
-  if (!esObj(trade)) return null;
-  let mejor: { n: number; v: number } | null = null;
-  for (const n of [1, 2, 3]) {
-    const raw = trade[`take_profit_${n}`];
-    const v = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
-    if (Number.isFinite(v) && v > 0 && (mejor === null || v > mejor.v)) mejor = { n, v };
-  }
-  return mejor === null ? null : { valor: mejor.v, fecha: hoy, horizonte_meses: 36, fuente: `TP${mejor.n} registrado en el trade abierto` };
-}
-
 export interface RevisionPmpResumen extends ResultadoRevisionPMP {
   ticker: string; fecha: string;
   valuacion: ValuacionVigente | null;
+  /** Modelo de valuación de /position (P/E objetivo × EPS); null si no se pudo calcular. */
+  modelo: ResultadoValuacion | null;
   cierre: { valor: number; fecha: string } | null;
   periodo_fundamentales: string | null;
   avisos: string[];
 }
 
-export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: ClienteLectura, tickerCrudo: unknown, ahora: string): Promise<ResultadoLectura<RevisionPmpResumen>> {
+export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: ClienteLectura, tickerCrudo: unknown, ahora: string, aniosCrudo?: unknown): Promise<ResultadoLectura<RevisionPmpResumen>> {
   const ticker = limpiarTicker(tickerCrudo);
   if (ticker === '') return { ok: false, http: 400, error: 'Ticker inválido' };
   const hoy = ahora.slice(0, 10);
@@ -60,21 +52,6 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   const exps = Array.isArray(re.data) ? re.data.filter(esObj) : [];
   if (exps.length > 1) return { ok: false, http: 409, error: `${ticker} tiene ${exps.length} expedientes en PMP (ambiguo)` };
   const fichaVal = exps.length === 1 ? valuacionVigente(exps[0]!['ficha']) : null;
-  // Valor estimado: los take profit del trade abierto (lo que registras en Trades abiertos); si no hay un trade único o no tiene niveles, la valuación declarada en la ficha.
-  let valuacion: ValuacionVigente | null = null;
-  const rt = await cliente.from('trades').select('id,ticker,status,take_profit_1,take_profit_2,take_profit_3').eq('ticker', ticker).eq('status', 'open');
-  if (rt.error) avisos.push('No se pudieron leer los trades abiertos');
-  else {
-    const abiertos = Array.isArray(rt.data) ? rt.data.filter(esObj) : [];
-    if (abiertos.length === 1) valuacion = valorDeTakeProfit(abiertos[0], hoy);
-    else if (abiertos.length > 1) avisos.push(`${ticker} tiene ${abiertos.length} trades abiertos: no se elige un take profit entre ellos`);
-    else avisos.push(`${ticker} no tiene un trade abierto: no hay take profit registrado`);
-  }
-  if (valuacion === null) {
-    valuacion = fichaVal;
-    if (valuacion === null) avisos.push('Sin take profit en el trade ni valuacion_base declarada en la ficha: el 14% no se puede calcular');
-    else avisos.push('Valor estimado tomado de ficha.valuacion_base (el trade no tiene take profit)');
-  }
 
   const velas = await obtenerVelasDiariasDe(deps, ticker);
   let cierre: RevisionPmpResumen['cierre'] = null;
@@ -84,6 +61,20 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
     const ultima = cerradas[cerradas.length - 1];
     if (ultima === undefined) avisos.push('Sin velas cerradas para tomar el cierre');
     else cierre = { valor: ultima.close, fecha: fechaDeVela(ultima.time) };
+  }
+
+  // Valor estimado = precio objetivo del modelo de valuación de /position (P/E objetivo × EPS a N años). Si el modelo no se puede calcular, cae a ficha.valuacion_base.
+  const ev = await leerEntradaValuacion(deps, ticker);
+  avisos.push(...ev.avisos);
+  const modelo = calcularValuacion({ ...ev.entrada, precio: cierre?.valor ?? null, anios: typeof aniosCrudo === 'number' ? aniosCrudo : undefined });
+  let valuacion: ValuacionVigente | null = null;
+  if (modelo.precio_objetivo !== null) {
+    valuacion = { valor: modelo.precio_objetivo, fecha: hoy, horizonte_meses: modelo.anios * 12, fuente: `Modelo de valuación: P/E ${modelo.pe_objetivo?.toFixed(1)}x (${modelo.origen_pe}) × EPS a ${modelo.anios} año(s) ${modelo.eps?.toFixed(2)} (${modelo.origen_eps})` };
+  } else {
+    avisos.push(`Modelo de valuación no calculable: ${modelo.motivo}`);
+    valuacion = fichaVal;
+    if (valuacion === null) avisos.push('Sin modelo de valuación ni valuacion_base declarada en la ficha: el 14% no se puede calcular');
+    else avisos.push('Valor estimado tomado de ficha.valuacion_base (el modelo no se pudo calcular)');
   }
 
   let items: ItemDato[] = [];
@@ -102,5 +93,5 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   avisos.push(...f.avisos);
 
   const r = revisionSemestralPMP({ valor_estimado: valuacion?.valor ?? null, cierre: cierre?.valor ?? null, horizonte_meses: valuacion?.horizonte_meses, fundamentales: f.datos });
-  return { ok: true, datos: { ...r, ticker, fecha: hoy, valuacion, cierre, periodo_fundamentales: f.periodo, avisos } };
+  return { ok: true, datos: { ...r, ticker, fecha: hoy, valuacion, modelo, cierre, periodo_fundamentales: f.periodo, avisos } };
 }

@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * POST /api/oficina/revision-pmp { ticker }
+ * POST /api/oficina/revision-pmp { ticker, anios? }   (anios 1..10, por omisión 1, como la tarjeta de valuación de /position)
  * Cabecera: Authorization: Bearer <access_token de la sesión de Supabase>
  * Revisión semestral de PMP (PMP-11): rendimiento anualizado contra 14% y pérdida de fundamentales (2 de 4).
  * Solo lectura: no guarda nada, no compra ni vende. El resultado es una tarea de revisión; la venta nunca es automática.
@@ -35,7 +35,9 @@ export async function POST(request: Request) {
   }
   let body: unknown
   try { body = await request.json() } catch { return NextResponse.json({ ok: false, error: 'JSON inválido' }, { status: 400 }) }
-  const ticker = typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>)['ticker'] : undefined
+  const o = typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {}
+  const ticker = o['ticker']
+  const anios = typeof o['anios'] === 'number' ? o['anios'] : undefined
 
   const now = Date.now()
   if (now - lastCall < 5000) return NextResponse.json({ ok: false, error: 'Demasiado pronto, espera unos segundos' }, { status: 429 })
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     }) as unknown as ClienteLectura
     const deps = { fetchFn: fetch, origen: datos.base_url ?? new URL(request.url).origin, authorization, finnhub_key: datos.finnhub_key }
-    const r = await ejecutarRevisionPmp(deps, cliente, ticker, new Date().toISOString())
+    const r = await ejecutarRevisionPmp(deps, cliente, ticker, new Date().toISOString(), anios)
     return r.ok ? NextResponse.json({ ok: true, ...r.datos }) : NextResponse.json({ ok: false, error: r.error }, { status: r.http })
   } catch (e) {
     console.error('oficina/revision-pmp: error inesperado', e instanceof Error ? e.name : 'desconocido')

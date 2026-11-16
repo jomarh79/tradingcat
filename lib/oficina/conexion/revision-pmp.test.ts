@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ejecutarRevisionPmp, valorDeTakeProfit, valuacionVigente } from './revision-pmp-bd';
+import { ejecutarRevisionPmp, valuacionVigente } from './revision-pmp-bd';
+import { calcularValuacion, cierreCercano } from './valuacion-modelos';
 import { datosFundamentalesDeItems } from './revision-pmp-datos';
 import type { FetchDatos } from '../agentes-ia';
 import { DIARIAS_PRUEBA, respuestaChart } from '../agentes-ia/velas.test-util';
@@ -10,14 +11,21 @@ const entrada = (fy: number, ingresos: number) => ({
   opIncome: ingresos * 0.2, otherNetIncome: null, ebt: null, incomeTax: null, netIncome: ingresos * 0.1, dilutedAvgShares: 1000, dilutedEps: 0.1, interestNet: null,
 });
 const RESP: Record<string, unknown> = {
-  '/api/webull/income-statement': { success: true, symbol: 'META', annual: [entrada(2024, 1200), entrada(2025, 1500)], ttm: null, forwardEps: null },
+  '/api/webull/income-statement': { success: true, symbol: 'META', annual: [entrada(2024, 1200), entrada(2025, 1500)], ttm: { dilutedEps: 14 }, forwardEps: { eps: 16 } },
   'freq=annual': { data: [] }, 'freq=quarterly': { data: [] }, '/stock/metric': { metric: {} },
   'interval=1day': respuestaChart('META', '1day', DIARIAS_PRUEBA()),
+  '/api/fundamentals': { pe: 25, ownHistory: [{ year: 2023, endDate: '2023-12-31', eps: 10 }, { year: 2024, endDate: '2024-12-31', eps: 12 }] },
+  '/api/chart-data': { dailyCloses: [{ date: '2023-12-29', close: 200 }, { date: '2024-12-31', close: 300 }, { date: '2026-11-13', close: 100 }] },
 };
-const fetchFn: FetchDatos = async url => {
-  const k = Object.keys(RESP).find(x => url.includes(x));
+const fetchFn: FetchDatos = async (url, init) => {
+  const k = Object.keys(RESP).find(x => url.includes(x) && (x !== '/api/chart-data' || init.method === 'POST') && !(x === 'interval=1day' && init.method === 'POST'));
   if (k === undefined) throw new Error('URL no prevista');
   return { ok: true, status: 200, json: async () => RESP[k] };
+};
+// sin /api/fundamentals ni POST chart-data: el modelo de valuación no se puede calcular
+const mal: FetchDatos = async (url, init) => {
+  if (url.includes('/api/fundamentals') || (url.includes('/api/chart-data') && init.method === 'POST')) return { ok: false, status: 500, json: async () => ({}) };
+  return fetchFn(url, init);
 };
 const deps = { fetchFn, origen: 'https://x.test', authorization: 'Bearer T', finnhub_key: 'K' };
 const clienteCon = (filas: unknown[], trades: unknown[] = []) => ({ from: (t: string) => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: t === 'trades' ? trades : filas, error: null }) }) }) }) });
@@ -54,7 +62,7 @@ describe('datosFundamentalesDeItems', () => {
 
 describe('ejecutarRevisionPmp', () => {
   it('valor estimado muy bajo frente al cierre → revisar venta del 100% (no automática)', async () => {
-    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: ficha(50) }]), 'meta', AHORA);
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, clienteCon([{ id: 'e1', ficha: ficha(50) }]), 'meta', AHORA);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.datos.resultado).toBe('revisar_venta_100');
@@ -64,7 +72,7 @@ describe('ejecutarRevisionPmp', () => {
     expect(r.datos.periodo_fundamentales).toBe('FY2025 vs FY2024');
   });
   it('sin valuacion_base declarada: no evaluable y lo avisa', async () => {
-    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: {} }]), 'META', AHORA);
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, clienteCon([{ id: 'e1', ficha: {} }]), 'META', AHORA);
     expect(r.ok && r.datos.resultado).toBe('no_evaluable');
     expect(r.ok && r.datos.avisos.some(a => a.includes('valuacion_base'))).toBe(true);
   });
@@ -86,25 +94,56 @@ describe('deuda sin parte corriente (v0.48)', () => {
   });
 });
 
-describe('valor estimado = take profit del trade abierto (v0.49)', () => {
-  it('toma el TP más lejano registrado e ignora 0/vacíos', () => {
-    expect(valorDeTakeProfit({ take_profit_1: 780, take_profit_2: 870, take_profit_3: 0 }, '2026-11-14')).toMatchObject({ valor: 870, fuente: 'TP2 registrado en el trade abierto', horizonte_meses: 36 });
-    expect(valorDeTakeProfit({ take_profit_1: '780', take_profit_2: null, take_profit_3: '' }, 'x')?.valor).toBe(780);
-    expect(valorDeTakeProfit({ take_profit_1: 0, take_profit_2: null }, 'x')).toBeNull();
-    expect(valorDeTakeProfit(null, 'x')).toBeNull();
+
+describe('calcularValuacion (misma fórmula que ValuationModelsCard)', () => {
+  it('forward real a 1 año: EPS × P/E objetivo y ganancia anualizada (caso de la pantalla de META)', () => {
+    const r = calcularValuacion({ eps_ttm: 30, eps_forward: 32.86, pe_actual: 23.766, historial: [], cierres: [], precio: 641.69 });
+    expect(r.origen_pe).toBe('actual');
+    expect(r.origen_eps).toBe('estimado real (analistas)');
+    expect(r.precio_objetivo).toBeCloseTo(780.94, 1);
+    expect(r.ganancia_anualizada_pct).toBeCloseTo(21.7, 1);
   });
-  it('META: 870 contra el cierre da menos de 14% → revisar venta del 100%', async () => {
-    const cierre = DIARIAS_PRUEBA().filter(v => v.close > 0).slice(-1)[0]!.close;
-    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: {} }], [{ id: 't1', ticker: 'META', status: 'open', take_profit_1: cierre * 1.2, take_profit_2: cierre * 1.3, take_profit_3: null }]), 'META', AHORA);
+  it('P/E histórico = promedio de (cierre cercano ÷ EPS); EPS proyectado con CAGR acotado a 4–12%', () => {
+    const cierres = [{ date: '2023-12-29', close: 200 }, { date: '2024-12-31', close: 300 }];
+    const historial = [{ year: 2023, endDate: '2023-12-31', eps: 10 }, { year: 2024, endDate: '2024-12-31', eps: 12 }];
+    const r = calcularValuacion({ eps_ttm: 14, eps_forward: null, pe_actual: 99, historial, cierres, precio: 300, anios: 3 });
+    expect(r.pe_objetivo).toBeCloseTo((20 + 25) / 2, 6);
+    expect(r.origen_pe).toBe('histórico');
+    expect(r.crecimiento_eps).toBe(0.12); // CAGR 20% → tope 12%
+    expect(r.eps).toBeCloseTo(14 * 1.12 ** 3, 6);
+    expect(r.ganancia_anualizada_pct).toBeCloseTo(((14 * 1.12 ** 3 * 22.5 / 300) ** (1 / 3) - 1) * 100, 6);
+  });
+  it('EPS no positivo o sin precio: no hay objetivo y dice por qué', () => {
+    expect(calcularValuacion({ eps_ttm: -2, eps_forward: null, pe_actual: 20, historial: [], cierres: [], precio: 10 }).motivo).toContain('EPS proyectado');
+    expect(calcularValuacion({ eps_ttm: 2, eps_forward: null, pe_actual: 20, historial: [], cierres: [], precio: null }).motivo).toBe('sin precio actual');
+    expect(calcularValuacion({ eps_ttm: 2, eps_forward: null, pe_actual: null, historial: [], cierres: [], precio: 10 }).motivo).toContain('P/E');
+  });
+  it('cierreCercano respeta el máximo de 10 días', () => {
+    expect(cierreCercano([{ date: '2024-01-02', close: 5 }], '2024-01-05')).toBe(5);
+    expect(cierreCercano([{ date: '2024-01-02', close: 5 }], '2024-02-01')).toBeNull();
+  });
+});
+
+describe('revisión PMP-11 con el modelo de valuación', () => {
+  it('usa el precio objetivo del modelo y su horizonte (1 año por omisión)', async () => {
+    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: {} }]), 'META', AHORA);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.datos.valuacion?.fuente).toContain('TP2');
-    expect(r.datos.rendimiento.por_debajo).toBe(true);
-    expect(r.datos.resultado).toBe('revisar_venta_100');
+    expect(r.datos.modelo?.origen_eps).toBe('estimado real (analistas)');
+    expect(r.datos.valuacion?.horizonte_meses).toBe(12);
+    expect(r.datos.valuacion?.fuente).toContain('Modelo de valuación');
+    expect(r.datos.rendimiento.estado).toBe('evaluado');
+    expect(r.datos.venta_automatica).toBe(false);
   });
-  it('dos trades abiertos: no elige uno, cae a la ficha y avisa', async () => {
-    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: ficha(500) }], [{ take_profit_1: 9 }, { take_profit_1: 8 }]), 'META', AHORA);
+  it('anios = 3 compone el crecimiento y usa horizonte de 36 meses', async () => {
+    const r = await ejecutarRevisionPmp(deps, clienteCon([{ id: 'e1', ficha: {} }]), 'META', AHORA, 3);
+    expect(r.ok && r.datos.modelo?.anios).toBe(3);
+    expect(r.ok && r.datos.valuacion?.horizonte_meses).toBe(36);
+    expect(r.ok && r.datos.modelo?.origen_eps).toBe('proyectado (crecimiento histórico)');
+  });
+  it('si el modelo no se puede calcular cae a la valuación declarada en la ficha y lo avisa', async () => {
+    const r = await ejecutarRevisionPmp({ ...deps, fetchFn: mal }, clienteCon([{ id: 'e1', ficha: ficha(500) }]), 'META', AHORA);
     expect(r.ok && r.datos.valuacion?.valor).toBe(500);
-    expect(r.ok && r.datos.avisos.some(a => a.includes('2 trades abiertos'))).toBe(true);
+    expect(r.ok && r.datos.avisos.some(a => a.includes('valuacion_base'))).toBe(true);
   });
 });
