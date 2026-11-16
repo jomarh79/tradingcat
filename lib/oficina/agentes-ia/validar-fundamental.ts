@@ -148,7 +148,7 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
   }
 
   // Las cifras escritas deben ser las de los datos citados (redondeadas, no truncadas; también como porcentaje o en miles, millones y miles de millones)
-  if (VERIFICAR_CIFRAS_FUNDAMENTAL) e.push(...erroresDeCifras(x, fuentes, idsFuente, numerosPermitidos(sobre.snapshot.datos.items)));
+  if (VERIFICAR_CIFRAS_FUNDAMENTAL) e.push(...erroresDeCifras(x, fuentes, idsFuente, numerosPermitidos(sobre.snapshot.datos.items, typeof x['confianza'] === 'number' ? [x['confianza'], TOPE_CONFIANZA_CON_FALTANTES] : [TOPE_CONFIANZA_CON_FALTANTES])));
 
   const neg = x['negativos'];
   if (!Array.isArray(neg) || neg.length === 0 || !neg.every(textoNoVacio)) e.push('negativos debe traer al menos un elemento de texto (o qué se revisó para concluir que no hay)');

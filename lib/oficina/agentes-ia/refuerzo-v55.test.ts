@@ -41,3 +41,14 @@ describe('v0.55 el veredicto cita flujo de caja y balance cuando existen', () =>
     expect(PROMPT_FUNDAMENTAL).toContain('al menos un hallazgo debe citar uno de ellos');
   });
 });
+
+describe('v0.55b mencionar la confianza en el texto no es una cifra inventada', () => {
+  it('acepta un resumen que cita la confianza y el tope (0.6)', () => {
+    const x: any = { ...salidaBase(), resumen: 'Negocio rentable; la confianza es 0.6 por datos faltantes.', confianza: 0.6 };
+    expect(validarSalidaFundamental(x, sobreBase()).ok).toBe(true);
+  });
+  it('sigue rechazando otras cifras sin respaldo', () => {
+    const x: any = { ...salidaBase(), resumen: 'Negocio rentable con margen de 0.77.' };
+    expect(validarSalidaFundamental(x, sobreBase()).ok).toBe(false);
+  });
+});
