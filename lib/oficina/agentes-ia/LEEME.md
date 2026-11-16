@@ -380,3 +380,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - `conexion/valuacion-modelos.ts` replica la fórmula de la tarjeta (P/E histórico = promedio de cierre cercano ÷ EPS por año con tope de 10 días; si no hay, P/E actual; EPS a 1 año = estimado de analistas si existe, si no EPS TTM × (1+CAGR acotado 4–12%)^N). Fuentes: /api/fundamentals, /api/webull/income-statement y POST /api/chart-data.
 - Horizonte por omisión 1 año (como la tarjeta); el panel de /oficina trae selector 1–10. El precio de comparación es el último cierre cerrado (la tarjeta usa el precio vivo del trade: puede diferir unos decimales).
 - Si el modelo no se calcula, cae a `ficha.valuacion_base` y lo avisa. `FetchDatos` admite ahora `method` y `body` (POST).
+
+## v0.51 — Panel de revisión PMP-11 sin escribir el ticker
+- `app/oficina/RevisionPmp.tsx` lista solo las posiciones abiertas cuyo portafolio se llama PMP (tabla `trades`, status open, join `portfolios(name)`); la primera queda elegida. Botón «Revisar todas (N)» las revisa una por una (6 s entre consultas por el límite del servidor). Sin posiciones detectadas vuelve al campo de texto.

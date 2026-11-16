@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { authedFetch } from '@/lib/authed-fetch'
+import { supabase } from '@/lib/supabase'
 
 // Panel «Revisión semestral PMP» (PMP-11): escribes el ticker de una posición PMP abierta y pulsas. Solo lectura: no guarda, no compra ni vende.
 // Todo el código vive aquí; la página solo dibuja <RevisionPmp />.
@@ -27,10 +28,54 @@ const etiqueta = (s: string) => s.replace(/_/g, ' ')
 
 export default function RevisionPmp() {
   const [ticker, setTicker] = useState('')
+  const [abiertas, setAbiertas] = useState<string[]>([])
+  const [cargandoLista, setCargandoLista] = useState(true)
+  const [todas, setTodas] = useState<Record<string, Resultado>>({})
+  const [progreso, setProgreso] = useState('')
   const [anios, setAnios] = useState(1)
   const [cargando, setCargando] = useState(false)
   const [res, setRes] = useState<Resultado | null>(null)
   const [fallo, setFallo] = useState('')
+
+  // Posiciones abiertas de PMP (trades abiertos cuyo portafolio se llama PMP): la primera queda elegida por omisión.
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const { data, error } = await supabase.from('trades').select('ticker, portfolios(name)').eq('status', 'open')
+      if (!vivo) return
+      if (!error) {
+        const lista = Array.from(new Set((data ?? []).filter((t: any) => /(^|[^A-Za-z])PMP([^A-Za-z]|$)/i.test(String(t?.portfolios?.name ?? ''))).map((t: any) => String(t.ticker).toUpperCase()))).sort()
+        setAbiertas(lista)
+        setTicker(prev => prev || lista[0] || '')
+      }
+      setCargandoLista(false)
+    })()
+    return () => { vivo = false }
+  }, [])
+
+  const pedir = async (t: string): Promise<Resultado> => {
+    try {
+      const r = await authedFetch('/api/oficina/revision-pmp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, anios }) })
+      const j = (await r.json().catch(() => null)) as Resultado | null
+      if (!j) return { ok: false, error: `El servidor respondió ${r.status} sin detalle` }
+      return j
+    } catch {
+      return { ok: false, error: 'No se pudo conectar con el servidor' }
+    }
+  }
+
+  const revisarTodas = async () => {
+    if (abiertas.length === 0) return
+    setCargando(true); setRes(null); setFallo(''); setTodas({})
+    for (let i = 0; i < abiertas.length; i++) {
+      const t = abiertas[i]!
+      setProgreso(`Revisando ${t} (${i + 1} de ${abiertas.length})…`)
+      const r = await pedir(t)
+      setTodas(prev => ({ ...prev, [t]: r }))
+      if (i < abiertas.length - 1) await new Promise(ok => setTimeout(ok, 6000)) // el servidor exige unos segundos entre consultas
+    }
+    setProgreso(''); setCargando(false)
+  }
 
   const revisar = async () => {
     const t = ticker.trim().toUpperCase()
@@ -49,30 +94,10 @@ export default function RevisionPmp() {
     }
   }
 
-  return (
-    <div style={{ background: '#080808', border: '1px solid #1a1a1a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-      <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Revisión semestral PMP (PMP-11)</div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === 'Enter' && !cargando) revisar() }} placeholder="Ticker (ej. META)" disabled={cargando}
-          style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
-        <label style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>Objetivo a
-          <select value={anios} onChange={e => setAnios(Number(e.target.value))} disabled={cargando}
-            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '7px 8px', borderRadius: 6, fontSize: 12 }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} {n === 1 ? 'año' : 'años'}</option>)}
-          </select>
-        </label>
-        <button onClick={revisar} disabled={cargando}
-          style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : '#00bfff', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: cargando ? 'default' : 'pointer', fontSize: 12 }}>
-          {cargando ? 'Revisando…' : 'Revisar'}
-        </button>
-        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
-      </div>
-      {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{fallo}</div>}
-
-      {res && res.resultado && (
-        <div style={{ marginTop: 12, fontSize: 12, color: '#ccc' }}>
+  const verResultado = (res: Resultado, clave?: string) => (
+        <div key={clave} style={{ marginTop: 12, fontSize: 12, color: '#ccc', borderTop: clave ? '1px solid #151515' : undefined, paddingTop: clave ? 10 : 0 }}>
           <div style={{ marginBottom: 8 }}>
-            <span style={{ fontWeight: 900, color: COLOR[res.resultado], border: `1px solid ${COLOR[res.resultado]}`, borderRadius: 4, padding: '2px 8px' }}>{TEXTO[res.resultado]}</span>
+            <span style={{ fontWeight: 900, color: COLOR[res.resultado ?? 'no_evaluable'], border: `1px solid ${COLOR[res.resultado ?? 'no_evaluable']}`, borderRadius: 4, padding: '2px 8px' }}>{TEXTO[res.resultado ?? 'no_evaluable']}</span>
             <span style={{ marginLeft: 8, color: '#666' }}>{res.ticker} · {res.fecha} · la venta nunca es automática</span>
           </div>
           {(res.motivos ?? []).map((m, i) => <div key={i} style={{ color: '#eab308', marginBottom: 3 }}>• {m}</div>)}
@@ -95,7 +120,45 @@ export default function RevisionPmp() {
             <div style={{ marginTop: 8, color: '#666', fontSize: 11 }}>{(res.avisos ?? []).slice(0, 8).map((a, i) => <div key={i}>• {a}</div>)}</div>
           )}
         </div>
-      )}
+  )
+
+  return (
+    <div style={{ background: '#080808', border: '1px solid #1a1a1a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Revisión semestral PMP (PMP-11)</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {abiertas.length > 0 ? (
+          <select value={ticker} onChange={e => setTicker(e.target.value)} disabled={cargando}
+            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }}>
+            {abiertas.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        ) : (
+          <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === 'Enter' && !cargando) revisar() }}
+            placeholder={cargandoLista ? 'Cargando…' : 'Ticker (ej. META)'} disabled={cargando}
+            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
+        )}
+        <label style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>Objetivo a
+          <select value={anios} onChange={e => setAnios(Number(e.target.value))} disabled={cargando}
+            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '7px 8px', borderRadius: 6, fontSize: 12 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} {n === 1 ? 'año' : 'años'}</option>)}
+          </select>
+        </label>
+        <button onClick={revisar} disabled={cargando}
+          style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : '#00bfff', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: cargando ? 'default' : 'pointer', fontSize: 12 }}>
+          {cargando ? 'Revisando…' : 'Revisar'}
+        </button>
+        {abiertas.length > 1 && (
+          <button onClick={revisarTodas} disabled={cargando}
+            style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : '#22c55e', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: cargando ? 'default' : 'pointer', fontSize: 12 }}>
+            Revisar todas ({abiertas.length})
+          </button>
+        )}
+        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Posiciones PMP abiertas detectadas solas. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
+      </div>
+      {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{fallo}</div>}
+
+      {progreso && <div style={{ color: '#00bfff', fontSize: 12, marginTop: 10 }}>{progreso}</div>}
+      {res && res.resultado && verResultado(res)}
+      {Object.entries(todas).map(([t, r]) => (r.resultado ? verResultado(r, t) : <div key={t} style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{t}: {r.error ?? 'sin resultado'}</div>))}
     </div>
   )
 }

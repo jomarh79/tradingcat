@@ -6,6 +6,7 @@ import { authedFetch } from '@/lib/authed-fetch'
 import AppShell from '../AppShell'
 import { FaSync, FaSearch, FaSpinner, FaTimes } from 'react-icons/fa'
 import { Briefcase } from 'lucide-react'
+import RevisionPmp from './RevisionPmp'
 
 const C = { accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308', card: '#080808', border: '#1a1a1a' }
 
@@ -325,8 +326,10 @@ export default function OficinaPage() {
               style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : C.warning, minHeight: btnH, padding: '0 14px', borderRadius: 6, cursor: cargando ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               <FaSync style={{ animation: cargando ? 'spin 1s linear infinite' : 'none' }} /> Actualizar
             </button>
-          </div>
+                   </div>
         </div>
+
+        <RevisionPmp />
 
         {/* ── FILTRO ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
