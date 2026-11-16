@@ -65,9 +65,12 @@ export default function RevisionPmp() {
     const m: Record<string, unknown> = {}
     for (const f of (data ?? []) as any[]) m[String(f.ticker).toUpperCase()] = f.ficha
     setFichas(m)
+    setTicker(prev => prev || Object.keys(m).sort()[0] || '')
   }
   useEffect(() => { cargarFichas() }, [])
   const hoy = new Date().toISOString().slice(0, 10)
+  // Calendario: posiciones PMP abiertas + cualquier ticker con expediente PMP (así no depende del nombre del portafolio en trades).
+  const calendario = Array.from(new Set([...abiertas, ...Object.keys(fichas)])).sort()
 
   const pedir = async (t: string): Promise<Resultado> => {
     try {
@@ -171,10 +174,10 @@ export default function RevisionPmp() {
         </label>
         <span style={{ fontSize: 10, color: '#555' }}>Elige una posición PMP abierta o escribe cualquier ticker. Nunca vende ni compra. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
       </div>
-      {abiertas.length > 0 && (
+      {calendario.length > 0 && (
         <div style={{ marginTop: 12, fontSize: 11 }}>
           <div style={{ color: '#666', marginBottom: 4 }}>Calendario semestral (primera revisión formal de la regla: 2027-04-06)</div>
-          {abiertas.map(t => {
+          {calendario.map(t => {
             const e = estadoRevision(fichas[t], hoy)
             const color = e.estado === 'vencida' ? '#f43f5e' : e.estado === 'al_dia' ? '#22c55e' : '#eab308'
             return (
