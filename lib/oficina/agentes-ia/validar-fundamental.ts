@@ -132,6 +132,21 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
     });
   }
 
+  // v0.55: si hay items de flujo de caja o de balance y el subpuntaje de esa dimensión se puntúa, algún hallazgo debe citar uno (antes el modelo a veces puntuaba sin citarlos y el veredicto variaba entre corridas).
+  const subp = x['subpuntajes'];
+  if (!noEval && Array.isArray(hall) && esObjeto(subp)) {
+    const citados = new Set<string>();
+    for (const h of hall) if (esObjeto(h) && Array.isArray(h['evidencia'])) for (const id of h['evidencia']) if (typeof id === 'string') citados.add(id);
+    const exigidas: { sub: string; re: RegExp; texto: string }[] = [
+      { sub: 'flujo_caja', re: /^flujo_/, texto: 'flujo de caja (por ejemplo flujo_caja_libre_*)' },
+      { sub: 'balance', re: /^(razon_corriente|deuda_|pasivos_|activos_|patrimonio|efectivo)/, texto: 'balance (razón corriente, deuda, activos, pasivos, patrimonio o efectivo)' },
+    ];
+    for (const d of exigidas) {
+      const itemsDim = sobre.snapshot.datos.items.filter(it => d.re.test(it.campo));
+      if (typeof subp[d.sub] === 'number' && itemsDim.length > 0 && !itemsDim.some(it => citados.has(it.id))) e.push(`subpuntajes.${d.sub} se puntúa pero ningún hallazgo cita un item de ${d.texto}: hay ${itemsDim.length} disponibles, cita al menos uno en un hallazgo`);
+    }
+  }
+
   // Las cifras escritas deben ser las de los datos citados (redondeadas, no truncadas; también como porcentaje o en miles, millones y miles de millones)
   if (VERIFICAR_CIFRAS_FUNDAMENTAL) e.push(...erroresDeCifras(x, fuentes, idsFuente, numerosPermitidos(sobre.snapshot.datos.items)));
 

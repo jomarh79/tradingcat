@@ -397,3 +397,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Causa de la variación (0.9 / 0.6 / 0.5 con los mismos datos): el snapshot trae avisos de datos ausentes (p. ej. deuda corriente o arrendamiento sin concepto en la fuente) y a veces el modelo los declaraba en `datos_faltantes` (tope de confianza 0.6) y a veces no (0.9).
 - Ahora, si algún aviso del código dice que falta un dato («sin concepto», «sin dato», «no viene en la fuente», «se omite»), el validador rechaza `datos_faltantes` vacío y el modelo reintenta declarándolo (no crítico). Resultado: con avisos la confianza queda siempre en el tope o debajo; sin avisos no cambia nada.
 - El tope (0.6) no se modificó. Si algún día se quiere distinguir faltantes menores (p. ej. arrendamiento) de los importantes, es una decisión aparte.
+
+## v0.55 — El Fundamental cita flujo de caja y balance
+- Antes, con los mismos datos, una corrida de META daba ACEPTABLE 75 (sin citar FCF ni razón corriente) y otras SOLIDO 85 (citándolos).
+- Ahora, si hay items de flujo de caja (`flujo_*`) o de balance (razón corriente, deuda, activos, pasivos, patrimonio, efectivo) y el subpuntaje de esa dimensión se puntúa, algún hallazgo debe citar uno en su `evidencia`; si no, el validador rechaza y el modelo reintenta. Sin items de esa dimensión no se exige nada.
+- Puede subir en uno el número de reintentos de algunas corridas.
