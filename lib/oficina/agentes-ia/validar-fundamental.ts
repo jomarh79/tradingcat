@@ -77,6 +77,8 @@ export interface SalidaFundamental extends Obj {
 const mismoDato = (a: Obj, b: ItemDato): boolean =>
   a['campo'] === b.campo && a['valor'] === b.valor && a['unidad'] === b.unidad && a['fuente'] === b.fuente && a['fecha_dato'] === b.fecha_dato;
 
+/** Avisos generados por código que significan «este dato no está» (ver datos-fundamental.ts y datos-finnhub.ts). */
+const AVISO_DATO_AUSENTE_RE = /sin concepto para|sin dato|sin datos en la fuente|no viene en la fuente|se omite/;
 export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): Validacion<SalidaFundamental> {
   const e: string[] = [];
   if (!esObjeto(x)) return { ok: false, errores: ['la salida no es un objeto'] };
@@ -165,6 +167,10 @@ export function validarSalidaFundamental(x: unknown, sobre: SobreFundamental): V
   });
   if (!noEval && hayCritico) e.push('hay datos_faltantes críticos: el veredicto debe ser NO_EVALUABLE');
   if (noEval && Array.isArray(falt) && falt.length === 0) e.push('NO_EVALUABLE exige listar datos_faltantes');
+  // v0.54: si el código ya avisó de datos ausentes (sin concepto, sin dato, balance que no viene), el modelo no puede dejar datos_faltantes vacío; así la confianza no depende
+  // de si el modelo «se acordó» de declararlos (antes salía 0.9 unas veces y 0.5 otras con los mismos datos).
+  const avisosCodigo = sobre.snapshot.datos.avisos ?? [];
+  if (!noEval && Array.isArray(falt) && falt.length === 0 && avisosCodigo.some(av => AVISO_DATO_AUSENTE_RE.test(av))) e.push('los avisos del snapshot indican datos ausentes: decláralos en datos_faltantes (critico false) y respeta el tope de confianza; no dejes datos_faltantes vacío');
   const conf = x['confianza'];
   if (enRango(conf, CONFIANZA_MIN, CONFIANZA_MAX) && Array.isArray(falt) && falt.length > 0 && conf > TOPE_CONFIANZA_CON_FALTANTES) e.push(`confianza (${String(conf)}) no puede superar ${String(TOPE_CONFIANZA_CON_FALTANTES)} cuando hay datos_faltantes`);
 

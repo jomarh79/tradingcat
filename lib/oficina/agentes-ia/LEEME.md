@@ -392,3 +392,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Usa tu sesión y el permiso «propias»; si la base no actualiza exactamente 1 fila, avisa en vez de fingir que guardó.
 - La ruta acepta `guardar: true`; el panel trae la casilla «Guardar en el historial» (marcada), un calendario semestral de tus posiciones PMP abiertas (sin revisar / al día / vencida, próxima = última + 6 meses) y el historial por ticker.
 - Sigue siendo una tarea de revisión: nunca vende ni compra.
+
+## v0.54 — Confianza estable del Fundamental
+- Causa de la variación (0.9 / 0.6 / 0.5 con los mismos datos): el snapshot trae avisos de datos ausentes (p. ej. deuda corriente o arrendamiento sin concepto en la fuente) y a veces el modelo los declaraba en `datos_faltantes` (tope de confianza 0.6) y a veces no (0.9).
+- Ahora, si algún aviso del código dice que falta un dato («sin concepto», «sin dato», «no viene en la fuente», «se omite»), el validador rechaza `datos_faltantes` vacío y el modelo reintenta declarándolo (no crítico). Resultado: con avisos la confianza queda siempre en el tope o debajo; sin avisos no cambia nada.
+- El tope (0.6) no se modificó. Si algún día se quiere distinguir faltantes menores (p. ej. arrendamiento) de los importantes, es una decisión aparte.
