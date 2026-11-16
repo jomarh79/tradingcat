@@ -383,3 +383,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.51 — Panel de revisión PMP-11 sin escribir el ticker
 - `app/oficina/RevisionPmp.tsx` lista solo las posiciones abiertas cuyo portafolio se llama PMP (tabla `trades`, status open, join `portfolios(name)`); la primera queda elegida. Botón «Revisar todas (N)» las revisa una por una (6 s entre consultas por el límite del servidor). Sin posiciones detectadas vuelve al campo de texto.
+
+## v0.52 — Panel PMP-11: cualquier ticker
+- El campo es un input con lista (datalist) de las posiciones PMP abiertas: se puede escribir cualquier ticker; no requiere corrida previa ni expediente (el expediente solo se lee como respaldo de `valuacion_base`).

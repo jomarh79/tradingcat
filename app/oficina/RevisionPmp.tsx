@@ -126,16 +126,11 @@ export default function RevisionPmp() {
     <div style={{ background: '#080808', border: '1px solid #1a1a1a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
       <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Revisión semestral PMP (PMP-11)</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {abiertas.length > 0 ? (
-          <select value={ticker} onChange={e => setTicker(e.target.value)} disabled={cargando}
-            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }}>
-            {abiertas.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        ) : (
-          <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} onKeyDown={e => { if (e.key === 'Enter' && !cargando) revisar() }}
-            placeholder={cargandoLista ? 'Cargando…' : 'Ticker (ej. META)'} disabled={cargando}
-            style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
-        )}
+        {/* Escribe cualquier ticker o elige una de tus posiciones PMP abiertas (la primera ya viene puesta). No necesita una corrida previa de la Oficina. */}
+        <input value={ticker} list="posiciones-pmp" onChange={e => setTicker(e.target.value.toUpperCase().replace(/\s/g, ''))} onKeyDown={e => { if (e.key === 'Enter' && !cargando) revisar() }}
+          placeholder={cargandoLista ? 'Cargando…' : 'Ticker (ej. META)'} disabled={cargando} autoComplete="off"
+          style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: 150 }} />
+        <datalist id="posiciones-pmp">{abiertas.map(t => <option key={t} value={t} />)}</datalist>
         <label style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>Objetivo a
           <select value={anios} onChange={e => setAnios(Number(e.target.value))} disabled={cargando}
             style={{ background: '#000', border: '1px solid #222', color: 'white', padding: '7px 8px', borderRadius: 6, fontSize: 12 }}>
@@ -152,7 +147,7 @@ export default function RevisionPmp() {
             Revisar todas ({abiertas.length})
           </button>
         )}
-        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Posiciones PMP abiertas detectadas solas. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
+        <span style={{ fontSize: 10, color: '#555' }}>Solo lectura: no guarda ni vende nada. Elige una posición PMP abierta o escribe cualquier ticker. Usa el modelo de valuación de /position (P/E objetivo × EPS).</span>
       </div>
       {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginTop: 10 }}>{fallo}</div>}
 
