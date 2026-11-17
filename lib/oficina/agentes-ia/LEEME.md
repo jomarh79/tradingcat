@@ -402,3 +402,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Antes, con los mismos datos, una corrida de META daba ACEPTABLE 75 (sin citar FCF ni razón corriente) y otras SOLIDO 85 (citándolos).
 - Ahora, si hay items de flujo de caja (`flujo_*`) o de balance (razón corriente, deuda, activos, pasivos, patrimonio, efectivo) y el subpuntaje de esa dimensión se puntúa, algún hallazgo debe citar uno en su `evidencia`; si no, el validador rechaza y el modelo reintenta. Sin items de esa dimensión no se exige nada.
 - Puede subir en uno el número de reintentos de algunas corridas.
+
+## v0.56 — Valuación por código para PMP
+- El analista `valuacion` (que PMP-05 exige cuando hay señal de entrada) era «no implementado todavía». Ahora, en una posición PMP NUEVA, se calcula por código con el mismo modelo de `/position` (P/E objetivo × EPS), a 3 años = 36 meses, con el cierre de la última vela cerrada.
+- Veredicto del analista (solo descriptivo): ganancia anualizada ≥ 14% = BARATA, menos = RAZONABLE, modelo no calculable = NO_EVALUABLE. Nunca CARA: el 14% lo decide PMP-01 (Auditor), no se bloquea dos veces.
+- PMP-01 recibe como `valor_estimado_base` el precio objetivo del modelo y horizonte 36 meses; ya no pide declararlo en la ficha. Si el modelo no se puede calcular (EPS no positivo, sin datos), se usa lo declarado en `valuacion_base`; si tampoco hay, PMP-01 sigue NO_EVALUABLE y lo dice.
+- La respuesta de la corrida trae `valuacion` (precio objetivo, ganancia anualizada, fuente). Agrega 1 consulta POST (chart-data) y 2 GET (fundamentals, income-statement) por corrida de PMP nueva.
+- Solo PMP con posición nueva; las posiciones abiertas no cambian (su revisión es PMP-11).

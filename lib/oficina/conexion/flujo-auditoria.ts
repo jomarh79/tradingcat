@@ -19,7 +19,9 @@ import { prepararTecnico } from '../orquestador/preparar-tecnico';
 import { conSobreAuditor, construirEntradaAuditor } from './entrada-auditor';
 import type { HechosAuditor } from './entrada-auditor';
 import { obtenerOCrearExpediente } from './expediente-bd';
-import { cargarHechosPosicion } from './hechos-bd';
+import { cargarHechosPosicion, ID_DATO_HORIZONTE, ID_DATO_VALOR_ESTIMADO } from './hechos-bd';
+import { datosValuacionModelo } from './valuacion-corrida';
+import type { ValuacionCorrida } from './valuacion-corrida';
 import type { ConsultaFiltrable } from './hechos-bd';
 import { guardarAnalisisAuditor } from './persistencia-auditor';
 import { cargarFilasReglas, resolverReglas } from './reglas-bd';
@@ -122,7 +124,11 @@ export async function prepararAuditoria(cliente: ClienteOficina, a: ArgumentosPr
     const base: DatosCongelados = { ...a.datos, expediente_id: exp.expediente_id };
     // v0.23: PMP-01 usa el cierre de la última vela cerrada como precio (decisión 10-nov); lo calcula la misma preparación del Técnico.
     const extra = s.portafolio === 'PMP' ? datosPmp01(s, a.datos) : [];
-    const hechosBase: HechosAuditor = extra.length === 0 ? hechos.hechos : { ...hechos.hechos, datos_fuente: [...(hechos.hechos.datos_fuente ?? []), ...extra] };
+    // v0.56: el valor estimado de PMP-01 sale del modelo de valuación (3 años); si el modelo no se pudo calcular se queda lo declarado en la ficha (valuacion_base).
+    const modelo = s.portafolio === 'PMP' ? datosValuacionModelo(a.datos.valuacion_modelo as ValuacionCorrida | undefined) : [];
+    const deFicha = modelo.length === 0 ? (hechos.hechos.datos_fuente ?? []) : (hechos.hechos.datos_fuente ?? []).filter(d => d.id !== ID_DATO_VALOR_ESTIMADO && d.id !== ID_DATO_HORIZONTE);
+    const agregados = [...modelo, ...extra];
+    const hechosBase: HechosAuditor = agregados.length === 0 ? hechos.hechos : { ...hechos.hechos, datos_fuente: [...deFicha, ...agregados] };
     const entrada = construirEntradaAuditor({ run_id: a.run_id, solicitud: s, datos: base, reglas: reglas.reglas, hechos: a.operacion === undefined ? hechosBase : { ...hechosBase, operacion: { ...hechosBase.operacion, ...a.operacion } } });
     if (!entrada.ok) return falla('entrada', entrada.problemas);
     return { ok: true, datos: conSobreAuditor(base, entrada.entrada), expediente_id: exp.expediente_id, portfolio_id: pf.portfolio_id, expediente_creado: exp.creado };

@@ -482,13 +482,20 @@ const insertsDe = (b: ReturnType<typeof nuevaBdGuardado>, tabla: string) => b.e.
 const peticion = (m: ReturnType<typeof modeloFalso>, esquema: string): Record<string, unknown> => JSON.parse(m.peticiones.find(p => p.esquema_nombre === esquema)!.mensajes[1]!.content) as Record<string, unknown>;
 
 describe('v0.14: guardado con el Técnico', () => {
+  it('v0.56: PMP nueva calcula la Valuación por código (sin IA) y la corrida ya no falla por «valuacion: no implementado»', async () => {
+    const t = montar();
+    const r = await t.ejecutar();
+    expect(r.cuerpo['valuacion']).toMatchObject({ origen: 'codigo', horizonte_meses: 36 });
+    expect(['BARATA', 'RAZONABLE', 'NO_EVALUABLE']).toContain((r.cuerpo['valuacion'] as Obj)['veredicto']);
+    expect(JSON.stringify(r.cuerpo)).not.toContain('no implementado');
+  });
   it('trae las velas, corre el Técnico, lo guarda y la corrida lleva referencias.tecnico', async () => {
     const t = montar();
     const r = await t.ejecutar();
     expect(r.http).toBe(200);
     expect(r.cuerpo).toMatchObject({ ok: true, analisis_completo: true, avisos_velas: [] });
     expect(r.cuerpo['tecnico']).toMatchObject({ estado: 'ok', veredicto: 'ESPERAR', confianza: 0.5, calculo_codigo: { estado: 'parcial', fecha_evaluacion: '2026-11-04', ultima_vela_diaria: '2026-11-03', ultima_vela_semanal: '2026-10-26' } });
-    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u))).toHaveLength(2);   // v0.40: además se piden las velas de los 4 índices de la ficha
+    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u))).toHaveLength(3);   // v0.40: además se piden las velas de los 4 índices de la ficha; v0.56: +1 consulta (POST) del modelo de valuación de PMP
     const an = insertsDe(t.b, 'oficina_analisis').find(x => x['agente'] === 'tecnico')!;
     expect(an).toMatchObject({ veredicto: 'ESPERAR', puntaje: null, expediente_id: expect.any(String) });
     expect((an['salida'] as Obj)['trazabilidad']).toMatchObject({ version_prompt: 'tecnico.p7', contrato: 'salida.v1', run_id: r.cuerpo['run_id'] });
@@ -497,7 +504,7 @@ describe('v0.14: guardado con el Técnico', () => {
     expect((cc['motivos'] as string[]).some(m => m.startsWith('sma200_semanal'))).toBe(true);
     expect((an['salida'] as Obj)['snapshot_id']).toBe(((peticion(t.m, 'salida_fundamental_v1')['snapshot']) as Obj)['id']);
     expect(((an['salida'] as Obj)['trazabilidad'] as Obj)['snapshot_id']).toBe((peticion(t.m, 'salida_fundamental_v1')['snapshot'] as Obj)['id']);
-    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u)).every(u => u.includes('symbol=GKOS'))).toBe(true);
+    expect(t.llamadas.filter(u => u.includes('/api/chart-data') && !/symbol=(SPY|QQQ|DIA|QUAL)&/.test(u) && u.includes('symbol=')).every(u => u.includes('symbol=GKOS'))).toBe(true);
     const corrida = t.b.e.rpc[0]!.args['p_corrida'] as Fila;
     const ref = (corrida['referencias'] as Obj)['tecnico'] as Obj;
     expect(ref).toMatchObject({ estado: 'parcial', ultima_vela_diaria: '2026-11-03', ultima_vela_semanal: '2026-10-26' });
@@ -525,7 +532,7 @@ describe('v0.14: guardado con el Técnico', () => {
     const t = montar();
     await t.ejecutar();
     const ctx = peticion(t.m, 'integracion_v1');
-    expect(Object.keys(ctx['salidas_analistas'] as Obj).sort()).toEqual(['fundamental', 'riesgo_capital', 'tecnico']);
+    expect(Object.keys(ctx['salidas_analistas'] as Obj).sort()).toEqual(['fundamental', 'riesgo_capital', 'tecnico', 'valuacion']);
     expect(((ctx['salidas_analistas'] as Obj)['tecnico'] as Obj)['veredicto']).toBe('ESPERAR');
   });
   it('el Técnico se ejecuta después de traer los datos y antes de registrar la corrida', async () => {

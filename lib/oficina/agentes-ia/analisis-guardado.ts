@@ -27,6 +27,9 @@ import { construirSobreFundamental } from './prueba-fundamental';
 import type { DepsPrueba, ResultadoPrueba } from './prueba-fundamental';
 import { crearPuertoAnalista, crearPuertoDirector } from './puertos-ia';
 import { calcularRiesgoCapital, salidaComoAnalista } from './riesgo-capital';
+import { calcularValuacionCorrida, salidaValuacionComoAnalista, veredictoValuacion } from '../conexion/valuacion-corrida';
+import type { ValuacionCorrida } from '../conexion/valuacion-corrida';
+import { fechaDeVela } from '../conexion/ficha-propuesta';
 import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
 import { COLUMNAS_EJECUCIONES, COLUMNAS_POSICIONES, TABLA_EJECUCIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
@@ -151,6 +154,14 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   else if (cap.filas.length !== 1) avisos_capital.push(`oficina_v_capital: se esperaba 1 fila del portafolio y hay ${cap.filas.length}`);
   else efectivo = cap.filas[0]?.['efectivo'] ?? null;
   const riesgo: ResultadoRiesgoCapital = calcularRiesgoCapital({ efectivo, monto: v.cuerpo.monto ?? null });
+  // v0.56: Valuación de PMP por código (modelo de /position a 3 años) para una posición nueva; la usa el analista `valuacion` y PMP-01. Si falla, se declara y no se inventa.
+  let valuacion: ValuacionCorrida | undefined;
+  if (portafolio === 'PMP' && !posicion_existe) {
+    const hoyCorrida = fechaEnZona(new Date(deps.ahora()), ZONA_OFICINA);
+    const cerradas = velas.ok ? velas.velas.diarias.filter(c => Number.isFinite(c.close) && c.close > 0 && fechaDeVela(c.time) < hoyCorrida) : [];
+    const ultimaCerrada = cerradas[cerradas.length - 1];
+    valuacion = await calcularValuacionCorrida(datosDeps, ticker, ultimaCerrada === undefined ? null : ultimaCerrada.close, hoyCorrida);
+  }
   const par = await leerFilas(cliente, TABLA_PARAMETROS, COLUMNAS_PARAMETROS, []);
   if ('error' in par) return falla('parametros', [par.error]);
 
@@ -182,7 +193,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     llamar: deps.llamar, modelo_analista: deps.modelo_analista, modelo_director: deps.modelo_director, ahora: deps.ahora,
     guardar_analista: guardar, guardar_director: guardarDirector, ...(deps.proveedor !== undefined ? { proveedor: deps.proveedor } : {}),
   };
-  const respuestas: { fundamental?: RespuestaAgente; tecnico?: RespuestaAgente; riesgo_capital?: RespuestaAgente; director?: RespuestaAgente } = {};
+  const respuestas: { fundamental?: RespuestaAgente; valuacion?: RespuestaAgente; tecnico?: RespuestaAgente; riesgo_capital?: RespuestaAgente; director?: RespuestaAgente } = {};
   const analistaIa = crearPuertoAnalista(opc);
   const directorIa = crearPuertoDirector(opc);
   const base: Omit<Puertos, 'auditor'> = {
@@ -191,6 +202,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
       if (agente === 'riesgo_capital') {
         respuestas.riesgo_capital = { estado: 'ok', veredicto: riesgo.veredicto, salida: salidaComoAnalista(riesgo, fechaEnZona(new Date(ahora), ZONA_OFICINA)) };
         return respuestas.riesgo_capital;
+      }
+      if (agente === 'valuacion' && valuacion !== undefined) {
+        respuestas.valuacion = { estado: 'ok', veredicto: veredictoValuacion(valuacion), salida: salidaValuacionComoAnalista(valuacion) };
+        return respuestas.valuacion;
       }
       const r = await analistaIa(agente, sobre);
       if (agente === AGENTE_FUNDAMENTAL) respuestas.fundamental = r;
@@ -209,7 +224,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    ...(ficha_datos !== undefined ? { ficha_datos } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
@@ -231,6 +246,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     fundamental: resumenAgente(respuestas.fundamental),
     tecnico: resumenAgente(respuestas.tecnico, resumenTecnicoCodigo(flujo.corrida)),
     avisos_velas,
+    ...(valuacion !== undefined ? { valuacion: { origen: 'codigo', horizonte_meses: valuacion.horizonte_meses, veredicto: veredictoValuacion(valuacion), precio_objetivo: valuacion.modelo.precio_objetivo, ganancia_anualizada_pct: valuacion.modelo.ganancia_anualizada_pct, fuente: valuacion.fuente, ...(valuacion.avisos.length > 0 ? { avisos: valuacion.avisos } : {}) } } : {}),
     riesgo_capital: { estado: 'ok', origen: 'codigo', ...riesgo, ...(avisos_capital.length > 0 ? { avisos: avisos_capital } : {}) },
     director: resumenAgente(respuestas.director, respuestas.director?.estado === 'ok' ? { clasificacion_tesis } : {}),
     analisis_completo: respuestas.fundamental?.estado === 'ok' && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',

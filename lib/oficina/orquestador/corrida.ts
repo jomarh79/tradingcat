@@ -179,6 +179,8 @@ export interface DatosCongelados {
   watchlist?: DatosWatchlist | null;
   /** v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP. */
   ficha_datos?: DatosFichaExtra;
+  /** v0.56: valuación por código de PMP (precio objetivo a 36 meses); alimenta PMP-01. Estructural: el Orquestador solo la lleva hasta la preparación del Auditor. */
+  valuacion_modelo?: unknown;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
   avisos?: string[];
   motor?: {
