@@ -424,3 +424,12 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Rutas: `GET /api/oficina/tesis?corrida_id=…` (estado) y `POST /api/oficina/tesis { corrida_id }` (aprobar).
 - Desde ahora la tesis aprobada (texto, versión, origen) llega al Fundamental en las corridas nuevas para que marque qué se mantiene, se debilita o se rompe (`cambios_vs_tesis_vigente`). Si `tesis_vigente` no se puede leer como texto, se sigue sin tesis (no se inventa).
 - Supuesto a confirmar: la columna `tesis_vigente` acepta un texto (sirve si es `text` o `jsonb`).
+
+## v0.59 — Alertas de la Oficina (revisión PMP-11 vencida y señal técnica nueva)
+- Las alertas de TP/stop y de entrada de la watchlist siguen como estaban (Edge Functions `update-trades` y `update-ia` → `/api/notify` → Resend). Estas dos son nuevas y salen por el mismo camino.
+- **Revisión PMP-11 vencida**: para cada posición PMP abierta, vence 6 meses después de su última revisión guardada (`ficha.revisiones_pmp11`); si nunca se revisó, el 2027-04-06 (primera revisión formal de la regla). Avisa por correo y repite como máximo cada 7 días mientras siga vencida. No hace consultas externas.
+- **Señal técnica nueva**: un ticker de la watchlist pasa de menos de 2 a 2 o más de las 5 señales de entrada de PMP (cierre de la última vela cerrada, mismo Técnico de la Oficina). Una revisión por ticker y por día, como mucho 2 tickers por corrida (TwelveData permite 8 consultas por minuto). La primera observación de un ticker solo se guarda (no avisa, para no inundar al activar). Si el correo no sale, no se guarda el estado y se reintenta.
+- El Técnico corre en Next.js, no en Deno: la Edge Function `update-ia` llama a `POST /api/oficina/senal` (autorizada con `x-notify-secret`) y es ella quien guarda el estado y manda el correo. La ruta solo calcula; no guarda ni envía nada.
+- Estado en la tabla nueva `oficina_alertas_estado` (SQL `sql/oficina-alertas-v059.sql`), accesible solo con la clave de servicio.
+- `lib/oficina/alertas/alertas-oficina.ts` y `supabase/functions/update-ia/alertas-oficina.ts` son el MISMO archivo (la Edge Function no puede importar de `lib/`); una prueba falla si difieren. Si cambias uno, copia el otro.
+- Hay que pegar a mano los cambios de `app/api/notify/route.ts` y `supabase/functions/update-ia/index.ts`: ver `lib/oficina/alertas/PEGADOS-v059.md`.
