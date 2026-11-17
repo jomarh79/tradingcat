@@ -65,7 +65,7 @@ function redChart(opc: { dia?: unknown; sem?: unknown; statusDia?: number; statu
   };
   return { fetchFn, llamadas };
 }
-const deps = (fetchFn: FetchDatos) => ({ fetchFn, origen: 'https://app.test', authorization: TOKEN, finnhub_key: CLAVE });
+const deps = (fetchFn: FetchDatos) => ({ fetchFn, origen: 'https://app.test', authorization: TOKEN, finnhub_key: CLAVE, esperar: async () => undefined });   // v0.57: sin espera real en los reintentos por 429
 
 describe('v0.14: forma de la respuesta de chart-data', () => {
   const vela = { time: 1, open: 1, high: 2, low: 1, close: 2, volume: 5 };

@@ -409,3 +409,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - PMP-01 recibe como `valor_estimado_base` el precio objetivo del modelo y horizonte 36 meses; ya no pide declararlo en la ficha. Si el modelo no se puede calcular (EPS no positivo, sin datos), se usa lo declarado en `valuacion_base`; si tampoco hay, PMP-01 sigue NO_EVALUABLE y lo dice.
 - La respuesta de la corrida trae `valuacion` (precio objetivo, ganancia anualizada, fuente). Agrega 1 consulta POST (chart-data) y 2 GET (fundamentals, income-statement) por corrida de PMP nueva.
 - Solo PMP con posición nueva; las posiciones abiertas no cambian (su revisión es PMP-11).
+
+## v0.57 — Límite de consultas (429) y orden de los índices
+- En la corrida de PH, DIA y QUAL salieron «sin velas»: TwelveData permite 8 consultas por minuto y la corrida pedía muchas a la vez (ticker diario y semanal, 4 índices y, desde v0.56, la valuación).
+- Ahora una consulta de velas rechazada con HTTP 429 espera 12 s y se reintenta UNA vez (diarias, semanales e índices). Otros errores no se reintentan ni esperan.
+- Los 4 índices de referencia de la ficha se piden de uno en uno (antes juntos).
+- `DepsDatosReales.esperar` es opcional (por omisión espera de verdad); las pruebas lo inyectan para no esperar.
+- Si un ticker sigue sin velas tras el reintento, la ficha lo sigue declarando como «sin dato», sin inventar nada.

@@ -14,6 +14,8 @@ export interface DepsDatosReales {
   fetchFn: FetchDatos; origen: string; authorization: string; finnhub_key: string;
   /** Señal de tiempo máximo por llamada (opcional; por omisión `AbortSignal.timeout`). Inyectable para poder probarla. */
   senalTiempo?: (ms: number) => AbortSignal;
+  /** Espera entre reintentos por límite de consultas (HTTP 429). Inyectable para probarla sin esperar de verdad. */
+  esperar?: (ms: number) => Promise<void>;
 }
 export interface DatosReales {
   income_statement: unknown;

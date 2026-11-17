@@ -33,9 +33,18 @@ export function extraerVelas(json: unknown): SerieVelas {
   return { ok: true, velas };
 }
 
+/** v0.57: espera antes de reintentar una consulta rechazada por el límite de TwelveData (8 por minuto). Un solo reintento. */
+export const ESPERA_LIMITE_MS = 12000;
+const esperaReal = (ms: number): Promise<void> => new Promise(ok => setTimeout(ok, ms));
+
 async function pedir(deps: DepsDatosReales, simbolo: string, intervalo: string): Promise<SerieVelas> {
   const url = `${deps.origen}${RUTA_CHART_DATA}?symbol=${simbolo}&interval=${intervalo}`;
-  const r = await leer(deps, url, { Accept: 'application/json', Authorization: deps.authorization });
+  const cab = { Accept: 'application/json', Authorization: deps.authorization };
+  let r = await leer(deps, url, cab);
+  if (!r.ok && r.motivo === 'HTTP 429') {
+    await (deps.esperar ?? esperaReal)(ESPERA_LIMITE_MS);
+    r = await leer(deps, url, cab);
+  }
   if (!r.ok) return { ok: false, error: r.motivo };
   return extraerVelas(r.json);
 }

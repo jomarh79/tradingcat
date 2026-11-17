@@ -9,10 +9,11 @@ import type { DepsDatosReales } from './datos-reales';
 const VELAS_POR_INDICE = 400;
 
 export async function reunirDatosFicha(deps: DepsDatosReales, ticker: string, fuentes: { income_statement?: unknown; finnhub_metric?: unknown }): Promise<DatosFichaExtra> {
-  const [div, ...idx] = await Promise.all([
-    obtenerDividendos(deps, ticker),
-    ...INDICES_REFERENCIA.map(s => obtenerVelasDiariasDe(deps, s)),
-  ]);
+  // v0.57: los índices se piden de uno en uno (antes los 4 a la vez, junto con las velas del ticker, y el límite de 8 consultas por minuto dejaba sin velas a los últimos).
+  const divP = obtenerDividendos(deps, ticker);
+  const idx: Awaited<ReturnType<typeof obtenerVelasDiariasDe>>[] = [];
+  for (const s of INDICES_REFERENCIA) idx.push(await obtenerVelasDiariasDe(deps, s));
+  const div = await divP;
   const indices: DatosFichaExtra['indices'] = {};
   INDICES_REFERENCIA.forEach((s, i) => {
     const r = idx[i]!;
