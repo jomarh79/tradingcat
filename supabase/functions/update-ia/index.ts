@@ -1,3 +1,5 @@
+import { ejecutarAlertasOficina } from "./alertas-oficina.ts";
+
 // Esta función la llaman el cron de Supabase y el servidor de Next.js (/api/trigger-ia), no el navegador:
 // no necesita CORS abierto a todo el mundo, solo el origen de la app.
 const CORS = {
@@ -716,6 +718,57 @@ Deno.serve(async (req: Request) => {
 
       } catch (err) {
         console.error(`Error procesando ${item.ticker}:`, err);
+      }
+    }
+
+     // ── Alertas de la Oficina (v0.59): revisión PMP-11 vencida y señal técnica nueva ──
+    // Solo en la corrida de toda la lista y si todavía queda tiempo (la función no puede pasar de ~150 s).
+    if (!singleTicker && Date.now() - startedAtRun < 70_000) {
+      try {
+        const resumenAlertas = await ejecutarAlertasOficina({
+          hoy: todayStr,
+          mercadoAbierto: isMarketOpen,
+          leer: async (ruta) => {
+            try {
+              const r = await fetchT(`${SUPABASE_URL}/rest/v1/${ruta}`, { headers: dbHeaders });
+              return r.ok ? await r.json() : null;
+            } catch { return null; }
+          },
+          guardarEstado: async (clave, valor) => {
+            try {
+              const r = await fetchT(`${SUPABASE_URL}/rest/v1/oficina_alertas_estado?on_conflict=clave`, {
+                method: "POST",
+                headers: { ...dbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
+                body: JSON.stringify({ clave, valor, actualizado: new Date().toISOString() }),
+              });
+              return r.ok;
+            } catch { return false; }
+          },
+          enviar: sendAlert,
+          consultarSenal: async (ticker) => {
+            try {
+              const r = await fetch(NOTIFY_URL.replace("/api/notify", "/api/oficina/senal"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...(NOTIFY_SECRET ? { "x-notify-secret": NOTIFY_SECRET } : {}) },
+                body: JSON.stringify({ ticker }),
+                signal: AbortSignal.timeout(50_000),
+              });
+              const j = await r.json().catch(() => null);
+              if (!r.ok || !j?.ok) return { ok: false as const, error: String(j?.error ?? `HTTP ${r.status}`) };
+              return {
+                ok: true as const, confirmada: j.confirmada === true,
+                senales_cumplidas: Array.isArray(j.senales_cumplidas) ? j.senales_cumplidas.map(String) : [],
+                senales_minimas: Number(j.senales_minimas) || 2, cierre: Number(j.cierre) || 0, fecha_vela: String(j.fecha_vela ?? ""),
+              };
+            } catch (e) { return { ok: false as const, error: e instanceof Error ? e.name : "error" }; }
+          },
+          esperar: sleep,
+          ahoraMs: () => Date.now(),
+          log: (m) => console.log("🔔", m),
+        }, list.map((t: any) => String(t.ticker)));
+        console.log("🔔 Alertas Oficina:", JSON.stringify(resumenAlertas));
+      } catch (err) {
+        console.error("Alertas Oficina fallaron (no afectan al análisis):", err);
       }
     }
 

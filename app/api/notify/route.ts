@@ -74,6 +74,8 @@ export async function POST(request: Request) {
   const target = Number(body?.targetPrice)
   const rsiNum = body?.rsi == null || body.rsi === '' ? null : Number(body.rsi)
 
+  const detalle = typeof body?.detalle === 'string' ? body.detalle.replace(/[\r\n]+/g, ' ').trim().slice(0, 500) : ''
+
   if (!TICKER_RE.test(ticker))              return NextResponse.json({ error: 'Ticker inválido' }, { status: 400 })
   if (!type)                                return NextResponse.json({ error: 'Falta el tipo de alerta' }, { status: 400 })
   if (!Number.isFinite(price) || price < 0) return NextResponse.json({ error: 'Precio actual inválido' }, { status: 400 })
@@ -85,7 +87,7 @@ export async function POST(request: Request) {
   }
 
   // Colores dinámicos: Verde para entradas, Rojo para Stop, Amarillo para TP
-  const isEntry = type.includes('ENTRADA')
+    const isEntry = type.includes('ENTRADA') || type.includes('SEÑAL')
   const isStop = type.includes('STOP') || type.includes('VENTA')
   const accentColor = isEntry ? '#22c55e' : isStop ? '#f43f5e' : '#eab308'
 
@@ -94,6 +96,7 @@ export async function POST(request: Request) {
   const safePrice = price.toFixed(2)
   const safeTarget = target.toFixed(2)
   const safeRsi = rsiNum === null ? 'N/A' : rsiNum.toFixed(1)
+  const soloAviso = detalle !== '' && price === 0 && target === 0
 
   try {
     const { error } = await resend.emails.send({
@@ -106,11 +109,12 @@ export async function POST(request: Request) {
           <h1 style="color: ${accentColor}; margin-bottom: 10px; font-size: 24px;">${safeType}</h1>
           <p style="color: #888; font-size: 16px;">Movimiento detectado en <strong>${safeTicker}</strong></p>
 
-          <div style="background: #111; padding: 25px; border-radius: 10px; margin-top: 20px; border: 1px solid #333;">
+                    ${soloAviso ? '' : `<div style="background: #111; padding: 25px; border-radius: 10px; margin-top: 20px; border: 1px solid #333;">
             <p style="font-size: 1.2rem; margin: 10px 0;">💰 Precio Actual: <strong style="color: #fff;">$${safePrice}</strong></p>
-            <p style="font-size: 1.2rem; margin: 10px 0;">🎯 Objetivo: <strong style="color: #fff;">$${safeTarget}</strong></p>
-            <p style="font-size: 1.1rem; margin: 10px 0;">📊 RSI: <strong style="color: #fff;">${safeRsi}</strong></p>
-          </div>
+            ${target > 0 || !detalle ? `<p style="font-size: 1.2rem; margin: 10px 0;">🎯 Objetivo: <strong style="color: #fff;">$${safeTarget}</strong></p>` : ''}
+            ${rsiNum !== null || !detalle ? `<p style="font-size: 1.1rem; margin: 10px 0;">📊 RSI: <strong style="color: #fff;">${safeRsi}</strong></p>` : ''}
+          </div>`}
+          ${detalle ? `<div style="background: #111; padding: 18px 25px; border-radius: 10px; margin-top: 20px; border: 1px solid #333; color: #ddd; font-size: 1rem;">${esc(detalle)}</div>` : ''}
 
           <p style="font-size: 0.8rem; color: #444; margin-top: 25px; border-top: 1px solid #222; padding-top: 15px;">
             Trading Cat System • Notificación Automática
