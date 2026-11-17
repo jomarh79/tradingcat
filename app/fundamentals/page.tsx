@@ -71,54 +71,54 @@ const SECTIONS: Section[] = [
   {
     title: 'Ingresos',
     rows: [
-      { label: 'Revenue', key: 'revenue', growth: true, isCurrency: true },
-      { label: 'Cost Of Revenue', key: 'costOfRevenue', isCurrency: true },
-      { label: 'Gross Profit', key: 'grossProfit', isCurrency: true },
-      { label: 'Gross Profit Ratio', key: 'grossProfit', ratioOf: 'revenue' },
+      { label: 'Ingresos / Ventas (Revenue)', key: 'revenue', growth: true, isCurrency: true },
+      { label: 'Costo de Ventas (Cost of Revenue)', key: 'costOfRevenue', isCurrency: true },
+      { label: 'Utilidad Bruta (Gross Profit)', key: 'grossProfit', isCurrency: true },
+      { label: 'Margen Bruto (Gross Profit Ratio)', key: 'grossProfit', ratioOf: 'revenue' },
     ],
   },
   {
     title: 'Utilidad Neta',
     rows: [
-      { label: 'Net Income', key: 'netIncome', growth: true, isCurrency: true },
-      { label: 'Net Income Ratio', key: 'netIncome', ratioOf: 'revenue' },
+      { label: 'Utilidad Neta (Net Income)', key: 'netIncome', growth: true, isCurrency: true },
+      { label: 'Margen Neto (Net Income Ratio)', key: 'netIncome', ratioOf: 'revenue' },
     ],
   },
   {
     title: 'EPS',
     rows: [
-      { label: 'Diluted EPS', key: 'dilutedEps', growth: true, decimals: 2 },
+      { label: 'EPS Diluido (Diluted EPS)', key: 'dilutedEps', growth: true, decimals: 2 },
     ],
   },
   {
     title: 'EBITDA',
     rows: [
-      { label: 'EBITDA (Operating Income + D&A)', key: 'ebitda', growth: true, isCurrency: true },
-      { label: 'EBITDA Ratio', key: 'ebitda', ratioOf: 'revenue' },
+      { label: 'EBITDA (Ingreso Operativo + D&A)', key: 'ebitda', growth: true, isCurrency: true },
+      { label: 'Margen EBITDA (EBITDA Ratio)', key: 'ebitda', ratioOf: 'revenue' },
     ],
   },
   {
     title: 'Acciones',
     rows: [
-      { label: 'Diluted Avg Shares', key: 'dilutedAvgShares', growth: true, invertGrowth: true, isCurrency: true },
+      { label: 'Promedio de Acciones Diluidas (Diluted Shares)', key: 'dilutedAvgShares', growth: true, invertGrowth: true, isCurrency: true },
     ],
   },
   {
     title: 'Gastos e Ingresos Operativos',
     rows: [
-      { label: 'SG&A', key: 'sgaExp', isCurrency: true },
-      { label: 'R&D', key: 'rndExp', isCurrency: true },
-      { label: 'Operating Expenses', key: 'opex', isCurrency: true },
-      { label: 'Operating Income', key: 'opIncome', isCurrency: true },
-      { label: 'Operating Income Ratio', key: 'opIncome', ratioOf: 'revenue' },
+      { label: 'Gastos SG&A (Ventas y Admin.)', key: 'sgaExp', isCurrency: true },
+      { label: 'Gastos I+D (Research & Development)', key: 'rndExp', isCurrency: true },
+      { label: 'Gastos Operativos (OpEx)', key: 'opex', isCurrency: true },
+      { label: 'Ingreso Operativo (Operating Income)', key: 'opIncome', isCurrency: true },
+      { label: 'Margen Operativo (Operating Income Ratio)', key: 'opIncome', ratioOf: 'revenue' },
     ],
   },
   {
     title: 'Resultado Final',
     rows: [
-      { label: 'Other Net Income', key: 'otherNetIncome', isCurrency: true },
-      { label: 'Income Before Tax', key: 'ebt', isCurrency: true },
-      { label: 'Income Tax Expense', key: 'incomeTax', isCurrency: true },
+      { label: 'Otros Ingresos Netos (Other Net Income)', key: 'otherNetIncome', isCurrency: true },
+      { label: 'Utilidad Antes de Impuestos (EBT)', key: 'ebt', isCurrency: true },
+      { label: 'Gasto por Impuestos (Income Tax)', key: 'incomeTax', isCurrency: true },
     ],
   },
 ]
@@ -340,7 +340,7 @@ function FundamentalsPageInner() {
                           {row.growth && (
                             <tr>
                               <td style={{ ...tdLabelStyle, position: 'sticky', left: 0, background: '#050505', color: '#555', fontStyle: 'italic' }}>
-                                Growth
+                                Crecimiento (Growth)
                               </td>
                               {columns.map((c, i) => {
                                 const g = getGrowth(i, row.key)
@@ -365,7 +365,7 @@ function FundamentalsPageInner() {
               Fuente: Webull Fundamentals API (estado de resultados) + Finnhub (D&A para EBITDA).
               {' '}TTM = suma de los últimos 4 trimestres consecutivos reportados (acciones diluidas: promedio del trimestre más reciente, no se suma); si falta un trimestre o un dato, esa celda queda en «—».
               {' '}El crecimiento de TTM se compara contra el último año completo, no contra el mismo periodo del año anterior.
-              {' '}En «Diluted Avg Shares» el crecimiento positivo (más acciones = dilución) se muestra en rojo.
+              {' '}En «Promedio de Acciones Diluidas» el crecimiento positivo (más acciones = dilución) se muestra en rojo.
               {incomeData.forwardEps
                 ? ` La columna ${incomeData.forwardEps.fiscalYear}E es EPS estimado por analistas (suma de ${incomeData.forwardEps.quartersCovered} trimestre${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''} aún no reportado${incomeData.forwardEps.quartersCovered !== 1 ? 's' : ''}) — el resto de las filas no tiene estimado disponible para ese año.`
                 : ' No hay estimado de EPS disponible hacia adelante para este símbolo.'}
