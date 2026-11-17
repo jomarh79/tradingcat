@@ -184,6 +184,17 @@ describe('v0.13: guardado con posición abierta y tesis vigente', () => {
     const d = insertsDe(t.b, 'oficina_analisis').find(x => x['agente'] === 'director_ia')!;
     expect((d['salida'] as Record<string, unknown>)['anotaciones_codigo']).toMatchObject({ clasificacion_tesis: 'cambio_de_tesis', tesis_vigente_previa: true });
   });
+  it('v0.58: la tesis aprobada (texto) llega al Fundamental con su versión y origen; si no se puede leer como texto, va null', async () => {
+    // la fila del expediente necesita su versión para viajar (la base real la trae por defecto)
+    const t2 = montar({ bd: { oficina_v_posiciones: [POSICION], trade_executions: [COMPRA], oficina_expedientes: [{ ...EXPEDIENTE, tesis_vigente: 'Crecimiento sostenido en oftalmología.', tesis_version: 3, tesis_origen: 'reconstruida' }] } });
+    await t2.ejecutar();
+    const sobre = JSON.parse(t2.m.peticiones.find(p => p.esquema_nombre === 'salida_fundamental_v1')!.mensajes[1]!.content) as Record<string, unknown>;
+    expect(sobre['tesis_vigente']).toEqual({ texto: 'Crecimiento sostenido en oftalmología.', version: 3, origen: 'reconstruida' });
+    const raro = montar({ bd: bd({ resumen: 'sin campo texto' }) });
+    await raro.ejecutar();
+    const sobre2 = JSON.parse(raro.m.peticiones.find(p => p.esquema_nombre === 'salida_fundamental_v1')!.mensajes[1]!.content) as Record<string, unknown>;
+    expect(sobre2['tesis_vigente']).toBeNull();
+  });
   it('si el Director no propone nada, sin_propuesta', async () => {
     const t = montar({ modelo: {} });
     const r = await t.ejecutar();

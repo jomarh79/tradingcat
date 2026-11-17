@@ -30,6 +30,7 @@ import { calcularRiesgoCapital, salidaComoAnalista } from './riesgo-capital';
 import { calcularValuacionCorrida, salidaValuacionComoAnalista, veredictoValuacion } from '../conexion/valuacion-corrida';
 import type { ValuacionCorrida } from '../conexion/valuacion-corrida';
 import { fechaDeVela } from '../conexion/ficha-propuesta';
+import { textoDeTesisVigente } from '../conexion/tesis-aprobacion';
 import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
 import { COLUMNAS_EJECUCIONES, COLUMNAS_POSICIONES, TABLA_EJECUCIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
@@ -172,6 +173,13 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if ('error' in tes) return falla('tesis', [tes.error]);
   if (tes.filas.length !== 1) return falla('tesis', [`${TABLA_EXPEDIENTES_TESIS}: se esperaba 1 fila del expediente y hay ${tes.filas.length}`]);
   const tesis_vigente_previa = hayTesisVigente(tes.filas[0]?.['tesis_vigente']);
+  // v0.58: la tesis que aprobaste llega al Fundamental para que marque qué se mantiene, se debilita o se rompe. Si no se puede leer como texto, se sigue sin tesis (no se inventa).
+  const textoTesis = textoDeTesisVigente(tes.filas[0]?.['tesis_vigente']);
+  const versionTesis = tes.filas[0]?.['tesis_version'];
+  const origenTesis = tes.filas[0]?.['tesis_origen'];
+  const sobreFundamental = textoTesis !== null && typeof versionTesis === 'number' && Number.isInteger(versionTesis)
+    ? { ...(armado.sobre as object), tesis_vigente: { texto: textoTesis, version: versionTesis, origen: typeof origenTesis === 'string' && origenTesis !== '' ? origenTesis : 'al_entrar' } }
+    : armado.sobre;
 
   // (6) flujo del Orquestador con los puertos de IA; cada análisis validado se guarda al producirse
   const guardar = async (salida: Record<string, unknown>, tra: TrazabilidadIa): Promise<{ ok: true; analisis_id: string } | { ok: false; error: string }> => {
@@ -223,7 +231,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const datos: DatosCongelados = {
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
-    sobres: { [AGENTE_FUNDAMENTAL]: armado.sobre, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
+    sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
     ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null

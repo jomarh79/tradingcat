@@ -7,6 +7,8 @@ import AppShell from '../AppShell'
 import { FaSync, FaSearch, FaSpinner, FaTimes } from 'react-icons/fa'
 import { Briefcase } from 'lucide-react'
 import RevisionPmp from './RevisionPmp'
+import TesisPropuesta from './TesisPropuesta'
+
 
 const C = { accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308', card: '#080808', border: '#1a1a1a' }
 
@@ -248,6 +250,7 @@ export default function OficinaPage() {
               {d.director.confianza !== null && <span style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>confianza {String(d.director.confianza)}</span>}
             </div>
           )}
+          <TesisPropuesta corridaId={d.corrida.corrida_id} />
         </Seccion>
 
         {d.salida_pmp && (

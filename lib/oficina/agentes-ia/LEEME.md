@@ -416,3 +416,11 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Los 4 índices de referencia de la ficha se piden de uno en uno (antes juntos).
 - `DepsDatosReales.esperar` es opcional (por omisión espera de verdad); las pruebas lo inyectan para no esperar.
 - Si un ticker sigue sin velas tras el reintento, la ficha lo sigue declarando como «sin dato», sin inventar nada.
+
+## v0.58 — Aprobar la tesis que propone el Director
+- El Director ya podía proponer una tesis (primera o cambio, clasificada por código), pero no había forma de aprobarla. Ahora, en el detalle de una corrida de `/oficina`, si el Director propuso tesis aparece el texto y el botón «Aprobar tesis» (componente `app/oficina/TesisPropuesta.tsx`).
+- Al aprobar: `oficina_expedientes.tesis_vigente` = texto, `tesis_version` + 1, y se agrega una entrada a `ficha.tesis_historial` (versión, texto, corrida de origen, tesis anterior, fecha). Las versiones previas no se pierden. `tesis_origen` no se toca.
+- Solo con tu sesión (RLS), solo el expediente de esa corrida, verificando que se actualice exactamente 1 fila y con la versión leída como condición (si cambió entretanto: 409, no pisa). La misma propuesta no se aprueba dos veces. No cambia ninguna decisión ni opera.
+- Rutas: `GET /api/oficina/tesis?corrida_id=…` (estado) y `POST /api/oficina/tesis { corrida_id }` (aprobar).
+- Desde ahora la tesis aprobada (texto, versión, origen) llega al Fundamental en las corridas nuevas para que marque qué se mantiene, se debilita o se rompe (`cambios_vs_tesis_vigente`). Si `tesis_vigente` no se puede leer como texto, se sigue sin tesis (no se inventa).
+- Supuesto a confirmar: la columna `tesis_vigente` acepta un texto (sirve si es `text` o `jsonb`).
