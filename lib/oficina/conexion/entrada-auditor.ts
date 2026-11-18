@@ -1,5 +1,6 @@
 // Arma la entrada del Auditor (auditoria_entrada.v1) con lo que el Orquestador ya tiene congelado + los hechos que debe aportar la capa de datos.
 // No inventa: lo que no se declara queda en null y el Auditor lo reporta como dato faltante.
+import { deducirPlanPcp } from './plan-pcp';
 import { CONTRATO_ENTRADA, validarEntrada } from '../auditor';
 import type { DatoFuente, EntradaAuditor, PlanPCP, ReglaEntrada, CompraPosicion } from '../auditor';
 import { ZONA_OFICINA, calcularAporteSemanal, fechaEnZona } from '../orquestador';
@@ -77,10 +78,13 @@ export function construirEntradaAuditor(a: ArgumentosEntrada): ResultadoEntrada 
       precio: null, porcentaje_venta: null, instrumento_destino: null, dividendo_misma_empresa: null, motivo_venta: null, ...h.operacion,
       accion: accion!, origen_dinero: origen, monto: h.operacion?.monto !== undefined ? h.operacion.monto : montoAporte,
     },
-    posicion: {
-      existe: d.posicion_existe as boolean, fecha_apertura: null, compras: null, ventas_previas: null, costo_promedio_ponderado: null,
-      plan_pcp: null, rol: null, ...h.posicion,
-    },
+    posicion: planDeducido(
+      {
+        existe: d.posicion_existe as boolean, fecha_apertura: null, compras: null, ventas_previas: null, costo_promedio_ponderado: null,
+        plan_pcp: null, rol: null, ...h.posicion,
+      },
+      s.portafolio, s.tipo_evaluacion,
+    ),
     contexto_portafolio: { posiciones_abiertas: h.posiciones_abiertas ?? null, movimiento_ya_registrado: duplicado, sustitucion_autorizada: sus },
     datos: {
       analisis_presentes: [], ficha_pmp: null, candidata_semilla: null, recompra_con_analisis_propios: null, stop_tocado: null,
@@ -99,4 +103,11 @@ export function conSobreAuditor(datos: DatosCongelados, entrada: EntradaAuditor)
     ...datos, sobre_auditor: entrada,
     reglas_versiones_ids: datos.reglas_versiones_ids.length > 0 ? datos.reglas_versiones_ids : entrada.reglas_vigentes.map((r) => r.version_id),
   };
+}
+
+/** v0.66: si la ficha no declara el plan de una posición PCP existente, se deduce de sus compras reales (ver plan-pcp.ts). Lo declarado nunca se pisa. */
+function planDeducido(p: EntradaAuditor['posicion'], portafolio: string, tipo: string): EntradaAuditor['posicion'] {
+  if (portafolio !== 'PCP' || !p.existe || p.plan_pcp !== null || p.compras === null) return p;
+  const plan = deducirPlanPcp(p.compras.length, tipo);
+  return plan === null ? p : { ...p, plan_pcp: plan };
 }

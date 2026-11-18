@@ -172,6 +172,19 @@ describe('construirEntradaAuditor', () => {
     expect(r.entrada.analisis_ids).toEqual(['an-1']);
     expect(r.entrada.datos_fuente).toHaveLength(1);
   });
+  it('v0.66: PCP existente sin plan declarado: se deduce de las compras (una = una_compra; con recompras = escalonado; recompra = escalonado); lo declarado manda; otros portafolios no', () => {
+    const c1 = [{ fecha: '2026-10-10', monto: '25' }];
+    const c2 = [...c1, { fecha: '2026-10-20', monto: '25' }];
+    const plan = (portafolio: 'PMP' | 'PCP', tipo: string, compras: typeof c1, plan_pcp?: 'una_compra' | 'escalonado') => {
+      const r = armar({ s: solicitud({ portafolio, tipo_evaluacion: tipo as never }), d: datos({ posicion_existe: true }), h: { posicion: { compras, ...(plan_pcp ? { plan_pcp } : {}) } } });
+      return r.ok ? r.entrada.posicion.plan_pcp : 'NO_SE_ARMO';
+    };
+    expect(plan('PCP', 'posicion_abierta', c1)).toBe('una_compra');
+    expect(plan('PCP', 'posicion_abierta', c2)).toBe('escalonado');
+    expect(plan('PCP', 'recompra', c1)).toBe('escalonado');
+    expect(plan('PCP', 'posicion_abierta', c2, 'una_compra')).toBe('una_compra');
+    expect(plan('PMP', 'posicion_abierta', c2)).toBeNull();
+  });
   it('posición no confirmada o acción desconocida: no se arma', () => {
     expect(armar({ d: datos({ posicion_existe: null }) })).toEqual({ ok: false, problemas: [expect.stringMatching(/posicion_existe/)] });
     const r = armar({ s: solicitud({ tipo_evaluacion: 'raro' as never }) });

@@ -470,3 +470,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - El precio es el cierre de la última vela cerrada del Técnico (como PMP). El resultado completo queda en `referencias.salida_pcp` de la corrida y /oficina lo muestra en «Salida (PCP)».
 - Con una posición PCP abierta, un dato ilegible o inválido (compra sin precio o cantidad, nivel no numérico, modalidad de plan inválida) detiene la corrida antes de llamar a ningún modelo; nada se rellena.
 - Tests: `motor/salida-pcp.test.ts`, `conexion/salida-pcp-bd.test.ts`, `corridas-lectura.test.ts` y 2 casos nuevos en `orquestador/corrida.test.ts`. Sin migración de base de datos.
+
+## v0.66 — Plan de PCP deducido de tus trades
+- Antes, una posición PCP sin `ficha.plan_pcp` declarado daba PCP-07 NO_EVALUABLE y la salida no evaluaba el stop. Ahora, si la ficha no declara el plan, se deduce de las compras reales (`lib/oficina/conexion/plan-pcp.ts`): una sola compra = «una_compra»; con recompras = «escalonado». Una evaluación de recompra implica «escalonado» (la primera recompra no se bloquea por tener todavía una compra). Lo declarado en la ficha siempre manda.
+- Lo usan el Auditor (`entrada-auditor.ts`, solo PCP con posición existente) y la salida de PCP (`salida-pcp-bd.ts`, con un aviso «se deduce de tus trades» en /oficina). El detalle de PCP-07 sigue diciendo «Plan declarado: …» aunque venga deducido; el aviso de la sección «Salida (PCP)» es quien lo aclara.
+- Consecuencia: una posición PCP con una sola compra y sin plan declarado se trata como «una compra»: tocar el stop da VENDER (PCP-07), antes no se evaluaba.
+- El reparto mensual PCP-08 queda fuera de la Oficina por decisión del 18-nov (lo haces a mano, sin botón ni aviso).
+- Tests: `plan-pcp.test.ts`, `salida-pcp-bd.test.ts` y un caso nuevo en `conexion.test.ts`.

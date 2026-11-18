@@ -8,6 +8,7 @@
 import { aDec, textoDec } from '../auditor/numeros';
 import type { CompraPCP, EntradaSalidaPCP, NivelSalidaPCP } from '../motor';
 import { compraDeApertura } from './apertura-trade';
+import { deducirPlanPcp } from './plan-pcp';
 import { EJECUCION_COMPRA, EJECUCION_VENTA, ESTADO_PLAN_DECLARADO, FICHA_CLAVE_PLAN, MODALIDADES_PLAN } from './hechos-bd';
 import type { FilaEjecucion } from './hechos-bd';
 
@@ -68,7 +69,12 @@ export function construirDatosSalidaPcp(trade: unknown, ejecuciones: FilaEjecuci
 
   const pl = planPcpDeFicha(ficha);
   if (pl.problema) problemas.push(`${ticker}: ${pl.problema}`);
-  if (pl.plan === null && !pl.problema) avisos.push('El plan de PCP (una compra o escalonado) no está declarado en la ficha: el stop no se evalúa hasta que se declare');
+  // v0.66: sin plan declarado, se deduce de las compras reales (una compra = una_compra; con recompras = escalonado). Lo declarado manda.
+  let plan = pl.plan;
+  if (plan === null && !pl.problema) {
+    plan = deducirPlanPcp(compras.length, 'posicion_abierta');
+    if (plan !== null) avisos.push(`El plan de PCP no está declarado en la ficha: se deduce de tus trades (${compras.length} compra(s) = ${plan === 'una_compra' ? 'una compra' : 'escalonado'})`);
+  }
   if (problemas.length > 0) return { ok: false, problemas };
-  return { ok: true, datos: { plan: pl.plan, compras, stop, niveles, primera_salida_realizada: ventas > 0 }, avisos };
+  return { ok: true, datos: { plan, compras, stop, niveles, primera_salida_realizada: ventas > 0 }, avisos };
 }

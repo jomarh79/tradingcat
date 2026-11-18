@@ -27,13 +27,22 @@ describe('construirDatosSalidaPcp', () => {
     if (!r.ok) throw new Error('debía ser ok');
     expect(r.datos.primera_salida_realizada).toBe(true);
   });
-  it('plan no declarado o propuesta pendiente: plan null con aviso (no se supone un plan)', () => {
+  it('plan no declarado o propuesta pendiente: se deduce de las compras y se avisa (v0.66)', () => {
     for (const ficha of [{}, null, fichaPlan('escalonado', 'pendiente_de_validacion')]) {
-      const r = construirDatosSalidaPcp(trade(), [], ficha, 'AMD');
-      if (!r.ok) throw new Error('debía ser ok');
-      expect(r.datos.plan).toBeNull();
-      expect(r.avisos.join('|')).toContain('no está declarado');
+      const una = construirDatosSalidaPcp(trade(), [], ficha, 'AMD');
+      if (!una.ok) throw new Error('debía ser ok');
+      expect(una.datos.plan).toBe('una_compra');
+      expect(una.avisos.join('|')).toContain('se deduce de tus trades');
+      const varias = construirDatosSalidaPcp(trade(), [compra('a', 90, 0.3)], ficha, 'AMD');
+      if (!varias.ok) throw new Error('debía ser ok');
+      expect(varias.datos.plan).toBe('escalonado');
     }
+  });
+  it('el plan declarado manda sobre la deducción', () => {
+    const r = construirDatosSalidaPcp(trade(), [compra('a', 90, 0.3)], fichaPlan('una_compra'), 'AMD');
+    if (!r.ok) throw new Error('debía ser ok');
+    expect(r.datos.plan).toBe('una_compra');
+    expect(r.avisos).toEqual([]);
   });
   it('modalidad inválida, nivel inválido o compra sin precio: problemas, sin rellenar', () => {
     expect(construirDatosSalidaPcp(trade(), [], fichaPlan('raro'), 'AMD')).toMatchObject({ ok: false });
