@@ -125,16 +125,18 @@ export function textoCorrelacion(cierres: readonly { fecha: string; close: numbe
   return { texto: `Correlación de los retornos diarios con ${ok.join(', ')} (hasta ${usados} días en común)${sin.length > 0 ? `; sin dato: ${sin.join(', ')}` : ''}.`, motivo: '' };
 }
 
-export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readonly Candle[] | null; watchlist: DatosWatchlist | null; extra?: DatosFichaExtra | null }): FichaPropuesta {
+export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readonly Candle[] | null; watchlist: DatosWatchlist | null; extra?: DatosFichaExtra | null; rol_expediente?: string | null }): FichaPropuesta {
   const propuesta: Record<string, ApartadoPropuesto> = {};
   const no_propuestos: string[] = [
   ];
 
   // identidad: solo lo que ya está declarado (ticker, mercado de las corridas, portafolio, rol y negocio de la watchlist)
   const w = e.watchlist;
-  const partes = [`${e.ticker}`, 'mercado US', 'portafolio PMP', w?.rol != null ? `rol ${w.rol}` : 'rol sin definir'];
+  // v0.60: el rol de la watchlist manda; si no hay, el que el expediente tiene registrado (el mismo que ve el Auditor)
+  const rolFicha = w?.rol != null ? w.rol : (typeof e.rol_expediente === 'string' && e.rol_expediente.trim() !== '' ? e.rol_expediente.trim() : null);
+  const partes = [`${e.ticker}`, 'mercado US', 'portafolio PMP', rolFicha !== null ? `rol ${rolFicha}` : 'rol sin definir'];
   if (w?.negocio != null) partes.push(`negocio: ${w.negocio.length > MAX_NEGOCIO ? `${w.negocio.slice(0, MAX_NEGOCIO)}…` : w.negocio}`);
-  propuesta['identidad'] = { texto: partes.join(' · '), fuente: 'ticker de la corrida y watchlist' };
+  propuesta['identidad'] = { texto: partes.join(' · '), fuente: 'ticker de la corrida, watchlist y expediente' };
   propuesta['plan_ejecucion'] = { texto: TEXTO_PLAN_EJECUCION_PMP, fuente: FUENTE_REGLAS };
   propuesta['decision_final'] = { texto: TEXTO_DECISION_FINAL_PMP, fuente: FUENTE_REGLAS };
   propuesta['indices_referencia'] = { texto: `${INDICES_REFERENCIA.join(', ')} (los índices de referencia que declaraste el 10-nov)`, fuente: 'declarado por el usuario' };

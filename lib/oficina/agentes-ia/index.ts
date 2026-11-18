@@ -26,7 +26,7 @@ export { leerConfigDatos, obtenerDatosFundamental } from './datos-reales';
 export type { ConfigDatos, DatosReales, DepsDatosReales, FetchDatos, ResultadoDatosReales } from './datos-reales';
 export { ejecutarAnalisisReal, validarCuerpoAnalisis } from './analisis-real';
 export type { CuerpoAnalisis, ResultadoCuerpo } from './analisis-real';
-export { clasificarTesisPropuesta, hayTesisVigente } from './clasificar-tesis';
+export { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } from './clasificar-tesis';
 export type { ClasificacionTesis } from './clasificar-tesis';
 export { ejecutarAnalisisGuardado, sanearContextoDirector } from './analisis-guardado';
 export type { ClienteGuardado } from './analisis-guardado';

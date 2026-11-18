@@ -132,7 +132,7 @@ export const DISPARADOR_ANALISIS_GUARDADO = 'usuario';
 export const TIPO_EVALUACION_NUEVA = 'nueva_posicion';
 export const TIPO_EVALUACION_ABIERTA = 'posicion_abierta';
 export const TABLA_EXPEDIENTES_TESIS = 'oficina_expedientes';
-export const COLUMNAS_TESIS_EXPEDIENTE = 'id,tesis_vigente,tesis_version,tesis_origen';
+export const COLUMNAS_TESIS_EXPEDIENTE = 'id,tesis_vigente,tesis_version,tesis_origen,rol_posicion';
 /** [PROPUESTA] false mientras se use la capa gratuita de Gemini: el Director no recibe el resultado del Auditor ni el tipo de evaluación real (delata si hay posición). */
 export const DIRECTOR_VE_DATOS_PRIVADOS = false;
 export const TESIS_PRIMERA_PROPUESTA = 'primera_propuesta';

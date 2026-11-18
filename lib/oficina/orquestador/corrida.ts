@@ -181,6 +181,8 @@ export interface DatosCongelados {
   ficha_datos?: DatosFichaExtra;
   /** v0.56: valuación por código de PMP (precio objetivo a 36 meses); alimenta PMP-01. Estructural: el Orquestador solo la lleva hasta la preparación del Auditor. */
   valuacion_modelo?: unknown;
+  /** v0.60: rol que el expediente tiene registrado (columna rol_posicion); la ficha lo usa cuando la watchlist no declara rol. */
+  rol_expediente?: string | null;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
   avisos?: string[];
   motor?: {
@@ -607,7 +609,7 @@ export async function ejecutarCorrida(
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas
-    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null }) } : {}),
+    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null, rol_expediente: datos.rol_expediente ?? null }) } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),
     ...(datos.datos_faltantes !== undefined || faltantes.length > 0 ? { datos_faltantes: faltantes } : {}),
     ...(tecnico !== null && tecnico.datos_faltantes_detalle.length > 0 ? { datos_faltantes_detalle: tecnico.datos_faltantes_detalle } : {}),

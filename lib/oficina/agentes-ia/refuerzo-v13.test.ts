@@ -153,7 +153,7 @@ describe('v0.13: guardado, camino feliz (posición nueva)', () => {
     expect((f['salida'] as Record<string, unknown>)).not.toHaveProperty('anotaciones_codigo');
     const d = an.find(x => x['agente'] === 'director_ia')!;
     expect((d['salida'] as Record<string, unknown>)['anotaciones_codigo']).toEqual({
-      clasificacion_tesis: 'primera_propuesta', tesis_vigente_previa: false,
+      clasificacion_tesis: 'primera_propuesta', tesis_vigente_previa: false, cambio_marcado_por_fundamental: null,
       contexto_enviado_al_director: { tipo_evaluacion: 'nueva_posicion', auditoria: null, reglas_versiones_ids: [] },
     });
   });

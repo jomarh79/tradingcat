@@ -433,3 +433,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Estado en la tabla nueva `oficina_alertas_estado` (SQL `sql/oficina-alertas-v059.sql`), accesible solo con la clave de servicio.
 - `lib/oficina/alertas/alertas-oficina.ts` y `supabase/functions/update-ia/alertas-oficina.ts` son el MISMO archivo (la Edge Function no puede importar de `lib/`); una prueba falla si difieren. Si cambias uno, copia el otro.
 - Hay que pegar a mano los cambios de `app/api/notify/route.ts` y `supabase/functions/update-ia/index.ts`: ver `lib/oficina/alertas/PEGADOS-v059.md`.
+
+## v0.60 — La tesis solo se propone con un cambio real; la ficha lee el rol del expediente
+- **Tesis.** Con tesis vigente, el Director a veces reescribe la misma tesis con otras palabras. Ahora el código mira lo que el Fundamental comparó contra la tesis que recibió (`cambios_vs_tesis_vigente`): si todos los puntos son `se_mantiene`, la clasificación queda `sin_propuesta` y no aparece el botón «Aprobar tesis». Si algún punto es `se_debilita` o `se_rompe`, sigue siendo `cambio_de_tesis`. Si no hay comparación válida (sin lista, lista vacía, estado raro, Fundamental con error), se ofrece como antes: la duda nunca oculta una propuesta. La primera propuesta (sin tesis vigente) no cambia.
+- La anotación del Director en `anotaciones_codigo` agrega `cambio_marcado_por_fundamental` (true, false o null). La propuesta original del modelo queda guardada sin tocar.
+- **Ficha PMP-09, identidad.** El rol sale de la watchlist; si no hay, del expediente (`rol_posicion`, el mismo que ve el Auditor). Solo queda «rol sin definir» si ninguno lo tiene.
+- Tests: `refuerzo-v60.test.ts`.
