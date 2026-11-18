@@ -9,6 +9,7 @@ import type { ItemDato } from '../agentes-ia/validar-fundamental';
 import { revisionSemestralPMP } from '../motor/revision-pmp';
 import type { ResultadoRevisionPMP } from '../motor/revision-pmp';
 import { fechaDeVela } from './ficha-propuesta';
+import { velasDiariasCerradas } from './velas-cerradas';
 import { calcularValuacion, leerEntradaValuacion } from './valuacion-modelos';
 import type { ResultadoValuacion } from './valuacion-modelos';
 import { limpiarTicker } from './corridas-lectura';
@@ -63,7 +64,7 @@ export async function ejecutarRevisionPmp(deps: DepsDatosReales, cliente: Client
   let cierre: RevisionPmpResumen['cierre'] = null;
   if (!velas.ok) avisos.push(`No se pudo leer el precio: ${velas.error}`);
   else {
-    const cerradas = velas.velas.filter(v => Number.isFinite(v.close) && v.close > 0 && fechaDeVela(v.time) < hoy);
+    const cerradas = velasDiariasCerradas(velas.velas, ahora);
     const ultima = cerradas[cerradas.length - 1];
     if (ultima === undefined) avisos.push('Sin velas cerradas para tomar el cierre');
     else cierre = { valor: ultima.close, fecha: fechaDeVela(ultima.time) };

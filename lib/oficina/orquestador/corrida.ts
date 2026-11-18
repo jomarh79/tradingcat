@@ -611,7 +611,7 @@ export async function ejecutarCorrida(
     // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
     ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas
-    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null, rol_expediente: datos.rol_expediente ?? null }) } : {}),
+    ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null, rol_expediente: datos.rol_expediente ?? null, ahora: iniciada_at }) } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),
     ...(datos.datos_faltantes !== undefined || faltantes.length > 0 ? { datos_faltantes: faltantes } : {}),
     ...(tecnico !== null && tecnico.datos_faltantes_detalle.length > 0 ? { datos_faltantes_detalle: tecnico.datos_faltantes_detalle } : {}),

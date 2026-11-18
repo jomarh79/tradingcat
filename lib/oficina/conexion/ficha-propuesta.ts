@@ -4,6 +4,7 @@
 // plan_ejecucion y decision_final se proponen con las reglas de PMP que el usuario ya aprobó (10-nov); él las aprueba o las corrige.
 import type { Candle } from '../tecnico';
 import type { DatosWatchlist } from './watchlist-datos';
+import { velasDiariasCerradas } from './velas-cerradas';
 
 /** Datos extra que reúne la corrida de PMP (v0.40). Todo es opcional: lo que falta se declara en `no_propuestos`, nunca se rellena. */
 export interface DatosFichaExtra {
@@ -125,7 +126,7 @@ export function textoCorrelacion(cierres: readonly { fecha: string; close: numbe
   return { texto: `Correlación de los retornos diarios con ${ok.join(', ')} (hasta ${usados} días en común)${sin.length > 0 ? `; sin dato: ${sin.join(', ')}` : ''}.`, motivo: '' };
 }
 
-export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readonly Candle[] | null; watchlist: DatosWatchlist | null; extra?: DatosFichaExtra | null; rol_expediente?: string | null }): FichaPropuesta {
+export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readonly Candle[] | null; watchlist: DatosWatchlist | null; extra?: DatosFichaExtra | null; rol_expediente?: string | null; ahora?: string }): FichaPropuesta {
   const propuesta: Record<string, ApartadoPropuesto> = {};
   const no_propuestos: string[] = [
   ];
@@ -141,8 +142,10 @@ export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readon
   propuesta['decision_final'] = { texto: TEXTO_DECISION_FINAL_PMP, fuente: FUENTE_REGLAS };
   propuesta['indices_referencia'] = { texto: `${INDICES_REFERENCIA.join(', ')} (los índices de referencia que declaraste el 10-nov)`, fuente: 'declarado por el usuario' };
 
-  // velas cerradas: se descarta la del día en curso (o posterior)
-  const cerradas = (e.velas ?? []).filter(v => Number.isFinite(v.close) && v.close > 0 && fechaDeVela(v.time) < e.hoy);
+  // velas cerradas: con `ahora` se usa la misma regla que el Técnico (si el mercado ya cerró, cuenta la vela de hoy); sin `ahora` se descarta la del día en curso (o posterior)
+  const cerradas = e.ahora !== undefined
+    ? velasDiariasCerradas(e.velas ?? [], e.ahora)
+    : (e.velas ?? []).filter(v => Number.isFinite(v.close) && v.close > 0 && fechaDeVela(v.time) < e.hoy);
   const n = cerradas.length;
   const last = cerradas[n - 1];
   const ex = e.extra ?? null;

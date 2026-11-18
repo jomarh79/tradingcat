@@ -452,3 +452,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - La corrida guarda en sus referencias (`referencias.valuacion_modelo`) el cálculo de valuación de PMP para una posición nueva: P/E objetivo y su origen, EPS a 3 años y su origen, precio objetivo, cierre usado, ganancia total y ganancia anualizada. `valuacionDe` (corridas-lectura) lo lee y `/oficina` lo muestra en la sección «Valuación por código (modelo de /position)».
 - Se puede cotejar a mano: precio objetivo = P/E × EPS; anualizada = (precio objetivo / cierre)^(1/3) − 1. Las corridas anteriores a v0.63 no lo traen: hay que correrlas otra vez.
 - No cambia ninguna decisión ni el Auditor; solo muestra lo que ya se calculaba. Sin migración de base de datos.
+
+## v0.64 — Una sola «última vela cerrada» para valuación, ficha y revisión
+- Antes, la valuación por código, la ficha PMP-09 y la revisión semestral descartaban siempre la vela de la fecha de hoy; el Técnico y el Auditor (PMP-01) usan `confirmarCierreVelas` (calendario NYSE + margen de 30 min), que da por cerrada la vela de hoy después del cierre. Resultado en PH: 4.86% con el cierre del día anterior (934.80) y 5.39% con el de hoy (920.84) en la misma corrida.
+- `lib/oficina/conexion/velas-cerradas.ts` (`velasDiariasCerradas`) aplica la regla del Técnico: última vela `confirmada` → se conserva; `en_formacion` → se descarta; si no se puede decidir (calendario, instante inválido) → regla anterior. La usan `analisis-guardado.ts` (valuación), `ficha-propuesta.ts` (con el nuevo parámetro `ahora`; sin él conserva la regla anterior) y `revision-pmp-bd.ts`.
+- La decisión no cambia por esto (en PH ambos porcentajes están bajo 14%), pero ahora todo el informe habla del mismo cierre. Las series de los índices de la correlación no se tocaron (se cruzan por fecha común).
+- Tests: `velas-cerradas.test.ts`.

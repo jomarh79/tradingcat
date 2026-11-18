@@ -16,6 +16,7 @@ import {
   PORTAFOLIO_PRUEBA_POR_OMISION, TABLA_EXPEDIENTES_TESIS, CONTRATO_ENTRADA, TIPO_EVALUACION_ABIERTA, TIPO_EVALUACION_NUEVA,
 } from './constantes';
 import { validarCuerpoAnalisis } from './analisis-real';
+import { velasDiariasCerradas } from '../conexion/velas-cerradas';
 import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } from './clasificar-tesis';
 import { obtenerDatosFundamental } from './datos-reales';
 import { obtenerVelas } from './datos-velas';
@@ -29,7 +30,6 @@ import { crearPuertoAnalista, crearPuertoDirector } from './puertos-ia';
 import { calcularRiesgoCapital, salidaComoAnalista } from './riesgo-capital';
 import { calcularValuacionCorrida, salidaValuacionComoAnalista, veredictoValuacion } from '../conexion/valuacion-corrida';
 import type { ValuacionCorrida } from '../conexion/valuacion-corrida';
-import { fechaDeVela } from '../conexion/ficha-propuesta';
 import { textoDeTesisVigente } from '../conexion/tesis-aprobacion';
 import type { ResultadoRiesgoCapital } from './riesgo-capital';
 import { esObjeto } from './utilidades';
@@ -159,7 +159,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   let valuacion: ValuacionCorrida | undefined;
   if (portafolio === 'PMP' && !posicion_existe) {
     const hoyCorrida = fechaEnZona(new Date(deps.ahora()), ZONA_OFICINA);
-    const cerradas = velas.ok ? velas.velas.diarias.filter(c => Number.isFinite(c.close) && c.close > 0 && fechaDeVela(c.time) < hoyCorrida) : [];
+    const cerradas = velas.ok ? velasDiariasCerradas(velas.velas.diarias, ahora) : [];
     const ultimaCerrada = cerradas[cerradas.length - 1];
     valuacion = await calcularValuacionCorrida(datosDeps, ticker, ultimaCerrada === undefined ? null : ultimaCerrada.close, hoyCorrida);
   }
