@@ -1,4 +1,4 @@
-// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción.
+// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL.
 import type { ReglaEntrada } from './tipos';
 
 export const CATALOGO_FIXTURE: ReglaEntrada[] = [
@@ -454,7 +454,7 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
     },
     {
      "id": "banda_mogalef_inferior",
-     "criterio": "el precio toca o cae por debajo de la banda inferior",
+     "criterio": "el cierre es estrictamente menor que la banda inferior de la vela anterior",
      "indicador": "mogalefBandsSeries",
      "evaluacion": "objetiva",
      "parametros": [
@@ -464,13 +464,12 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
      ]
     },
     {
-     "id": "soporte_resistencia_pasado",
+     "id": "NIVEL_PASADO",
      "niveles": [
-      "pivotes",
-      "max_min_52_semanas",
-      "max_min_5_anios",
-      "max_min_10_anios"
+      "pivotes_de_minimo",
+      "pivotes_de_maximo"
      ],
+     "criterio": "el cierre esta a +-1.5% de un pivote de minimo o de maximo (fractal de 5 velas por lado, ventana ~250)",
      "evaluacion": "objetiva",
      "tolerancia_pct": 1.5
     }
@@ -581,7 +580,7 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
      },
      {
       "id": "banda_mogalef_superior",
-      "criterio": "el precio toca o supera la banda superior",
+      "criterio": "el cierre es estrictamente mayor que la banda superior de la vela anterior; una sola senal por racha (se rearma cuando una vela deja de romper)",
       "indicador": "mogalefBandsSeries",
       "evaluacion": "objetiva",
       "parametros": [
@@ -591,7 +590,11 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
       ]
      },
      {
-      "id": "soporte_resistencia_pasado",
+      "id": "RESISTENCIA_PASADA",
+      "niveles": [
+       "pivotes_de_maximo"
+      ],
+      "criterio": "el cierre esta a +-1.5% de un pivote de maximo (sin soportes en la salida)",
       "evaluacion": "objetiva",
       "tolerancia_pct": 1.5
      },
@@ -726,7 +729,7 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
     },
     {
      "id": "banda_mogalef_inferior",
-     "criterio": "el precio toca o cae por debajo de la banda inferior",
+     "criterio": "el cierre es estrictamente menor que la banda inferior de la vela anterior",
      "indicador": "mogalefBandsSeries",
      "evaluacion": "objetiva",
      "parametros": [
