@@ -47,7 +47,20 @@ export default function TesisPropuesta({ corridaId }: { corridaId: string }) {
     }
   }
 
-  if (!estado || !estado.propuesta) return null
+  if (!estado) return null
+  // v0.61: sin propuesta en esta corrida, se muestra la tesis vigente (si la hay) para que siempre se vea contra qué se compara. Sin botón: no hay nada que aprobar.
+  if (!estado.propuesta) {
+    if (!estado.vigente?.texto) return null
+    return (
+      <div style={{ border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px', background: '#050505', marginTop: 10 }}>
+        <div style={{ fontSize: 10, color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+          Tesis vigente · versión {estado.vigente.version}
+        </div>
+        <div style={{ fontSize: 12, color: '#ddd', whiteSpace: 'pre-wrap' }}>{estado.vigente.texto}</div>
+        <div style={{ fontSize: 10, color: '#555', marginTop: 8 }}>El Director no propone cambios a esta tesis en esta corrida.</div>
+      </div>
+    )
+  }
   const p = estado.propuesta
   const cambio = p.clasificacion === 'cambio_de_tesis'
   return (

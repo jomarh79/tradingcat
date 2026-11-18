@@ -439,3 +439,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - La anotación del Director en `anotaciones_codigo` agrega `cambio_marcado_por_fundamental` (true, false o null). La propuesta original del modelo queda guardada sin tocar.
 - **Ficha PMP-09, identidad.** El rol sale de la watchlist; si no hay, del expediente (`rol_posicion`, el mismo que ve el Auditor). Solo queda «rol sin definir» si ninguno lo tiene.
 - Tests: `refuerzo-v60.test.ts`.
+
+## v0.61 — Botón ▶ sin cuadro previo y tesis vigente siempre visible
+- `app/watchlist/BotonAnalizarOficina.tsx` (watchlist y Trades abiertos): el portafolio ya está declarado en la fila y el monto es fijo (PMP 50, PCP 25; posición abierta sin monto), así que al dar clic el análisis arranca de inmediato y se abre la ventana con «No cierres esta ventana», el resultado y «Analizar otra vez». Solo si el portafolio no se decide solo (ninguno o más de uno marcado en la watchlist; en Trades abiertos, un nombre que no se reconoce) se abre la ventana con el selector y el monto, como antes. En Trades abiertos el portafolio se reconoce por código (PMP, PCP, PLP, ETF, SEMILLA) o por plazo (corto = PCP, mediano = PMP, largo = PLP).
+- `app/oficina/TesisPropuesta.tsx`: sin propuesta en la corrida, muestra la tesis vigente (versión y texto) sin botón.

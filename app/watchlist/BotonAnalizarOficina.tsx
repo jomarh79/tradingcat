@@ -4,8 +4,11 @@ import { useState } from 'react'
 import { Play } from 'lucide-react'
 import { authedFetch } from '@/lib/authed-fetch'
 
-// Botón «Analizar en la Oficina» de la watchlist: hace lo mismo que analizar-fundamental.ps1 (con -ConToken -Guardar), sin abrir PowerShell.
+// Botón «Analizar en la Oficina» de la watchlist y de Trades abiertos: hace lo mismo que analizar-fundamental.ps1 (con -ConToken -Guardar), sin abrir PowerShell.
 // Todo el código vive aquí; la página solo dibuja <BotonAnalizarOficina ticker=... portafolios=... />.
+// v0.61: el portafolio ya está declarado en la fila (watchlist: campo Portafolios; Trades abiertos: su portafolio) y el monto es fijo por portafolio, así que al dar clic
+// el análisis arranca de inmediato y se abre la ventana con el avance y el resultado. Solo si el portafolio no se puede decidir solo (ninguno, o más de uno marcado)
+// se abre la ventana con el selector, como antes.
 
 const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 const MONTO_POR_PORTAFOLIO: Record<string, string> = { PMP: '50', PCP: '25' }
@@ -16,12 +19,23 @@ interface Resultado { ok: boolean; decision?: string | null; estado_final?: stri
 // Código de portafolio (PMP, PCP...) a partir del nombre del portafolio de Trades abiertos (por ejemplo «PMP» o «PMP · Mediano plazo»); null si no coincide.
 function codigoDeNombre(nombre: string | null | undefined): string | null {
   const n = (nombre ?? '').toUpperCase()
-  return (PORTAFOLIOS as readonly string[]).find(p => new RegExp(`(^|[^A-Z])${p}([^A-Z]|$)`).test(n)) ?? null
+  const porCodigo = (PORTAFOLIOS as readonly string[]).find(p => new RegExp(`(^|[^A-Z])${p}([^A-Z]|$)`).test(n))
+  if (porCodigo !== undefined) return porCodigo
+  // v0.61: los portafolios de Trades abiertos también se llaman por plazo (corto, mediano, largo)
+  const plazos = [['CORTO', 'PCP'], ['MEDIANO', 'PMP'], ['LARGO', 'PLP']].filter(([palabra]) => n.includes(palabra as string))
+  return plazos.length === 1 ? (plazos[0]![1] as string) : null
 }
 
 // `abierta` = se usa desde Trades abiertos: la posición ya existe, así que no se pide monto. `portafolioNombre` = nombre del portafolio del trade.
 export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNombre, abierta = false, grande = false }: { ticker: string; portafolios?: string[] | null; portafolioNombre?: string | null; abierta?: boolean; grande?: boolean }) {
-  const elegir = (): string => (portafolios ?? []).find(p => (PORTAFOLIOS as readonly string[]).includes(p)) ?? codigoDeNombre(portafolioNombre) ?? 'PMP'
+  // Portafolios candidatos de la fila: los marcados en la watchlist; si no hay, el del trade abierto. Con exactamente uno se analiza sin preguntar.
+  const candidatos = (): string[] => {
+    const marcados = (portafolios ?? []).filter(p => (PORTAFOLIOS as readonly string[]).includes(p))
+    if (marcados.length > 0) return marcados
+    const c = codigoDeNombre(portafolioNombre)
+    return c !== null ? [c] : []
+  }
+  const elegir = (): string => candidatos()[0] ?? 'PMP'
   const montoPor = (p: string): string => (abierta ? '' : MONTO_POR_PORTAFOLIO[p] ?? '')
   const inicial = elegir()
   const [abierto, setAbierto] = useState(false)
@@ -30,21 +44,26 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
   const [corriendo, setCorriendo] = useState(false)
   const [res, setRes] = useState<Resultado | null>(null)
   const [fallo, setFallo] = useState('')
+  const [elegirAMano, setElegirAMano] = useState(false)
 
   const abrir = () => {
+    if (corriendo) { setAbierto(true); return }
+    const c = candidatos()
     const p = elegir()
     setPortafolio(p); setMonto(montoPor(p)); setRes(null); setFallo(''); setAbierto(true)
+    if (c.length === 1) { setElegirAMano(false); void analizar(p, montoPor(p)) }
+    else setElegirAMano(true)
   }
   const cambiarPortafolio = (p: string) => { setPortafolio(p); setMonto(montoPor(p)) }
 
-  const analizar = async () => {
-    const m = monto.trim()
+  const analizar = async (portafolioUsado: string = portafolio, montoUsado: string = monto) => {
+    const m = montoUsado.trim()
     if (m !== '' && !/^\d{1,9}(\.\d{1,2})?$/.test(m)) { setFallo('El monto debe ser un número positivo en USD con hasta 2 decimales'); return }
     setCorriendo(true); setRes(null); setFallo('')
     try {
       const r = await authedFetch('/api/oficina/analisis-fundamental', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, portafolio, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
+        body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
       })
       const j = (await r.json().catch(() => null)) as Resultado | null
       if (!j) { setFallo(`El servidor respondió ${r.status} sin detalle`); return }
@@ -78,17 +97,23 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
               <button onClick={() => setAbierto(false)} disabled={corriendo} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: '#888', fontSize: 20, cursor: corriendo ? 'default' : 'pointer' }}>×</button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <label style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>PORTAFOLIO
-                <select value={portafolio} onChange={e => cambiarPortafolio(e.target.value)} disabled={corriendo} style={{ ...sel, marginTop: 4 }}>
-                  {PORTAFOLIOS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </label>
-              <label style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>MONTO (USD)
-                <input value={monto} onChange={e => setMonto(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" disabled={corriendo} placeholder="opcional" style={{ ...sel, marginTop: 4 }} />
-              </label>
-            </div>
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). '}Guarda la corrida; no compra ni vende nada.</div>
+            {elegirAMano ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <label style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>PORTAFOLIO
+                  <select value={portafolio} onChange={e => cambiarPortafolio(e.target.value)} disabled={corriendo} style={{ ...sel, marginTop: 4 }}>
+                    {PORTAFOLIOS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </label>
+                <label style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>MONTO (USD)
+                  <input value={monto} onChange={e => setMonto(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" disabled={corriendo} placeholder="opcional" style={{ ...sel, marginTop: 4 }} />
+                </label>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#ccc', marginBottom: 10 }}>
+                Portafolio <b>{portafolio}</b>{abierta ? ' · posición abierta' : monto !== '' ? ` · monto ${monto} USD` : ' · sin monto'}
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : monto === '' ? 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). ' : ''}Guarda la corrida; no compra ni vende nada.</div>
 
             {corriendo && <div style={{ color: '#00bfff', fontSize: 12, marginBottom: 10 }}>Analizando… puede tardar uno o dos minutos. No cierres esta ventana.</div>}
             {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginBottom: 10 }}>{fallo}</div>}
@@ -122,9 +147,9 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => setAbierto(false)} disabled={corriendo} style={{ background: '#0a0a0a', color: '#aaa', border: '1px solid #222', padding: '8px 14px', borderRadius: 6, cursor: corriendo ? 'default' : 'pointer', fontSize: 13 }}>Cerrar</button>
-              <button onClick={analizar} disabled={corriendo}
+              <button onClick={() => { void analizar() }} disabled={corriendo}
                 style={{ background: '#1b2a1b', color: '#22c55e', border: '1px solid #2d4a2d', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: corriendo ? 'default' : 'pointer', fontSize: 13, opacity: corriendo ? 0.6 : 1 }}>
-                {corriendo ? 'Analizando…' : res ? 'Analizar otra vez' : 'Analizar'}
+                {corriendo ? 'Analizando…' : res || fallo !== '' ? 'Analizar otra vez' : 'Analizar'}
               </button>
             </div>
           </div>
