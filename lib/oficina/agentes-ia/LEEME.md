@@ -443,3 +443,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.61 — Botón ▶ sin cuadro previo y tesis vigente siempre visible
 - `app/watchlist/BotonAnalizarOficina.tsx` (watchlist y Trades abiertos): el portafolio ya está declarado en la fila y el monto es fijo (PMP 50, PCP 25; posición abierta sin monto), así que al dar clic el análisis arranca de inmediato y se abre la ventana con «No cierres esta ventana», el resultado y «Analizar otra vez». Solo si el portafolio no se decide solo (ninguno o más de uno marcado en la watchlist; en Trades abiertos, un nombre que no se reconoce) se abre la ventana con el selector y el monto, como antes. En Trades abiertos el portafolio se reconoce por código (PMP, PCP, PLP, ETF, SEMILLA) o por plazo (corto = PCP, mediano = PMP, largo = PLP).
 - `app/oficina/TesisPropuesta.tsx`: sin propuesta en la corrida, muestra la tesis vigente (versión y texto) sin botón.
+
+## v0.62 — Montos por portafolio y reglas que no aplican
+- Botón ▶: monto fijo PMP 50, PCP 25, SEMILLA 5. PLP y ETF no llevan monto (sus activos ya están comprados; una sustitución entra con lo que dejó la venta) y no muestran el aviso de «sin monto». La posición abierta sigue sin monto.
+- `/oficina`, «Reglas del Auditor»: las reglas con resultado `no_aplica` ya no se listan; queda una línea plegada «N reglas no aplican a esta corrida» con sus códigos. Los datos guardados no cambian.

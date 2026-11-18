@@ -7,8 +7,6 @@ import AppShell from '../AppShell'
 import { FaSync, FaSearch, FaSpinner, FaTimes } from 'react-icons/fa'
 import { Briefcase } from 'lucide-react'
 import RevisionPmp from './RevisionPmp'
-import TesisPropuesta from './TesisPropuesta'
-
 
 const C = { accent: '#00bfff', success: '#22c55e', danger: '#f43f5e', warning: '#eab308', card: '#080808', border: '#1a1a1a' }
 
@@ -218,13 +216,20 @@ export default function OficinaPage() {
         <Seccion titulo="Reglas del Auditor">
           {d.reglas_auditor.length === 0
             ? <Vacio texto="El Auditor no dejó resultados guardados para esta corrida." />
-            : d.reglas_auditor.map((r, i) => (
+            : d.reglas_auditor.filter(r => r.resultado !== 'no_aplica').map((r, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6, fontSize: 12 }}>
                 <span style={{ width: 62, flexShrink: 0, fontWeight: 800, color: '#ddd' }}>{r.codigo}</span>
                 <span style={{ width: 82, flexShrink: 0 }}><Badge texto={etiqueta(r.resultado).toUpperCase()} color={COLOR_REGLA[r.resultado] ?? '#888'} /></span>
                 <span style={{ color: '#999', minWidth: 0, wordBreak: 'break-word' }}>{r.detalle}</span>
               </div>
             ))}
+          {/* v0.62: las reglas que no aplican a esta corrida no se listan (la lista salía muy larga); solo queda el conteo, plegado */}
+          {d.reglas_auditor.some(r => r.resultado === 'no_aplica') && (
+            <details style={{ marginTop: 6, fontSize: 11, color: '#555' }}>
+              <summary style={{ cursor: 'pointer' }}>{d.reglas_auditor.filter(r => r.resultado === 'no_aplica').length} reglas no aplican a esta corrida</summary>
+              <div style={{ marginTop: 4 }}>{d.reglas_auditor.filter(r => r.resultado === 'no_aplica').map(r => r.codigo).join(', ')}</div>
+            </details>
+          )}
         </Seccion>
 
         <Seccion titulo="Agentes">
@@ -250,7 +255,6 @@ export default function OficinaPage() {
               {d.director.confianza !== null && <span style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>confianza {String(d.director.confianza)}</span>}
             </div>
           )}
-          <TesisPropuesta corridaId={d.corrida.corrida_id} />
         </Seccion>
 
         {d.salida_pmp && (
@@ -329,7 +333,7 @@ export default function OficinaPage() {
               style={{ background: '#0a0a0a', border: '1px solid #222', color: cargando ? '#444' : C.warning, minHeight: btnH, padding: '0 14px', borderRadius: 6, cursor: cargando ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               <FaSync style={{ animation: cargando ? 'spin 1s linear infinite' : 'none' }} /> Actualizar
             </button>
-                   </div>
+          </div>
         </div>
 
         <RevisionPmp />

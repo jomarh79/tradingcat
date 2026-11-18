@@ -11,7 +11,9 @@ import { authedFetch } from '@/lib/authed-fetch'
 // se abre la ventana con el selector, como antes.
 
 const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
-const MONTO_POR_PORTAFOLIO: Record<string, string> = { PMP: '50', PCP: '25' }
+// Monto fijo por portafolio. PLP y ETF no llevan monto (sus activos ya están comprados; una sustitución entra con lo que dejó la venta), y una posición abierta tampoco.
+const MONTO_POR_PORTAFOLIO: Record<string, string> = { PMP: '50', PCP: '25', SEMILLA: '5' }
+const SIN_MONTO = ['PLP', 'ETF']
 const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '—')
 
 interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[] }
@@ -110,10 +112,10 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
               </div>
             ) : (
               <div style={{ fontSize: 12, color: '#ccc', marginBottom: 10 }}>
-                Portafolio <b>{portafolio}</b>{abierta ? ' · posición abierta' : monto !== '' ? ` · monto ${monto} USD` : ' · sin monto'}
+                Portafolio <b>{portafolio}</b>{abierta ? ' · posición abierta' : monto !== '' ? ` · monto ${monto} USD` : ''}
               </div>
             )}
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : monto === '' ? 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). ' : ''}Guarda la corrida; no compra ni vende nada.</div>
+            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : monto === '' && !SIN_MONTO.includes(portafolio) ? 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). ' : ''}Guarda la corrida; no compra ni vende nada.</div>
 
             {corriendo && <div style={{ color: '#00bfff', fontSize: 12, marginBottom: 10 }}>Analizando… puede tardar uno o dos minutos. No cierres esta ventana.</div>}
             {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginBottom: 10 }}>{fallo}</div>}
