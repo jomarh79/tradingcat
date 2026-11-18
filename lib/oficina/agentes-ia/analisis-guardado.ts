@@ -38,6 +38,8 @@ import type { FilaEjecucion } from '../conexion/hechos-bd';
 import { COLUMNAS_WATCHLIST, TABLA_WATCHLIST, interpretarWatchlist } from '../conexion/watchlist-datos';
 import { COLUMNAS_TRADE_SALIDA, TABLA_TRADES, construirDatosSalidaPmp } from '../conexion/salida-pmp-bd';
 import type { DatosSalidaPmp } from '../conexion/salida-pmp-bd';
+import { COLUMNAS_TRADE_SALIDA_PCP, construirDatosSalidaPcp } from '../conexion/salida-pcp-bd';
+import type { DatosSalidaPcp } from '../conexion/salida-pcp-bd';
 import { obtenerOCrearExpediente } from '../conexion/expediente-bd';
 import { ejecutarCorridaConAuditoria, resolverPortfolioId } from '../conexion/flujo-auditoria';
 import type { ClienteOficina } from '../conexion/flujo-auditoria';
@@ -173,6 +175,24 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if ('error' in tes) return falla('tesis', [tes.error]);
   if (tes.filas.length !== 1) return falla('tesis', [`${TABLA_EXPEDIENTES_TESIS}: se esperaba 1 fila del expediente y hay ${tes.filas.length}`]);
   const tesis_vigente_previa = hayTesisVigente(tes.filas[0]?.['tesis_vigente']);
+  // v0.65: salida de PCP (solo lectura). Compras con precio y cantidad, TP1..TP3, stop y plan declarado. Con una posición PCP abierta, un dato inválido NO se rellena: no se llama a ningún modelo.
+  let salida_pcp: DatosSalidaPcp | undefined;
+  const avisos_pcp: string[] = [];
+  if (portafolio === 'PCP' && posicion_existe) {
+    const trade_id = pos.filas[0]?.['trade_id'];
+    if (typeof trade_id !== 'string' || trade_id === '') return falla('salida_pcp', [`${ticker}: la posición no trae trade_id`]);
+    const tr = await leerFilas(cliente, TABLA_TRADES, COLUMNAS_TRADE_SALIDA_PCP, [['id', trade_id]]);
+    if ('error' in tr) return falla('salida_pcp', [tr.error]);
+    if (tr.filas.length !== 1) return falla('salida_pcp', [`${TABLA_TRADES}: se esperaba 1 trade y hay ${tr.filas.length}`]);
+    const ej = await leerFilas(cliente, TABLA_EJECUCIONES, COLUMNAS_EJECUCIONES, [['trade_id', trade_id]]);
+    if ('error' in ej) return falla('salida_pcp', [ej.error]);
+    const fi = await leerFilas(cliente, TABLA_EXPEDIENTES_TESIS, 'id,ficha', [['id', exp.expediente_id]]);
+    if ('error' in fi) return falla('salida_pcp', [fi.error]);
+    const c = construirDatosSalidaPcp(tr.filas[0], ej.filas as unknown as FilaEjecucion[], fi.filas[0]?.['ficha'], ticker);
+    if (!c.ok) return falla('salida_pcp', c.problemas);
+    salida_pcp = c.datos;
+    avisos_pcp.push(...c.avisos);
+  }
   // v0.58: la tesis que aprobaste llega al Fundamental para que marque qué se mantiene, se debilita o se rompe. Si no se puede leer como texto, se sigue sin tesis (no se inventa).
   const rolExp = tes.filas[0]?.['rol_posicion'];
   const textoTesis = textoDeTesisVigente(tes.filas[0]?.['tesis_vigente']);
@@ -235,7 +255,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length > 0 ? { avisos: watchlist.avisos } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
+    ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }

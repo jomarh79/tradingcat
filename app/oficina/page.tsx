@@ -60,6 +60,12 @@ interface Detalle {
   avisos: string[]
   datos_vencidos: string[]
   salida_pmp: PlanSalida | null
+  salida_pcp?: {
+    compras: number | null; costo_promedio: string | null; precio_actual: string | null; primera_salida_realizada: boolean; motivo: string | null
+    nivel_alcanzado: string | null; niveles: { nivel: string | null; cumplido: boolean }[]; stop: string | null; zona_recompra: boolean
+    recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
+    exigida: { decision: string; porcentaje: number | null; detalle: string } | null
+  } | null
   valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[] } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
@@ -279,6 +285,29 @@ export default function OficinaPage() {
               {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
             </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.salida_pcp && (
+          <Seccion titulo="Salida (PCP)">
+            <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>
+              {d.salida_pcp.compras ?? '—'} compra(s){d.salida_pcp.costo_promedio ? <> · costo promedio {d.salida_pcp.costo_promedio}</> : null}
+              {d.salida_pcp.primera_salida_realizada && <> · primera salida ya hecha</>}
+            </div>
+            {d.salida_pcp.precio_actual && <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>Precio (último cierre): {d.salida_pcp.precio_actual}{d.salida_pcp.stop ? <> · stop de referencia {d.salida_pcp.stop}</> : null}</div>}
+            <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
+              Niveles: {d.salida_pcp.niveles.length === 0 ? 'sin datos' : d.salida_pcp.niveles.map((n, i) => `TP${i + 1} ${n.nivel ?? '—'}${n.cumplido ? ' ✓' : ''}`).join(' · ')}
+              {' · '}señal de salida: {d.salida_pcp.senal_salida ? 'sí' : 'no'}
+            </div>
+            {d.salida_pcp.exigida
+              ? <div style={{ fontSize: 12, color: C.danger, fontWeight: 700 }}>{d.salida_pcp.exigida.decision}{d.salida_pcp.exigida.porcentaje !== null ? ` ${d.salida_pcp.exigida.porcentaje}%` : ''} · {d.salida_pcp.exigida.detalle}</div>
+              : <Vacio texto="Hoy no se cumple ninguna condición de salida." />}
+            {d.salida_pcp.zona_recompra && (
+              <div style={{ fontSize: 12, color: C.warning, fontWeight: 700, marginTop: 4 }}>
+                Zona de posible recompra: el precio está en o bajo el stop ({d.salida_pcp.recompras_restantes ?? '—'} recompra(s) disponible(s)). Es solo un aviso: la Oficina no vende ni compra sola.
+              </div>
+            )}
+            {d.salida_pcp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 

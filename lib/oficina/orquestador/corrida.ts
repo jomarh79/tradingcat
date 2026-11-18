@@ -20,8 +20,8 @@
 //   C9. `senal_salida` no evaluable (null) nunca se convierte en false: no se evalúa la salida del PCP y se declara en `datos_faltantes`.
 //   C10. El cálculo de código del Técnico corre siempre que haga falta para `momento` o la salida del PCP, aunque el agente Técnico de IA sea opcional (PLP).
 
-import { RUTA_POR_TIPO, decidir, evaluarSalidaPCP, evaluarSalidaPMP } from '../motor';
-import type { EntradaSalidaPMP, ResultadoSalidaPMP } from '../motor';
+import { RUTA_POR_TIPO, decidir, evaluarPlanSalidaPCP, evaluarSalidaPMP } from '../motor';
+import type { EntradaSalidaPMP, ResultadoSalidaPCP, ResultadoSalidaPMP } from '../motor';
 import type {
   Agente, Auditoria, Capital, ContextoAporte, ContextoRetiro, ContextoRevisionETF, ContextoSalida, EntradaMotor, EntradaSalidaPCP, EstadoDirector,
   EstadoFinal, MotivoEstado, PortafolioCodigo, ResultadoAgente, Ruta, SalidaMotor, TesisEstado, TipoEvaluacion, VeredictoAuditor,
@@ -170,7 +170,7 @@ export interface DatosCongelados {
   /** SEMILLA recompra: ¿es con dinero nuevo? true = BLOQUEADO (sección 10, regla 7); sin dato = pendiente_informacion. */
   dinero_nuevo?: boolean | null;
   /** Plan y compras del PCP para evaluar la salida; la señal de salida la pone el Técnico. */
-  salida_pcp?: Omit<EntradaSalidaPCP, 'senal_salida'>;
+  salida_pcp?: Omit<EntradaSalidaPCP, 'senal_salida' | 'precio_actual'> & { precio_actual?: string };
   /** Plan de salidas de PMP (posición abierta): monto invertido, niveles TP1..TP3 con su casilla «cumplido» y las señales de la vela de la salida anterior.
    *  El precio de hoy y las señales de hoy los pone el Técnico. */
   salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'>;
@@ -546,13 +546,17 @@ export async function ejecutarCorrida(
   // ---- Entrada del Motor (siempre se entrega, aunque falte algo)
   let senal_salida: boolean | null = null;
   let salida: ContextoSalida | undefined = datos.motor?.salida;
+  let salida_pcp: ResultadoSalidaPCP | null = null;
   if (portafolio === 'PCP' && tipo === 'posicion_abierta' && datos.salida_pcp !== undefined) {
     senal_salida = tecnico === null ? null : tecnico.senal_salida;
-    if (senal_salida === null) {
+    // v0.65: el precio es el cierre de la última vela cerrada del Técnico (igual que PMP); `precio_actual` de los datos solo se usa si no hay Técnico.
+    const precioPcp = tecnico?.snapshot?.ultima_vela_diaria?.cierre ?? datos.salida_pcp.precio_actual;
+    if (senal_salida === null || precioPcp === undefined) {
       faltantes.push('senal_salida_pcp: no evaluable; no se evalúa la salida del PCP (no se supone false)');
     } else {
-      const exigida = evaluarSalidaPCP({ ...datos.salida_pcp, senal_salida });
-      salida = { ...(datos.motor?.salida ?? {}), exigida };
+      salida_pcp = evaluarPlanSalidaPCP({ ...datos.salida_pcp, precio_actual: precioPcp, senal_salida });
+      for (const f of salida_pcp.faltantes) avisos.push(`salida_pcp: ${f}`);
+      salida = { ...(datos.motor?.salida ?? {}), exigida: salida_pcp.exigida };
     }
   }
 
@@ -608,6 +612,7 @@ export async function ejecutarCorrida(
     ...(aporte !== null && aporte.modo !== null ? { aporte_modo: aporte.modo } : {}),
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
+    ...(salida_pcp !== null ? { salida_pcp } : {}),
     // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
     ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas

@@ -467,6 +467,18 @@ describe('salida del PCP', () => {
     expect(r.tecnico!.senal_salida).toBe(false);
     expect(r.entrada_motor.salida!.exigida).toBeNull();
   });
+  const tp = (n1: string | null) => [{ nivel: n1, cumplido: false }, { nivel: null, cumplido: false }, { nivel: null, cumplido: false }] as const;
+  it('v0.65: TP1 de trades alcanzado con una compra y sin señal: VENDER 100% y la corrida guarda el resultado en referencias.salida_pcp', async () => {
+    const r = corrida(await ejecutarCorrida(solPcp(), posPcp({ velas: velas(baja), salida_pcp: { plan: 'una_compra', compras: [{ cantidad: '1', precio: '50' }], stop: null, niveles: tp('1'), primera_salida_realizada: false } }), puertos().p));
+    expect(r.tecnico!.senal_salida).toBe(false);
+    expect(r.entrada_motor.salida!.exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100, regla: 'PCP-06' });
+    expect(r.fila_historial.referencias).toMatchObject({ salida_pcp: { motivo: 'nivel_planeado', nivel_alcanzado: 'TP1 = 1' } });
+  });
+  it('v0.65: plan escalonado con el precio bajo el stop: zona de posible recompra, sin venta', async () => {
+    const r = corrida(await ejecutarCorrida(solPcp(), posPcp({ velas: velas(baja), salida_pcp: { plan: 'escalonado', compras: [{ cantidad: '1', precio: '50' }], stop: '100000', niveles: tp(null), primera_salida_realizada: false } }), puertos().p));
+    expect(r.entrada_motor.salida!.exigida).toBeNull();
+    expect(r.fila_historial.referencias).toMatchObject({ salida_pcp: { zona_recompra: true, recompras_restantes: 2 } });
+  });
   it('señal de salida no evaluable (null): no se evalúa la salida, no se supone false y se declara', async () => {
     const r = corrida(await ejecutarCorrida(solPcp(), posPcp({ velas: null }), puertos().p));
     expect(r.entrada_motor.salida).toBeUndefined();

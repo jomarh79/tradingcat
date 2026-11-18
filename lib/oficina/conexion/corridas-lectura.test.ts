@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -145,5 +145,23 @@ describe('ficha propuesta en el detalle', () => {
   it('normaliza los apartados propuestos y los no propuestos', () => {
     const f = fichaPropuestaDe({ ficha_propuesta: { propuesta: { identidad: { texto: 'SE · US', fuente: 'watchlist' }, roto: 5 }, no_propuestos: ['correlacion: x'] } });
     expect(f).toEqual({ propuesta: [{ apartado: 'identidad', texto: 'SE · US', fuente: 'watchlist' }], no_propuestos: ['correlacion: x'] });
+  });
+});
+
+describe('planSalidaPcpDe (v0.65)', () => {
+  it('sin salida_pcp en referencias: null', () => {
+    expect(planSalidaPcpDe({})).toBeNull();
+    expect(planSalidaPcpDe({ salida_pcp: 'x' })).toBeNull();
+  });
+  it('lee el resultado guardado; lo que falta queda en null/false/vacío', () => {
+    const p = planSalidaPcpDe({ salida_pcp: {
+      compras: 2, costo_promedio: '90', precio_actual: '95', primera_salida_realizada: false, motivo: 'nivel_planeado', nivel_alcanzado: 'TP1 = 93',
+      niveles: [{ nivel: '93', cumplido: false }, { nivel: null, cumplido: true }], stop: '85', zona_recompra: false, recompras_restantes: 1, senal_salida: true,
+      faltantes: ['plan_pcp: x'], exigida: { decision: 'REDUCIR', porcentaje: 50, detalle: 'd', regla: 'PCP-06' },
+    } });
+    expect(p).toMatchObject({ compras: 2, costo_promedio: '90', motivo: 'nivel_planeado', nivel_alcanzado: 'TP1 = 93', stop: '85', recompras_restantes: 1, senal_salida: true });
+    expect(p?.niveles).toEqual([{ nivel: '93', cumplido: false }, { nivel: null, cumplido: true }]);
+    expect(p?.exigida).toEqual({ decision: 'REDUCIR', porcentaje: 50, detalle: 'd' });
+    expect(planSalidaPcpDe({ salida_pcp: { exigida: null } })).toMatchObject({ exigida: null, zona_recompra: false, niveles: [], compras: null });
   });
 });

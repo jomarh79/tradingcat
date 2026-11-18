@@ -57,6 +57,22 @@ export interface PlanSalidaPmp {
   faltantes: string[];
   exigida: { decision: string; porcentaje: number | null; detalle: string } | null;
 }
+/** v0.65: resultado de la salida de PCP guardado en referencias.salida_pcp. */
+export interface PlanSalidaPcp {
+  compras: number | null;
+  costo_promedio: string | null;
+  precio_actual: string | null;
+  primera_salida_realizada: boolean;
+  motivo: string | null;
+  nivel_alcanzado: string | null;
+  niveles: Array<{ nivel: string | null; cumplido: boolean }>;
+  stop: string | null;
+  zona_recompra: boolean;
+  recompras_restantes: number | null;
+  senal_salida: boolean;
+  faltantes: string[];
+  exigida: { decision: string; porcentaje: number | null; detalle: string } | null;
+}
 export interface FichaPropuestaDetalle {
   propuesta: Array<{ apartado: string; texto: string; fuente: string }>;
   no_propuestos: string[];
@@ -72,6 +88,8 @@ export interface CorridaDetalle {
   datos_vencidos: string[];
   /** Plan de salidas de PMP (posición abierta); null si la corrida no lo calculó. */
   salida_pmp: PlanSalidaPmp | null;
+  /** v0.65: salida de PCP (posición abierta); null si la corrida no la calculó. */
+  salida_pcp: PlanSalidaPcp | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
   /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
@@ -166,6 +184,20 @@ export function planSalidaDe(ref: Record<string, unknown>): PlanSalidaPmp | null
   };
 }
 
+export function planSalidaPcpDe(ref: Record<string, unknown>): PlanSalidaPcp | null {
+  const x = ref['salida_pcp'];
+  if (!esObj(x)) return null;
+  const e = x['exigida'];
+  return {
+    compras: num(x['compras']), costo_promedio: txt(x['costo_promedio']), precio_actual: txt(x['precio_actual']),
+    primera_salida_realizada: x['primera_salida_realizada'] === true, motivo: txt(x['motivo']), nivel_alcanzado: txt(x['nivel_alcanzado']),
+    niveles: arr(x['niveles']).filter(esObj).map(n => ({ nivel: txt(n['nivel']), cumplido: n['cumplido'] === true })),
+    stop: txt(x['stop']), zona_recompra: x['zona_recompra'] === true, recompras_restantes: num(x['recompras_restantes']),
+    senal_salida: x['senal_salida'] === true, faltantes: arr(x['faltantes']).map(textoCorto),
+    exigida: esObj(e) ? { decision: txt(e['decision']) ?? '', porcentaje: num(e['porcentaje']), detalle: textoCorto(e['detalle'] ?? '') } : null,
+  };
+}
+
 export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
@@ -234,6 +266,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       avisos: arr(ref['avisos']).map(textoCorto),
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
       salida_pmp: planSalidaDe(ref),
+      salida_pcp: planSalidaPcpDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
       valuacion: valuacionDe(ref),
     },
