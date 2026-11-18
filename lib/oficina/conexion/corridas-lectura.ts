@@ -74,6 +74,8 @@ export interface CorridaDetalle {
   salida_pmp: PlanSalidaPmp | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
+  /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
+  valuacion: ValuacionDetalle | null;
 }
 
 export type ResultadoLectura<T> = { ok: true; datos: T } | { ok: false; http: number; error: string };
@@ -164,6 +166,24 @@ export function planSalidaDe(ref: Record<string, unknown>): PlanSalidaPmp | null
   };
 }
 
+export interface ValuacionDetalle {
+  anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
+  precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
+  fecha: string | null; motivo: string | null; avisos: string[];
+}
+
+/** Valuación por código guardada en las referencias de la corrida (v0.63). Solo lectura; lo que falte queda en null. */
+export function valuacionDe(ref: Record<string, unknown>): ValuacionDetalle | null {
+  const x = ref['valuacion_modelo'];
+  if (!esObj(x)) return null;
+  const m = esObj(x['modelo']) ? (x['modelo'] as Record<string, unknown>) : {};
+  return {
+    anios: num(m['anios']), pe_objetivo: num(m['pe_objetivo']), origen_pe: txt(m['origen_pe']), eps: num(m['eps']), origen_eps: txt(m['origen_eps']),
+    precio_objetivo: num(m['precio_objetivo']), cierre: num(x['cierre']), ganancia_total_pct: num(m['ganancia_total_pct']), ganancia_anualizada_pct: num(m['ganancia_anualizada_pct']),
+    fecha: txt(x['fecha']), motivo: txt(m['motivo']), avisos: arr(x['avisos']).map(textoCorto),
+  };
+}
+
 export function fichaPropuestaDe(ref: Record<string, unknown>): FichaPropuestaDetalle | null {
   const x = ref['ficha_propuesta'];
   if (!esObj(x)) return null;
@@ -215,6 +235,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
       salida_pmp: planSalidaDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
+      valuacion: valuacionDe(ref),
     },
   };
 }

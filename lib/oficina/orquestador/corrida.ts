@@ -608,6 +608,8 @@ export async function ejecutarCorrida(
     ...(aporte !== null && aporte.modo !== null ? { aporte_modo: aporte.modo } : {}),
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
+    // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
+    ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas
     ...(portafolio === 'PMP' ? { ficha_propuesta: proponerFichaPmp({ ticker: sol.ticker, hoy: fechaEnZona(new Date(iniciada_at), ZONA_OFICINA), velas: datos.velas?.diarias ?? null, watchlist: datos.watchlist ?? null, extra: datos.ficha_datos ?? null, rol_expediente: datos.rol_expediente ?? null }) } : {}),
     ...(avisos.length > 0 ? { avisos } : {}),

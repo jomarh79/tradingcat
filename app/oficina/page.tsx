@@ -60,6 +60,7 @@ interface Detalle {
   avisos: string[]
   datos_vencidos: string[]
   salida_pmp: PlanSalida | null
+  valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[] } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
 
@@ -278,6 +279,21 @@ export default function OficinaPage() {
               {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
             </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.valuacion && (
+          <Seccion titulo="Valuación por código (modelo de /position)">
+            {d.valuacion.precio_objetivo === null
+              ? <div style={{ fontSize: 12, color: C.warning }}>No se pudo calcular: {d.valuacion.motivo ?? 'faltan datos'}</div>
+              : (
+                <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.7 }}>
+                  <div>P/E objetivo <b>{d.valuacion.pe_objetivo?.toFixed(1)}x</b> ({d.valuacion.origen_pe}) × EPS a {d.valuacion.anios} años <b>{d.valuacion.eps?.toFixed(2)}</b> ({d.valuacion.origen_eps})</div>
+                  <div>Precio objetivo <b>{d.valuacion.precio_objetivo.toFixed(2)}</b> · cierre usado <b>{d.valuacion.cierre?.toFixed(2) ?? '—'}</b> ({d.valuacion.fecha ?? '—'})</div>
+                  <div>Ganancia total <b>{d.valuacion.ganancia_total_pct?.toFixed(1) ?? '—'}%</b> · anualizada a {d.valuacion.anios} años <b style={{ color: (d.valuacion.ganancia_anualizada_pct ?? 0) >= 14 ? C.success : C.warning }}>{d.valuacion.ganancia_anualizada_pct?.toFixed(2) ?? '—'}%</b> (mínimo 14%)</div>
+                </div>
+              )}
+            {d.valuacion.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 

@@ -447,3 +447,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.62 — Montos por portafolio y reglas que no aplican
 - Botón ▶: monto fijo PMP 50, PCP 25, SEMILLA 5. PLP y ETF no llevan monto (sus activos ya están comprados; una sustitución entra con lo que dejó la venta) y no muestran el aviso de «sin monto». La posición abierta sigue sin monto.
 - `/oficina`, «Reglas del Auditor»: las reglas con resultado `no_aplica` ya no se listan; queda una línea plegada «N reglas no aplican a esta corrida» con sus códigos. Los datos guardados no cambian.
+
+## v0.63 — La valuación por código queda visible en /oficina
+- La corrida guarda en sus referencias (`referencias.valuacion_modelo`) el cálculo de valuación de PMP para una posición nueva: P/E objetivo y su origen, EPS a 3 años y su origen, precio objetivo, cierre usado, ganancia total y ganancia anualizada. `valuacionDe` (corridas-lectura) lo lee y `/oficina` lo muestra en la sección «Valuación por código (modelo de /position)».
+- Se puede cotejar a mano: precio objetivo = P/E × EPS; anualizada = (precio objetivo / cierre)^(1/3) − 1. Las corridas anteriores a v0.63 no lo traen: hay que correrlas otra vez.
+- No cambia ninguna decisión ni el Auditor; solo muestra lo que ya se calculaba. Sin migración de base de datos.
