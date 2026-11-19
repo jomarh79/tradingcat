@@ -477,3 +477,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Consecuencia: una posición PCP con una sola compra y sin plan declarado se trata como «una compra»: tocar el stop da VENDER (PCP-07), antes no se evaluaba.
 - El reparto mensual PCP-08 queda fuera de la Oficina por decisión del 18-nov (lo haces a mano, sin botón ni aviso).
 - Tests: `plan-pcp.test.ts`, `salida-pcp-bd.test.ts` y un caso nuevo en `conexion.test.ts`.
+
+## v0.67 — PCP-01: el historial del gráfico sale de las velas
+- Hallazgo al revisar la apertura de un PCP nuevo (nunca se había corrido): PCP-01 pide `historial_grafico_anios` y nada lo declaraba, así que la apertura de PCP daba siempre NO_EVALUABLE crítico (el Auditor no dejaba llegar a COMPRAR).
+- `lib/oficina/conexion/historial-pcp.ts`: de las velas diarias ya leídas (TwelveData vía chart-data) declara dos datos para el Auditor: años del historial = (última vela − primera) / 365.25 días, TRUNCADO a dos decimales (4.9993 no pasa como 5.00), y `historial_grafico_completo` (true si llegaron menos de 2500 velas, el máximo que devuelve la ruta; con 2500 el historial supera los 9.9 años, así que el mínimo de 5 se cumple igual). Sin velas no declara nada y PCP-01 sigue NO_EVALUABLE.
+- Solo en PCP nueva_posicion (`entrada-auditor.ts`). Tests: `historial-pcp.test.ts` y un caso en `conexion.test.ts`.
+- Pendiente (decisión de Jaime): PCP-07 en la apertura sigue NO_EVALUABLE porque aún no hay compras de las que deducir el plan.

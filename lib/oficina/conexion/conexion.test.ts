@@ -185,6 +185,17 @@ describe('construirEntradaAuditor', () => {
     expect(plan('PCP', 'posicion_abierta', c2, 'una_compra')).toBe('una_compra');
     expect(plan('PMP', 'posicion_abierta', c2)).toBeNull();
   });
+  it('v0.67: apertura de PCP declara el historial del gráfico (PCP-01) desde las velas; otros casos no', () => {
+    const velas = { diarias: Array.from({ length: 2000 }, (_, i) => ({ time: 1_500_000_000 + i * 86400, open: 1, high: 1, low: 1, close: 1, volume: 0 })), semanales: [], fuente: 'TwelveData' };
+    const campos = (portafolio: 'PMP' | 'PCP', tipo: string, v: typeof velas | null) => {
+      const r = armar({ s: solicitud({ portafolio, tipo_evaluacion: tipo as never }), d: datos({ velas: v, posicion_existe: tipo !== 'nueva_posicion' }), h: tipo === 'nueva_posicion' ? undefined : { posicion: { compras: [{ fecha: '2026-10-10', monto: '25' }] } } });
+      return r.ok ? r.entrada.datos_fuente.map(x => x.campo) : ['NO_SE_ARMO'];
+    };
+    expect(campos('PCP', 'nueva_posicion', velas)).toEqual(['historial_grafico_anios', 'historial_grafico_completo']);
+    expect(campos('PCP', 'nueva_posicion', null)).toEqual([]);
+    expect(campos('PMP', 'nueva_posicion', velas)).toEqual([]);
+    expect(campos('PCP', 'posicion_abierta', velas)).toEqual([]);
+  });
   it('posición no confirmada o acción desconocida: no se arma', () => {
     expect(armar({ d: datos({ posicion_existe: null }) })).toEqual({ ok: false, problemas: [expect.stringMatching(/posicion_existe/)] });
     const r = armar({ s: solicitud({ tipo_evaluacion: 'raro' as never }) });

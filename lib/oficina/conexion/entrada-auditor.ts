@@ -1,5 +1,6 @@
 // Arma la entrada del Auditor (auditoria_entrada.v1) con lo que el Orquestador ya tiene congelado + los hechos que debe aportar la capa de datos.
 // No inventa: lo que no se declara queda en null y el Auditor lo reporta como dato faltante.
+import { datosHistorialPcp } from './historial-pcp';
 import { deducirPlanPcp } from './plan-pcp';
 import { CONTRATO_ENTRADA, validarEntrada } from '../auditor';
 import type { DatoFuente, EntradaAuditor, PlanPCP, ReglaEntrada, CompraPosicion } from '../auditor';
@@ -91,7 +92,8 @@ export function construirEntradaAuditor(a: ArgumentosEntrada): ResultadoEntrada 
       aumenta_peso_sectorial: null, dividendo_recibido: null, neto_mensual_pcp: null, traspaso_identificable: null, historial_meses_etf: null,
       fundamentos: null, ...h.datos, aporte_etf: aporte,
     },
-    datos_fuente: h.datos_fuente ?? [], analisis_ids: h.analisis_ids ?? [], reglas_vigentes: a.reglas,
+    datos_fuente: [...(h.datos_fuente ?? []), ...(s.portafolio === 'PCP' && s.tipo_evaluacion === 'nueva_posicion' ? datosHistorialPcp(d.velas, fechaEnZona(new Date(s.solicitado_en), ZONA_OFICINA)) : [])],
+    analisis_ids: h.analisis_ids ?? [], reglas_vigentes: a.reglas,
   };
   const malos = validarEntrada(entrada);
   return malos.length > 0 ? { ok: false, problemas: malos } : { ok: true, entrada };
