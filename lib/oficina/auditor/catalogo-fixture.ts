@@ -1,4 +1,4 @@
-// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL.
+// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL. 18-nov (v0.68a): PCP-10 exige al menos dos señales (cuantos_deben_coincidir 2).
 import type { ReglaEntrada } from './tipos';
 
 export const CATALOGO_FIXTURE: ReglaEntrada[] = [
@@ -739,7 +739,7 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
      ]
     }
    ],
-   "cuantos_deben_coincidir": 1,
+   "cuantos_deben_coincidir": 2,
    "discrecional_del_usuario": "el sistema muestra los valores y no bloquea; la confirmacion visual la haces tu al autorizar"
   },
   "clase": "delegada",

@@ -493,3 +493,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.67b: PCP-07 en la apertura
 - En `nueva_posicion` sin plan declarado, PCP-07 da CUMPLE («el plan se deduce de tus trades después de abrir»). Motivo: la posición aún no existe, así que no hay trades de dónde deducirlo (primera corrida real: FSLR quedó NO_EVALUABLE solo por esto).
 - Recompra / posición abierta sin plan siguen siendo NO_EVALUABLE (ahí el plan sí se deduce en v0.66).
+
+## v0.68a: apertura de PCP exige dos señales (PCP-10)
+- `MINIMO_SENALES_POR_USO.apertura_pcp` pasa de 1 a 2 (igual que `apertura_pmp`). Motivo: FSLR (RSI + Koncorde) dio COMPRAR con el Técnico en ESPERAR; ahora hacen falta 2 de las 4 señales de entrada (RSI, Koncorde, EMA8>EMA21, Mogalef inferior). NIVEL_PASADO no cuenta.
+- Recompra PCP, salida PCP y DCA de PLP siguen con 1.
+- Catálogo: fixture y `parche-catalogo-v068a.sql` (PCP-10 `cuantos_deben_coincidir` 2, vigente desde 2026-11-19).
+- Ojo: el Técnico cuenta RSI y Koncorde como señales separadas, aunque el catálogo las agrupa en «sobreventa».
+- v0.68a (ajuste de test): en `corrida.test.ts` la serie «onda lenta» da solo 1 señal de apertura PCP, así que el caso «cada caso usa su propio uso del detonante» espera `detonante_confirmado: false` para PCP apertura.

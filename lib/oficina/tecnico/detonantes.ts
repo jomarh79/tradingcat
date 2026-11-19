@@ -15,9 +15,10 @@ export const SENALES_POR_USO = {
 
 export type UsoSenales = keyof typeof SENALES_POR_USO;
 
-/** Cuántas señales cumplidas hacen falta para confirmar el detonante. Por omisión una (PCP-10, PCP-04, PCP-05/06). */
+/** Cuántas señales cumplidas hacen falta para confirmar el detonante. Por omisión una (PCP-04, PCP-05/06). */
 export const MINIMO_SENALES_POR_USO: Readonly<Record<UsoSenales, number>> = {
-  apertura_pcp: 1, recompra_pcp: 1, dca_plp: 1, salida_pcp: 1,
+  apertura_pcp: 2,   // 18-nov: PCP-10 exige al menos dos señales de entrada (igual que PMP)
+  recompra_pcp: 1, dca_plp: 1, salida_pcp: 1,
   apertura_pmp: 2,   // 9-nov: "por lo menos dos"
   salida_pmp: 2,     // 10-nov: los criterios que no son el nivel planeado piden dos confirmaciones
 };
@@ -32,7 +33,7 @@ const DISCRECIONALES: Record<UsoSenales, readonly string[]> = {
 };
 
 const AVISOS: Record<UsoSenales, string> = {
-  apertura_pcp: 'Señal técnica: no autoriza por sí sola una operación ni anula reglas obligatorias, el veto del Auditor o tu autorización.',
+  apertura_pcp: 'Entrada técnica de PCP (al menos dos señales cumplidas): no autoriza por sí sola una operación ni anula reglas obligatorias, el veto del Auditor o tu autorización.',
   recompra_pcp: 'Señal técnica: no autoriza por sí sola una operación ni anula reglas obligatorias, el veto del Auditor o tu autorización.',
   dca_plp: 'La sobreventa (RSI ≤ 30) es una condición técnica, no una orden de compra: siguen aplicando calidad, tesis, valoración, riesgo, capital y tu autorización.',
   apertura_pmp: 'Entrada técnica de PMP (al menos dos señales cumplidas): no autoriza por sí sola una operación ni anula reglas obligatorias, el filtro de ganancia anualizada, el veto del Auditor o tu autorización.',
@@ -41,7 +42,7 @@ const AVISOS: Record<UsoSenales, string> = {
 };
 
 export interface Detonante {
-  /** Se cumplen al menos `senales_minimas` señales (una en PCP-10, PCP-04, PCP-05/06; dos en `apertura_pmp`). En `salida_pcp` equivale a `senal_salida` de la entrada del Motor. */
+  /** Se cumplen al menos `senales_minimas` señales (una en PCP-04, PCP-05/06; dos en `apertura_pcp` y `apertura_pmp`). En `salida_pcp` equivale a `senal_salida` de la entrada del Motor. */
   detonante_confirmado: boolean;
   /** Cuántas señales cumplidas se exigen para este uso. */
   senales_minimas: number;

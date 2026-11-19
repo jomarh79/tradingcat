@@ -498,9 +498,12 @@ describe('detonantes por uso', () => {
     const base = calcularTecnico(entrada(caminata(300)));
     return { ...base, senales: base.senales.map(s => ({ ...s, cumplida: s.id in cumplidas ? cumplidas[s.id]! : false })) };
   };
-  it('apertura PCP: basta una de RSI, Koncorde, EMA 8>21 o Mogalef; el nivel pasado no cuenta', () => {
-    expect(detonantePara(sn({ EMA8_SOBRE_EMA21: true }), 'apertura_pcp').detonante_confirmado).toBe(true);
-    expect(detonantePara(sn({ NIVEL_PASADO: true }), 'apertura_pcp').detonante_confirmado).toBe(false);
+  it('apertura PCP (18-nov): exige al menos DOS de RSI, Koncorde, EMA 8>21 o Mogalef; el nivel pasado no cuenta', () => {
+    const d = (c: Record<string, boolean | null>) => detonantePara(sn(c), 'apertura_pcp');
+    expect(d({ EMA8_SOBRE_EMA21: true }).detonante_confirmado).toBe(false);
+    expect(d({ RSI_SOBREVENTA: true, KONCORDE_BAJO_CERO: true }).detonante_confirmado).toBe(true);
+    expect(d({ RSI_SOBREVENTA: true, NIVEL_PASADO: true }).detonante_confirmado).toBe(false);
+    expect(d({ NIVEL_PASADO: true }).detonante_confirmado).toBe(false);
   });
   it('v0.22 apertura PMP: exige al menos DOS de las cinco señales de entrada (el nivel pasado sí cuenta); las de salida no', () => {
     const d = (c: Record<string, boolean | null>) => detonantePara(sn(c), 'apertura_pmp');
@@ -510,7 +513,7 @@ describe('detonantes por uso', () => {
     expect(d({ RSI_SOBRECOMPRA: true, MOGALEF_BANDA_SUPERIOR: true, RESISTENCIA_PASADA: true }).detonante_confirmado).toBe(false);
     expect(d({ EMA8_SOBRE_EMA21: true, RSI_SOBRECOMPRA: true }).detonante_confirmado).toBe(false);
     expect(d({ EMA8_SOBRE_EMA21: true }).senales_minimas).toBe(2);
-    expect(detonantePara(sn({}), 'apertura_pcp').senales_minimas).toBe(1);
+    expect(detonantePara(sn({}), 'apertura_pcp').senales_minimas).toBe(2);
   });
   it('v0.22 apertura PMP: una señal sin datos no cuenta como cumplida; figura chartista y Fibonacci quedan como discrecionales del usuario', () => {
     const d = detonantePara(sn({ EMA8_SOBRE_EMA21: true, KONCORDE_BAJO_CERO: null }), 'apertura_pmp');

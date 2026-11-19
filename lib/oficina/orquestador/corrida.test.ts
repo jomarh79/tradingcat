@@ -13,7 +13,7 @@ const vela = (f: string, c: number): Candle => ({ time: t(f), open: c - 0.1, hig
 const ondulado: Precio = i => 100 + 10 * Math.sin(i / 5) + i * 0.05;
 const sube: Precio = i => 100 + i * 0.5;
 const baja: Precio = i => 400 - i * 0.5;
-/** Onda lenta: al final cumple apertura_pcp y dca_plp pero NO recompra_pcp (verificado con prepararTecnico). */
+/** Onda lenta: al final cumple dca_plp y solo UNA señal de apertura_pcp (que pide 2 desde el 18-nov), y NO recompra_pcp (verificado con prepararTecnico). */
 const sinSenal: Precio = i => 100 + 10 * Math.sin(i / 20 + 3);
 function diarias(fin: string, n: number, p: Precio = ondulado): Candle[] {
   const fs: string[] = [];
@@ -332,9 +332,9 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect(r.entrada_motor.momento).toEqual({ detonante_confirmado: false });
     expect(r.salida_motor.decision).toBe('ESPERAR');
   });
-  it('cada caso usa su propio uso del detonante: con una serie que cumple apertura_pcp y dca_plp pero no recompra_pcp', async () => {
+  it('cada caso usa su propio uso del detonante: con una serie que cumple dca_plp (y solo 1 señal de apertura_pcp) pero no recompra_pcp', async () => {
     const a = corrida(await ejecutarCorrida(pcp(), datosPcp({ velas: velas(sinSenal), motor: dineroPcp }), puertos().p));
-    expect(a.entrada_motor.momento).toEqual({ detonante_confirmado: true });          // PCP apertura -> apertura_pcp
+    expect(a.entrada_motor.momento).toEqual({ detonante_confirmado: false });         // PCP apertura -> apertura_pcp (desde 18-nov pide 2 señales; esta serie solo da 1)
     const b = corrida(await ejecutarCorrida(sol({ portafolio_codigo: 'PLP', tipo_evaluacion: 'recompra' }), datos({ velas: velas(sinSenal), posicion_existe: true, motor: dineroPcp }), puertos().p));
     expect(b.entrada_motor.momento).toEqual({ detonante_confirmado: true });          // PLP recompra -> dca_plp
     const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ velas: velas(sinSenal), posicion_existe: true, motor: dineroPcp }), puertos().p));
