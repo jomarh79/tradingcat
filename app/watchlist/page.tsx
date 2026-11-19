@@ -14,6 +14,7 @@ import { AlertTriangle, BarChart2, FileText } from 'lucide-react'
 import { authedFetch } from "@/lib/authed-fetch";
 import BotonAprobarFicha from './BotonAprobarFicha'
 import BotonAnalizarOficina from './BotonAnalizarOficina'
+import CompetidoresCeldas from './CompetidoresCeldas'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -191,6 +192,8 @@ export default function WatchlistIAPage() {
   const [addingNew,   setAddingNew]   = useState(false)  // spinner solo para ticker nuevo
   const [refreshingTickers, setRefreshingTickers] = useState<Set<string>>(new Set())
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  // Tickers con posición abierta (tabla trades, status open): pintan en amarillo los competidores que ya tienes
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
 
   const [newTicker,  setNewTicker]  = useState('')
   const [newTarget,  setNewTarget]  = useState('')
@@ -308,17 +311,25 @@ export default function WatchlistIAPage() {
     setLastRefresh(new Date())
   }, [])
 
+  // Si la consulta falla se conserva lo anterior: un error no debe pintar o quitar el amarillo por su cuenta
+  const cargarAbiertos = useCallback(async () => {
+    const { data, error } = await supabase.from('trades').select('ticker').eq('status', 'open')
+    if (error || !data || !alive.current) return
+    setAbiertos(new Set(data.map((t: { ticker: string | null }) => (t.ticker ?? '').toUpperCase()).filter(Boolean)))
+  }, [])
+
   const init = useCallback(async () => {
     setLoading(true)
     applyList(await fetchList())
+    void cargarAbiertos()
     if (alive.current) setLoading(false)
-  }, [fetchList, applyList])
+  }, [fetchList, applyList, cargarAbiertos])
 
   useEffect(() => {
     init()
-    const interval = setInterval(async () => { applyList(await fetchList()) }, 120000)
+    const interval = setInterval(async () => { applyList(await fetchList()); void cargarAbiertos() }, 120000)
     return () => clearInterval(interval)
-  }, [init, fetchList, applyList])
+  }, [init, fetchList, applyList, cargarAbiertos])
 
   // ── Espera a que un ticker específico tenga datos frescos, refrescando la lista mientras tanto ──
   const pollTicker = useCallback((ticker: string, onDone?: () => void) => {
@@ -448,6 +459,14 @@ export default function WatchlistIAPage() {
     }
   }
 
+  // Competidores (hasta 4 tickers, los valida CompetidoresCeldas). Devuelve null si se guardó o el mensaje de error
+  const guardarCompetidores = async (id: number, valor: string): Promise<string | null> => {
+    const { error } = await supabase.from('watchlist').update({ competidores: valor }).eq('id', id)
+    if (error) return 'No se pudo guardar: ' + error.message
+    if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, competidores: valor } : i))
+    return null
+  }
+
   const eliminarEmpresa = async (id: number, ticker: string) => {
     if (!confirm(`¿Quitar ${ticker} de la watchlist?`)) return
     const { error } = await supabase.from('watchlist').delete().eq('id', id)
@@ -517,6 +536,7 @@ export default function WatchlistIAPage() {
       : <FaSortDown style={{ color: '#00bfff', marginLeft: 3 }} />
   }
 
+  const enWatchlist  = useMemo(() => new Set(list.map(i => i.ticker.toUpperCase())), [list])
   const staleTickers = enrichedList.filter(i => i.stale).length
   const inZoneCount  = enrichedList.filter(i => i.inZone).length
 
@@ -594,7 +614,6 @@ export default function WatchlistIAPage() {
     const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
     const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
     const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
-    const editingComp     = editingCell?.id === item.id && editingCell.field === 'competidores'
 
     const editInputProps = {
       autoFocus: true,
@@ -688,12 +707,9 @@ export default function WatchlistIAPage() {
 
         {/* Competidores */}
         <div style={{ marginBottom: 10 }}>
-          <Metric label="Competidores ✎" onClick={editingComp ? undefined : () => startEdit(item.id, 'competidores', item.competidores || '')}>
-            {editingComp
-              ? <input type="text" value={tempValue} onChange={e => setTempValue(e.target.value)} {...editInputProps} style={mobInp} />
-              : item.competidores
-                ? <span style={{ color: '#999', fontSize: 12, wordBreak: 'break-word' }}>{item.competidores}</span>
-                : <span style={{ color: '#333' }}>—</span>}
+          <Metric label="Competidores (hasta 4) ✎">
+            <CompetidoresCeldas ticker={item.ticker} valor={item.competidores} enWatchlist={enWatchlist} enAbiertos={abiertos}
+              onGuardar={v => guardarCompetidores(item.id, v)} ancho />
           </Metric>
         </div>
 
@@ -718,7 +734,7 @@ export default function WatchlistIAPage() {
             style={{ ...actionBase, color: '#00bfff' }}>
             <FileText size={18} />
           </a>
-          <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} grande />
+          <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} competidores={item.competidores} grande />
           <BotonAprobarFicha ticker={item.ticker} grande />
           <button onClick={() => refreshTicker(item.ticker, item.last_updated)} disabled={!canRefresh} aria-label="Reanalizar"
             title={
@@ -908,7 +924,6 @@ export default function WatchlistIAPage() {
                 const editingTarget   = editingCell?.id === item.id && editingCell.field === 'buy_target'
                 const editingAnalyst  = editingCell?.id === item.id && editingCell.field === 'analyst_target'
                 const editingNotes    = editingCell?.id === item.id && editingCell.field === 'notes'
-                const editingComp     = editingCell?.id === item.id && editingCell.field === 'competidores'
 
                 const editInputProps = {
                   autoFocus: true,
@@ -1019,21 +1034,9 @@ export default function WatchlistIAPage() {
                     <td style={tdStyle}>{portafolioSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
 
                     {/* Competidores — editable directo en la celda */}
-                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 170 }}>
-                      {editingComp ? (
-                        <input type="text" value={tempValue}
-                          onChange={e => setTempValue(e.target.value)}
-                          {...editInputProps}
-                          style={{ ...inpStyle, width: 150, padding: '4px 6px', fontSize: '0.8rem', flex: 'unset', minWidth: 'unset' }} />
-                      ) : (
-                        <span onClick={() => startEdit(item.id, 'competidores', item.competidores || '')} style={{ cursor: 'pointer' }} title="Clic para editar">
-                          {item.competidores
-                            ? <span style={{ color: '#888', fontSize: 11 }} title={item.competidores}>
-                                {item.competidores.length > 24 ? item.competidores.slice(0, 24) + '…' : item.competidores}
-                              </span>
-                            : <span style={{ color: '#333' }}>—</span>}
-                        </span>
-                      )}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 190 }}>
+                      <CompetidoresCeldas ticker={item.ticker} valor={item.competidores} enWatchlist={enWatchlist} enAbiertos={abiertos}
+                        onGuardar={v => guardarCompetidores(item.id, v)} />
                     </td>
 
                     {/* Notas / negocio — editable directo en la celda */}
@@ -1077,7 +1080,7 @@ export default function WatchlistIAPage() {
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                           <FileText size={14} />
                         </a>
-                        <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} />
+                        <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} competidores={item.competidores} />
                         <BotonAprobarFicha ticker={item.ticker} />
                         <button
                           onClick={() => refreshTicker(item.ticker, item.last_updated)}

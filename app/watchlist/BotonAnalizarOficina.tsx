@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Play } from 'lucide-react'
 import { authedFetch } from '@/lib/authed-fetch'
+import { tieneCompetidor } from '@/lib/competidores'
 
 // Botón «Analizar en la Oficina» de la watchlist y de Trades abiertos: hace lo mismo que analizar-fundamental.ps1 (con -ConToken -Guardar), sin abrir PowerShell.
 // Todo el código vive aquí; la página solo dibuja <BotonAnalizarOficina ticker=... portafolios=... />.
@@ -29,7 +30,7 @@ function codigoDeNombre(nombre: string | null | undefined): string | null {
 }
 
 // `abierta` = se usa desde Trades abiertos: la posición ya existe, así que no se pide monto. `portafolioNombre` = nombre del portafolio del trade.
-export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNombre, abierta = false, grande = false }: { ticker: string; portafolios?: string[] | null; portafolioNombre?: string | null; abierta?: boolean; grande?: boolean }) {
+export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNombre, abierta = false, grande = false, competidores }: { ticker: string; portafolios?: string[] | null; portafolioNombre?: string | null; abierta?: boolean; grande?: boolean; competidores?: string | null }) {
   // Portafolios candidatos de la fila: los marcados en la watchlist; si no hay, el del trade abierto. Con exactamente uno se analiza sin preguntar.
   const candidatos = (): string[] => {
     const marcados = (portafolios ?? []).filter(p => (PORTAFOLIOS as readonly string[]).includes(p))
@@ -50,6 +51,8 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
 
   const abrir = () => {
     if (corriendo) { setAbierto(true); return }
+    // Watchlist: una corrida necesita al menos un competidor (Trades abiertos no pasa la prop y no se exige)
+    if (competidores !== undefined && !tieneCompetidor(competidores)) { alert('Agrega al menos un competidor (hasta 4) en la fila de ' + ticker + ' antes de analizar'); return }
     const c = candidatos()
     const p = elegir()
     setPortafolio(p); setMonto(montoPor(p)); setRes(null); setFallo(''); setAbierto(true)
