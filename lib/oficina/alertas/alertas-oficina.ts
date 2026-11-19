@@ -81,9 +81,12 @@ export const ESPERA_ENTRE_SENALES_MS = 15000; // cada ticker son 2 consultas de 
 export const PRESUPUESTO_ALERTAS_MS = 50000;
 export const TIPO_ALERTA_PMP11 = '📋 REVISIÓN PMP-11 VENCIDA';
 export const TIPO_ALERTA_SENAL = '🟢 SEÑAL TÉCNICA NUEVA';
+export const TIPO_ALERTA_SENAL_PCP = '🟢 SEÑAL TÉCNICA NUEVA (PCP)';
 
 export type RespuestaSenal =
-  | { ok: true; confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; cierre: number; fecha_vela: string }
+  | { ok: true; confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; cierre: number; fecha_vela: string;
+      /** v0.68: señal de apertura de PCP de la misma consulta (ausente si el servidor no la manda). */
+      pcp?: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number } | null }
   | { ok: false; error: string };
 
 export interface DepsAlertas {
@@ -97,13 +100,13 @@ export interface DepsAlertas {
   ahoraMs(): number;
   log(mensaje: string): void;
 }
-export interface ResumenAlertas { pmp11_avisadas: string[]; senales_revisadas: string[]; senales_avisadas: string[]; omitido?: string }
+export interface ResumenAlertas { pmp11_avisadas: string[]; senales_revisadas: string[]; senales_avisadas: string[]; senales_pcp_avisadas: string[]; omitido?: string }
 
 const filas = (v: unknown[] | null): Record<string, unknown>[] => (v ?? []).filter(esObj);
 const texto = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist: readonly string[]): Promise<ResumenAlertas> {
-  const resumen: ResumenAlertas = { pmp11_avisadas: [], senales_revisadas: [], senales_avisadas: [] };
+  const resumen: ResumenAlertas = { pmp11_avisadas: [], senales_revisadas: [], senales_avisadas: [], senales_pcp_avisadas: [] };
   if (!deps.mercadoAbierto) return { ...resumen, omitido: 'mercado cerrado' };
   const inicio = deps.ahoraMs();
 
@@ -140,8 +143,13 @@ export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist
   try {
     const estados = new Map<string, EstadoSenal | null>();
     for (const f of filas(await deps.leer('oficina_alertas_estado?select=clave,valor&clave=like.senal:*'))) estados.set(texto(f['clave']), leerEstadoSenal(f['valor']));
+    // v0.68: tickers de la watchlist marcados con PCP (la señal de apertura de PCP tiene su propio estado, `senal_pcp:`)
+    const estadosPcp = new Map<string, EstadoSenal | null>();
+    for (const f of filas(await deps.leer('oficina_alertas_estado?select=clave,valor&clave=like.senal_pcp:*'))) estadosPcp.set(texto(f['clave']), leerEstadoSenal(f['valor']));
+    const marcadosPcp = new Set(filas(await deps.leer('watchlist?select=ticker,portafolios')).filter(f => Array.isArray(f['portafolios']) && (f['portafolios'] as unknown[]).includes('PCP')).map(f => texto(f['ticker']).toUpperCase().trim()));
+    const toca = (t: string) => tocaRevisarSenal(estados.get(`senal:${t}`) ?? null, deps.hoy) || (marcadosPcp.has(t) && tocaRevisarSenal(estadosPcp.get(`senal_pcp:${t}`) ?? null, deps.hoy));
     const candidatos = Array.from(new Set(tickersWatchlist.map(t => t.toUpperCase().trim()).filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))))
-      .filter(t => tocaRevisarSenal(estados.get(`senal:${t}`) ?? null, deps.hoy))
+      .filter(toca)
       .sort((a, b) => (estados.get(`senal:${a}`)?.fecha_revisada ?? '').localeCompare(estados.get(`senal:${b}`)?.fecha_revisada ?? '') || a.localeCompare(b))
       .slice(0, MAX_SENALES_POR_CORRIDA);
     for (let i = 0; i < candidatos.length; i++) {
@@ -154,7 +162,20 @@ export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist
       if (!r.ok) {
         deps.log(`señal ${t}: ${r.error}`);
         await deps.guardarEstado(`senal:${t}`, { fecha_revisada: deps.hoy, confirmada: previo?.confirmada ?? false, sin_dato: true });
+        if (marcadosPcp.has(t)) await deps.guardarEstado(`senal_pcp:${t}`, { fecha_revisada: deps.hoy, confirmada: estadosPcp.get(`senal_pcp:${t}`)?.confirmada ?? false, sin_dato: true });
         continue;
+      }
+      // ---- PCP (v0.68): misma consulta, uso apertura_pcp (al menos 2 de 4 señales). Solo para tickers marcados PCP y si el servidor mandó el dato.
+      if (marcadosPcp.has(t) && r.pcp) {
+        const previoPcp = estadosPcp.get(`senal_pcp:${t}`) ?? null;
+        const dp = decidirSenal(previoPcp, r.pcp.confirmada, deps.hoy);
+        if (dp.accion === 'alertar') {
+          const detalle = `Cumple ${r.pcp.senales_cumplidas.length} de las señales de entrada de PCP (mínimo ${r.pcp.senales_minimas}): ${r.pcp.senales_cumplidas.join(', ')}. Cierre del ${r.fecha_vela}. Es solo una señal técnica: no autoriza una compra por sí sola; corre el análisis en la Oficina (apertura de 25 USD).`;
+          const okp = await deps.enviar({ ticker: t, type: TIPO_ALERTA_SENAL_PCP, currentPrice: r.cierre, targetPrice: 0, detalle });
+          if (okp && await deps.guardarEstado(`senal_pcp:${t}`, dp.estado)) resumen.senales_pcp_avisadas.push(t);
+        } else if (dp.accion === 'guardar') {
+          await deps.guardarEstado(`senal_pcp:${t}`, dp.estado);
+        }
       }
       const d = decidirSenal(previo, r.confirmada, deps.hoy);
       if (d.accion === 'alertar') {

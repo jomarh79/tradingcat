@@ -12,6 +12,8 @@ export interface SenalPmp {
   senales_minimas: number;
   cierre: number;
   fecha_vela: string;
+  /** Misma consulta, uso apertura_pcp (v0.68): al menos 2 de 4 señales de entrada. null si el Técnico no la calculó. */
+  pcp: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number } | null;
   avisos: string[];
 }
 export type ResultadoSenalPmp = { ok: true; datos: SenalPmp } | { ok: false; http: number; error: string };
@@ -24,11 +26,14 @@ export async function evaluarSenalPmp(deps: DepsDatosReales, tickerCrudo: unknow
   const t = prepararTecnico({ ticker, mercado: 'US', evaluado_en: ahora, fuente: v.velas.fuente, velas_diarias: v.velas.diarias, velas_semanales: v.velas.semanales });
   const u = t.snapshot?.ultima_vela_diaria ?? null;
   const d = t.detonantes?.apertura_pmp;
+  const p = t.detonantes?.apertura_pcp;
   if (u === null || d === undefined || (t.estado !== 'completo' && t.estado !== 'parcial')) {
     return { ok: false, http: 422, error: `El Técnico no se pudo calcular (${t.estado}): ${t.motivos.slice(0, 3).join(', ')}` };
   }
   return {
     ok: true,
-    datos: { ticker, confirmada: d.detonante_confirmado, senales_cumplidas: d.senales_cumplidas.map(String), senales_minimas: d.senales_minimas, cierre: Number(u.cierre), fecha_vela: u.fecha, avisos: v.avisos },
+    datos: { ticker, confirmada: d.detonante_confirmado, senales_cumplidas: d.senales_cumplidas.map(String), senales_minimas: d.senales_minimas, cierre: Number(u.cierre), fecha_vela: u.fecha,
+      pcp: p === undefined ? null : { confirmada: p.detonante_confirmado, senales_cumplidas: p.senales_cumplidas.map(String), senales_minimas: p.senales_minimas },
+      avisos: v.avisos },
   };
 }

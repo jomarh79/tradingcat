@@ -500,3 +500,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Catálogo: fixture y `parche-catalogo-v068a.sql` (PCP-10 `cuantos_deben_coincidir` 2, vigente desde 2026-11-19).
 - Ojo: el Técnico cuenta RSI y Koncorde como señales separadas, aunque el catálogo las agrupa en «sobreventa».
 - v0.68a (ajuste de test): en `corrida.test.ts` la serie «onda lenta» da solo 1 señal de apertura PCP, así que el caso «cada caso usa su propio uso del detonante» espera `detonante_confirmado: false` para PCP apertura.
+
+## v0.68: alerta de entrada de PCP
+- `conexion/senal-pmp.ts`: la misma consulta de `/api/oficina/senal` devuelve además `pcp` (uso `apertura_pcp`, al menos 2 de 4 señales). Sin consultas extra a TwelveData.
+- `alertas/alertas-oficina.ts` (copiado idéntico a la Edge Function): lee de `watchlist` los tickers con `PCP` en `portafolios`; para ellos guarda un estado propio (`senal_pcp:TICKER`) y avisa «🟢 SEÑAL TÉCNICA NUEVA (PCP)» solo al pasar de no confirmada a confirmada. La primera observación solo se guarda. Si falla la consulta queda «sin dato».
+- Un ticker marcado PCP se revisa aunque su señal de PMP ya se haya revisado hoy. La alerta de PMP no cambia.
+- A mano: un pegado en `supabase/functions/update-ia/index.ts` (ver `alertas/PEGADOS-v068.md`).
+- Pendiente (v0.69): señal de salida y «zona de posible recompra» para posiciones PCP abiertas.

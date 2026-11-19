@@ -67,7 +67,7 @@ describe('copia en la Edge Function', () => {
   });
 });
 
-import { ejecutarAlertasOficina, TIPO_ALERTA_PMP11, TIPO_ALERTA_SENAL } from './alertas-oficina';
+import { ejecutarAlertasOficina, TIPO_ALERTA_PMP11, TIPO_ALERTA_SENAL, TIPO_ALERTA_SENAL_PCP } from './alertas-oficina';
 import type { DepsAlertas, RespuestaSenal } from './alertas-oficina';
 
 function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => RespuestaSenal; correoOk?: boolean; abierto?: boolean; hoy?: string } = {}) {
@@ -81,7 +81,7 @@ function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => 
   let ms = 0;
   const deps: DepsAlertas = {
     hoy: o.hoy ?? '2027-04-10', mercadoAbierto: o.abierto ?? true,
-    leer: async ruta => (ruta.includes('clave=like.pmp11') ? tablas['oficina_alertas_estado:pmp11']! : ruta.includes('clave=like.senal') ? tablas['oficina_alertas_estado:senal']! : (tablas[ruta.split('?')[0]!] ?? null)),
+    leer: async ruta => (ruta.includes('clave=like.pmp11') ? tablas['oficina_alertas_estado:pmp11']! : ruta.includes('clave=like.senal_pcp') ? (tablas['oficina_alertas_estado:senal_pcp'] ?? []) : ruta.includes('clave=like.senal') ? tablas['oficina_alertas_estado:senal']! : (tablas[ruta.split('?')[0]!] ?? null)),
     guardarEstado: async (c, v) => { guardados[c] = v; return true; },
     enviar: async p => { enviados.push(p); return o.correoOk ?? true; },
     consultarSenal: async t => { consultas.push(t); return (o.senal ?? (() => ({ ok: true, confirmada: true, senales_cumplidas: ['EMA8_SOBRE_EMA21', 'NIVEL_PASADO'], senales_minimas: 2, cierre: 100, fecha_vela: '2027-04-09' })))(t); },
@@ -154,3 +154,66 @@ describe('orquestación de alertas (v0.59)', () => {
     expect(n.enviados).toHaveLength(0);
   });
 });
+
+describe('señal de entrada de PCP (v0.68)', () => {
+  const hoy = '2026-11-19';
+  const respuesta = (pmp: boolean, pcp: boolean | null): RespuestaSenal => ({
+    ok: true, confirmada: pmp, senales_cumplidas: pmp ? ['EMA8_SOBRE_EMA21', 'NIVEL_PASADO'] : [], senales_minimas: 2, cierre: 150.98, fecha_vela: '2026-11-18',
+    ...(pcp === null ? {} : { pcp: { confirmada: pcp, senales_cumplidas: pcp ? ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO'] : ['RSI_SOBREVENTA'], senales_minimas: 2 } }),
+  });
+  const base = { 'oficina_v_posiciones': [], watchlist: [{ ticker: 'FSLR', portafolios: ['PCP'] }, { ticker: 'GKOS', portafolios: ['PMP'] }, { ticker: 'XYZ', portafolios: null }] };
+  const ayer = (c: boolean) => ({ fecha_revisada: '2026-11-18', confirmada: c });
+
+  it('la primera observación PCP solo se guarda (no avisa), aunque ya esté confirmada', async () => {
+    const m = montar({ hoy, tablas: base, senal: () => respuesta(false, true) });
+    const r = await ejecutarAlertasOficina(m.deps, ['FSLR']);
+    expect(m.enviados).toHaveLength(0);
+    expect(m.guardados['senal_pcp:FSLR']).toEqual({ fecha_revisada: hoy, confirmada: true });
+    expect(r.senales_pcp_avisadas).toEqual([]);
+  });
+  it('avisa cuando pasa de no confirmada a confirmada, con tipo PCP y las señales; el estado PCP es independiente del de PMP', async () => {
+    const m = montar({ hoy, senal: () => respuesta(false, true), tablas: { ...base, 'oficina_alertas_estado:senal': [{ clave: 'senal:FSLR', valor: ayer(false) }], 'oficina_alertas_estado:senal_pcp': [{ clave: 'senal_pcp:FSLR', valor: ayer(false) }] } });
+    const r = await ejecutarAlertasOficina(m.deps, ['FSLR']);
+    expect(r.senales_pcp_avisadas).toEqual(['FSLR']);
+    expect(r.senales_avisadas).toEqual([]);
+    expect(m.enviados).toHaveLength(1);
+    expect(m.enviados[0]).toMatchObject({ ticker: 'FSLR', type: TIPO_ALERTA_SENAL_PCP, currentPrice: 150.98, targetPrice: 0 });
+    expect(String(m.enviados[0]!['detalle'])).toContain('RSI_SOBREVENTA, KONCORDE_BAJO_CERO');
+    expect(String(m.enviados[0]!['detalle'])).toContain('mínimo 2');
+    expect(m.guardados['senal_pcp:FSLR']).toEqual({ fecha_revisada: hoy, confirmada: true });
+  });
+  it('un ticker no marcado PCP no genera alerta PCP aunque el servidor mande el dato; sigue la de PMP', async () => {
+    const m = montar({ hoy, senal: () => respuesta(true, true), tablas: { ...base, 'oficina_alertas_estado:senal': [{ clave: 'senal:GKOS', valor: ayer(false) }] } });
+    const r = await ejecutarAlertasOficina(m.deps, ['GKOS']);
+    expect(r.senales_pcp_avisadas).toEqual([]);
+    expect(r.senales_avisadas).toEqual(['GKOS']);
+    expect(m.guardados['senal_pcp:GKOS']).toBeUndefined();
+    expect(m.enviados.map(x => x['type'])).toEqual([TIPO_ALERTA_SENAL]);
+  });
+  it('si ya estaba confirmada no repite; si el correo no sale no guarda (se reintenta)', async () => {
+    const t = (c: boolean) => ({ ...base, 'oficina_alertas_estado:senal': [{ clave: 'senal:FSLR', valor: ayer(false) }], 'oficina_alertas_estado:senal_pcp': [{ clave: 'senal_pcp:FSLR', valor: ayer(c) }] });
+    const a = montar({ hoy, senal: () => respuesta(false, true), tablas: t(true) });
+    await ejecutarAlertasOficina(a.deps, ['FSLR']);
+    expect(a.enviados).toHaveLength(0);
+    const b = montar({ hoy, senal: () => respuesta(false, true), tablas: t(false), correoOk: false });
+    await ejecutarAlertasOficina(b.deps, ['FSLR']);
+    expect(b.guardados['senal_pcp:FSLR']).toBeUndefined();
+  });
+  it('un servidor sin el dato PCP (versión vieja) no rompe nada: solo PMP', async () => {
+    const m = montar({ hoy, senal: () => respuesta(false, null), tablas: base });
+    await ejecutarAlertasOficina(m.deps, ['FSLR']);
+    expect(m.guardados['senal_pcp:FSLR']).toBeUndefined();
+    expect(m.guardados['senal:FSLR']).toBeDefined();
+  });
+  it('si la consulta falla, el estado PCP también queda «sin dato» y la caída no cuenta como observación', async () => {
+    const m = montar({ hoy, senal: () => ({ ok: false, error: 'HTTP 502' }), tablas: base });
+    await ejecutarAlertasOficina(m.deps, ['FSLR']);
+    expect(m.guardados['senal_pcp:FSLR']).toEqual({ fecha_revisada: hoy, confirmada: false, sin_dato: true });
+  });
+  it('un ticker recién marcado PCP se revisa aunque su señal de PMP ya se haya revisado hoy', async () => {
+    const m = montar({ hoy, senal: () => respuesta(false, false), tablas: { ...base, 'oficina_alertas_estado:senal': [{ clave: 'senal:FSLR', valor: { fecha_revisada: hoy, confirmada: false } }] } });
+    await ejecutarAlertasOficina(m.deps, ['FSLR']);
+    expect(m.consultas).toEqual(['FSLR']);
+  });
+});
+
