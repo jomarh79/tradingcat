@@ -507,3 +507,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Un ticker marcado PCP se revisa aunque su señal de PMP ya se haya revisado hoy. La alerta de PMP no cambia.
 - A mano: un pegado en `supabase/functions/update-ia/index.ts` (ver `alertas/PEGADOS-v068.md`).
 - Pendiente (v0.69): señal de salida y «zona de posible recompra» para posiciones PCP abiertas.
+
+## v0.68b: watchlist con casillas PMP y PCP
+- Columna «Portafolio»: dos casillas (PMP, PCP) en vez del selector de 5 opciones. Se pueden marcar las dos. `lib/portafolios-watchlist.ts` (+ test) y `app/watchlist/PortafoliosCasillas.tsx`.
+- Los códigos viejos (PLP, ETF, SEMILLA) que un ticker ya tuviera guardados se muestran en gris («+PLP») y se conservan al marcar o desmarcar; la pantalla ya no ofrece marcarlos nuevos.
+- ▶ con PMP y PCP marcados: corre PMP (50 USD) y luego PCP (25 USD), una tras otra, y la ventana muestra el resultado de cada una. Un 429 se reintenta una vez a los 12 s. Con un solo portafolio marcado corre directo, como antes; con otra mezcla (p. ej. PMP + PLP) sigue el selector manual.
+- Se guarda en la misma columna `watchlist.portafolios` (arreglo): la Oficina y la alerta de entrada PCP la leen igual.

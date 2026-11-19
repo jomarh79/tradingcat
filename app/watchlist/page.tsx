@@ -15,6 +15,7 @@ import { authedFetch } from "@/lib/authed-fetch";
 import BotonAprobarFicha from './BotonAprobarFicha'
 import BotonAnalizarOficina from './BotonAnalizarOficina'
 import CompetidoresCeldas from './CompetidoresCeldas'
+import PortafoliosCasillas from './PortafoliosCasillas'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -73,7 +74,6 @@ type EditableField = 'buy_target' | 'analyst_target' | 'notes' | 'competidores'
 
 // Datos que lee la Oficina de Inversiones IA (rol, portafolios, competidores y Notas como descripción del negocio)
 const ROLES = ['flujo', 'crecimiento', 'mixto'] as const
-const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 
 const SORT_OPTIONS: { key: SortField; label: string }[] = [
   { key: 'buy_target',     label: 'Mi objetivo (distancia)' },
@@ -447,6 +447,7 @@ export default function WatchlistIAPage() {
     }
   }
 
+  // `codigo`: lista separada por comas (vacío = ninguno)
   const cambiarPortafolio = async (id: number, codigo: string) => {
     const previo = list.find(i => i.id === id)?.portafolios ?? null
     const nuevo = codigo === '' ? [] : codigo.split(',')
@@ -587,20 +588,10 @@ export default function WatchlistIAPage() {
       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
     </select>
   )
-  // Un solo portafolio por ticker, como el rol (se guarda como arreglo de un elemento porque así lo lee la Oficina).
-  // Si un ticker ya tenía varios guardados, se muestran juntos hasta que elijas uno.
-  const portafolioSelect = (item: WatchItem, estilo: React.CSSProperties) => {
-    const actuales = item.portafolios ?? []
-    const valor = actuales.join(',')
-    const esMulti = actuales.length > 1
-    return (
-      <select value={valor} onChange={e => cambiarPortafolio(item.id, e.target.value)} aria-label={`Portafolio de ${item.ticker}`} style={estilo}>
-        <option value="">—</option>
-        {esMulti && <option value={valor}>{actuales.join(' + ')}</option>}
-        {PORTAFOLIOS.map(p => <option key={p} value={p}>{p}</option>)}
-      </select>
-    )
-  }
+  // Portafolios: casillas PMP y PCP (pueden ir las dos; la corrida ▶ se hace para ambos). Se guarda como arreglo, igual que antes.
+  const portafolioSelect = (item: WatchItem, ancho = false) => (
+    <PortafoliosCasillas ticker={item.ticker} valor={item.portafolios} ancho={ancho} onCambiar={nuevo => cambiarPortafolio(item.id, nuevo.join(','))} />
+  )
 
   // ── Tarjeta del celular ──
   const renderCard = (item: EnrichedItem) => {
@@ -702,7 +693,7 @@ export default function WatchlistIAPage() {
         {/* Rol y portafolios (los lee la Oficina) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
           <Metric label="Rol">{rolSelect(item, { ...mobInp, padding: '8px 6px' })}</Metric>
-          <Metric label="Portafolio">{portafolioSelect(item, { ...mobInp, padding: '8px 6px' })}</Metric>
+          <Metric label="Portafolio">{portafolioSelect(item, true)}</Metric>
         </div>
 
         {/* Competidores */}
@@ -1031,7 +1022,7 @@ export default function WatchlistIAPage() {
                     <td style={tdStyle}>{rolSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
 
                     {/* Portafolios */}
-                    <td style={tdStyle}>{portafolioSelect(item, { ...inpStyle, width: 105, padding: '4px 6px', fontSize: '0.75rem', flex: 'unset', minWidth: 'unset' })}</td>
+                    <td style={tdStyle}>{portafolioSelect(item)}</td>
 
                     {/* Competidores — editable directo en la celda */}
                     <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 190 }}>

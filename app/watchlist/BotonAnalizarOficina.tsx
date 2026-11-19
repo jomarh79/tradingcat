@@ -4,12 +4,14 @@ import { useState } from 'react'
 import { Play } from 'lucide-react'
 import { authedFetch } from '@/lib/authed-fetch'
 import { tieneCompetidor } from '@/lib/competidores'
+import { portafoliosParaCorrida } from '@/lib/portafolios-watchlist'
 
 // Botón «Analizar en la Oficina» de la watchlist y de Trades abiertos: hace lo mismo que analizar-fundamental.ps1 (con -ConToken -Guardar), sin abrir PowerShell.
 // Todo el código vive aquí; la página solo dibuja <BotonAnalizarOficina ticker=... portafolios=... />.
 // v0.61: el portafolio ya está declarado en la fila (watchlist: campo Portafolios; Trades abiertos: su portafolio) y el monto es fijo por portafolio, así que al dar clic
 // el análisis arranca de inmediato y se abre la ventana con el avance y el resultado. Solo si el portafolio no se puede decidir solo (ninguno, o más de uno marcado)
 // se abre la ventana con el selector, como antes.
+// v0.68b: si la fila tiene PMP y PCP marcados, la corrida se hace para AMBOS, una tras otra (primero PMP), y la ventana muestra el resultado de cada uno.
 
 const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 // Monto fijo por portafolio. PLP y ETF no llevan monto (sus activos ya están comprados; una sustitución entra con lo que dejó la venta), y una posición abierta tampoco.
@@ -48,11 +50,18 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
   const [res, setRes] = useState<Resultado | null>(null)
   const [fallo, setFallo] = useState('')
   const [elegirAMano, setElegirAMano] = useState(false)
+  // Corrida para varios portafolios (PMP y PCP marcados): lista a correr, el que va en marcha y los resultados ya listos
+  const [modoLote, setModoLote] = useState<string[] | null>(null)
+  const [loteActual, setLoteActual] = useState('')
+  const [loteRes, setLoteRes] = useState<{ portafolio: string; res: Resultado | null; fallo: string }[]>([])
 
   const abrir = () => {
     if (corriendo) { setAbierto(true); return }
     // Watchlist: una corrida necesita al menos un competidor (Trades abiertos no pasa la prop y no se exige)
     if (competidores !== undefined && !tieneCompetidor(competidores)) { alert('Agrega al menos un competidor (hasta 4) en la fila de ' + ticker + ' antes de analizar'); return }
+    const lote = abierta ? null : portafoliosParaCorrida(portafolios)
+    if (lote !== null && lote.length >= 2) { setModoLote(lote); setLoteRes([]); setRes(null); setFallo(''); setElegirAMano(false); setAbierto(true); void analizarLote(lote); return }
+    setModoLote(null)
     const c = candidatos()
     const p = elegir()
     setPortafolio(p); setMonto(montoPor(p)); setRes(null); setFallo(''); setAbierto(true)
@@ -61,23 +70,49 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
   }
   const cambiarPortafolio = (p: string) => { setPortafolio(p); setMonto(montoPor(p)) }
 
-  const analizar = async (portafolioUsado: string = portafolio, montoUsado: string = monto) => {
+  // Una llamada al análisis de un portafolio. Un 429 (demasiado pronto) se reintenta una vez tras unos segundos.
+  const llamar = async (portafolioUsado: string, montoUsado: string): Promise<{ res: Resultado | null; fallo: string }> => {
     const m = montoUsado.trim()
-    if (m !== '' && !/^\d{1,9}(\.\d{1,2})?$/.test(m)) { setFallo('El monto debe ser un número positivo en USD con hasta 2 decimales'); return }
+    if (m !== '' && !/^\d{1,9}(\.\d{1,2})?$/.test(m)) return { res: null, fallo: 'El monto debe ser un número positivo en USD con hasta 2 decimales' }
+    for (let intento = 0; intento < 2; intento++) {
+      try {
+        const r = await authedFetch('/api/oficina/analisis-fundamental', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
+        })
+        if (r.status === 429 && intento === 0) { await new Promise(x => setTimeout(x, 12000)); continue }
+        if (r.status === 429) return { res: null, fallo: 'Espera unos segundos entre un análisis y otro y vuelve a intentar' }
+        const j = (await r.json().catch(() => null)) as Resultado | null
+        if (!j) return { res: null, fallo: `El servidor respondió ${r.status} sin detalle` }
+        return { res: j, fallo: '' }
+      } catch {
+        return { res: null, fallo: 'No se pudo conectar con el servidor (el análisis puede seguir en marcha: revísalo en /oficina en un minuto)' }
+      }
+    }
+    return { res: null, fallo: 'Espera unos segundos entre un análisis y otro y vuelve a intentar' }
+  }
+
+  const analizar = async (portafolioUsado: string = portafolio, montoUsado: string = monto) => {
     setCorriendo(true); setRes(null); setFallo('')
     try {
-      const r = await authedFetch('/api/oficina/analisis-fundamental', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
-      })
-      const j = (await r.json().catch(() => null)) as Resultado | null
-      if (!j) { setFallo(`El servidor respondió ${r.status} sin detalle`); return }
-      if (r.status === 429) { setFallo('Espera unos segundos entre un análisis y otro y vuelve a intentar'); return }
-      setRes(j)
-    } catch {
-      setFallo('No se pudo conectar con el servidor (el análisis puede seguir en marcha: revísalo en /oficina en un minuto)')
+      const o = await llamar(portafolioUsado, montoUsado)
+      setRes(o.res); setFallo(o.fallo)
     } finally {
       setCorriendo(false)
+    }
+  }
+
+  // PMP y PCP marcados: una corrida por portafolio, en orden, cada una con su monto fijo (PMP 50, PCP 25). El resultado de cada una queda en pantalla en cuanto termina.
+  const analizarLote = async (lista: string[]) => {
+    setCorriendo(true); setRes(null); setFallo(''); setLoteRes([])
+    try {
+      for (const p of lista) {
+        setLoteActual(p)
+        const o = await llamar(p, montoPor(p))
+        setLoteRes(prev => [...prev, { portafolio: p, res: o.res, fallo: o.fallo }])
+      }
+    } finally {
+      setLoteActual(''); setCorriendo(false)
     }
   }
 
@@ -85,6 +120,34 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
     ? { flex: 1, minHeight: 42, borderRadius: 8, border: '1px solid #1a1a1a', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#22c55e' }
     : { background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#333', display: 'flex', transition: 'color 0.2s' }
   const sel: React.CSSProperties = { background: '#000', border: '1px solid #222', color: 'white', padding: '8px 10px', borderRadius: 6, fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }
+
+  // Tarjeta con el resultado de una corrida
+  const tarjetaRes = (res: Resultado) => (
+    <div style={{ border: '1px solid #151515', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12 }}>
+                  {res.ok ? (
+                    <>
+                      <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 4 }}>Corrida guardada</div>
+                      <div style={{ color: '#ccc' }}>Decisión: <b>{etiqueta(res.decision)}</b> · Estado: {etiqueta(res.estado_final)} · Auditor: {etiqueta(res.auditoria_veredicto)}</div>
+                      {(res.motivos ?? []).slice(0, 4).map((m, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {etiqueta(m.codigo)}: {m.detalle}</div>)}
+                      {(res.avisos_datos ?? []).length > 0 && (
+                        <details style={{ marginTop: 8 }}>
+                          <summary style={{ cursor: 'pointer', color: '#888', fontSize: 11 }}>Avisos de datos ({(res.avisos_datos ?? []).length})</summary>
+                          <div style={{ maxHeight: 160, overflowY: 'auto', marginTop: 4, fontSize: 10, color: '#777' }}>
+                            {(res.avisos_datos ?? []).map((x, i) => <div key={i}>• {x}</div>)}
+                          </div>
+                        </details>
+                      )}
+                      <a href="/oficina" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 8, color: '#00bfff', textDecoration: 'none', fontWeight: 700 }}>Ver el detalle en Oficina →</a>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 700, color: '#f43f5e', marginBottom: 4 }}>No se pudo analizar{res.etapa ? ` (${res.etapa})` : ''}</div>
+                      <div style={{ color: '#ccc' }}>{res.error ?? 'Error desconocido'}</div>
+                      {(res.problemas ?? []).map((p, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {p}</div>)}
+                    </>
+                  )}
+                </div>
+  )
 
   return (
     <>
@@ -102,7 +165,11 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
               <button onClick={() => setAbierto(false)} disabled={corriendo} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: '#888', fontSize: 20, cursor: corriendo ? 'default' : 'pointer' }}>×</button>
             </div>
 
-            {elegirAMano ? (
+            {modoLote !== null ? (
+              <div style={{ fontSize: 12, color: '#ccc', marginBottom: 10 }}>
+                Corrida para <b>{modoLote.join(' + ')}</b> · {modoLote.map(p => `${p} ${montoPor(p)} USD`).join(' · ')}
+              </div>
+            ) : elegirAMano ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                 <label style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>PORTAFOLIO
                   <select value={portafolio} onChange={e => cambiarPortafolio(e.target.value)} disabled={corriendo} style={{ ...sel, marginTop: 4 }}>
@@ -118,43 +185,26 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
                 Portafolio <b>{portafolio}</b>{abierta ? ' · posición abierta' : monto !== '' ? ` · monto ${monto} USD` : ''}
               </div>
             )}
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : monto === '' && !SIN_MONTO.includes(portafolio) ? 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). ' : ''}Guarda la corrida; no compra ni vende nada.</div>
+            {modoLote !== null
+              ? <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>Una corrida por portafolio, una tras otra. Guarda las corridas; no compra ni vende nada.</div>
+              : <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>{abierta ? 'Posición abierta: no necesita monto. ' : monto === '' && !SIN_MONTO.includes(portafolio) ? 'Sin monto, el Auditor no evalúa la regla del monto (queda NO EVALUABLE). ' : ''}Guarda la corrida; no compra ni vende nada.</div>}
 
-            {corriendo && <div style={{ color: '#00bfff', fontSize: 12, marginBottom: 10 }}>Analizando… puede tardar uno o dos minutos. No cierres esta ventana.</div>}
+            {corriendo && <div style={{ color: '#00bfff', fontSize: 12, marginBottom: 10 }}>{modoLote !== null && loteActual !== '' ? `Analizando ${loteActual} (${loteRes.length + 1} de ${modoLote.length})… ` : 'Analizando… '}puede tardar uno o dos minutos por portafolio. No cierres esta ventana.</div>}
             {fallo && <div style={{ color: '#f43f5e', fontSize: 12, marginBottom: 10 }}>{fallo}</div>}
 
-            {res && (
-              <div style={{ border: '1px solid #151515', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 12 }}>
-                {res.ok ? (
-                  <>
-                    <div style={{ fontWeight: 700, color: '#22c55e', marginBottom: 4 }}>Corrida guardada</div>
-                    <div style={{ color: '#ccc' }}>Decisión: <b>{etiqueta(res.decision)}</b> · Estado: {etiqueta(res.estado_final)} · Auditor: {etiqueta(res.auditoria_veredicto)}</div>
-                    {(res.motivos ?? []).slice(0, 4).map((m, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {etiqueta(m.codigo)}: {m.detalle}</div>)}
-                    {(res.avisos_datos ?? []).length > 0 && (
-                      <details style={{ marginTop: 8 }}>
-                        <summary style={{ cursor: 'pointer', color: '#888', fontSize: 11 }}>Avisos de datos ({(res.avisos_datos ?? []).length})</summary>
-                        <div style={{ maxHeight: 160, overflowY: 'auto', marginTop: 4, fontSize: 10, color: '#777' }}>
-                          {(res.avisos_datos ?? []).map((x, i) => <div key={i}>• {x}</div>)}
-                        </div>
-                      </details>
-                    )}
-                    <a href="/oficina" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 8, color: '#00bfff', textDecoration: 'none', fontWeight: 700 }}>Ver el detalle en Oficina →</a>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontWeight: 700, color: '#f43f5e', marginBottom: 4 }}>No se pudo analizar{res.etapa ? ` (${res.etapa})` : ''}</div>
-                    <div style={{ color: '#ccc' }}>{res.error ?? 'Error desconocido'}</div>
-                    {(res.problemas ?? []).map((p, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {p}</div>)}
-                  </>
-                )}
+            {modoLote === null && res && tarjetaRes(res)}
+            {modoLote !== null && loteRes.map(x => (
+              <div key={x.portafolio} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#888', fontWeight: 900, marginBottom: 4 }}>{x.portafolio}</div>
+                {x.res ? tarjetaRes(x.res) : <div style={{ color: '#f43f5e', fontSize: 12 }}>{x.fallo}</div>}
               </div>
-            )}
+            ))}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => setAbierto(false)} disabled={corriendo} style={{ background: '#0a0a0a', color: '#aaa', border: '1px solid #222', padding: '8px 14px', borderRadius: 6, cursor: corriendo ? 'default' : 'pointer', fontSize: 13 }}>Cerrar</button>
-              <button onClick={() => { void analizar() }} disabled={corriendo}
+              <button onClick={() => { void (modoLote !== null ? analizarLote(modoLote) : analizar()) }} disabled={corriendo}
                 style={{ background: '#1b2a1b', color: '#22c55e', border: '1px solid #2d4a2d', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: corriendo ? 'default' : 'pointer', fontSize: 13, opacity: corriendo ? 0.6 : 1 }}>
-                {corriendo ? 'Analizando…' : res || fallo !== '' ? 'Analizar otra vez' : 'Analizar'}
+                {corriendo ? 'Analizando…' : res || fallo !== '' || loteRes.length > 0 ? 'Analizar otra vez' : 'Analizar'}
               </button>
             </div>
           </div>
