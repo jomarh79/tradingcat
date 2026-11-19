@@ -241,6 +241,8 @@ function pcp06(c: Ctx): Eval {
 function pcp07(c: Ctx): Eval {
   const { e } = c;
   const plan = e.posicion.plan_pcp;
+  // Apertura: la posición aún no existe; el plan se deduce de los trades una vez abierta (una compra = una_compra, con recompras = escalonado)
+  if (plan === null && e.tipo_evaluacion === 'nueva_posicion') return ok('Posición nueva: el plan se deduce de tus trades después de abrir');
   if (plan === null) return noEval('plan_no_declarado', 'La posición no declara su plan (una compra o escalonado)');
   if (e.tipo_evaluacion === 'recompra' && plan === 'una_compra') {
     return incumple('El plan de una compra no admite recompras', 'Declarar un plan escalonado al abrir (no aplica a una posición ya abierta con plan de una compra)');

@@ -424,8 +424,8 @@ describe('PCP', () => {
     expect(ap.reglas_delegadas).toContainEqual({ codigo: 'PCP-10', agente: 'tecnico' });
     expect(ap.reglas_delegadas.find((d) => d.codigo === 'PCP-04')).toBeUndefined();
   });
-  it('apertura sin plan declarado → no_evaluable (plan_no_declarado)', () => {
-    expect(res(auditar(pcp({ operacion: { accion: 'abrir', monto: '25' } })), 'PCP-07').motivo).toBe('plan_no_declarado');
+  it('apertura sin plan declarado → cumple (el plan se deduce de los trades después de abrir)', () => {
+    expect(res(auditar(pcp({ operacion: { accion: 'abrir', monto: '25' } })), 'PCP-07').resultado).toBe('cumple');
   });
 });
 

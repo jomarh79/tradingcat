@@ -489,3 +489,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - `app/watchlist/CompetidoresCeldas.tsx`: clic en la columna abre 4 casillas (Enter guarda, Esc cancela). Guarda en `watchlist.competidores` como «A, B, C».
 - `page.tsx` lee `trades` con status open para el amarillo; `BotonAnalizarOficina` bloquea ▶ si no hay ningún competidor (solo cuando la fila pasa la prop).
 - Texto existente con más de 4 tickers se recorta a 4 al guardar.
+
+## v0.67b: PCP-07 en la apertura
+- En `nueva_posicion` sin plan declarado, PCP-07 da CUMPLE («el plan se deduce de tus trades después de abrir»). Motivo: la posición aún no existe, así que no hay trades de dónde deducirlo (primera corrida real: FSLR quedó NO_EVALUABLE solo por esto).
+- Recompra / posición abierta sin plan siguen siendo NO_EVALUABLE (ahí el plan sí se deduce en v0.66).
