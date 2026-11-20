@@ -88,7 +88,7 @@ export async function POST(request: Request) {
 
   // Colores dinámicos: Verde para entradas, Rojo para Stop, Amarillo para TP
     const isEntry = type.includes('ENTRADA') || type.includes('SEÑAL')
-  const isStop = type.includes('STOP') || type.includes('VENTA')
+    const isStop = type.includes('STOP') || type.includes('VENTA') || type.includes('SALIDA')
   const accentColor = isEntry ? '#22c55e' : isStop ? '#f43f5e' : '#eab308'
 
   const safeType = esc(type)
