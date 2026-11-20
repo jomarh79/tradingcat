@@ -135,6 +135,9 @@ export function itemsDesdeFinnhub(e: EntradaFinnhub, o: { generado_en: string; a
     const anuales: Reporte[] = [];
     for (const r of rs.filter(x => x.quarter === TRIMESTRE_ANUAL)) {
       if (anuales.some(a => a.fin === r.fin)) { avisos.push(`fy${r.year}: reporte repetido para el cierre ${r.fin}, se conserva el más reciente presentado`); continue; }
+      // 19-nov: dos cierres distintos pueden traer el mismo `year` (ejercicios de 52/53 semanas o un cambio de cierre): las etiquetas fyAAAA se repetirían y el sobre sería inválido.
+      const mismoAnio = anuales.find(x => x.year === r.year);
+      if (mismoAnio !== undefined) { avisos.push(`fy${r.year}: dos cierres distintos (${mismoAnio.fin} y ${r.fin}) comparten el año fiscal; se conserva el más reciente (${mismoAnio.fin})`); continue; }
       anuales.push(r);
     }
     if (anuales.length === 0) return { ok: false, errores: ['finnhub financials-reported anual: no hay ningún reporte anual con fecha legible'] };

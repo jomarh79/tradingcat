@@ -95,6 +95,15 @@ describe('itemsDesdeFinnhub: reporte anual', () => {
     expect(porId(r.items, 'activos_totales_fy2025')).toMatchObject({ valor: 2, fuente: expect.stringContaining('10-K/A presentado 2026-04-01') });
     expect(r.avisos).toContain('fy2025: reporte repetido para el cierre 2025-12-31, se conserva el más reciente presentado');
   });
+  it('dos cierres distintos con el mismo año fiscal: se conserva el más reciente y no se repiten los ids (el sobre sería inválido)', () => {
+    const nuevo = rep(2023, 0, '10-K', '2024-01-03', '2024-02-20', [c('us-gaap_Assets', 5)], cf2025);
+    const viejo = rep(2023, 0, '10-K', '2023-12-31', '2024-02-10', [c('us-gaap_Assets', 4)], cf2025);
+    const r = ok(itemsDesdeFinnhub({ reportado: { data: [viejo, nuevo] } }, { generado_en: GEN }));
+    expect(r.items.filter(i => i.id === 'activos_totales_fy2023')).toHaveLength(1);
+    expect(porId(r.items, 'activos_totales_fy2023')).toMatchObject({ valor: 5, fecha_dato: '2024-01-03' });
+    expect(new Set(r.items.map(i => i.id)).size).toBe(r.items.length);
+    expect(r.avisos).toContain('fy2023: dos cierres distintos (2024-01-03 y 2023-12-31) comparten el año fiscal; se conserva el más reciente (2024-01-03)');
+  });
   it('ignora trimestrales en la lista anual; reportes inválidos o sin fecha se omiten con aviso', () => {
     const r = ok(itemsDesdeFinnhub({ reportado: anual([rep(2026, 3, '10-Q', '2026-09-30', '2026-10-28', bs2025, cf2025), 'x', { year: 'a' }, { ...rep(2024, 0, '10-K', 'no-es-fecha', '2025-02-01', bs2025, cf2025), endDate: 'no es fecha' }]) }, { generado_en: GEN }));
     expect(porId(r.items, 'efectivo_t3_2026')).toBeUndefined();

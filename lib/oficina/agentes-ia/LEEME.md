@@ -513,3 +513,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Los códigos viejos (PLP, ETF, SEMILLA) que un ticker ya tuviera guardados se muestran en gris («+PLP») y se conservan al marcar o desmarcar; la pantalla ya no ofrece marcarlos nuevos.
 - ▶ con PMP y PCP marcados: corre PMP (50 USD) y luego PCP (25 USD), una tras otra, y la ventana muestra el resultado de cada una. Un 429 se reintenta una vez a los 12 s. Con un solo portafolio marcado corre directo, como antes; con otra mezcla (p. ej. PMP + PLP) sigue el selector manual.
 - Se guarda en la misma columna `watchlist.portafolios` (arreglo): la Oficina y la alerta de entrada PCP la leen igual.
+
+## v0.68c: dos arreglos de la primera corrida PMP + PCP
+- Finnhub: dos cierres distintos con el mismo `year` (ejercicio de 52/53 semanas o cambio de cierre) generaban ids repetidos (`efectivo_fy2023`…) y el sobre del Fundamental era inválido («items[92].id repetido»). Ahora se conserva el cierre más reciente y se avisa (`fyAAAA: dos cierres distintos… comparten el año fiscal`). Test nuevo en `datos-finnhub.test.ts`.
+- Botón ▶ con PMP + PCP: el servidor exige 30 s entre análisis contados desde que EMPIEZA el anterior; si PMP fallaba pronto, PCP recibía 429 y el reintento de 12 s no alcanzaba. Ahora se espera lo que falte hasta 31 s entre un portafolio y otro, y el reintento ante un 429 espera 31 s.

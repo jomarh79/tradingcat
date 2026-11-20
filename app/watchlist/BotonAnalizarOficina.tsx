@@ -17,6 +17,9 @@ const PORTAFOLIOS = ['PMP', 'PCP', 'PLP', 'ETF', 'SEMILLA'] as const
 // Monto fijo por portafolio. PLP y ETF no llevan monto (sus activos ya están comprados; una sustitución entra con lo que dejó la venta), y una posición abierta tampoco.
 const MONTO_POR_PORTAFOLIO: Record<string, string> = { PMP: '50', PCP: '25', SEMILLA: '5' }
 const SIN_MONTO = ['PLP', 'ETF']
+// El servidor pide 30 s entre un análisis y otro (cuenta desde que EMPIEZA el anterior): un análisis que falla pronto deja la siguiente llamada dentro de esa espera.
+const ESPERA_ENTRE_ANALISIS_MS = 31_000
+const ESPERA_REINTENTO_MS = 31_000
 const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '—')
 
 interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[] }
@@ -80,7 +83,7 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
         })
-        if (r.status === 429 && intento === 0) { await new Promise(x => setTimeout(x, 12000)); continue }
+        if (r.status === 429 && intento === 0) { await new Promise(x => setTimeout(x, ESPERA_REINTENTO_MS)); continue }
         if (r.status === 429) return { res: null, fallo: 'Espera unos segundos entre un análisis y otro y vuelve a intentar' }
         const j = (await r.json().catch(() => null)) as Resultado | null
         if (!j) return { res: null, fallo: `El servidor respondió ${r.status} sin detalle` }
@@ -106,8 +109,12 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
   const analizarLote = async (lista: string[]) => {
     setCorriendo(true); setRes(null); setFallo(''); setLoteRes([])
     try {
+      let inicioAnterior = 0
       for (const p of lista) {
         setLoteActual(p)
+        const falta = inicioAnterior === 0 ? 0 : ESPERA_ENTRE_ANALISIS_MS - (Date.now() - inicioAnterior)
+        if (falta > 0) await new Promise(x => setTimeout(x, falta))
+        inicioAnterior = Date.now()
         const o = await llamar(p, montoPor(p))
         setLoteRes(prev => [...prev, { portafolio: p, res: o.res, fallo: o.fallo }])
       }
