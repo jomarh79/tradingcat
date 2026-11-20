@@ -1,7 +1,7 @@
 // Pruebas de la v0.14: Analista Técnico (velas de chart-data, sobre, validador, puerto y guardado). Base, modelo y red falsos: nunca se llama a la red.
 import { describe, expect, it } from 'vitest';
 import {
-  AGENTE_TECNICO, ESQUEMA_TECNICO, PROMPT_TECNICO, TOPE_CONFIANZA_CON_FALTANTES, VERSION_PROMPT_TECNICO, crearPuertoAnalista, ejecutarAnalisisGuardado, extraerVelas, filaAnalisisIa,
+  AGENTE_TECNICO, ESQUEMA_TECNICO, completarDatosFuente, PROMPT_TECNICO, TOPE_CONFIANZA_CON_FALTANTES, VERSION_PROMPT_TECNICO, crearPuertoAnalista, ejecutarAnalisisGuardado, extraerVelas, filaAnalisisIa,
   itemsDesdeSnapshotTecnico, mensajeTecnicoParaModelo, obtenerVelas, validarSalidaTecnicoIa, validarSobreTecnico,
 } from './index';
 import type { FetchDatos, SobreTecnicoValido } from './index';
@@ -272,6 +272,17 @@ describe('v0.14: validador de la salida del Técnico', () => {
     expect(errs(con(s, { datos_fuente: [{ ...c, fecha_dato: 'ayer' }] }), s).some(e => e.includes('sin fuente o fecha_dato'))).toBe(true);
     expect(errs(con(s, { datos_fuente: 'x' }), s)).toContain('datos_fuente debe ser una lista');
     expect(errs(con(s, { datos_fuente: [5] }), s)).toContain('datos_fuente[0] no es objeto');
+  });
+  it('completarDatosFuente (19-nov): agrega los items calculados que el modelo citó pero olvidó listar; un id inexistente no se toca y se sigue rechazando', () => {
+    const h = [{ id: 'h1', tipo: 'neutral', texto: 'x', evidencia: ['ind_rsi14', 'inventado_x'] }];
+    const sal = con(s, { hallazgos: h });
+    const arreglada = completarDatosFuente(sal, s) as Record<string, unknown>;
+    expect((arreglada['datos_fuente'] as { id: string }[]).map(d => d.id)).toEqual(['cierre_ultima_vela_diaria', 'ind_rsi14']);
+    expect((sal['datos_fuente'] as unknown[]).length).toBe(1);   // la salida original no se modifica
+    expect(errs(arreglada, s).some(e => e.includes('inventado_x'))).toBe(true);
+    const solo = completarDatosFuente(con(s, { hallazgos: [{ ...h[0]!, evidencia: ['ind_rsi14'] }] }), s);
+    expect(validarSalidaTecnicoIa(solo, s)).toMatchObject({ ok: true });
+    expect(completarDatosFuente('x', s)).toBe('x');
   });
   it('hallazgos: evidencia obligatoria y cifras citadas', () => {
     expect(errs(con(s, { hallazgos: [{ id: 'h1', tipo: 'neutral', texto: 'x', evidencia: ['ind_rsi14'] }] }), s).some(e => e.includes('no está en datos_fuente'))).toBe(true);

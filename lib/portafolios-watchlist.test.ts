@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { alternarPortafolio, portafoliosAjenos, portafoliosParaCorrida } from './portafolios-watchlist';
+import { portafoliosDeRol, portafoliosParaCorrida } from './portafolios-watchlist';
 
-describe('portafolios de la watchlist (casillas PMP y PCP)', () => {
-  it('marca y desmarca, siempre en el orden PMP, PCP', () => {
-    expect(alternarPortafolio(null, 'PCP', true)).toEqual(['PCP']);
-    expect(alternarPortafolio(['PCP'], 'PMP', true)).toEqual(['PMP', 'PCP']);
-    expect(alternarPortafolio(['PMP', 'PCP'], 'PMP', false)).toEqual(['PCP']);
-    expect(alternarPortafolio(['PCP'], 'PCP', false)).toEqual([]);
+describe('portafolios de la watchlist según el rol', () => {
+  it('crecimiento activa PCP, flujo activa PMP, mixto activa PMP y PCP (en ese orden)', () => {
+    expect(portafoliosDeRol('crecimiento')).toEqual(['PCP']);
+    expect(portafoliosDeRol('flujo')).toEqual(['PMP']);
+    expect(portafoliosDeRol('mixto')).toEqual(['PMP', 'PCP']);
   });
-  it('marcar dos veces no duplica', () => {
-    expect(alternarPortafolio(['PMP'], 'PMP', true)).toEqual(['PMP']);
+  it('sin rol o con un rol desconocido no activa ninguno', () => {
+    expect(portafoliosDeRol(null)).toEqual([]);
+    expect(portafoliosDeRol(undefined)).toEqual([]);
+    expect(portafoliosDeRol('')).toEqual([]);
+    expect(portafoliosDeRol('otro')).toEqual([]);
   });
-  it('conserva los códigos que esta pantalla no maneja (PLP, ETF, SEMILLA)', () => {
-    expect(alternarPortafolio(['PLP'], 'PCP', true)).toEqual(['PCP', 'PLP']);
-    expect(alternarPortafolio(['PMP', 'SEMILLA'], 'PMP', false)).toEqual(['SEMILLA']);
-    expect(portafoliosAjenos(['PMP', 'PLP', 'ETF'])).toEqual(['PLP', 'ETF']);
-    expect(portafoliosAjenos(null)).toEqual([]);
+  it('devuelve una copia: modificarla no altera el mapa', () => {
+    portafoliosDeRol('mixto').push('PCP');
+    expect(portafoliosDeRol('mixto')).toEqual(['PMP', 'PCP']);
   });
   it('la corrida directa solo cuando hay PMP y/o PCP y nada más', () => {
     expect(portafoliosParaCorrida(['PCP', 'PMP'])).toEqual(['PMP', 'PCP']);

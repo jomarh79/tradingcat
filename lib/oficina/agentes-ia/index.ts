@@ -33,7 +33,7 @@ export type { ClienteGuardado } from './analisis-guardado';
 export { construirSobreFundamental } from './prueba-fundamental';
 export type { ParamsSobre, ResultadoSobre } from './prueba-fundamental';
 export { itemsDesdeSnapshotTecnico } from './datos-tecnico';
-export { mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
+export { completarDatosFuente, mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
 export type { SalidaTecnicoIa, SobreTecnicoValido } from './validar-tecnico';
 export { extraerVelas, obtenerVelas } from './datos-velas';
 export type { ResultadoVelas, VelasObtenidas } from './datos-velas';

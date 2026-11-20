@@ -15,7 +15,8 @@ import { authedFetch } from "@/lib/authed-fetch";
 import BotonAprobarFicha from './BotonAprobarFicha'
 import BotonAnalizarOficina from './BotonAnalizarOficina'
 import CompetidoresCeldas from './CompetidoresCeldas'
-import PortafoliosCasillas from './PortafoliosCasillas'
+import PortafoliosEtiquetas from './PortafoliosEtiquetas'
+import { portafoliosDeRol } from '@/lib/portafolios-watchlist'
 
 const posAmount = (v: string) => v.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1')
 
@@ -436,27 +437,18 @@ export default function WatchlistIAPage() {
   }
 
   // ── Rol y portafolios (los lee la Oficina). Cambio inmediato; si la base falla se regresa al valor anterior ──
+  // El rol decide los portafolios (crecimiento = PCP, flujo = PMP, mixto = los dos): se guardan juntos en una sola actualización
   const cambiarRol = async (id: number, rol: string) => {
-    const previo = list.find(i => i.id === id)?.rol ?? null
+    const previoItem = list.find(i => i.id === id)
+    const previo = previoItem?.rol ?? null
+    const previoPortafolios = previoItem?.portafolios ?? null
     const nuevo = rol === '' ? null : rol
-    setList(prev => prev.map(i => i.id === id ? { ...i, rol: nuevo } : i))
-    const { error } = await supabase.from('watchlist').update({ rol: nuevo }).eq('id', id)
+    const portafolios: string[] = portafoliosDeRol(nuevo)
+    setList(prev => prev.map(i => i.id === id ? { ...i, rol: nuevo, portafolios } : i))
+    const { error } = await supabase.from('watchlist').update({ rol: nuevo, portafolios }).eq('id', id)
     if (error) {
       alert('No se pudo guardar el rol: ' + error.message)
-      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, rol: previo } : i))
-    }
-  }
-
-  // `codigo`: lista separada por comas (vacío = ninguno)
-  const cambiarPortafolio = async (id: number, codigo: string) => {
-    const previo = list.find(i => i.id === id)?.portafolios ?? null
-    const nuevo = codigo === '' ? [] : codigo.split(',')
-    if (previo && previo.join(',') === nuevo.join(',')) return
-    setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: nuevo } : i))
-    const { error } = await supabase.from('watchlist').update({ portafolios: nuevo }).eq('id', id)
-    if (error) {
-      alert('No se pudo guardar el portafolio: ' + error.message)
-      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, portafolios: previo } : i))
+      if (alive.current) setList(prev => prev.map(i => i.id === id ? { ...i, rol: previo, portafolios: previoPortafolios } : i))
     }
   }
 
@@ -588,9 +580,9 @@ export default function WatchlistIAPage() {
       {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
     </select>
   )
-  // Portafolios: casillas PMP y PCP (pueden ir las dos; la corrida ▶ se hace para ambos). Se guarda como arreglo, igual que antes.
+  // Portafolios: solo se muestran (verde = considerado, gris = no); los decide el rol
   const portafolioSelect = (item: WatchItem, ancho = false) => (
-    <PortafoliosCasillas ticker={item.ticker} valor={item.portafolios} ancho={ancho} onCambiar={nuevo => cambiarPortafolio(item.id, nuevo.join(','))} />
+    <PortafoliosEtiquetas ticker={item.ticker} activos={portafoliosDeRol(item.rol)} ancho={ancho} />
   )
 
   // ── Tarjeta del celular ──
@@ -725,7 +717,7 @@ export default function WatchlistIAPage() {
             style={{ ...actionBase, color: '#00bfff' }}>
             <FileText size={18} />
           </a>
-          <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} competidores={item.competidores} grande />
+          <BotonAnalizarOficina ticker={item.ticker} portafolios={portafoliosDeRol(item.rol)} competidores={item.competidores} grande />
           <BotonAprobarFicha ticker={item.ticker} grande />
           <button onClick={() => refreshTicker(item.ticker, item.last_updated)} disabled={!canRefresh} aria-label="Reanalizar"
             title={
@@ -1071,7 +1063,7 @@ export default function WatchlistIAPage() {
                           onMouseLeave={e => (e.currentTarget.style.color = '#333')}>
                           <FileText size={14} />
                         </a>
-                        <BotonAnalizarOficina ticker={item.ticker} portafolios={item.portafolios} competidores={item.competidores} />
+                        <BotonAnalizarOficina ticker={item.ticker} portafolios={portafoliosDeRol(item.rol)} competidores={item.competidores} />
                         <BotonAprobarFicha ticker={item.ticker} />
                         <button
                           onClick={() => refreshTicker(item.ticker, item.last_updated)}

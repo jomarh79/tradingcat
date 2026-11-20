@@ -14,7 +14,7 @@ import { resumirErrores } from './utilidades';
 import type { Validacion } from './validar-fundamental';
 import { validarSalidaFundamental, validarSobreFundamental } from './validar-fundamental';
 import { validarContextoDirector, validarSalidaDirector } from './validar-director';
-import { mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
+import { completarDatosFuente, mensajeTecnicoParaModelo, validarSalidaTecnicoIa, validarSobreTecnico } from './validar-tecnico';
 import type { ContextoDirector, Puertos, RespuestaAgente } from '../orquestador/corrida';
 import type { Agente } from '../motor/tipos';
 
@@ -66,7 +66,7 @@ async function analistaTecnico(o: OpcionesPuertosIa, sobre: unknown): Promise<Re
   const ejec = await ejecutarConValidacion({
     llamar: o.llamar, modelo: o.modelo_analista, esquema_nombre: ESQUEMA_NOMBRE_TECNICO, esquema: ESQUEMA_TECNICO,
     mensajes: [{ role: 'system', content: PROMPT_TECNICO }, { role: 'user', content: JSON.stringify(mensajeTecnicoParaModelo(s.valor)) }],
-    validar: json => validarSalidaTecnicoIa(json, s.valor),
+    validar: json => validarSalidaTecnicoIa(completarDatosFuente(json, s.valor), s.valor),
   }).catch((e: unknown) => ({ ok: false as const, error: msg(e) }));
   if (!ejec.ok) return { estado: 'error', error: ejec.error, proveedor, modelo: o.modelo_analista };
   const tra: TrazabilidadIa = {

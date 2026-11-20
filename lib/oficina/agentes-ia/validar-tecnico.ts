@@ -95,6 +95,27 @@ export function afirmaDentroDeZona(texto: string): boolean {
   return false;
 }
 
+/** Paso mecánico ANTES de validar (19-nov): si un hallazgo cita en `evidencia` un id que SÍ existe en los datos calculados por código pero el modelo olvidó listarlo en
+ *  `datos_fuente`, se agrega ese item idéntico al calculado. No inventa nada ni cambia el veredicto, los textos ni las cifras; un id que no existe en los datos
+ *  calculados no se toca (la validación lo rechaza). Devuelve una copia; la salida original no se modifica. */
+export function completarDatosFuente(x: unknown, sobre: SobreTecnicoValido): unknown {
+  if (!esObjeto(x) || !Array.isArray(x['datos_fuente']) || !Array.isArray(x['hallazgos'])) return x;
+  const presentes = new Set((x['datos_fuente'] as unknown[]).map(d => (esObjeto(d) && typeof d['id'] === 'string' ? d['id'] : '')));
+  const porId = new Map<string, ItemDato>(sobre.items.map(i => [i.id, i]));
+  const faltan: ItemDato[] = [];
+  for (const h of x['hallazgos'] as unknown[]) {
+    if (!esObjeto(h) || !Array.isArray(h['evidencia'])) continue;
+    for (const id of h['evidencia'] as unknown[]) {
+      if (typeof id !== 'string' || presentes.has(id)) continue;
+      const orig = porId.get(id);
+      if (orig === undefined) continue;
+      presentes.add(id);
+      faltan.push(orig);
+    }
+  }
+  return faltan.length === 0 ? x : { ...x, datos_fuente: [...(x['datos_fuente'] as unknown[]), ...faltan] };
+}
+
 export function validarSalidaTecnicoIa(x: unknown, sobre: SobreTecnicoValido): Validacion<SalidaTecnicoIa> {
   const e: string[] = [];
   if (!esObjeto(x)) return { ok: false, errores: ['la salida no es un objeto'] };
