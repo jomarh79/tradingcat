@@ -67,11 +67,11 @@ describe('copia en la Edge Function', () => {
   });
 });
 
-import { ejecutarAlertasOficina, TIPO_ALERTA_PMP11, TIPO_ALERTA_SENAL, TIPO_ALERTA_SENAL_PCP } from './alertas-oficina';
-import type { DepsAlertas, RespuestaSenal } from './alertas-oficina';
+import { decidirSalidaPcp, ejecutarAlertasOficina, firmaSalidaPcp, leerEstadoSalidaPcp, TIPO_ALERTA_PMP11, TIPO_ALERTA_RECOMPRA_PCP, TIPO_ALERTA_SALIDA_PCP, TIPO_ALERTA_SENAL, TIPO_ALERTA_SENAL_PCP } from './alertas-oficina';
+import type { DepsAlertas, RespuestaSalidaPcp, RespuestaSenal } from './alertas-oficina';
 
-function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => RespuestaSenal; correoOk?: boolean; abierto?: boolean; hoy?: string } = {}) {
-  const enviados: Record<string, unknown>[] = []; const guardados: Record<string, unknown> = {}; const consultas: string[] = []; const logs: string[] = [];
+function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => RespuestaSenal; salida?: (t: string) => RespuestaSalidaPcp | null; correoOk?: boolean; abierto?: boolean; hoy?: string } = {}) {
+  const salidasConsultadas: Record<string, unknown>[] = []; const enviados: Record<string, unknown>[] = []; const guardados: Record<string, unknown> = {}; const consultas: string[] = []; const logs: string[] = [];
   const tablas: Record<string, unknown[]> = {
     'oficina_portafolios_config': [{ portfolio_id: 'P1', codigo: 'PMP' }],
     'oficina_v_posiciones': [{ portfolio_id: 'P1', ticker: 'META' }, { portfolio_id: 'P9', ticker: 'SPY' }],
@@ -81,13 +81,17 @@ function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => 
   let ms = 0;
   const deps: DepsAlertas = {
     hoy: o.hoy ?? '2027-04-10', mercadoAbierto: o.abierto ?? true,
-    leer: async ruta => (ruta.includes('clave=like.pmp11') ? tablas['oficina_alertas_estado:pmp11']! : ruta.includes('clave=like.senal_pcp') ? (tablas['oficina_alertas_estado:senal_pcp'] ?? []) : ruta.includes('clave=like.senal') ? tablas['oficina_alertas_estado:senal']! : (tablas[ruta.split('?')[0]!] ?? null)),
+    leer: async ruta => (ruta.includes('clave=like.pmp11') ? tablas['oficina_alertas_estado:pmp11']! : ruta.includes('clave=like.salida_pcp') ? (tablas['oficina_alertas_estado:salida_pcp'] ?? []) : ruta.includes('clave=like.senal_pcp') ? (tablas['oficina_alertas_estado:senal_pcp'] ?? []) : ruta.includes('clave=like.senal') ? tablas['oficina_alertas_estado:senal']! : (tablas[ruta.split('?')[0]!] ?? null)),
     guardarEstado: async (c, v) => { guardados[c] = v; return true; },
     enviar: async p => { enviados.push(p); return o.correoOk ?? true; },
     consultarSenal: async t => { consultas.push(t); return (o.senal ?? (() => ({ ok: true, confirmada: true, senales_cumplidas: ['EMA8_SOBRE_EMA21', 'NIVEL_PASADO'], senales_minimas: 2, cierre: 100, fecha_vela: '2027-04-09' })))(t); },
     esperar: async () => { ms += 15000; }, ahoraMs: () => ms, log: m => logs.push(m),
   };
-  return { deps, enviados, guardados, consultas, logs };
+  if (o.salida !== undefined) {
+    const f = o.salida;
+    deps.consultarSalidaPcp = async e => { salidasConsultadas.push(e as unknown as Record<string, unknown>); return f(e.ticker) ?? { ok: false, error: 'HTTP 502' }; };
+  }
+  return { deps, enviados, guardados, consultas, logs, salidasConsultadas };
 }
 
 describe('orquestación de alertas (v0.59)', () => {
@@ -214,6 +218,97 @@ describe('señal de entrada de PCP (v0.68)', () => {
     const m = montar({ hoy, senal: () => respuesta(false, false), tablas: { ...base, 'oficina_alertas_estado:senal': [{ clave: 'senal:FSLR', valor: { fecha_revisada: hoy, confirmada: false } }] } });
     await ejecutarAlertasOficina(m.deps, ['FSLR']);
     expect(m.consultas).toEqual(['FSLR']);
+  });
+});
+
+describe('salida y zona de recompra de PCP (v0.69)', () => {
+  const hoy = '2026-11-19';
+  const sal = (extra: Partial<Extract<RespuestaSalidaPcp, { ok: true }>> = {}): RespuestaSalidaPcp => ({
+    ok: true, fecha_vela: '2026-11-18', cierre: 150.98, decision: null, porcentaje: null, motivo: null, nivel: null, detalle: null, zona_recompra: false, recompras_restantes: null, costo_promedio: '140', stop: '130', ...extra,
+  });
+  const vender = sal({ decision: 'VENDER', porcentaje: 100, motivo: 'nivel_planeado', nivel: 'TP1 = 150', detalle: 'el precio llegó al nivel planeado' });
+  const zona = sal({ zona_recompra: true, recompras_restantes: 2, cierre: 125 });
+  const trade = { id: 'T1', ticker: 'FSLR', portfolio_id: 'P2', entry_price: 140, initial_quantity: 0.2, take_profit_1: 150, stop_loss: 130 };
+  const tablas = (extra: Record<string, unknown[]> = {}): Record<string, unknown[]> => ({
+    'oficina_v_posiciones': [], 'oficina_portafolios_config': [{ portfolio_id: 'P2', codigo: 'PCP' }],
+    trades: [trade, { id: 'T9', ticker: 'META', portfolio_id: 'P1' }],
+    trade_executions: [{ id: 'E1', trade_id: 'T1', execution_type: 'buy' }, { id: 'E2', trade_id: 'T9', execution_type: 'buy' }],
+    oficina_expedientes: [{ ticker: 'FSLR', portfolio_id: 'P2', ficha: { plan_pcp: { estado: 'declarado', modalidad: 'una_compra' } } }],
+    ...extra,
+  });
+
+  it('la firma resume lo que dice el plan hoy', () => {
+    expect(firmaSalidaPcp({ decision: 'VENDER', porcentaje: 100, motivo: 'nivel_planeado', nivel: 'TP1 = 150', zona_recompra: false })).toBe('VENDER:100:nivel_planeado:TP1 = 150');
+    expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: true })).toBe('ZONA_RECOMPRA');
+    expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: false })).toBe('NADA');
+  });
+  it('decide: avisa lo nuevo, nunca repite lo mismo, guarda «nada» y revisa una vez al día', () => {
+    expect(decidirSalidaPcp(null, 'VENDER:100:senal_salida:', hoy).accion).toBe('alertar');
+    expect(decidirSalidaPcp(null, 'NADA', hoy).accion).toBe('guardar');
+    expect(decidirSalidaPcp({ fecha_revisada: '2026-11-18', firma: 'ZONA_RECOMPRA' }, 'ZONA_RECOMPRA', hoy).accion).toBe('guardar');
+    expect(decidirSalidaPcp({ fecha_revisada: '2026-11-18', firma: 'ZONA_RECOMPRA' }, 'VENDER:100:senal_salida:', hoy).accion).toBe('alertar');
+    expect(decidirSalidaPcp({ fecha_revisada: '2026-11-18', firma: 'VENDER:100:senal_salida:' }, 'NADA', hoy).accion).toBe('guardar');   // ya no hay salida: se rearma
+    expect(decidirSalidaPcp({ fecha_revisada: hoy, firma: 'NADA' }, 'VENDER:100:senal_salida:', hoy).accion).toBe('omitir');
+    expect(leerEstadoSalidaPcp({ fecha_revisada: hoy, firma: 'NADA' })).toEqual({ fecha_revisada: hoy, firma: 'NADA' });
+    expect(leerEstadoSalidaPcp({ fecha_revisada: 'x', firma: 'NADA' })).toBeNull();
+  });
+  it('avisa una salida exigida (aunque sea la primera vez que se ve), con su tipo, el detalle y sin tocar el precio del correo', async () => {
+    const m = montar({ hoy, tablas: tablas(), salida: () => vender });
+    const r = await ejecutarAlertasOficina(m.deps, []);
+    expect(r.salidas_pcp_avisadas).toEqual(['FSLR']);
+    expect(m.enviados).toHaveLength(1);
+    expect(m.enviados[0]).toMatchObject({ ticker: 'FSLR', type: TIPO_ALERTA_SALIDA_PCP, currentPrice: 0, targetPrice: 0 });
+    expect(String(m.enviados[0]!['detalle'])).toContain('Vender 100% de FSLR');
+    expect(String(m.enviados[0]!['detalle'])).toContain('la Oficina no vende');
+    expect(m.guardados['salida_pcp:T1']).toEqual({ fecha_revisada: hoy, firma: 'VENDER:100:nivel_planeado:TP1 = 150' });
+  });
+  it('al servidor solo van el trade PCP, SUS ejecuciones y su ficha (no los de otro portafolio)', async () => {
+    const m = montar({ hoy, tablas: tablas(), salida: () => sal() });
+    await ejecutarAlertasOficina(m.deps, []);
+    expect(m.salidasConsultadas).toHaveLength(1);
+    const e = m.salidasConsultadas[0] as { ticker: string; trade: { id: string }; ejecuciones: { id: string }[]; ficha: unknown };
+    expect(e.ticker).toBe('FSLR');
+    expect(e.trade.id).toBe('T1');
+    expect(e.ejecuciones.map(x => x.id)).toEqual(['E1']);
+    expect(e.ficha).toEqual({ plan_pcp: { estado: 'declarado', modalidad: 'una_compra' } });
+  });
+  it('zona de posible recompra: aviso con tipo propio y dice que no vende', async () => {
+    const m = montar({ hoy, tablas: tablas(), salida: () => zona });
+    await ejecutarAlertasOficina(m.deps, []);
+    expect(m.enviados[0]).toMatchObject({ ticker: 'FSLR', type: TIPO_ALERTA_RECOMPRA_PCP });
+    expect(String(m.enviados[0]!['detalle'])).toContain('zona de posible recompra (hasta 2 más)');
+    expect(String(m.enviados[0]!['detalle'])).toContain('no vende');
+  });
+  it('sin nada que avisar solo guarda; con la misma firma que ya se avisó no repite', async () => {
+    const a = montar({ hoy, tablas: tablas(), salida: () => sal() });
+    await ejecutarAlertasOficina(a.deps, []);
+    expect(a.enviados).toHaveLength(0);
+    expect(a.guardados['salida_pcp:T1']).toEqual({ fecha_revisada: hoy, firma: 'NADA' });
+    const b = montar({ hoy, salida: () => vender, tablas: tablas({ 'oficina_alertas_estado:salida_pcp': [{ clave: 'salida_pcp:T1', valor: { fecha_revisada: '2026-11-18', firma: 'VENDER:100:nivel_planeado:TP1 = 150' } }] }) });
+    await ejecutarAlertasOficina(b.deps, []);
+    expect(b.enviados).toHaveLength(0);
+    expect(b.guardados['salida_pcp:T1']).toEqual({ fecha_revisada: hoy, firma: 'VENDER:100:nivel_planeado:TP1 = 150' });
+  });
+  it('si el correo no sale o el servidor falla no se guarda nada (se reintenta en la siguiente corrida)', async () => {
+    const a = montar({ hoy, tablas: tablas(), salida: () => vender, correoOk: false });
+    await ejecutarAlertasOficina(a.deps, []);
+    expect(a.guardados['salida_pcp:T1']).toBeUndefined();
+    const b = montar({ hoy, tablas: tablas(), salida: () => null });
+    const r = await ejecutarAlertasOficina(b.deps, []);
+    expect(b.guardados['salida_pcp:T1']).toBeUndefined();
+    expect(r.salidas_pcp_revisadas).toEqual(['FSLR']);
+    expect(b.logs.join(' ')).toContain('salida PCP FSLR');
+  });
+  it('sin la función de la v0.69 en la Edge Function (consultarSalidaPcp ausente) no revisa salidas y todo lo demás sigue', async () => {
+    const m = montar({ hoy, tablas: tablas() });
+    const r = await ejecutarAlertasOficina(m.deps, []);
+    expect(r.salidas_pcp_revisadas).toEqual([]);
+    expect(m.enviados).toHaveLength(0);
+  });
+  it('mercado cerrado: no consulta nada', async () => {
+    const m = montar({ hoy, abierto: false, tablas: tablas(), salida: () => vender });
+    await ejecutarAlertasOficina(m.deps, []);
+    expect(m.salidasConsultadas).toHaveLength(0);
   });
 });
 

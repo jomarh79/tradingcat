@@ -63,6 +63,9 @@ export function tocaRevisarSenal(previo: EstadoSenal | null, hoy: string): boole
   return previo === null || previo.fecha_revisada !== hoy;
 }
 
+/** Una revisión por trade y día (salida de PCP). */
+export const tocaRevisarSalida = (previo: EstadoSalidaPcp | null, hoy: string): boolean => previo === null || previo.fecha_revisada !== hoy;
+
 export type AccionSenal = 'alertar' | 'guardar' | 'omitir';
 
 /** «Nueva» = pasa de no confirmada a confirmada (≥ señales mínimas). La primera observación de un ticker solo se guarda (no avisa, para no inundar al activar).
@@ -75,6 +78,34 @@ export function decidirSenal(previo: EstadoSenal | null, confirmadaAhora: boolea
   return { accion: 'guardar', estado };
 }
 
+// ---------------------------------------------------------------- salida de PCP (v0.69)
+/** Estado guardado por trade: qué se avisó la última vez (`firma`) y el día de la última revisión. */
+export interface EstadoSalidaPcp { fecha_revisada: string; firma: string }
+
+export function leerEstadoSalidaPcp(valor: unknown): EstadoSalidaPcp | null {
+  if (!esObj(valor) || typeof valor['fecha_revisada'] !== 'string' || !REGEX_FECHA.test(valor['fecha_revisada']) || typeof valor['firma'] !== 'string') return null;
+  return { fecha_revisada: valor['fecha_revisada'], firma: valor['firma'] };
+}
+
+export const FIRMA_SIN_AVISO = 'NADA';
+
+/** Resume en un texto lo que el plan dice hoy: una salida concreta, la zona de recompra o nada. Si cambia, hay algo nuevo que avisar. */
+export function firmaSalidaPcp(r: { decision: string | null; porcentaje: number | null; motivo: string | null; nivel: string | null; zona_recompra: boolean }): string {
+  if (r.decision !== null) return `${r.decision}:${r.porcentaje ?? ''}:${r.motivo ?? ''}:${r.nivel ?? ''}`;
+  return r.zona_recompra ? 'ZONA_RECOMPRA' : FIRMA_SIN_AVISO;
+}
+
+/** Una revisión por trade y día. Avisa cuando la firma es algo (salida o zona) y es distinta de la última vez que se guardó (o nunca se había visto). Nunca repite el mismo aviso. */
+export function decidirSalidaPcp(previo: EstadoSalidaPcp | null, firma: string, hoy: string): { accion: AccionSenal; estado: EstadoSalidaPcp } {
+  const estado: EstadoSalidaPcp = { fecha_revisada: hoy, firma };
+  if (previo !== null && previo.fecha_revisada === hoy) return { accion: 'omitir', estado: previo };
+  if (firma !== FIRMA_SIN_AVISO && (previo === null || previo.firma !== firma)) return { accion: 'alertar', estado };
+  return { accion: 'guardar', estado };
+}
+
+const COLUMNAS_TRADE_ALERTA_PCP = 'id,ticker,portfolio_id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3,tp1_hit,tp2_hit,tp3_hit,stop_loss';
+const COLUMNAS_EJECUCIONES_ALERTA = 'id,trade_id,execution_type,price,quantity,executed_at,total';
+
 // ---------------------------------------------------------------- orquestación (con dependencias inyectadas: la Edge Function pone fetch, base de datos y correo)
 export const MAX_SENALES_POR_CORRIDA = 2;
 export const ESPERA_ENTRE_SENALES_MS = 15000; // cada ticker son 2 consultas de velas y TwelveData permite 8 por minuto
@@ -82,11 +113,21 @@ export const PRESUPUESTO_ALERTAS_MS = 50000;
 export const TIPO_ALERTA_PMP11 = '📋 REVISIÓN PMP-11 VENCIDA';
 export const TIPO_ALERTA_SENAL = '🟢 SEÑAL TÉCNICA NUEVA';
 export const TIPO_ALERTA_SENAL_PCP = '🟢 SEÑAL TÉCNICA NUEVA (PCP)';
+// v0.69. Sin las palabras ENTRADA ni SEÑAL a propósito: /api/notify las trata como una alerta de entrada.
+export const TIPO_ALERTA_SALIDA_PCP = '🔴 SALIDA PCP';
+export const TIPO_ALERTA_RECOMPRA_PCP = '🟡 ZONA DE RECOMPRA PCP';
+export const MAX_SALIDAS_PCP_POR_CORRIDA = 2;
 
 export type RespuestaSenal =
   | { ok: true; confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; cierre: number; fecha_vela: string;
       /** v0.68: señal de apertura de PCP de la misma consulta (ausente si el servidor no la manda). */
       pcp?: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number } | null }
+  | { ok: false; error: string };
+
+/** v0.69: respuesta de /api/oficina/senal-salida (mismo cálculo que la corrida de la Oficina para una posición PCP abierta). */
+export type RespuestaSalidaPcp =
+  | { ok: true; fecha_vela: string; cierre: number; decision: 'VENDER' | 'REDUCIR' | null; porcentaje: number | null; motivo: string | null; nivel: string | null; detalle: string | null;
+      zona_recompra: boolean; recompras_restantes: number | null; costo_promedio: string | null; stop: string | null }
   | { ok: false; error: string };
 
 export interface DepsAlertas {
@@ -96,17 +137,19 @@ export interface DepsAlertas {
   guardarEstado(clave: string, valor: unknown): Promise<boolean>;
   enviar(payload: Record<string, unknown>): Promise<boolean>;
   consultarSenal(ticker: string): Promise<RespuestaSenal>;
+  /** v0.69, opcional: sin ella (Edge Function sin el pegado de la v0.69) no se revisan las salidas de PCP. */
+  consultarSalidaPcp?(entrada: { ticker: string; trade: Record<string, unknown>; ejecuciones: Record<string, unknown>[]; ficha: unknown }): Promise<RespuestaSalidaPcp>;
   esperar(ms: number): Promise<void>;
   ahoraMs(): number;
   log(mensaje: string): void;
 }
-export interface ResumenAlertas { pmp11_avisadas: string[]; senales_revisadas: string[]; senales_avisadas: string[]; senales_pcp_avisadas: string[]; omitido?: string }
+export interface ResumenAlertas { pmp11_avisadas: string[]; senales_revisadas: string[]; senales_avisadas: string[]; senales_pcp_avisadas: string[]; salidas_pcp_revisadas: string[]; salidas_pcp_avisadas: string[]; omitido?: string }
 
 const filas = (v: unknown[] | null): Record<string, unknown>[] => (v ?? []).filter(esObj);
 const texto = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist: readonly string[]): Promise<ResumenAlertas> {
-  const resumen: ResumenAlertas = { pmp11_avisadas: [], senales_revisadas: [], senales_avisadas: [], senales_pcp_avisadas: [] };
+  const resumen: ResumenAlertas = { pmp11_avisadas: [], senales_revisadas: [], senales_avisadas: [], senales_pcp_avisadas: [], salidas_pcp_revisadas: [], salidas_pcp_avisadas: [] };
   if (!deps.mercadoAbierto) return { ...resumen, omitido: 'mercado cerrado' };
   const inicio = deps.ahoraMs();
 
@@ -137,6 +180,55 @@ export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist
     }
   } catch (e) {
     deps.log(`alertas PMP-11: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ---- 1b) Salida / zona de recompra de las posiciones PCP abiertas (v0.69). Lo calcula el servidor con el mismo Motor que la Oficina; aquí solo se decide si hay algo nuevo que avisar.
+  if (deps.consultarSalidaPcp !== undefined) {
+    try {
+      const cfg = filas(await deps.leer('oficina_portafolios_config?select=portfolio_id,codigo&codigo=eq.PCP'));
+      const idsPcp = new Set(cfg.map(c => texto(c['portfolio_id'])).filter(x => x !== ''));
+      if (idsPcp.size > 0) {
+        const trades = filas(await deps.leer(`trades?select=${COLUMNAS_TRADE_ALERTA_PCP}&status=eq.open`)).filter(x => idsPcp.has(texto(x['portfolio_id'])) && texto(x['id']) !== '');
+        const estadosSal = new Map<string, EstadoSalidaPcp | null>();
+        for (const f of filas(await deps.leer('oficina_alertas_estado?select=clave,valor&clave=like.salida_pcp:*'))) estadosSal.set(texto(f['clave']), leerEstadoSalidaPcp(f['valor']));
+        const pendientes = trades
+          .filter(x => tocaRevisarSalida(estadosSal.get(`salida_pcp:${texto(x['id'])}`) ?? null, deps.hoy))
+          .sort((a, b) => (estadosSal.get(`salida_pcp:${texto(a['id'])}`)?.fecha_revisada ?? '').localeCompare(estadosSal.get(`salida_pcp:${texto(b['id'])}`)?.fecha_revisada ?? '') || texto(a['id']).localeCompare(texto(b['id'])))
+          .slice(0, MAX_SALIDAS_PCP_POR_CORRIDA);
+        if (pendientes.length > 0) {
+          const ids = pendientes.map(x => texto(x['id']));
+          const ejecs = filas(await deps.leer(`trade_executions?select=${COLUMNAS_EJECUCIONES_ALERTA}&trade_id=in.(${ids.join(',')})`));
+          const exps = filas(await deps.leer('oficina_expedientes?select=ticker,portfolio_id,ficha&portafolio_codigo=eq.PCP'));
+          for (let i = 0; i < pendientes.length; i++) {
+            if (deps.ahoraMs() - inicio > PRESUPUESTO_ALERTAS_MS) { deps.log('alertas salida PCP: presupuesto de tiempo agotado; el resto queda para la siguiente corrida'); break; }
+            if (i > 0) await deps.esperar(ESPERA_ENTRE_SENALES_MS);
+            const tr = pendientes[i]!;
+            const id = texto(tr['id']); const t = texto(tr['ticker']).toUpperCase().trim();
+            if (!/^[A-Z0-9.\-]{1,10}$/.test(t)) continue;
+            const ficha = exps.find(e => texto(e['ticker']).toUpperCase() === t && texto(e['portfolio_id']) === texto(tr['portfolio_id']))?.['ficha'] ?? null;
+            const r = await deps.consultarSalidaPcp({ ticker: t, trade: tr, ejecuciones: ejecs.filter(x => texto(x['trade_id']) === id), ficha });
+            resumen.salidas_pcp_revisadas.push(t);
+            if (!r.ok) { deps.log(`salida PCP ${t}: ${r.error}`); continue; }   // sin dato: no se guarda nada, se reintenta en la siguiente corrida
+            const firma = firmaSalidaPcp(r);
+            const d = decidirSalidaPcp(estadosSal.get(`salida_pcp:${id}`) ?? null, firma, deps.hoy);
+            if (d.accion === 'alertar') {
+              const costo = r.costo_promedio !== null ? ` Costo promedio ${r.costo_promedio}.` : '';
+              const cierto = `Cierre del ${r.fecha_vela}: ${r.cierre}.`;
+              const esSalida = r.decision !== null;
+              const detalle = esSalida
+                ? `${r.decision === 'VENDER' ? 'Vender' : 'Reducir'} ${r.porcentaje ?? ''}% de ${t}: ${r.detalle ?? ''}. ${cierto}${costo} Es una propuesta: la Oficina no vende; tú decides y, al ejecutar, registra la venta y marca el TP cumplido en Trades abiertos.`
+                : `El cierre de ${t} está en o bajo tu stop${r.stop !== null ? ` (${r.stop})` : ''} en un plan escalonado: zona de posible recompra${r.recompras_restantes !== null ? ` (hasta ${r.recompras_restantes} más)` : ''}. ${cierto}${costo} Solo es un aviso: no vende; si quieres recomprar, corre la recompra en la Oficina.`;
+              const ok = await deps.enviar({ ticker: t, type: esSalida ? TIPO_ALERTA_SALIDA_PCP : TIPO_ALERTA_RECOMPRA_PCP, currentPrice: 0, targetPrice: 0, detalle });
+              if (ok && await deps.guardarEstado(`salida_pcp:${id}`, d.estado)) resumen.salidas_pcp_avisadas.push(t);   // si el correo no salió, no se guarda y se reintenta
+            } else if (d.accion === 'guardar') {
+              await deps.guardarEstado(`salida_pcp:${id}`, d.estado);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      deps.log(`alertas salida PCP: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // ---- 2) Señal técnica nueva en la watchlist (como mucho MAX_SENALES_POR_CORRIDA tickers por corrida, uno por día cada uno)

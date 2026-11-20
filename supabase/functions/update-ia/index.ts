@@ -762,6 +762,29 @@ Deno.serve(async (req: Request) => {
               };
             } catch (e) { return { ok: false as const, error: e instanceof Error ? e.name : "error" }; }
           },
+
+          consultarSalidaPcp: async (entrada) => {
+            try {
+              const r = await fetch(NOTIFY_URL.replace("/api/notify", "/api/oficina/senal-salida"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...(NOTIFY_SECRET ? { "x-notify-secret": NOTIFY_SECRET } : {}) },
+                body: JSON.stringify(entrada),
+                signal: AbortSignal.timeout(50_000),
+              });
+              const j = await r.json().catch(() => null);
+              if (!r.ok || !j?.ok) return { ok: false as const, error: String(j?.error ?? `HTTP ${r.status}`) };
+              return {
+                ok: true as const, fecha_vela: String(j.fecha_vela ?? ""), cierre: Number(j.cierre) || 0,
+                decision: j.decision === "VENDER" || j.decision === "REDUCIR" ? j.decision : null,
+                porcentaje: typeof j.porcentaje === "number" ? j.porcentaje : null,
+                motivo: typeof j.motivo === "string" ? j.motivo : null, nivel: typeof j.nivel === "string" ? j.nivel : null,
+                detalle: typeof j.detalle === "string" ? j.detalle : null, zona_recompra: j.zona_recompra === true,
+                recompras_restantes: typeof j.recompras_restantes === "number" ? j.recompras_restantes : null,
+                costo_promedio: typeof j.costo_promedio === "string" ? j.costo_promedio : null, stop: typeof j.stop === "string" ? j.stop : null,
+              };
+            } catch (e) { return { ok: false as const, error: e instanceof Error ? e.name : "error" }; }
+          },
+
           esperar: sleep,
           ahoraMs: () => Date.now(),
           log: (m) => console.log("🔔", m),
