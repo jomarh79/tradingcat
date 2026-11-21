@@ -41,9 +41,14 @@ export interface FilasPosicion {
 }
 export interface ConsultaPosicion {
   portfolio_id: string; ticker: string; posicion_existe: boolean;
+  /** 20-nov: código del portafolio (PCP, PMP...). Una posición ABIERTA toma su rol del portafolio: PCP = crecimiento, PMP = flujo. */
+  portafolio_codigo?: string;
   /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores). El rol de la watchlist manda sobre el del expediente. */
   watchlist?: DatosWatchlist | null;
 }
+/** Rol de una posición abierta según su portafolio (decisión del 20-nov): corto plazo = crecimiento, mediano plazo = flujo. */
+export const ROL_POR_PORTAFOLIO: Readonly<Record<string, string>> = { PCP: 'crecimiento', PMP: 'flujo' };
+
 export type ResultadoHechosPosicion =
   | { ok: true; hechos: HechosAuditor; trade_id: string | null; expediente_id: string | null }
   | { ok: false; problemas: string[] };
@@ -179,6 +184,9 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     const decl = apartadosDeclarados(w);
     if (Object.keys(decl).length > 0) hechos.datos = { ...hechos.datos, ficha_pmp: { ...(hechos.datos?.ficha_pmp ?? {}), ...decl } };
   }
+  // 20-nov: en una posición abierta el rol lo da el portafolio (manda sobre la watchlist y el expediente); así GLB-02 y PMP-04 no dependen de que el ticker siga en la watchlist.
+  const rolAuto = q.posicion_existe && q.portafolio_codigo !== undefined ? ROL_POR_PORTAFOLIO[q.portafolio_codigo] : undefined;
+  if (rolAuto !== undefined) hechos.posicion = { ...hechos.posicion, rol: rolAuto };
   if (problemas.length > 0) return { ok: false, problemas };
   return { ok: true, hechos, trade_id, expediente_id };
 }

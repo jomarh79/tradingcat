@@ -529,3 +529,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Máximo 2 trades por corrida de la Edge Function. Nunca vende: el correo dice que tú decides y que registres la venta y marques el TP.
 - A mano: un pegado en `supabase/functions/update-ia/index.ts` (ver `alertas/PEGADOS-v069.md`).
 - Los avisos de salida usan los tipos «🔴 SALIDA PCP» y «🟡 ZONA DE RECOMPRA PCP» (sin las palabras ENTRADA/SEÑAL, que `/api/notify` trata como alerta de entrada).
+
+## v0.69b: rol automático de las posiciones abiertas (GLB-02)
+- Una posición ABIERTA toma el rol de su portafolio: PCP = crecimiento, PMP = flujo (`ROL_POR_PORTAFOLIO` en `conexion/hechos-bd.ts`). Manda sobre el rol de la watchlist y del expediente, así GLB-02 (y PMP-04) ya no dependen de que el ticker siga en la watchlist. Una posición nueva sigue usando el rol de la watchlist; otros portafolios no cambian.
+- `flujo-auditoria.ts` pasa `portafolio_codigo` a `cargarHechosPosicion`.

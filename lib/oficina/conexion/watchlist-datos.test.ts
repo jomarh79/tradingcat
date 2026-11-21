@@ -60,6 +60,21 @@ describe('resolverHechosPosicion con watchlist', () => {
     const r = resolverHechosPosicion(F({}, 'flujo'), { ...Q, watchlist: { rol: 'mixto', negocio: null, competidores: null, portafolios: [] } });
     expect(r.ok && r.hechos.posicion?.rol).toBe('mixto');
   });
+  it('20-nov: una posición ABIERTA toma el rol de su portafolio (PCP = crecimiento, PMP = flujo), aunque no esté en la watchlist ni el expediente tenga rol', () => {
+    const rol = (cod: string, ficha: unknown = {}, rolExp: string | null = null, w?: { rol: string | null }) => {
+      const r = resolverHechosPosicion(F(ficha, rolExp), { ...Q, portafolio_codigo: cod, ...(w ? { watchlist: { rol: w.rol, negocio: null, competidores: null, portafolios: [] } } : {}) });
+      return r.ok ? r.hechos.posicion?.rol : 'ERROR';
+    };
+    expect(rol('PCP')).toBe('crecimiento');
+    expect(rol('PMP')).toBe('flujo');
+    expect(rol('PCP', {}, 'flujo', { rol: 'mixto' })).toBe('crecimiento');   // el portafolio manda sobre watchlist y expediente
+    expect(rol('PLP')).toBeUndefined();                                      // otros portafolios: sin cambio
+  });
+  it('20-nov: una posición NUEVA no toma rol del portafolio (sigue el de la watchlist)', () => {
+    const sinPosicion: FilasPosicion = { ...F({}, null), posiciones: [], ejecuciones: [] };
+    const r = resolverHechosPosicion(sinPosicion, { ...Q, posicion_existe: false, portafolio_codigo: 'PCP', watchlist: { rol: 'mixto', negocio: null, competidores: null, portafolios: [] } });
+    expect(r.ok && r.hechos.posicion?.rol).toBe('mixto');
+  });
   it('sin rol en la watchlist, se queda el del expediente', () => {
     const r = resolverHechosPosicion(F({}, 'flujo'), { ...Q, watchlist: { rol: null, negocio: 'x', competidores: null, portafolios: [] } });
     expect(r.ok && r.hechos.posicion?.rol).toBe('flujo');
