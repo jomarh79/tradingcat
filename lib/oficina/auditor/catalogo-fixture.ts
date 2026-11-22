@@ -1,4 +1,4 @@
-// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL. 18-nov (v0.68a): PCP-10 exige al menos dos señales (cuantos_deben_coincidir 2).
+// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL. 20-nov (v0.70): PCP-04 y PCP-10 sin MACD; PCP-10 suma rebote en SMA 100/200 y reversión alcista por velas. 18-nov (v0.68a): PCP-10 exige al menos dos señales (cuantos_deben_coincidir 2).
 import type { ReglaEntrada } from './tipos';
 
 export const CATALOGO_FIXTURE: ReglaEntrada[] = [
@@ -441,11 +441,6 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
        "evaluacion": "objetiva"
       },
       {
-       "nombre": "MACD",
-       "criterio": "visual: gira saliendo o entrando de sobreventa",
-       "evaluacion": "discrecional_del_usuario"
-      },
-      {
        "nombre": "Koncorde",
        "criterio": "cualquiera de sus lineas por debajo de cero",
        "evaluacion": "objetiva"
@@ -702,11 +697,6 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
        "evaluacion": "objetiva"
       },
       {
-       "nombre": "MACD",
-       "criterio": "visual: gira saliendo de sobreventa",
-       "evaluacion": "discrecional_del_usuario"
-      },
-      {
        "nombre": "Koncorde",
        "criterio": "cualquiera de sus lineas por debajo de cero",
        "evaluacion": "objetiva"
@@ -737,6 +727,22 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
       30,
       1.5
      ]
+    },
+    {
+     "id": "rebote_sma_100_200",
+     "criterio": "la ultima vela cerrada tiene el minimo a no mas de 1% sobre la SMA 100 o la SMA 200 diaria y cierra por encima de ella",
+     "evaluacion": "objetiva"
+    },
+    {
+     "id": "reversion_alcista_por_velas",
+     "patrones": [
+      "estrella_de_la_manana",
+      "envolvente_alcista",
+      "martillo",
+      "martillo_invertido"
+     ],
+     "criterio": "patron de reversion alcista que se completa en la ultima vela cerrada (detectCandlePatterns)",
+     "evaluacion": "objetiva"
     }
    ],
    "cuantos_deben_coincidir": 2,

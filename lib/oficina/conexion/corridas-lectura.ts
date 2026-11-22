@@ -90,6 +90,7 @@ export interface CorridaDetalle {
   salida_pmp: PlanSalidaPmp | null;
   /** v0.65: salida de PCP (posición abierta); null si la corrida no la calculó. */
   salida_pcp: PlanSalidaPcp | null;
+  entrada_pcp: EntradaPcp | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
   /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
@@ -198,6 +199,19 @@ export function planSalidaPcpDe(ref: Record<string, unknown>): PlanSalidaPcp | n
   };
 }
 
+export interface EntradaPcp { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] }
+
+/** v0.70: señales de entrada de PCP y su fuerza, guardadas en referencias.entrada_pcp. Solo lectura. */
+export function entradaPcpDe(ref: Record<string, unknown>): EntradaPcp | null {
+  const x = ref['entrada_pcp'];
+  if (!esObj(x)) return null;
+  return {
+    confirmada: x['confirmada'] === true, senales_minimas: num(x['senales_minimas']), fuerza: txt(x['fuerza']),
+    no_evaluables: arr(x['no_evaluables']).map(textoCorto),
+    cumplidas: arr(x['cumplidas']).filter(esObj).map(c => ({ id: txt(c['id']) ?? '', detalle: textoCorto(c['detalle'] ?? '') })),
+  };
+}
+
 export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
@@ -267,6 +281,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
       salida_pmp: planSalidaDe(ref),
       salida_pcp: planSalidaPcpDe(ref),
+      entrada_pcp: entradaPcpDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
       valuacion: valuacionDe(ref),
     },

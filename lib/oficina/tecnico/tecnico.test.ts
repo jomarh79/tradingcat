@@ -191,7 +191,7 @@ describe('señales de PCP-10 / PCP-04', () => {
   it('las señales salen en un orden fijo: NIVEL_PASADO (recompra del PCP y DCA del PLP) es una sola señal', () => {
     const ids = calcularTecnico(entrada(caminata(300))).senales.map(s => s.id);
     expect(ids).toEqual([
-      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO',
+      'RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO', 'REBOTE_SMA_100_200', 'REVERSION_ALCISTA_VELAS',
       'RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA',
     ]);
   });
@@ -568,7 +568,7 @@ describe('detonantes por uso', () => {
     expect(d.senales_no_evaluables).toEqual(['RSI_SOBREVENTA']);
   });
   it('MACD y figura chartista quedan como confirmaciones tuyas', () => {
-    expect(detonantePara(sn({}), 'apertura_pcp').discrecionales_pendientes).toEqual(['MACD', 'figura chartista']);
+    expect(detonantePara(sn({}), 'apertura_pcp').discrecionales_pendientes).toEqual(['figura chartista']);
   });
 });
 

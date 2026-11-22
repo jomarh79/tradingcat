@@ -340,6 +340,18 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ velas: velas(sinSenal), posicion_existe: true, motor: dineroPcp }), puertos().p));
     expect(c.entrada_motor.momento).toEqual({ detonante_confirmado: false });         // PCP recompra -> recompra_pcp
   });
+  it('v0.70: PCP apertura guarda en referencias.entrada_pcp las señales cumplidas y su fuerza; PMP y la recompra no', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
+    const a = corrida(await ejecutarCorrida(pcp(), datosPcp(base), puertos().p));
+    const ep = (a.fila_historial.referencias as Record<string, unknown>)['entrada_pcp'] as { cumplidas: { id: string }[]; fuerza: string | null; confirmada: boolean };
+    expect(ep.cumplidas.length).toBe(a.tecnico!.detonantes!.apertura_pcp.senales_cumplidas.length);
+    expect(ep.fuerza).toBe(a.tecnico!.detonantes!.apertura_pcp.fuerza);
+    expect(ep.confirmada).toBe(a.tecnico!.detonantes!.apertura_pcp.detonante_confirmado);
+    const b = corrida(await ejecutarCorrida(sol(), datos(base), puertos().p));
+    expect((b.fila_historial.referencias as Record<string, unknown>)['entrada_pcp']).toBeUndefined();
+    const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ ...base, posicion_existe: true }), puertos().p));
+    expect((c.fila_historial.referencias as Record<string, unknown>)['entrada_pcp']).toBeUndefined();
+  });
   it('PCP recompra usa recompra_pcp y PLP recompra usa dca_plp', async () => {
     const base = { velas: velas(baja), posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
     const a = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp(base), puertos().p));

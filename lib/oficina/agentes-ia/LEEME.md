@@ -533,3 +533,11 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.69b: rol automático de las posiciones abiertas (GLB-02)
 - Una posición ABIERTA toma el rol de su portafolio: PCP = crecimiento, PMP = flujo (`ROL_POR_PORTAFOLIO` en `conexion/hechos-bd.ts`). Manda sobre el rol de la watchlist y del expediente, así GLB-02 (y PMP-04) ya no dependen de que el ticker siga en la watchlist. Una posición nueva sigue usando el rol de la watchlist; otros portafolios no cambian.
 - `flujo-auditoria.ts` pasa `portafolio_codigo` a `cargarHechosPosicion`.
+
+## v0.70: entradas de PCP pulidas (segunda versión)
+- Sin MACD en la apertura (PCP-10) ni en la recompra (PCP-04): ya no sale como confirmación pendiente; lo revisas tú fuera de la Oficina. La salida de PCP no cambia.
+- Dos señales nuevas del Técnico (código, velas diarias cerradas), solo en `apertura_pcp` (ahora 6 posibles, mínimo 2): `REBOTE_SMA_100_200` (el mínimo de la última vela está a ≤ SMA +1% y cierra por encima; vale la SMA 100 o la 200, es UNA señal; con menos de 200 velas evalúa solo la 100, con menos de 100 queda sin datos) y `REVERSION_ALCISTA_VELAS` (patrones verdes de `lib/indicators.ts`: Est. M., Env. A., M., M. Inv., que se completan en la última vela; es UNA señal).
+- Fuerza informativa (`fuerzaEntrada`): 2 normal, 3 fuerte, 4 o más muy fuerte. No cambia COMPRAR ni el mínimo. Sale en el correo («🟢 SEÑAL TÉCNICA NUEVA (PCP)… fuerza fuerte») y en /oficina, sección «Entrada técnica (PCP)» (`referencias.entrada_pcp`, solo en corridas PCP de nueva posición).
+- Técnico de IA: `SENALES_ENTRADA_TECNICO` incluye las dos nuevas (el prompt las lista solo; versión p7).
+- Catálogo: `parche-catalogo-v070.sql` (PCP-04 y PCP-10 versiones nuevas desde 2026-11-21; una sola vez). Fixture actualizado.
+- Edge Function: copia idéntica de `alertas-oficina.ts`; hay que volver a desplegar `update-ia`.

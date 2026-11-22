@@ -3,7 +3,7 @@ import type { IdSenal, SnapshotTecnico } from './tipos';
 /** Qué señales calculadas por código cuentan para cada uso (contrato v0.4, sección 4; matriz v2).
  *  MACD y figura chartista no se calculan: las confirmas tú. En la salida del PCP tampoco se calcula Koncorde. */
 export const SENALES_POR_USO = {
-  apertura_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR'],      // PCP-10
+  apertura_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'REBOTE_SMA_100_200', 'REVERSION_ALCISTA_VELAS'],      // PCP-10; v0.70: +rebote en SMA 100/200 y reversión alcista por velas (6 posibles, mínimo 2)
   recompra_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'],          // PCP-04; nivel = pivote de mínimo o de máximo (19-oct)
   dca_plp: ['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO'],                    // PLP-03 (22-oct): definición común NIVEL_PASADO (mínimos y máximos, 19-oct); "sobreventa" = RSI ≤ 30 [PROPUESTA]
   salida_pcp: ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'],                           // PCP-05/06 (19-oct); sin soporte
@@ -24,8 +24,8 @@ export const MINIMO_SENALES_POR_USO: Readonly<Record<UsoSenales, number>> = {
 };
 
 const DISCRECIONALES: Record<UsoSenales, readonly string[]> = {
-  apertura_pcp: ['MACD', 'figura chartista'],
-  recompra_pcp: ['MACD', 'figura chartista'],
+  apertura_pcp: ['figura chartista'],   // v0.70: el MACD lo revisas tú fuera de la Oficina
+  recompra_pcp: ['figura chartista'],
   dca_plp: ['figura chartista'],
   salida_pcp: ['MACD', 'Koncorde (visual)', 'figura chartista'],
   apertura_pmp: ['figura chartista', 'Fibonacci'],   // las revisa el usuario en TradingView: no se calculan ni se conectan
@@ -50,7 +50,21 @@ export interface Detonante {
   senales_no_evaluables: IdSenal[];    // no se cuentan como cumplidas ni como incumplidas
   discrecionales_pendientes: string[]; // las confirmas tú
   aviso: string;
+  /** v0.70: solo informativa. 2 cumplidas = normal, 3 = fuerte, 4 o más = muy fuerte; null si hay menos de 2. No cambia `detonante_confirmado`. */
+  fuerza: FuerzaSenal | null;
 }
+
+export type FuerzaSenal = 'normal' | 'fuerte' | 'muy_fuerte';
+
+/** Fuerza de una entrada según cuántas señales coinciden (informativa; el mínimo para confirmar no cambia). */
+export function fuerzaEntrada(cumplidas: number): FuerzaSenal | null {
+  if (cumplidas >= 4) return 'muy_fuerte';
+  if (cumplidas === 3) return 'fuerte';
+  if (cumplidas === 2) return 'normal';
+  return null;
+}
+
+export const ETIQUETA_FUERZA: Record<FuerzaSenal, string> = { normal: 'normal', fuerte: 'fuerte', muy_fuerte: 'muy fuerte' };
 
 export function detonantePara(snapshot: SnapshotTecnico, uso: UsoSenales): Detonante {
   const ids: readonly IdSenal[] = SENALES_POR_USO[uso];
@@ -67,5 +81,6 @@ export function detonantePara(snapshot: SnapshotTecnico, uso: UsoSenales): Deton
     senales_no_evaluables: noEval,
     discrecionales_pendientes: DISCRECIONALES[uso].slice(),
     aviso: AVISOS[uso],
+    fuerza: fuerzaEntrada(cumplidas.length),
   };
 }

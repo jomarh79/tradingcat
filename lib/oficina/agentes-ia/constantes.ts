@@ -145,7 +145,7 @@ export const AGENTE_TECNICO = 'tecnico';
 export const ESQUEMA_NOMBRE_TECNICO = 'salida_tecnico_v1';
 export const VERSION_PROMPT_TECNICO = 'tecnico.p7';
 // v0.17 [PROPUESTA]: señales de entrada y de salida según las reglas aprobadas (PCP-10, PCP-04, PLP-03 y salidas del PCP). Solo orientan el texto del modelo; no son criterio de decisión.
-export const SENALES_ENTRADA_TECNICO = ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'];
+export const SENALES_ENTRADA_TECNICO = ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO', 'REBOTE_SMA_100_200', 'REVERSION_ALCISTA_VELAS'];
 /** v0.20 [PROPUESTA]: coherencia del veredicto con las señales calculadas (condiciones necesarias; ESPERAR no tiene restricción). */
 export const VERIFICAR_COHERENCIA_VEREDICTO_TECNICO = true;
 export const VEREDICTO_TECNICO_FAVORABLE = 'FAVORABLE';

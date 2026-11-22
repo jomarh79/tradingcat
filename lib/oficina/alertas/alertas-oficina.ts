@@ -112,6 +112,8 @@ export const ESPERA_ENTRE_SENALES_MS = 15000; // cada ticker son 2 consultas de 
 export const PRESUPUESTO_ALERTAS_MS = 50000;
 export const TIPO_ALERTA_PMP11 = '📋 REVISIÓN PMP-11 VENCIDA';
 export const TIPO_ALERTA_SENAL = '🟢 SEÑAL TÉCNICA NUEVA';
+/** v0.70: texto de la fuerza de la entrada (informativa; la calcula el Técnico: 2 normal, 3 fuerte, 4 o más muy fuerte). */
+export const ETIQUETA_FUERZA_ALERTA = { normal: 'normal', fuerte: 'fuerte', muy_fuerte: 'muy fuerte' } as const;
 export const TIPO_ALERTA_SENAL_PCP = '🟢 SEÑAL TÉCNICA NUEVA (PCP)';
 // v0.69. Sin las palabras ENTRADA ni SEÑAL a propósito: /api/notify las trata como una alerta de entrada.
 export const TIPO_ALERTA_SALIDA_PCP = '🔴 SALIDA PCP';
@@ -121,7 +123,7 @@ export const MAX_SALIDAS_PCP_POR_CORRIDA = 2;
 export type RespuestaSenal =
   | { ok: true; confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; cierre: number; fecha_vela: string;
       /** v0.68: señal de apertura de PCP de la misma consulta (ausente si el servidor no la manda). */
-      pcp?: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number } | null }
+      pcp?: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; fuerza?: 'normal' | 'fuerte' | 'muy_fuerte' | null } | null }
   | { ok: false; error: string };
 
 /** v0.69: respuesta de /api/oficina/senal-salida (mismo cálculo que la corrida de la Oficina para una posición PCP abierta). */
@@ -257,12 +259,12 @@ export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist
         if (marcadosPcp.has(t)) await deps.guardarEstado(`senal_pcp:${t}`, { fecha_revisada: deps.hoy, confirmada: estadosPcp.get(`senal_pcp:${t}`)?.confirmada ?? false, sin_dato: true });
         continue;
       }
-      // ---- PCP (v0.68): misma consulta, uso apertura_pcp (al menos 2 de 4 señales). Solo para tickers marcados PCP y si el servidor mandó el dato.
+      // ---- PCP (v0.68): misma consulta, uso apertura_pcp (al menos 2 de 6 señales). Solo para tickers marcados PCP y si el servidor mandó el dato.
       if (marcadosPcp.has(t) && r.pcp) {
         const previoPcp = estadosPcp.get(`senal_pcp:${t}`) ?? null;
         const dp = decidirSenal(previoPcp, r.pcp.confirmada, deps.hoy);
         if (dp.accion === 'alertar') {
-          const detalle = `Cumple ${r.pcp.senales_cumplidas.length} de las señales de entrada de PCP (mínimo ${r.pcp.senales_minimas}): ${r.pcp.senales_cumplidas.join(', ')}. Cierre del ${r.fecha_vela}. Es solo una señal técnica: no autoriza una compra por sí sola; corre el análisis en la Oficina (apertura de 25 USD).`;
+          const detalle = `Cumple ${r.pcp.senales_cumplidas.length} señales de entrada de PCP (mínimo ${r.pcp.senales_minimas})${r.pcp.fuerza ? ` · fuerza ${ETIQUETA_FUERZA_ALERTA[r.pcp.fuerza]}` : ''}: ${r.pcp.senales_cumplidas.join(', ')}. Cierre del ${r.fecha_vela}. Es solo una señal técnica: no autoriza una compra por sí sola; corre el análisis en la Oficina (apertura de 25 USD).`;
           const okp = await deps.enviar({ ticker: t, type: TIPO_ALERTA_SENAL_PCP, currentPrice: r.cierre, targetPrice: 0, detalle });
           if (okp && await deps.guardarEstado(`senal_pcp:${t}`, dp.estado)) resumen.senales_pcp_avisadas.push(t);
         } else if (dp.accion === 'guardar') {

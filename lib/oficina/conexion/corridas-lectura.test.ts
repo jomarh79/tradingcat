@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, entradaPcpDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -163,5 +163,15 @@ describe('planSalidaPcpDe (v0.65)', () => {
     expect(p?.niveles).toEqual([{ nivel: '93', cumplido: false }, { nivel: null, cumplido: true }]);
     expect(p?.exigida).toEqual({ decision: 'REDUCIR', porcentaje: 50, detalle: 'd' });
     expect(planSalidaPcpDe({ salida_pcp: { exigida: null } })).toMatchObject({ exigida: null, zona_recompra: false, niveles: [], compras: null });
+  });
+});
+
+describe('entrada de PCP guardada en la corrida (v0.70)', () => {
+  it('sin entrada_pcp: null; con datos: señales, fuerza y no evaluables', () => {
+    expect(entradaPcpDe({})).toBeNull();
+    expect(entradaPcpDe({ entrada_pcp: 'x' })).toBeNull();
+    expect(entradaPcpDe({ entrada_pcp: { confirmada: true, senales_minimas: 2, fuerza: 'fuerte', no_evaluables: ['KONCORDE_BAJO_CERO'], cumplidas: [{ id: 'RSI_SOBREVENTA', detalle: 'RSI 25' }, { id: 'REBOTE_SMA_100_200', detalle: 'toca SMA200' }, { id: 'EMA8_SOBRE_EMA21', detalle: 'x' }] } }))
+      .toEqual({ confirmada: true, senales_minimas: 2, fuerza: 'fuerte', no_evaluables: ['KONCORDE_BAJO_CERO'], cumplidas: [{ id: 'RSI_SOBREVENTA', detalle: 'RSI 25' }, { id: 'REBOTE_SMA_100_200', detalle: 'toca SMA200' }, { id: 'EMA8_SOBRE_EMA21', detalle: 'x' }] });
+    expect(entradaPcpDe({ entrada_pcp: {} })).toMatchObject({ confirmada: false, fuerza: null, cumplidas: [] });
   });
 });

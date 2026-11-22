@@ -25,6 +25,8 @@ export type IdSenal =
   | 'EMA8_SOBRE_EMA21'
   | 'MOGALEF_BANDA_INFERIOR'
   | 'NIVEL_PASADO'          // recompra del PCP y DCA del PLP (19-oct / 22-oct): pivotes de mínimo y de máximo
+  | 'REBOTE_SMA_100_200'    // apertura PCP (v0.70): la última vela diaria toca la SMA 100 o la SMA 200 (±1%) y cierra por encima
+  | 'REVERSION_ALCISTA_VELAS' // apertura PCP (v0.70): patrón de velas de reversión alcista (estrella de la mañana, envolvente alcista, martillo, martillo invertido)
   | 'RSI_SOBRECOMPRA'       // salida del PCP
   | 'MOGALEF_BANDA_SUPERIOR' // salida del PCP
   | 'RESISTENCIA_PASADA';   // salida del PCP: solo pivotes de máximo

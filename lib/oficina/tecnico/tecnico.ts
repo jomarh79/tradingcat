@@ -1,4 +1,4 @@
-import { adxSeries, emaArr, koncordeSeries, macdSeries, mogalefBandsSeries, rsiSeries, smaArr } from '../../indicators';
+import { adxSeries, detectCandlePatterns, emaArr, koncordeSeries, macdSeries, mogalefBandsSeries, rsiSeries, smaArr } from '../../indicators';
 import type { Candle } from '../../indicators';
 import { construirTraza } from './trazabilidad';
 import type { ResultadoIndicador } from './trazabilidad';
@@ -23,6 +23,10 @@ export const PARAMETROS_TECNICO = {
   pivote_ventana_velas: 250,        // [PROPUESTA] ~1 año de velas diarias
   pivotes_por_lado_del_precio: 3,   // [PROPUESTA] soportes y resistencias más cercanos que entran a la lista cerrada
   dias_52_semanas: 364,
+  rebote_sma_tolerancia_pct: 1,     // v0.70: el mínimo de la vela debe llegar a ≤ SMA ×(1+1%) y el cierre quedar por encima
+  rebote_sma_corta: 100,            // v0.70: SMA diarias
+  rebote_sma_larga: 200,
+  velas_para_patrones: 40,          // v0.70: ventana que se pasa al detector de patrones (necesita ~14 de promedio de cuerpo)
   banana_multiplo: 2,               // SEM-07; pendiente de Backtesting
   banana_ventana_semanas: 52,
   banana_velas_bajistas: 3,
@@ -178,6 +182,37 @@ export function calcularTecnico(e: EntradaTecnico): SnapshotTecnico {
         : `Cierre ${fmt(cierre)} no está a ±${P.nivel_tolerancia_pct}% de ningún pivote de mínimo ni de máximo de la ventana`,
     });
   }
+
+  // v0.70 (PCP, apertura): rebote en la SMA 100 o 200 diaria. La última vela cerrada tiene el mínimo a ≤ SMA +1% y cierra por encima de la media.
+  const tolSma = P.rebote_sma_tolerancia_pct / 100;
+  const rebotes: string[] = [], sinRebote: string[] = [];
+  for (const per of [P.rebote_sma_corta, P.rebote_sma_larga]) {
+    const sma = finito(smaArr(cierres, per)[n - 1]);
+    if (sma === null) continue;
+    const toca = ult.low <= sma * (1 + tolSma) && ult.close > sma;
+    (toca ? rebotes : sinRebote).push(`SMA${per} ${fmt(sma)}`);
+  }
+  if (rebotes.length === 0 && sinRebote.length === 0) {
+    senales.push({ id: 'REBOTE_SMA_100_200', cumplida: null, detalle: `SMA 100 y SMA 200 no disponibles (se necesitan 100 velas diarias y hay ${n})` });
+  } else {
+    senales.push({
+      id: 'REBOTE_SMA_100_200', cumplida: rebotes.length > 0,
+      detalle: rebotes.length > 0
+        ? `Mínimo ${fmt(ult.low)} toca ${rebotes.join(' y ')} (±${P.rebote_sma_tolerancia_pct}%) y el cierre ${fmt(cierre)} queda por encima`
+        : `Mínimo ${fmt(ult.low)} / cierre ${fmt(cierre)} sin rebote en ${sinRebote.join(' ni ')} (±${P.rebote_sma_tolerancia_pct}%)`,
+    });
+  }
+
+  // v0.70 (PCP, apertura): reversión alcista por velas (patrones verdes de lib/indicators.ts). Solo cuenta el patrón que se completa en la última vela cerrada.
+  const marcas = detectCandlePatterns(diarias.slice(-P.velas_para_patrones));
+  const penultima = diarias[n - 2];
+  const patrones = marcas.filter(m => m.color === '#22c55e' && (m.time === ult.time || (m.text.startsWith('Est. M.') && penultima !== undefined && m.time === penultima.time)));
+  senales.push({
+    id: 'REVERSION_ALCISTA_VELAS', cumplida: patrones.length > 0,
+    detalle: patrones.length > 0
+      ? `Patrón alcista en la última vela (${fechaDeVela(ult.time)}): ${patrones.map(m => m.text).join(', ')}`
+      : `Sin patrón de reversión alcista en la última vela (${fechaDeVela(ult.time)})`,
+  });
 
   // Señales de salida del PCP (aprobadas el 19-oct). Cada una se reporta por separado. MACD, figura y Koncorde de salida son visuales tuyos: no se calculan.
   senales.push(

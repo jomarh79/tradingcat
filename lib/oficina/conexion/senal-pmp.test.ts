@@ -17,10 +17,11 @@ describe('señal de entrada de PMP de un ticker (v0.59)', () => {
     expect(typeof r.datos.confirmada).toBe('boolean');
     expect(r.datos.confirmada).toBe(r.datos.senales_cumplidas.length >= 2);
     expect(r.datos.cierre).toBeGreaterThan(0);
-    // v0.68: la misma consulta trae la señal de apertura de PCP (2 de 4)
+    // v0.68: la misma consulta trae la señal de apertura de PCP (2 de 6, v0.70)
     expect(r.datos.pcp).not.toBeNull();
     expect(r.datos.pcp!.senales_minimas).toBe(2);
     expect(r.datos.pcp!.confirmada).toBe(r.datos.pcp!.senales_cumplidas.length >= 2);
+    expect(r.datos.pcp!.fuerza).toBe(r.datos.pcp!.senales_cumplidas.length >= 4 ? 'muy_fuerte' : r.datos.pcp!.senales_cumplidas.length === 3 ? 'fuerte' : r.datos.pcp!.senales_cumplidas.length === 2 ? 'normal' : null);
     expect(r.datos.fecha_vela).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
   it('ticker inválido y velas que no se pueden leer: error, nunca una señal inventada', async () => {

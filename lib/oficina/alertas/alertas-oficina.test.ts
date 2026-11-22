@@ -163,7 +163,7 @@ describe('señal de entrada de PCP (v0.68)', () => {
   const hoy = '2026-11-19';
   const respuesta = (pmp: boolean, pcp: boolean | null): RespuestaSenal => ({
     ok: true, confirmada: pmp, senales_cumplidas: pmp ? ['EMA8_SOBRE_EMA21', 'NIVEL_PASADO'] : [], senales_minimas: 2, cierre: 150.98, fecha_vela: '2026-11-18',
-    ...(pcp === null ? {} : { pcp: { confirmada: pcp, senales_cumplidas: pcp ? ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO'] : ['RSI_SOBREVENTA'], senales_minimas: 2 } }),
+    ...(pcp === null ? {} : { pcp: { confirmada: pcp, senales_cumplidas: pcp ? ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'REBOTE_SMA_100_200'] : ['RSI_SOBREVENTA'], senales_minimas: 2, fuerza: pcp ? 'fuerte' : null } }),
   });
   const base = { 'oficina_v_posiciones': [], watchlist: [{ ticker: 'FSLR', portafolios: ['PCP'] }, { ticker: 'GKOS', portafolios: ['PMP'] }, { ticker: 'XYZ', portafolios: null }] };
   const ayer = (c: boolean) => ({ fecha_revisada: '2026-11-18', confirmada: c });
@@ -184,6 +184,8 @@ describe('señal de entrada de PCP (v0.68)', () => {
     expect(m.enviados[0]).toMatchObject({ ticker: 'FSLR', type: TIPO_ALERTA_SENAL_PCP, currentPrice: 150.98, targetPrice: 0 });
     expect(String(m.enviados[0]!['detalle'])).toContain('RSI_SOBREVENTA, KONCORDE_BAJO_CERO');
     expect(String(m.enviados[0]!['detalle'])).toContain('mínimo 2');
+    expect(String(m.enviados[0]!['detalle'])).toContain('Cumple 3 señales');
+    expect(String(m.enviados[0]!['detalle'])).toContain('fuerza fuerte');
     expect(m.guardados['senal_pcp:FSLR']).toEqual({ fecha_revisada: hoy, confirmada: true });
   });
   it('un ticker no marcado PCP no genera alerta PCP aunque el servidor mande el dato; sigue la de PMP', async () => {

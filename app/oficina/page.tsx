@@ -66,6 +66,7 @@ interface Detalle {
     recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
   } | null
+  entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[] } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
@@ -285,6 +286,19 @@ export default function OficinaPage() {
               {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
             </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.entrada_pcp && (
+          <Seccion titulo="Entrada técnica (PCP)">
+            <div style={{ fontSize: 12, color: d.entrada_pcp.confirmada ? C.success : C.warning, fontWeight: 700, marginBottom: 4 }}>
+              {d.entrada_pcp.cumplidas.length} señal(es) cumplida(s) · mínimo {d.entrada_pcp.senales_minimas ?? '—'}
+              {d.entrada_pcp.fuerza ? <> · fuerza {d.entrada_pcp.fuerza.replace('_', ' ')}</> : null}
+              {d.entrada_pcp.confirmada ? '' : ' · no alcanza el mínimo'}
+            </div>
+            {d.entrada_pcp.cumplidas.map((x, i) => <div key={i} style={{ fontSize: 11, color: '#ccc', marginTop: 3 }}>• {etiqueta(x.id)}: {x.detalle}</div>)}
+            {d.entrada_pcp.no_evaluables.length > 0 && <div style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>Sin datos para evaluar: {d.entrada_pcp.no_evaluables.map(etiqueta).join(', ')}</div>}
+            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>La fuerza (2 normal · 3 fuerte · 4 o más muy fuerte) es solo informativa: no cambia la decisión.</div>
           </Seccion>
         )}
 

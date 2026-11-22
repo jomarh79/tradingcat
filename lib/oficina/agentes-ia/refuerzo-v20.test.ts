@@ -110,7 +110,7 @@ describe('v0.20: coherencia del veredicto del Técnico con las señales calculad
   const coh = (v: string, s: SobreTecnicoValido): string[] => { const r = validarSalidaTecnicoIa(salida(v), s); return (r.ok ? [] : r.errores).filter(e => e.includes('las señales calculadas no lo respaldan')); };
   it('constantes', () => {
     expect(VERIFICAR_COHERENCIA_VEREDICTO_TECNICO).toBe(true);
-    expect(SENALES_ENTRADA_TECNICO.length + SENALES_SALIDA_TECNICO.length).toBe(8);
+    expect(SENALES_ENTRADA_TECNICO.length + SENALES_SALIDA_TECNICO.length).toBe(10);
   });
   it('ESPERAR no tiene restricción, con o sin señales', () => {
     expect(coh('ESPERAR', con([], null))).toEqual([]);

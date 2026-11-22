@@ -12,8 +12,8 @@ export interface SenalPmp {
   senales_minimas: number;
   cierre: number;
   fecha_vela: string;
-  /** Misma consulta, uso apertura_pcp (v0.68): al menos 2 de 4 señales de entrada. null si el Técnico no la calculó. */
-  pcp: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number } | null;
+  /** Misma consulta, uso apertura_pcp (v0.68): al menos 2 de 6 señales de entrada (v0.70). `fuerza` es informativa. null si el Técnico no la calculó. */
+  pcp: { confirmada: boolean; senales_cumplidas: string[]; senales_minimas: number; fuerza: 'normal' | 'fuerte' | 'muy_fuerte' | null } | null;
   avisos: string[];
 }
 export type ResultadoSenalPmp = { ok: true; datos: SenalPmp } | { ok: false; http: number; error: string };
@@ -33,7 +33,7 @@ export async function evaluarSenalPmp(deps: DepsDatosReales, tickerCrudo: unknow
   return {
     ok: true,
     datos: { ticker, confirmada: d.detonante_confirmado, senales_cumplidas: d.senales_cumplidas.map(String), senales_minimas: d.senales_minimas, cierre: Number(u.cierre), fecha_vela: u.fecha,
-      pcp: p === undefined ? null : { confirmada: p.detonante_confirmado, senales_cumplidas: p.senales_cumplidas.map(String), senales_minimas: p.senales_minimas },
+      pcp: p === undefined ? null : { confirmada: p.detonante_confirmado, senales_cumplidas: p.senales_cumplidas.map(String), senales_minimas: p.senales_minimas, fuerza: p.fuerza ?? null },
       avisos: v.avisos },
   };
 }
