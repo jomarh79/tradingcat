@@ -181,6 +181,8 @@ export interface DatosCongelados {
   ficha_datos?: DatosFichaExtra;
   /** v0.56: valuación por código de PMP (precio objetivo a 36 meses); alimenta PMP-01. Estructural: el Orquestador solo la lleva hasta la preparación del Auditor. */
   valuacion_modelo?: unknown;
+  /** v0.71: ganancias y flujo de caja libre del ticker (solo PCP); informativo, no entra al Motor. */
+  salud_financiera?: unknown;
   /** v0.60: rol que el expediente tiene registrado (columna rol_posicion); la ficha lo usa cuando la watchlist no declara rol. */
   rol_expediente?: string | null;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
@@ -620,6 +622,7 @@ export async function ejecutarCorrida(
         fuerza: tecnico.detonantes.apertura_pcp.fuerza, no_evaluables: tecnico.detonantes.apertura_pcp.senales_no_evaluables.map(String),
         cumplidas: tecnico.detonantes.apertura_pcp.senales_cumplidas.map(id => ({ id: String(id), detalle: tecnico.snapshot!.senales.find(g => g.id === id)?.detalle ?? '' })),
       } } : {}),
+    ...(portafolio === 'PCP' && typeof datos.salud_financiera === 'object' && datos.salud_financiera !== null ? { salud_financiera: datos.salud_financiera } : {}),
     // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
     ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas

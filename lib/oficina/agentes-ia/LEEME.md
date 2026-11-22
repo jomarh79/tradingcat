@@ -541,3 +541,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Técnico de IA: `SENALES_ENTRADA_TECNICO` incluye las dos nuevas (el prompt las lista solo; versión p7).
 - Catálogo: `parche-catalogo-v070.sql` (PCP-04 y PCP-10 versiones nuevas desde 2026-11-21; una sola vez). Fixture actualizado.
 - Edge Function: copia idéntica de `alertas-oficina.ts`; hay que volver a desplegar `update-ia`.
+
+## v0.71: salud financiera informativa para PCP
+- Alerta SOLO informativa (no compra, no vende, no bloquea; no entra al Motor): ¿la empresa genera ganancias (utilidad neta) y flujo de caja libre? Ayuda a decidir cuánto invertir. Periodo: TTM y último año fiscal.
+- `conexion/salud-financiera.ts` (código puro): utilidad neta de Webull (TTM y último FY); flujo de caja libre de Finnhub (TTM de `stock/metric` y último año del reporte anual, operativo − compra de propiedad, planta y equipo; si falta, el anual de `stock/metric`). Cada medida: positivo / negativo / mixto (TTM y año no coinciden) / sin datos. Resumen: sólida (ambas positivas), débil (ambas negativas), mixta, sin datos. Nada se rellena.
+- Usa los datos que la corrida ya lee: no hay consultas nuevas. Se guarda en `referencias.salud_financiera` de las corridas PCP y se muestra en /oficina («Salud financiera (informativa, PCP)»). Por ahora no va en el correo de la señal (se puede agregar).

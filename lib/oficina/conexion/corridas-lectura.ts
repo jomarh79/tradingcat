@@ -91,6 +91,7 @@ export interface CorridaDetalle {
   /** v0.65: salida de PCP (posición abierta); null si la corrida no la calculó. */
   salida_pcp: PlanSalidaPcp | null;
   entrada_pcp: EntradaPcp | null;
+  salud_financiera: SaludFinancieraDetalle | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
   /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
@@ -212,6 +213,21 @@ export function entradaPcpDe(ref: Record<string, unknown>): EntradaPcp | null {
   };
 }
 
+export interface SaludFinancieraDetalle {
+  resumen: string | null; texto: string | null
+  ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }
+  flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }
+  avisos: string[]
+}
+
+/** v0.71: salud financiera (informativa) guardada en referencias.salud_financiera. Solo lectura. */
+export function saludFinancieraDe(ref: Record<string, unknown>): SaludFinancieraDetalle | null {
+  const x = ref['salud_financiera'];
+  if (!esObj(x)) return null;
+  const med = (v: unknown) => { const m = esObj(v) ? v : {}; return { estado: txt(m['estado']), ttm: num(m['ttm']), anual: num(m['anual']), fy: txt(m['fy']) }; };
+  return { resumen: txt(x['resumen']), texto: txt(x['texto']), ganancias: med(x['ganancias']), flujo_caja: med(x['flujo_caja']), avisos: arr(x['avisos']).map(textoCorto) };
+}
+
 export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
@@ -282,6 +298,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       salida_pmp: planSalidaDe(ref),
       salida_pcp: planSalidaPcpDe(ref),
       entrada_pcp: entradaPcpDe(ref),
+      salud_financiera: saludFinancieraDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
       valuacion: valuacionDe(ref),
     },

@@ -352,6 +352,17 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ ...base, posicion_existe: true }), puertos().p));
     expect((c.fila_historial.referencias as Record<string, unknown>)['entrada_pcp']).toBeUndefined();
   });
+  it('v0.71: la salud financiera informativa llega a referencias solo en PCP y no cambia la decisión', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
+    const salud = { resumen: 'debil', texto: 't', ganancias: { estado: 'negativo' }, flujo_caja: { estado: 'negativo' }, avisos: [] };
+    const sin = corrida(await ejecutarCorrida(pcp(), datosPcp(base), puertos().p));
+    const con = corrida(await ejecutarCorrida(pcp(), { ...datosPcp(base), salud_financiera: salud }, puertos().p));
+    expect((con.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toEqual(salud);
+    expect((sin.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toBeUndefined();
+    expect(con.salida_motor.decision).toBe(sin.salida_motor.decision);
+    const pmp = corrida(await ejecutarCorrida(sol(), { ...datos(base), salud_financiera: salud }, puertos().p));
+    expect((pmp.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toBeUndefined();
+  });
   it('PCP recompra usa recompra_pcp y PLP recompra usa dca_plp', async () => {
     const base = { velas: velas(baja), posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
     const a = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp(base), puertos().p));

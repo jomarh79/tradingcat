@@ -67,6 +67,7 @@ interface Detalle {
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
   } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
+  salud_financiera?: { resumen: string | null; texto: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
   valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[] } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
@@ -286,6 +287,21 @@ export default function OficinaPage() {
               {d.salida_pmp.confirmaciones_nuevas.length > 0 && <> ({d.salida_pmp.confirmaciones_nuevas.map(etiqueta).join(', ')})</>}
             </div>
             {d.salida_pmp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.salud_financiera && (
+          <Seccion titulo="Salud financiera (informativa, PCP)">
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: d.salud_financiera.resumen === 'solida' ? C.success : d.salud_financiera.resumen === 'debil' ? C.danger : C.warning }}>
+              {d.salud_financiera.resumen === 'solida' ? 'Genera ganancias y flujo de caja libre' : d.salud_financiera.resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre' : d.salud_financiera.resumen === 'mixta' ? 'Señales mixtas' : 'Sin datos'}
+            </div>
+            {([['Ganancias (utilidad neta)', d.salud_financiera.ganancias], ['Flujo de caja libre', d.salud_financiera.flujo_caja]] as const).map(([nombre, m]) => (
+              <div key={nombre} style={{ fontSize: 12, color: '#ccc', marginTop: 3 }}>
+                • {nombre}: {etiqueta(m.estado)}{m.ttm !== null ? ` · TTM ${m.ttm > 0 ? 'positivo' : 'no positivo'}` : ''}{m.anual !== null ? ` · ${m.fy ?? 'último año'} ${m.anual > 0 ? 'positivo' : 'no positivo'}` : ''}
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>Solo ayuda a decidir cuánto invertir: no compra, no vende ni bloquea la decisión.</div>
+            {d.salud_financiera.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 

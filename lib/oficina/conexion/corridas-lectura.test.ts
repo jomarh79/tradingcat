@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, entradaPcpDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, entradaPcpDe, saludFinancieraDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -173,5 +173,15 @@ describe('entrada de PCP guardada en la corrida (v0.70)', () => {
     expect(entradaPcpDe({ entrada_pcp: { confirmada: true, senales_minimas: 2, fuerza: 'fuerte', no_evaluables: ['KONCORDE_BAJO_CERO'], cumplidas: [{ id: 'RSI_SOBREVENTA', detalle: 'RSI 25' }, { id: 'REBOTE_SMA_100_200', detalle: 'toca SMA200' }, { id: 'EMA8_SOBRE_EMA21', detalle: 'x' }] } }))
       .toEqual({ confirmada: true, senales_minimas: 2, fuerza: 'fuerte', no_evaluables: ['KONCORDE_BAJO_CERO'], cumplidas: [{ id: 'RSI_SOBREVENTA', detalle: 'RSI 25' }, { id: 'REBOTE_SMA_100_200', detalle: 'toca SMA200' }, { id: 'EMA8_SOBRE_EMA21', detalle: 'x' }] });
     expect(entradaPcpDe({ entrada_pcp: {} })).toMatchObject({ confirmada: false, fuerza: null, cumplidas: [] });
+  });
+});
+
+describe('salud financiera guardada en la corrida (v0.71)', () => {
+  it('sin salud_financiera: null; con datos: resumen, medidas y avisos', () => {
+    expect(saludFinancieraDe({})).toBeNull();
+    expect(saludFinancieraDe({ salud_financiera: 'x' })).toBeNull();
+    expect(saludFinancieraDe({ salud_financiera: { resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] } }))
+      .toEqual({ resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] });
+    expect(saludFinancieraDe({ salud_financiera: {} })).toMatchObject({ resumen: null, ganancias: { estado: null, ttm: null }, avisos: [] });
   });
 });

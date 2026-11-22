@@ -21,6 +21,7 @@ import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } fro
 import { obtenerDatosFundamental } from './datos-reales';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
+import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
 import type { TrazabilidadIa } from './persistencia-ia';
@@ -111,6 +112,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const velas = await obtenerVelas(datosDeps, ticker);
   const avisos_velas = velas.ok ? velas.avisos : [velas.error];
   // v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP (si algo falla, la ficha lo declara; no bloquea)
+  // v0.71: salud financiera (ganancias y flujo de caja libre) solo informativa para PCP; con los mismos datos ya leídos
+  const salud_financiera = portafolio === 'PCP' ? evaluarSaludFinanciera(resto) : undefined;
   const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
 
   // (3) sobre del Fundamental
@@ -255,7 +258,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
