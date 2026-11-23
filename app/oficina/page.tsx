@@ -68,6 +68,7 @@ interface Detalle {
   } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
+  pertenencia_indices?: { estado: string | null; indices: string[]; no_incluido_en: string[]; texto: string | null } | null
   dividendo_pmp?: { estado: string | null; texto: string | null; rendimiento_actual: number | null; rendimiento_promedio: number | null; puntos: number | null; anios_cubiertos: number | null; ultimo_dividendo: { fecha: string | null; monto: number | null } | null } | null
   valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[]; per: { per_actual: number | null; per_promedio: number | null; puntos: number | null; relacion: string | null; motivo: string | null } | null } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
@@ -303,6 +304,15 @@ export default function OficinaPage() {
             ))}
             <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>{d.corrida.portafolio_codigo === 'PMP' ? 'Obligatoria en PMP: sin ganancias y flujo de caja libre positivos (TTM y último año) no se compra.' : 'Solo ayuda a decidir cuánto invertir: no compra, no vende ni bloquea la decisión.'}</div>
             {d.salud_financiera.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.pertenencia_indices && (
+          <Seccion titulo="Índices de referencia">
+            <div style={{ fontSize: 12, fontWeight: 700, color: d.pertenencia_indices.estado === 'pertenece' ? C.success : d.corrida.portafolio_codigo === 'PMP' ? C.danger : C.warning }}>
+              {d.pertenencia_indices.estado === 'pertenece' ? `Pertenece a: ${d.pertenencia_indices.indices.join(', ')}` : d.pertenencia_indices.estado === 'no_pertenece' ? (d.corrida.portafolio_codigo === 'PMP' ? 'No pertenece a ningún índice: PMP no compra, se sugiere PCP' : 'Alerta: no pertenece a ningún índice de referencia') : 'No se pudo comprobar la pertenencia'}
+            </div>
+            {d.pertenencia_indices.texto && <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>{d.pertenencia_indices.texto}</div>}
           </Seccion>
         )}
 

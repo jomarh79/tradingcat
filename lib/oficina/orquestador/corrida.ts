@@ -201,6 +201,8 @@ export interface DatosCongelados {
   salud_financiera?: unknown;
   /** v0.73: dividendo de PMP (paga / lado verde o rojo contra el promedio de 5 años). Lo usa el Motor solo en PMP + nueva_posicion. */
   dividendo_pmp?: unknown;
+  /** v0.74: pertenencia a los índices de referencia (PMP y PCP); solo informativo en la corrida (PMP ya validó antes de iniciar). */
+  pertenencia_indices?: unknown;
   /** v0.60: rol que el expediente tiene registrado (columna rol_posicion); la ficha lo usa cuando la watchlist no declara rol. */
   rol_expediente?: string | null;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
@@ -629,6 +631,7 @@ export async function ejecutarCorrida(
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(salida_pcp !== null ? { salida_pcp } : {}),
     ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
+    ...((portafolio === 'PMP' || portafolio === 'PCP') && typeof datos.pertenencia_indices === 'object' && datos.pertenencia_indices !== null ? { pertenencia_indices: datos.pertenencia_indices } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo
     ...(portafolio === 'PCP' && tipo === 'nueva_posicion' && tecnico !== null && tecnico.detonantes !== null && tecnico.snapshot !== null
       ? { entrada_pcp: {

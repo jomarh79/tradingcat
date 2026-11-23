@@ -399,6 +399,13 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect((await con(null)).salida_motor.decision).toBe('NO_EVALUABLE');
     expect((verde.fila_historial.referencias as Record<string, unknown>)['dividendo_pmp']).toEqual({ estado: 'paga_verde', texto: 'div paga_verde' });
   });
+  it('v0.74: la pertenencia a índices se guarda en referencias (PMP y PCP) y no afecta la decisión', async () => {
+    const pert = { estado: 'no_pertenece', indices: [], no_incluido_en: ['SPY'], fallidos: [], texto: 'No pertenece.' };
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' }, pertenencia_indices: pert };
+    const a = corrida(await ejecutarCorrida(pcp(), datosPcp(base), puertos().p));
+    expect((a.fila_historial.referencias as Record<string, unknown>)['pertenencia_indices']).toEqual(pert);
+    expect(a.salida_motor.decision).toBe('COMPRAR');
+  });
   it('v0.73: el dividendo no aplica a PCP ni a la recompra de PMP', async () => {
     const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
     const a = corrida(await ejecutarCorrida(pcp(), datosPcp({ ...base, dividendo_pmp: { estado: 'no_paga', texto: 'x' } }), puertos().p));

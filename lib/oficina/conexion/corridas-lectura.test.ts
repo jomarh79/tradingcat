@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, entradaPcpDe, saludFinancieraDe, valuacionDe, dividendoPmpDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, entradaPcpDe, saludFinancieraDe, valuacionDe, dividendoPmpDe, pertenenciaDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -201,5 +201,15 @@ describe('dividendo de PMP guardado en la corrida (v0.73)', () => {
     expect(dividendoPmpDe({ dividendo_pmp: { estado: 'paga_rojo', texto: 't', rendimiento_actual: 0.08, rendimiento_promedio: 0.09, puntos: 1200, anios_cubiertos: 4.9, ultimo_dividendo: { fecha: '2026-09-01', monto: 0.5 } } }))
       .toEqual({ estado: 'paga_rojo', texto: 't', rendimiento_actual: 0.08, rendimiento_promedio: 0.09, puntos: 1200, anios_cubiertos: 4.9, ultimo_dividendo: { fecha: '2026-09-01', monto: 0.5 } });
     expect(dividendoPmpDe({ dividendo_pmp: {} })).toMatchObject({ estado: null, rendimiento_actual: null, ultimo_dividendo: null });
+  });
+});
+
+describe('pertenencia a índices guardada en la corrida (v0.74)', () => {
+  it('sin dato: null; con dato: estado, índices y texto', () => {
+    expect(pertenenciaDe({})).toBeNull();
+    expect(pertenenciaDe({ pertenencia_indices: 3 })).toBeNull();
+    expect(pertenenciaDe({ pertenencia_indices: { estado: 'pertenece', indices: ['SPY', 'QQQ', 7], no_incluido_en: ['DIA'], texto: 't' } }))
+      .toEqual({ estado: 'pertenece', indices: ['SPY', 'QQQ'], no_incluido_en: ['DIA'], texto: 't' });
+    expect(pertenenciaDe({ pertenencia_indices: {} })).toEqual({ estado: null, indices: [], no_incluido_en: [], texto: null });
   });
 });

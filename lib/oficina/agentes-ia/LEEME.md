@@ -565,3 +565,11 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Es ADEMÁS del P/E contra su promedio de 5 años (v0.72b), de ganancias y flujo de caja positivos y del filtro de 10%; el Motor las revisa en ese orden: valuación (P/E) → fundamentales → salud financiera → dividendo → técnico. Solo PMP + nueva posición.
 - Se guarda en `referencias.dividendo_pmp` y /oficina muestra «Dividendo vs precio (obligatorio, PMP)». PMP-01 se queda como está (se evalúa cuando hay señal técnica).
 - Para que la gráfica de /chart también use 5 años basta pasar `years={5}` a `DividendYieldChart` donde se usa (el componente no se tocó).
+
+## v0.74 — Pertenencia a índices de referencia
+- Nuevo `conexion/pertenencia-indices.ts`: consulta Finnhub (`index/constituents` de ^GSPC, ^NDX, ^DJI y `etf/holdings` de QUAL) y dice a qué índices pertenece el ticker (SPY, QQQ, DIA, QUAL).
+- PMP (posición nueva): debe pertenecer a algún índice. Si no pertenece, o si la fuente falla, la corrida NO inicia (422, etapa `indice`, sin modelo ni escritura) y se sugiere pasarla a PCP. PMP con posición abierta no se bloquea.
+- PCP: solo informa. Si pertenece, lo nombra; si no, deja un aviso (no bloquea ni cambia la decisión).
+- La ficha PMP-09 «índices de referencia» ahora muestra los índices a los que pertenece (ya no la lista declarada); si no pertenece o no se pudo consultar queda en no propuestos.
+- Se guarda en `referencias.pertenencia_indices` y se muestra en /oficina («Índices de referencia»).
+- Nota: si Finnhub responde 403 por plan en constituyentes/holdings, PMP no iniciará y el mensaje lo dice.

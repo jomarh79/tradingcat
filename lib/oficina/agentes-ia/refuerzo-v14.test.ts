@@ -481,6 +481,8 @@ function montar(opc: { chart?: Parameters<typeof redChart>[0]; modelo?: Paramete
     const cuerpo = url.includes('/api/webull/') ? { success: true, symbol: 'GKOS', annual: [entrada(2023, 1200), entrada(2024, 1500)], ttm: null, forwardEps: null }
       : url.includes('freq=annual') ? { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] }
       : url.includes('freq=quarterly') ? { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] }
+      : url.includes('/index/constituents') ? { constituents: ['GKOS'] }
+      : url.includes('/etf/holdings') ? { holdings: [{ symbol: 'GKOS' }] }
       : { metric: { currentRatioAnnual: 4.69 } };
     return { ok: true, status: 200, json: async () => cuerpo };
   };

@@ -62,7 +62,8 @@ describe('proponerFichaPmp con datos extra', () => {
   const velas = serie(300, i => 100 + i * 0.1 + ruido(i));
   const hoy = '2030-01-01';
   const extra = (o: Partial<DatosFichaExtra> = {}): DatosFichaExtra => ({
-    dividendos: [], fundamentales: 'ingresos FY2025 1 M USD.', indices: { SPY: velas, QQQ: velas, DIA: velas, QUAL: velas }, ...o });
+    dividendos: [], fundamentales: 'ingresos FY2025 1 M USD.', indices: { SPY: velas, QQQ: velas, DIA: velas, QUAL: velas },
+    pertenencia: { estado: 'pertenece', indices: ['SPY', 'QQQ'], no_incluido_en: ['DIA', 'QUAL'], fallidos: [], texto: 'Pertenece a: S&P 500 (SPY), Nasdaq-100 (QQQ).' }, ...o });
   it('con todo disponible propone los 8 apartados y no deja pendientes', () => {
     const r = proponerFichaPmp({ ticker: 'SE', hoy, velas, watchlist: null, extra: extra() });
     expect(Object.keys(r.propuesta).sort()).toEqual(['correlacion', 'decision_final', 'dividendos_fundamentales', 'identidad', 'indices_referencia', 'plan_ejecucion', 'rendimiento', 'volatilidad_riesgo']);
