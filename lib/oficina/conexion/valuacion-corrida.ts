@@ -41,13 +41,13 @@ export function datosValuacionModelo(v: ValuacionCorrida | null | undefined): Da
   ];
 }
 
-export type VeredictoValuacionCodigo = 'BARATA' | 'RAZONABLE' | 'NO_EVALUABLE';
+export type VeredictoValuacionCodigo = 'BARATA' | 'CARA' | 'NO_EVALUABLE';
 
-/** El 14% lo decide PMP-01 (Auditor); aquí solo se describe: ≥14% anualizado = BARATA, menos = RAZONABLE, sin modelo = NO_EVALUABLE. Nunca CARA (no se bloquea dos veces). */
+/** v0.72 (decisión del 21-nov): P/E actual por debajo del promedio de 5 años = BARATA (se puede comprar); igual o por encima = CARA (no se compra: el Motor da ESPERAR);
+ *  sin P/E o sin promedio = NO_EVALUABLE. El 14% anualizado lo sigue decidiendo PMP-01 (Auditor) aparte. */
 export function veredictoValuacion(v: ValuacionCorrida): VeredictoValuacionCodigo {
-  const g = v.modelo.ganancia_anualizada_pct;
-  if (v.modelo.precio_objetivo === null || g === null) return 'NO_EVALUABLE';
-  return Math.round(g * 100) / 100 >= RENDIMIENTO_MINIMO_PCT ? 'BARATA' : 'RAZONABLE';
+  const r = v.modelo.per.relacion;
+  return r === 'por_debajo' ? 'BARATA' : r === 'por_encima' ? 'CARA' : 'NO_EVALUABLE';
 }
 
 /** Forma que exige el contexto del Director (agente, veredicto, hallazgos, datos_fuente). */
@@ -58,16 +58,19 @@ export function salidaValuacionComoAnalista(v: ValuacionCorrida): Record<string,
   const evidencia: string[] = [];
   const dato = (id: string, campo: string, valor: number, unidad: string): void => { datos_fuente.push({ id, campo, valor, unidad, fuente: v.fuente, fecha_dato: v.fecha }); evidencia.push(id); };
   if (m.precio_objetivo !== null) dato('va-d1', 'precio_objetivo', Number(num(m.precio_objetivo)), 'USD');
+  if (m.per.per_actual !== null) dato('va-d4', 'per_actual', Number(num(m.per.per_actual)), 'x');
+  if (m.per.per_promedio !== null) dato('va-d5', 'per_promedio_5_anios', Number(num(m.per.per_promedio)), 'x');
   if (m.ganancia_anualizada_pct !== null) dato('va-d2', 'ganancia_anualizada_pct', Number(num(m.ganancia_anualizada_pct)), '%');
   if (v.cierre !== null) dato('va-d3', 'cierre_ultima_vela', Number(num(v.cierre)), 'USD');
+  const per = m.per;
   const detalle = veredicto === 'NO_EVALUABLE'
-    ? `Modelo de valuación no calculable: ${m.motivo ?? 'faltan datos'}`
-    : `Precio objetivo ${m.precio_objetivo?.toFixed(2)} a ${m.anios} años; ganancia anualizada ${m.ganancia_anualizada_pct?.toFixed(1)}% (mínimo ${RENDIMIENTO_MINIMO_PCT}%). ${v.fuente}`;
+    ? `Comparación de P/E no calculable: ${per.motivo ?? 'faltan datos'}`
+    : `P/E actual ${per.per_actual?.toFixed(1)}x ${veredicto === 'BARATA' ? 'por debajo' : 'igual o por encima'} del promedio de ${per.puntos} años ${per.per_promedio?.toFixed(1)}x: ${veredicto === 'BARATA' ? 'barata, se puede comprar' : 'cara, no se compra'}.${m.precio_objetivo !== null ? ` Precio objetivo ${m.precio_objetivo.toFixed(2)} a ${m.anios} años; ganancia anualizada ${m.ganancia_anualizada_pct?.toFixed(1)}% (el mínimo de ${RENDIMIENTO_MINIMO_PCT}% lo evalúa PMP-01).` : ''} ${v.fuente}`;
   return {
     agente: 'valuacion', origen: 'codigo', veredicto, detalle,
     precio_objetivo: m.precio_objetivo, ganancia_anualizada_pct: m.ganancia_anualizada_pct, horizonte_meses: v.horizonte_meses,
     hallazgos: [{ id: 'va-h1', tipo: veredicto === 'BARATA' ? 'positivo' : 'neutral', texto: detalle, evidencia }],
-    negativos: veredicto === 'RAZONABLE' ? [detalle] : [],
+    negativos: veredicto === 'CARA' ? [detalle] : [],
     datos_fuente,
   };
 }

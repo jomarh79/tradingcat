@@ -183,6 +183,25 @@ function decidirEntrada(e: EntradaMotor, recompra: boolean): Resolucion {
     };
   }
 
+  // Nivel 5b (v0.72, solo PMP al abrir): ganancias y flujo de caja libre positivos son obligatorios. «aceptable» (TTM y último año no coinciden en alguna medida) pasa. Sin datos o incompleta = no evaluable (no se supone).
+  if (e.portafolio_codigo === 'PMP' && !recompra && e.salud_financiera !== undefined) {
+    const sf = e.salud_financiera;
+    if (sf.resumen === 'sin_datos' || sf.resumen === 'incompleta') {
+      return {
+        decision: 'NO_EVALUABLE', nivel: 'datos', detalle: `No se pueden comprobar las ganancias y el flujo de caja libre (obligatorios en PMP): ${sf.texto}`,
+        motivos: [...motivos, { nivel: 'fundamentales', codigo: 'SALUD_FINANCIERA', resultado: 'no_evaluable', detalle: sf.texto }],
+      };
+    }
+    if (sf.resumen !== 'solida' && sf.resumen !== 'aceptable') {
+      return {
+        decision: negativa, nivel: 'fundamentales', motivo_codigo: 'salud_financiera',
+        detalle: `PMP exige ganancias y flujo de caja libre positivos: ${sf.texto}`,
+        motivos: [...motivos, { nivel: 'fundamentales', codigo: 'SALUD_FINANCIERA', resultado: 'incumple', detalle: sf.texto }],
+      };
+    }
+    motivos.push({ nivel: 'fundamentales', codigo: 'SALUD_FINANCIERA', resultado: 'cumple', detalle: 'Ganancias y flujo de caja libre positivos' });
+  }
+
   // Nivel 6: técnico y momento de ejecución
   const tecnico = e.resultados_agentes.tecnico?.veredicto;
   const m = e.momento;

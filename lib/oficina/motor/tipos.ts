@@ -133,6 +133,8 @@ export interface EntradaMotor {
   capital?: Capital;
   tesis_estado?: TesisEstado;
   momento?: Momento;
+  /** v0.72: solo PMP + nueva_posicion. Salud financiera por código: ganancias y flujo de caja libre (obligatorios). */
+  salud_financiera?: { resumen: 'solida' | 'aceptable' | 'mixta' | 'debil' | 'incompleta' | 'sin_datos'; texto: string };
   salida?: ContextoSalida;
   aporte?: ContextoAporte;
   revision_etf?: ContextoRevisionETF;

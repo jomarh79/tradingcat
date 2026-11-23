@@ -232,6 +232,8 @@ export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
   fecha: string | null; motivo: string | null; avisos: string[];
+  /** v0.72: P/E actual contra el promedio de 5 años (por_debajo = barata, por_encima = cara). */
+  per: { per_actual: number | null; per_promedio: number | null; puntos: number | null; relacion: string | null; motivo: string | null } | null;
 }
 
 /** Valuación por código guardada en las referencias de la corrida (v0.63). Solo lectura; lo que falte queda en null. */
@@ -243,6 +245,7 @@ export function valuacionDe(ref: Record<string, unknown>): ValuacionDetalle | nu
     anios: num(m['anios']), pe_objetivo: num(m['pe_objetivo']), origen_pe: txt(m['origen_pe']), eps: num(m['eps']), origen_eps: txt(m['origen_eps']),
     precio_objetivo: num(m['precio_objetivo']), cierre: num(x['cierre']), ganancia_total_pct: num(m['ganancia_total_pct']), ganancia_anualizada_pct: num(m['ganancia_anualizada_pct']),
     fecha: txt(x['fecha']), motivo: txt(m['motivo']), avisos: arr(x['avisos']).map(textoCorto),
+    per: esObj(m['per']) ? { per_actual: num((m['per'] as Record<string, unknown>)['per_actual']), per_promedio: num((m['per'] as Record<string, unknown>)['per_promedio']), puntos: num((m['per'] as Record<string, unknown>)['puntos']), relacion: txt((m['per'] as Record<string, unknown>)['relacion']), motivo: txt((m['per'] as Record<string, unknown>)['motivo']) } : null,
   };
 }
 

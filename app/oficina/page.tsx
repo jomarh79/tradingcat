@@ -68,7 +68,7 @@ interface Detalle {
   } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
-  valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[] } | null
+  valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[]; per: { per_actual: number | null; per_promedio: number | null; puntos: number | null; relacion: string | null; motivo: string | null } | null } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
 
@@ -291,16 +291,16 @@ export default function OficinaPage() {
         )}
 
         {d.salud_financiera && (
-          <Seccion titulo="Salud financiera (informativa, PCP)">
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: d.salud_financiera.resumen === 'solida' ? C.success : d.salud_financiera.resumen === 'debil' ? C.danger : C.warning }}>
-              {d.salud_financiera.resumen === 'solida' ? 'Genera ganancias y flujo de caja libre' : d.salud_financiera.resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre' : d.salud_financiera.resumen === 'mixta' ? 'Señales mixtas' : 'Sin datos'}
+          <Seccion titulo={d.corrida.portafolio_codigo === 'PMP' ? 'Salud financiera (obligatoria, PMP)' : 'Salud financiera (informativa, PCP)'}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: d.salud_financiera.resumen === 'solida' || d.salud_financiera.resumen === 'aceptable' ? C.success : d.salud_financiera.resumen === 'debil' ? C.danger : C.warning }}>
+              {d.salud_financiera.resumen === 'solida' ? 'Genera ganancias y flujo de caja libre' : d.salud_financiera.resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre' : d.salud_financiera.resumen === 'aceptable' ? 'Genera ganancias y flujo de caja libre (TTM y último año no coinciden en alguna medida)' : d.salud_financiera.resumen === 'mixta' ? 'Una medida negativa' : d.salud_financiera.resumen === 'incompleta' ? 'Datos incompletos' : 'Sin datos'}
             </div>
             {([['Ganancias (utilidad neta)', d.salud_financiera.ganancias], ['Flujo de caja libre', d.salud_financiera.flujo_caja]] as const).map(([nombre, m]) => (
               <div key={nombre} style={{ fontSize: 12, color: '#ccc', marginTop: 3 }}>
                 • {nombre}: {etiqueta(m.estado)}{m.ttm !== null ? ` · TTM ${m.ttm > 0 ? 'positivo' : 'no positivo'}` : ''}{m.anual !== null ? ` · ${m.fy ?? 'último año'} ${m.anual > 0 ? 'positivo' : 'no positivo'}` : ''}
               </div>
             ))}
-            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>Solo ayuda a decidir cuánto invertir: no compra, no vende ni bloquea la decisión.</div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>{d.corrida.portafolio_codigo === 'PMP' ? 'Obligatoria en PMP: sin ganancias y flujo de caja libre positivos (TTM y último año) no se compra.' : 'Solo ayuda a decidir cuánto invertir: no compra, no vende ni bloquea la decisión.'}</div>
             {d.salud_financiera.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
@@ -343,6 +343,13 @@ export default function OficinaPage() {
 
         {d.valuacion && (
           <Seccion titulo="Valuación por código (modelo de /position)">
+            {d.valuacion.per && (
+              <div style={{ fontSize: 12, marginBottom: 6, fontWeight: 700, color: d.valuacion.per.relacion === 'por_debajo' ? C.success : d.valuacion.per.relacion === 'por_encima' ? C.danger : C.warning }}>
+                {d.valuacion.per.relacion === null
+                  ? `P/E vs promedio de 5 años: no evaluable (${d.valuacion.per.motivo ?? 'faltan datos'})`
+                  : `P/E actual ${d.valuacion.per.per_actual?.toFixed(1)}x ${d.valuacion.per.relacion === 'por_debajo' ? 'por debajo' : 'igual o por encima'} del promedio de ${d.valuacion.per.puntos} años ${d.valuacion.per.per_promedio?.toFixed(1)}x · ${d.valuacion.per.relacion === 'por_debajo' ? 'BARATA: se puede comprar' : 'CARA: no se compra'}`}
+              </div>
+            )}
             {d.valuacion.precio_objetivo === null
               ? <div style={{ fontSize: 12, color: C.warning }}>No se pudo calcular: {d.valuacion.motivo ?? 'faltan datos'}</div>
               : (

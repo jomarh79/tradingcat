@@ -35,7 +35,7 @@ const res = (s: SalidaAuditor, codigo: string) => s.resultados_reglas.find((r) =
 const valoracion = (valor: string) => [ds('d-v', 'valor_estimado_base', valor), ds('d-p', 'precio_actual', '1000', 'precio'), ds('d-h', 'horizonte_meses', 36)];
 const FICHA = Object.fromEntries(['identidad', 'rol', 'negocio', 'rendimiento', 'volatilidad_riesgo', 'dividendos_fundamentales', 'correlacion', 'plan_ejecucion', 'decision_final', 'indices_referencia', 'competidores'].map((k) => [k, true]));
 const ANALISIS_PMP = ['radiografia', 'valuacion', 'ganancia_anualizada', 'grafico_riesgo_ejecucion'];
-/** Apertura PMP completa y válida (14.01% con precio 1000). */
+/** Apertura PMP completa y válida (17.30% con precio 1000; el umbral de PMP-01 es 10% desde el 22-nov). */
 const pmpApertura = (p: Parche = {}): EntradaAuditor => entrada({
   datos_fuente: [...valoracion('1613.96'), ds('d-n', 'noticia_x', 'x', 'noticia')],
   operacion: { accion: 'abrir', monto: '50' }, posicion: { rol: 'flujo' },
@@ -124,7 +124,7 @@ describe('transversales y estructura general', () => {
     expect(s.filtros_fallidos).toEqual([]);
     expect(s.datos_faltantes.filter((d) => d.critico)).toEqual([]);
     expect(s.resultados_reglas).toHaveLength(50);
-    expect(res(s, 'PMP-01')).toMatchObject({ resultado: 'cumple', valor_observado: '17.30', umbral: { operador: '>', valor: '14' } });
+    expect(res(s, 'PMP-01')).toMatchObject({ resultado: 'cumple', valor_observado: '17.30', umbral: { operador: '>', valor: '10' } });
     expect(res(s, 'PMP-01').evidencia).toEqual(['d-v', 'd-p', 'd-h']);
     expect(s.datos_fuente.map((d) => d.id)).toEqual(['d-v', 'd-p', 'd-h']); // d-f y d-n existen pero ninguna regla los cita
   });
@@ -178,8 +178,8 @@ describe('transversales y estructura general', () => {
     expect(s.datos_faltantes.map((d) => d.codigo_regla)).toContain('PCP-07');
   });
   it('precedencia: BLOQUEO > NO_ELEGIBLE > NO_EVALUABLE > CUMPLE', () => {
-    // NO_ELEGIBLE (14.00%) con una infracción de monto → BLOQUEO
-    const noElegible = pmpApertura({ datos_fuente: valoracion('1481.544') });
+    // NO_ELEGIBLE (10.00%) con una infracción de monto → BLOQUEO
+    const noElegible = pmpApertura({ datos_fuente: valoracion('1331') });
     expect(auditar(noElegible).veredicto).toBe('NO_ELEGIBLE');
     expect(auditar({ ...noElegible, operacion: { ...noElegible.operacion, monto: '60' } }).veredicto).toBe('BLOQUEO_REGLA');
     // NO_ELEGIBLE con un dato faltante crítico en otra regla → NO_ELEGIBLE
@@ -209,16 +209,17 @@ describe('transversales y estructura general', () => {
 });
 
 describe('PMP', () => {
-  it('P-01/A1: rendimiento exacto 14.00% → NO_ELEGIBLE; P-02: 14.004% real → NO_ELEGIBLE', () => {
-    const s = auditar(pmpApertura({ datos_fuente: valoracion('1481.544') }));
+  it('P-01/A1: rendimiento exacto 10.00% → NO_ELEGIBLE; P-02: 10.004% real → NO_ELEGIBLE', () => {
+    const s = auditar(pmpApertura({ datos_fuente: valoracion('1331') }));
     expect(s.veredicto).toBe('NO_ELEGIBLE');
     expect(s.filtros_fallidos.map((f) => f.codigo)).toEqual(['PMP-01']);
-    expect(res(s, 'PMP-01').valor_observado).toBe('14.00');
-    expect(auditar(pmpApertura({ datos_fuente: valoracion('1481.73894855') })).veredicto).toBe('NO_ELEGIBLE');
+    expect(res(s, 'PMP-01').valor_observado).toBe('10.00');
+    expect(auditar(pmpApertura({ datos_fuente: valoracion('1331.14520528') })).veredicto).toBe('NO_ELEGIBLE');
   });
-  it('P-03/A2: 14.006% real redondea a 14.01 → cumple; justo en el borde 14.005 cumple', () => {
-    expect(auditar(pmpApertura({ datos_fuente: valoracion('1481.77794031') })).veredicto).toBe('CUMPLE');
-    expect(auditar(pmpApertura({ datos_fuente: valoracion('1481.73894856') })).veredicto).toBe('CUMPLE');
+  it('P-03/A2: 10.006% real redondea a 10.01 → cumple; justo en el borde 10.005 cumple, y un poco abajo no', () => {
+    expect(auditar(pmpApertura({ datos_fuente: valoracion('1331.21781188') })).veredicto).toBe('CUMPLE');
+    expect(auditar(pmpApertura({ datos_fuente: valoracion('1331.18150826') })).veredicto).toBe('CUMPLE');
+    expect(auditar(pmpApertura({ datos_fuente: valoracion('1331.18150825') })).veredicto).toBe('NO_ELEGIBLE');
   });
   it('P-04/A4: horizonte distinto de 36 → NO_EVALUABLE (horizonte_distinto); sin horizonte también', () => {
     const d = [ds('d-v', 'valor_estimado_base', '1613.96'), ds('d-p', 'precio_actual', '1000', 'precio'), ds('d-h', 'horizonte_meses', 24)];

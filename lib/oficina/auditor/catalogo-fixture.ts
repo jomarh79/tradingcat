@@ -1,4 +1,4 @@
-// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL. 20-nov (v0.70): PCP-04 y PCP-10 sin MACD; PCP-10 suma rebote en SMA 100/200 y reversión alcista por velas. 18-nov (v0.68a): PCP-10 exige al menos dos señales (cuantos_deben_coincidir 2).
+// Catálogo real de las 50 reglas vigentes (consulta del 26-oct-2026) usado como fixture de pruebas. No es dato de producción. 17-nov (v0.65): definiciones de PCP-04, PCP-06 y PCP-10 alineadas al Técnico (NIVEL_PASADO, RESISTENCIA_PASADA, Mogalef con cierre estricto vs la banda de la vela anterior); la base real recibe versiones nuevas por SQL. 20-nov (v0.70): PCP-04 y PCP-10 sin MACD; PCP-10 suma rebote en SMA 100/200 y reversión alcista por velas. 22-nov (v0.72): PMP-01 umbral 10 (antes 14). 18-nov (v0.68a): PCP-10 exige al menos dos señales (cuantos_deben_coincidir 2).
 import type { ReglaEntrada } from './tipos';
 
 export const CATALOGO_FIXTURE: ReglaEntrada[] = [
@@ -1064,7 +1064,7 @@ export const CATALOGO_FIXTURE: ReglaEntrada[] = [
   "vigente_desde": "2026-10-06",
   "definicion": {
    "tipo": "filtro",
-   "umbral": 14,
+   "umbral": 10,
    "formula": "((valor_estimado_base / precio_actual) ^ (12 / horizonte_meses)) - 1",
    "metrica": "ganancia_anualizada_pct",
    "aplica_a": "apertura_de_posicion_nueva",

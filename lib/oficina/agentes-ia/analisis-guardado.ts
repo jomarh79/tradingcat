@@ -112,8 +112,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const velas = await obtenerVelas(datosDeps, ticker);
   const avisos_velas = velas.ok ? velas.avisos : [velas.error];
   // v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP (si algo falla, la ficha lo declara; no bloquea)
-  // v0.71: salud financiera (ganancias y flujo de caja libre) solo informativa para PCP; con los mismos datos ya leídos
-  const salud_financiera = portafolio === 'PCP' ? evaluarSaludFinanciera(resto) : undefined;
+  // v0.71: salud financiera (ganancias y flujo de caja libre) informativa en PCP y obligatoria en PMP (la aplica el Motor); con los mismos datos ya leídos
+  const salud_financiera = portafolio === 'PCP' || portafolio === 'PMP' ? evaluarSaludFinanciera(resto, { obligatoria: portafolio === 'PMP' }) : undefined;
   const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
 
   // (3) sobre del Fundamental

@@ -48,7 +48,38 @@ export interface EntradaValuacion {
   anios?: number;
 }
 
+/** v0.72 (PMP): P/E actual contra el promedio de los últimos 5 años (cierre a la fecha de cada reporte anual ÷ EPS de ese año). Por debajo = barata; igual o por encima = cara. */
+export const ANIOS_PER_PROMEDIO = 5;
+export const MINIMO_PUNTOS_PER = 3;
+export interface ComparacionPer {
+  per_actual: number | null;
+  origen_per_actual: 'fundamentals' | 'cierre / EPS TTM' | null;
+  per_promedio: number | null;
+  /** Cuántos de los últimos años entraron al promedio (con EPS positivo y cierre cercano a la fecha del reporte). */
+  puntos: number;
+  anios_pedidos: number;
+  relacion: 'por_debajo' | 'por_encima' | null;
+  motivo: string | null;
+}
+
+export function compararPer(e: Pick<EntradaValuacion, 'eps_ttm' | 'pe_actual' | 'historial' | 'cierres' | 'precio'>): ComparacionPer {
+  const hist = e.historial.slice().sort((a, b) => a.year - b.year).slice(-ANIOS_PER_PROMEDIO);
+  const pes = hist.map(h => { const p = cierreCercano(e.cierres, h.endDate); return p !== null && h.eps !== null && h.eps > 0 ? p / h.eps : null; }).filter((v): v is number => v !== null);
+  const promedio = pes.length >= MINIMO_PUNTOS_PER ? pes.reduce((a, b) => a + b, 0) / pes.length : null;
+  let actual: number | null = null;
+  let origen: ComparacionPer['origen_per_actual'] = null;
+  if (e.pe_actual !== null && e.pe_actual > 0) { actual = e.pe_actual; origen = 'fundamentals'; }
+  else if (e.precio !== null && e.precio > 0 && e.eps_ttm !== null && e.eps_ttm > 0) { actual = e.precio / e.eps_ttm; origen = 'cierre / EPS TTM'; }
+  const motivo = promedio === null ? `el promedio de P/E de ${ANIOS_PER_PROMEDIO} años necesita al menos ${MINIMO_PUNTOS_PER} años con EPS positivo y precio (hay ${pes.length})`
+    : actual === null ? 'sin P/E actual (EPS no positivo o sin dato)' : null;
+  return {
+    per_actual: actual, origen_per_actual: origen, per_promedio: promedio, puntos: pes.length, anios_pedidos: ANIOS_PER_PROMEDIO,
+    relacion: promedio !== null && actual !== null ? (actual < promedio ? 'por_debajo' : 'por_encima') : null, motivo,
+  };
+}
+
 export interface ResultadoValuacion {
+  per: ComparacionPer;
   anios: number;
   pe_objetivo: number | null;
   origen_pe: 'histórico' | 'actual' | null;
@@ -88,7 +119,8 @@ export function calcularValuacion(e: EntradaValuacion): ResultadoValuacion {
     : peObjetivo == null ? 'sin P/E (ni histórico ni actual)'
     : eps == null ? 'sin EPS (ni TTM ni estimado)'
     : 'el EPS proyectado no es positivo';
-  return { anios, pe_objetivo: peObjetivo, origen_pe: origenPe, crecimiento_eps: crecimiento, eps, origen_eps: origenEps, precio_objetivo: objetivo, ganancia_total_pct: total, ganancia_anualizada_pct: anual, motivo };
+  const per = compararPer(e);
+  return { per, anios, pe_objetivo: peObjetivo, origen_pe: origenPe, crecimiento_eps: crecimiento, eps, origen_eps: origenEps, precio_objetivo: objetivo, ganancia_total_pct: total, ganancia_anualizada_pct: anual, motivo };
 }
 
 /** Lee las tres fuentes de la tarjeta. Lo que no se pueda leer queda null (la valuación declara su motivo; nunca se rellena). */

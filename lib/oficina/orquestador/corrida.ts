@@ -53,6 +53,14 @@ export const NOMBRE_AGENTE_DIRECTOR = 'director';
 export const NOMBRE_AGENTE_ORQUESTADOR = 'orquestador';
 export const VEREDICTOS_AUDITOR: readonly VeredictoAuditor[] = ['CUMPLE', 'BLOQUEO_REGLA', 'NO_ELEGIBLE', 'NO_EVALUABLE'];
 
+/** v0.72: salud financiera para el Motor de PMP. Sin el dato (la lectura de datos falló) queda «sin_datos»: no se supone que cumple. */
+function saludParaMotor(x: unknown): { salud_financiera: NonNullable<EntradaMotor['salud_financiera']> } {
+  const o = typeof x === 'object' && x !== null ? (x as Record<string, unknown>) : {};
+  const r = o['resumen'];
+  const resumen = r === 'solida' || r === 'aceptable' || r === 'mixta' || r === 'debil' || r === 'incompleta' || r === 'sin_datos' ? r : 'sin_datos';
+  return { salud_financiera: { resumen, texto: typeof o['texto'] === 'string' ? o['texto'] : 'No se pudieron leer los estados financieros.' } };
+}
+
 /** Uso del detonante del Técnico que alimenta `momento` del Motor, por portafolio + tipo (C6). */
 export const USO_MOMENTO_POR_CASO: Readonly<Record<string, UsoMomento>> = {
   'PCP:nueva_posicion': 'apertura_pcp',
@@ -457,14 +465,7 @@ export async function ejecutarCorrida(
     }
   }
 
-  // v0.26 (decisión 10-nov): PMP + nueva_posicion sin señal de entrada (menos de 2 señales) NO corre Valuación: no se estima valor a 36 meses
-  // hasta que el trade dé entrada. Con señal, Valuación corre y usa `ficha.valuacion_base`. Sin Técnico evaluable no se quita nada (no se supone la señal).
-  if (portafolio === 'PMP' && tipo === 'nueva_posicion' && tecnico !== null && tecnico.detonantes !== null
-    && tecnico.detonantes.apertura_pmp.detonante_confirmado === false && requeridos.includes('valuacion')) {
-    requeridos = requeridos.filter(a => a !== 'valuacion');
-    ejecutar = ejecutar.filter(a => a !== 'valuacion');
-    avisos.push('valuacion no se ejecuta: PMP sin señal de entrada (menos de 2 señales); se estima el valor solo cuando el trade dé entrada');
-  }
+  // v0.72 (decisión 22-nov): la Valuación (P/E contra su promedio de 5 años) corre también sin señal técnica de entrada, para verla en la corrida. Antes (v0.26) se omitía.
 
   // ---- Analistas (paralelo, aislados) o resultados por código (ruta determinista)
   const ejecuciones: EjecucionRegistrada[] = [];
@@ -595,6 +596,7 @@ export async function ejecutarCorrida(
     ...(m.capital !== undefined ? { capital: m.capital } : {}),
     ...(m.tesis_estado !== undefined ? { tesis_estado: m.tesis_estado } : {}),
     ...(momento !== undefined ? { momento } : {}),
+    ...(portafolio === 'PMP' && tipo === 'nueva_posicion' ? saludParaMotor(datos.salud_financiera) : {}),
     ...(salida !== undefined ? { salida } : {}),
     ...(aporte !== null ? (aporte.contexto !== null ? { aporte: aporte.contexto } : {}) : m.aporte !== undefined ? { aporte: m.aporte } : {}),
     ...(m.revision_etf !== undefined ? { revision_etf: m.revision_etf } : {}),
@@ -622,7 +624,7 @@ export async function ejecutarCorrida(
         fuerza: tecnico.detonantes.apertura_pcp.fuerza, no_evaluables: tecnico.detonantes.apertura_pcp.senales_no_evaluables.map(String),
         cumplidas: tecnico.detonantes.apertura_pcp.senales_cumplidas.map(id => ({ id: String(id), detalle: tecnico.snapshot!.senales.find(g => g.id === id)?.detalle ?? '' })),
       } } : {}),
-    ...(portafolio === 'PCP' && typeof datos.salud_financiera === 'object' && datos.salud_financiera !== null ? { salud_financiera: datos.salud_financiera } : {}),
+    ...((portafolio === 'PCP' || portafolio === 'PMP') && typeof datos.salud_financiera === 'object' && datos.salud_financiera !== null ? { salud_financiera: datos.salud_financiera } : {}),
     // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
     ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),
     // v0.36: borrador de la ficha de PMP-09 (no cuenta hasta que el usuario lo apruebe); se arma solo con velas y watchlist ya leídas

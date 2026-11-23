@@ -1,10 +1,12 @@
-// v0.71: alerta informativa de salud financiera para PCP (decisión de Jaime, 21-nov): ¿la empresa genera flujo de caja libre positivo y ganancias?
-// NO compra ni bloquea nada; solo ayuda a decidir cuánto invertir. Código puro y determinista: usa los datos ya leídos de Webull (utilidad neta) y de
+// v0.71: salud financiera (decisión de Jaime, 21-nov): ¿la empresa genera flujo de caja libre positivo y ganancias? En PCP es solo informativa (ayuda a decidir cuánto
+// invertir). v0.72: en PMP es OBLIGATORIA al abrir (la aplica el Motor, no este módulo). Código puro y determinista: usa los datos ya leídos de Webull (utilidad neta) y de
 // Finnhub (flujo de caja libre). Periodo: TTM y último año fiscal. Lo que no se pueda leer queda «sin datos»; nunca se rellena.
 import { itemsDesdeFinnhub } from '../agentes-ia/datos-finnhub';
 
 export type EstadoMedida = 'positivo' | 'negativo' | 'mixto' | 'sin_datos';
-export type ResumenSalud = 'solida' | 'mixta' | 'debil' | 'sin_datos';
+/** solida: ambas positivas. aceptable: ninguna negativa y al menos una «mixta» (TTM y último año no coinciden; decisión del 22-nov: cuenta como cumple). debil: ambas negativas.
+ *  mixta: una negativa y la otra no. incompleta: una sin datos y ninguna negativa. sin_datos: ninguna se pudo medir. */
+export type ResumenSalud = 'solida' | 'aceptable' | 'mixta' | 'debil' | 'incompleta' | 'sin_datos';
 
 export interface Medida {
   estado: EstadoMedida;
@@ -68,19 +70,28 @@ function medirFlujo(reportado: unknown, metric: unknown, avisos: string[]): Medi
 
 const FRASE: Record<EstadoMedida, string> = { positivo: 'positivo', negativo: 'negativo', mixto: 'mixto (TTM y último año no coinciden)', sin_datos: 'sin datos' };
 
-export function evaluarSaludFinanciera(fuentes: { income_statement?: unknown; finnhub_reportado?: unknown; finnhub_metric?: unknown }): SaludFinanciera {
+/** `obligatoria` = PMP al abrir (el Motor bloquea si no es sólida); en PCP es solo informativa. */
+export function evaluarSaludFinanciera(fuentes: { income_statement?: unknown; finnhub_reportado?: unknown; finnhub_metric?: unknown }, opciones: { obligatoria?: boolean } = {}): SaludFinanciera {
   const avisos: string[] = [];
   const ganancias = medirGanancias(fuentes.income_statement);
   const flujo_caja = medirFlujo(fuentes.finnhub_reportado, fuentes.finnhub_metric, avisos);
   const e = [ganancias.estado, flujo_caja.estado];
   const resumen: ResumenSalud = e.every(x => x === 'sin_datos') ? 'sin_datos'
     : e.every(x => x === 'positivo') ? 'solida'
-      : e.every(x => x === 'negativo') ? 'debil' : 'mixta';
+      : e.every(x => x === 'negativo') ? 'debil'
+        : e.some(x => x === 'negativo') ? 'mixta'
+          : e.some(x => x === 'sin_datos') ? 'incompleta' : 'aceptable';
+  const obl = opciones.obligatoria === true;
   const cola = resumen === 'solida' ? 'Genera ganancias y flujo de caja libre.'
-    : resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre: es un dato para pensar con cuidado cuánto invertir.'
-      : resumen === 'sin_datos' ? 'No hay datos para evaluarla.' : 'Una de las dos medidas no es claramente positiva: revísala antes de decidir el monto.';
+    : resumen === 'aceptable' ? 'Genera ganancias y flujo de caja libre; en alguna medida el TTM y el último año no coinciden.'
+      : resumen === 'sin_datos' ? 'No hay datos para evaluarla.'
+        : resumen === 'incompleta' ? 'Falta una de las dos medidas: no se puede confirmar.'
+          : obl ? 'PMP exige ganancias y flujo de caja libre positivos (TTM y último año).'
+            : resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre: es un dato para pensar con cuidado cuánto invertir.'
+              : 'Una de las dos medidas es negativa: revísala antes de decidir el monto.';
+  const pie = obl ? 'Es obligatoria en PMP.' : 'Es solo informativa: no compra, no vende ni bloquea.';
   return {
     ganancias, flujo_caja, resumen, avisos,
-    texto: `Ganancias (utilidad neta): ${FRASE[ganancias.estado]}. Flujo de caja libre: ${FRASE[flujo_caja.estado]}. ${cola} Es solo informativa: no compra, no vende ni bloquea.`,
+    texto: `Ganancias (utilidad neta): ${FRASE[ganancias.estado]}. Flujo de caja libre: ${FRASE[flujo_caja.estado]}. ${cola} ${pie}`,
   };
 }

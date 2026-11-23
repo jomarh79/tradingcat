@@ -37,6 +37,7 @@ const datos = (extra: Partial<DatosCongelados> = {}): DatosCongelados => ({
   posicion_existe: false, reglas_versiones_ids: ['r1', 'r2'], tesis_ref: { version: 2, origen: 'al_entrar' }, parametros: PARAMS,
   velas: velas(), sobres: { fundamental: { f: 1 }, valuacion: { v: 1 }, tecnico: { t: 1 }, riesgo_capital: { r: 1 } }, sobre_auditor: { aud: 1 },
   contexto_director: { watchlist: 'x' },
+  salud_financiera: { resumen: 'solida', texto: 'Ganancias y flujo de caja libre positivos.' },
   motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', momento: { detonante_confirmado: true }, monto_operacion: '50' },
   ...extra,
 });
@@ -355,13 +356,38 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
   it('v0.71: la salud financiera informativa llega a referencias solo en PCP y no cambia la decisión', async () => {
     const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
     const salud = { resumen: 'debil', texto: 't', ganancias: { estado: 'negativo' }, flujo_caja: { estado: 'negativo' }, avisos: [] };
-    const sin = corrida(await ejecutarCorrida(pcp(), datosPcp(base), puertos().p));
+    const sin = corrida(await ejecutarCorrida(pcp(), datosPcp({ ...base, salud_financiera: undefined }), puertos().p));
     const con = corrida(await ejecutarCorrida(pcp(), { ...datosPcp(base), salud_financiera: salud }, puertos().p));
     expect((con.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toEqual(salud);
     expect((sin.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toBeUndefined();
     expect(con.salida_motor.decision).toBe(sin.salida_motor.decision);
-    const pmp = corrida(await ejecutarCorrida(sol(), { ...datos(base), salud_financiera: salud }, puertos().p));
-    expect((pmp.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toBeUndefined();
+    const otro = corrida(await ejecutarCorrida(sol({ portafolio_codigo: 'PLP', tipo_evaluacion: 'recompra' }), { ...datos({ ...base, posicion_existe: true }), salud_financiera: salud }, puertos().p));
+    expect((otro.fila_historial.referencias as Record<string, unknown>)['salud_financiera']).toBeUndefined();
+  });
+  it('v0.72: PMP al abrir exige ganancias y flujo de caja libre positivos (obligatorio): débil o mixta = NO_COMPRAR, sin datos o incompleta = NO_EVALUABLE, sólida o aceptable = COMPRAR', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '50' } };
+    const con = async (resumen: string | null) => corrida(await ejecutarCorrida(sol(), datos({ ...base, ...(resumen === null ? { salud_financiera: undefined } : { salud_financiera: { resumen, texto: `salud ${resumen}` } }) }), puertos().p));
+    for (const r of ['solida', 'aceptable']) {
+      const ok = await con(r);
+      expect(ok.salida_motor.decision).toBe('COMPRAR');
+      expect(ok.salida_motor.motivos.some(m => m.codigo === 'SALUD_FINANCIERA' && m.resultado === 'cumple')).toBe(true);
+    }
+    for (const r of ['debil', 'mixta']) {
+      const x = await con(r);
+      expect(x.salida_motor.decision).toBe('NO_COMPRAR');
+      expect(x.salida_motor.nivel_decisivo).toBe('fundamentales');
+      expect(x.salida_motor.motivos.some(m => m.codigo === 'SALUD_FINANCIERA' && m.resultado === 'incumple')).toBe(true);
+    }
+    expect((await con('sin_datos')).salida_motor.decision).toBe('NO_EVALUABLE');
+    expect((await con('incompleta')).salida_motor.decision).toBe('NO_EVALUABLE');
+    expect((await con(null)).salida_motor.decision).toBe('NO_EVALUABLE');
+  });
+  it('v0.72: la salud financiera obligatoria no aplica a PCP (informativa) ni a la recompra de PMP', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
+    const debil = { resumen: 'debil', texto: 'débil' };
+    const a = corrida(await ejecutarCorrida(pcp(), datosPcp({ ...base, salud_financiera: debil }), puertos().p));
+    expect(a.salida_motor.decision).toBe('COMPRAR');
+    expect(a.entrada_motor.salud_financiera).toBeUndefined();
   });
   it('PCP recompra usa recompra_pcp y PLP recompra usa dca_plp', async () => {
     const base = { velas: velas(baja), posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
@@ -387,15 +413,13 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect(r.tecnico!.detonantes!.apertura_pmp.senales_cumplidas.length).toBeLessThan(2);
     expect(r.entrada_motor.momento).toEqual({ detonante_confirmado: false });
   });
-  it('v0.26: PMP abrir sin señal de entrada NO corre Valuación y la decisión es ESPERAR (no BLOQUEADO)', async () => {
+  it('v0.72: PMP abrir sin señal de entrada SÍ corre Valuación (para ver el P/E) y la decisión es ESPERAR (no BLOQUEADO)', async () => {
     const x = puertos();
     const d = datos({ velas: velas(sinSenal), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '50' } });
     const r = corrida(await ejecutarCorrida(sol(), d, x.p));
-    expect(x.log).not.toContain('analista:valuacion');
-    expect(x.log).toEqual(expect.arrayContaining(['analista:fundamental', 'analista:tecnico', 'analista:riesgo_capital', 'auditor', 'director']));
-    expect(r.entrada_motor.agentes_requeridos).toEqual(['fundamental', 'tecnico', 'riesgo_capital']);
-    expect(r.avisos.join(' ')).toMatch(/valuacion no se ejecuta/);
-    expect((x.directorCtx() as { analistas_requeridos_sin_resultado: string[] }).analistas_requeridos_sin_resultado).toEqual([]);
+    expect(x.log).toEqual(expect.arrayContaining(['analista:valuacion', 'analista:fundamental', 'analista:tecnico', 'analista:riesgo_capital', 'auditor', 'director']));
+    expect(r.entrada_motor.agentes_requeridos).toContain('valuacion');
+    expect(r.avisos.join(' ')).not.toMatch(/valuacion no se ejecuta/);
     expect(r.salida_motor.decision).toBe('ESPERAR');
     expect(r.salida_motor.estado_final).not.toBe('bloqueada');
   });

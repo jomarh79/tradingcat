@@ -33,7 +33,7 @@ describe('proponerFichaPmp', () => {
       expect(r.no_propuestos.join('|')).toContain(`${a}:`);
     }
     expect(r.propuesta['identidad']?.texto).toBe('SE · mercado US · portafolio PMP · rol sin definir');
-    expect(r.propuesta['plan_ejecucion']?.texto).toMatch(/50 USD.*2 de las 5 señales.*14% anualizado/);
+    expect(r.propuesta['plan_ejecucion']?.texto).toMatch(/50 USD.*2 de las 5 señales.*10% anualizado.*P\/E esté por debajo de su promedio de 5 años/);
     expect(r.propuesta['decision_final']?.texto).toMatch(/yo autorizo.*revisar la venta del 100%/);
     expect(r.no_propuestos.join('|')).not.toMatch(/plan_ejecucion|decision_final/);
   });

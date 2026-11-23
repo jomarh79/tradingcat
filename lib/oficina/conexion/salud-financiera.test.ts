@@ -27,11 +27,17 @@ describe('salud financiera de PCP (v0.71, informativa)', () => {
     expect(r.resumen).toBe('debil');
     expect(r.texto).toContain('cuánto invertir');
   });
-  it('ganancias positivas y flujo negativo: mixta; TTM y año que no coinciden: mixto', () => {
+  it('una medida negativa y la otra no: mixta (bloquea en PMP)', () => {
     expect(evaluarSaludFinanciera({ income_statement: income(50, [2025, 40]), finnhub_metric: metric(-3, -4) }).resumen).toBe('mixta');
+    expect(evaluarSaludFinanciera({ income_statement: income(-50, [2025, -40]), finnhub_metric: metric(3, 4) }).resumen).toBe('mixta');
+  });
+  it('v0.72 (22-nov): TTM y último año que no coinciden en una medida es «aceptable» (cumple); una medida sin datos y ninguna negativa es «incompleta»', () => {
     const m = evaluarSaludFinanciera({ income_statement: income(-5, [2025, 40]), finnhub_metric: metric(3, 4) });
     expect(m.ganancias.estado).toBe('mixto');
-    expect(m.resumen).toBe('mixta');
+    expect(m.resumen).toBe('aceptable');
+    expect(m.texto).toContain('no coinciden');
+    expect(evaluarSaludFinanciera({ income_statement: income(5, [2025, 4]) }).resumen).toBe('incompleta');
+    expect(evaluarSaludFinanciera({ income_statement: income(-5, [2025, -4]) }).resumen).toBe('mixta');
   });
   it('sin TTM usa el último año fiscal; sin ningún dato: sin_datos (nunca se rellena)', () => {
     expect(evaluarSaludFinanciera({ income_statement: income(null, [2024, -1], [2025, 9]), finnhub_metric: metric(undefined, 5) }).ganancias).toMatchObject({ estado: 'positivo', ttm: null, anual: 9 });
@@ -46,5 +52,11 @@ describe('salud financiera de PCP (v0.71, informativa)', () => {
     expect(r.flujo_caja.fy).toBe('fy2025');
     expect(r.flujo_caja.anual).toBe(-30);
     expect(r.flujo_caja.estado).toBe('negativo');
+  });
+  it('v0.72: en PMP el texto dice que es obligatoria; en PCP, que es informativa', () => {
+    const f = { income_statement: income(-5, [2025, -10]), finnhub_metric: metric(-3, -4) };
+    expect(evaluarSaludFinanciera(f, { obligatoria: true }).texto).toContain('PMP exige');
+    expect(evaluarSaludFinanciera(f, { obligatoria: true }).texto).toContain('obligatoria en PMP');
+    expect(evaluarSaludFinanciera(f).texto).toContain('solo informativa');
   });
 });

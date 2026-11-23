@@ -27,10 +27,10 @@ const DIAS_ANIO = 252;
 const MAX_NEGOCIO = 160;
 const FUENTE_REGLAS = 'reglas de PMP aprobadas el 10-nov';
 export const TEXTO_PLAN_EJECUCION_PMP =
-  'Horizonte 36 meses. Entrada de 50 USD al cierre de la última vela cerrada cuando haya al menos 2 de las 5 señales técnicas de entrada, el Auditor esté en CUMPLE y el valor estimado a 36 meses rinda 14% anualizado o más; las recompras de 10 USD (DCA) las decido yo. '
+  'Horizonte 36 meses. Entrada de 50 USD al cierre de la última vela cerrada cuando haya al menos 2 de las 5 señales técnicas de entrada, el Auditor esté en CUMPLE y el valor estimado a 36 meses rinda 10% anualizado o más, la empresa tenga ganancias y flujo de caja libre positivos y su P/E esté por debajo de su promedio de 5 años; las recompras de 10 USD (DCA) las decido yo. '
   + 'Salidas: 2 si lo invertido es 50 USD o menos (25% y el resto), 3 si es más (25%, 25% y el resto), en los niveles TP1, TP2 y TP3 que fije al entrar; un nivel planeado basta solo y las demás señales de salida piden 2 confirmaciones.';
 export const TEXTO_DECISION_FINAL_PMP =
-  'La Oficina propone y yo autorizo cada operación: nada se compra ni se vende solo. Compro solo si se cumple el plan de ejecución. Si la revisión semestral deja el rendimiento anualizado por debajo de 14% o la empresa pierde fundamentales, la decisión es revisar la venta del 100%, y esa venta la decido yo.';
+  'La Oficina propone y yo autorizo cada operación: nada se compra ni se vende solo. Compro solo si se cumple el plan de ejecución. Si la revisión semestral deja el rendimiento anualizado por debajo de 10% o la empresa pierde fundamentales, la decisión es revisar la venta del 100%, y esa venta la decido yo.';
 
 /** Fecha UTC (AAAA-MM-DD) de una vela diaria; `time` puede venir en segundos o en milisegundos. */
 export function fechaDeVela(time: number): string {

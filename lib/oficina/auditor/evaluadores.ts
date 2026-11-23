@@ -81,13 +81,13 @@ function pmp01(c: Ctx): Eval {
   if (umbral === null) return defInvalida(r, 'umbral');
   if (typeof horizonteDef !== 'number' || !Number.isInteger(horizonteDef) || horizonteDef <= 0) return defInvalida(r, 'horizonte_meses');
   if (typeof decimalesDef !== 'number' || !Number.isInteger(decimalesDef) || decimalesDef < 0 || decimalesDef > 3) return defInvalida(r, 'redondeo_decimales');
-  // v0.24 (decisión 10-nov): el valor estimado a 36 meses solo se pide cuando hay señal de entrada; sin señal, el 14% aún no aplica.
+  // v0.24 (decisión 10-nov): el valor estimado a 36 meses solo se pide cuando hay señal de entrada; sin señal, el umbral de ganancia anualizada aún no aplica.
   const se = dato(e, CAMPO_SENAL_ENTRADA_PMP);
-  if (se !== null && se.valor === false) return noAplica('Sin señal de entrada de PMP (menos de 2 señales): el 14% se evalúa cuando haya señal, con el cierre de la última vela cerrada');
+  if (se !== null && se.valor === false) return noAplica('Sin señal de entrada de PMP (menos de 2 señales): el umbral de ganancia anualizada se evalúa cuando haya señal, con el cierre de la última vela cerrada');
   const dv = dato(e, CAMPO_VALOR_ESTIMADO_BASE);
   const dp = dato(e, CAMPO_PRECIO_ACTUAL);
   const dh = dato(e, CAMPO_HORIZONTE_MESES);
-  if (!dv && dp && se !== null && se.valor === true) return noEval('valor_estimado_por_declarar', 'Hay señal de entrada de PMP: declara tu valor estimado a 36 meses en la ficha (valuacion_base) para evaluar el 14%', { evidencia: [se.id, dp.id] });
+  if (!dv && dp && se !== null && se.valor === true) return noEval('valor_estimado_por_declarar', 'Hay señal de entrada de PMP: declara tu valor estimado a 36 meses en la ficha (valuacion_base) para evaluar la ganancia anualizada', { evidencia: [se.id, dp.id] });
   if (!dv || !dp) return noEval('dato_faltante', `Falta ${!dv ? CAMPO_VALOR_ESTIMADO_BASE : CAMPO_PRECIO_ACTUAL} en datos_fuente`);
   const ev = [dv.id, dp.id, ...(dh ? [dh.id] : [])];
   if (!dh || Number(dh.valor) !== horizonteDef) {

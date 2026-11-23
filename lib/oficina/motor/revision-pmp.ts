@@ -1,12 +1,13 @@
 /** Revisión semestral de PMP (PMP-11), reglas aprobadas el 10-nov. Código determinista y puro; no escribe nada.
  *
- *  - Rendimiento anualizado = (valor estimado vigente ÷ cierre actual)^(12 ÷ horizonte_meses) − 1; por debajo de 14% → «revisar venta del 100%».
+ *  - Rendimiento anualizado = (valor estimado vigente ÷ cierre actual)^(12 ÷ horizonte_meses) − 1; por debajo de 10% → «revisar venta del 100%».
  *  - «Pierde fundamentales» = al menos 2 de 4 deterioros: (1) ingresos y márgenes, (2) deuda vs ingresos (+25 pp), (3) flujo de caja libre negativo
  *    (4 trimestres seguidos o 2 años fiscales seguidos), (4) deterioro de activos reconocido > 5% de los activos totales. Un criterio sin datos es NO_EVALUABLE (nunca se supone).
  *  - El resultado es una TAREA de revisión: la venta nunca es automática (`venta_automatica` siempre false) y la decide el usuario.
  *  - [PROPUESTA] umbrales del criterio 1 (no estaban fijados): ingresos caen más de 10% contra el periodo previo, o el margen operativo cae 5 pp o más. */
 
-export const RENDIMIENTO_MINIMO_PCT = 14;
+/** 22-nov: baja de 14% a 10% (el 14% venía del promedio del S&P 500; se busca superarlo pero con un umbral más alcanzable). Igual al umbral de PMP-01 del catálogo (v2). */
+export const RENDIMIENTO_MINIMO_PCT = 10;
 export const HORIZONTE_MESES_PMP = 36;
 export const DETERIORO_DEUDA_PP = 25;
 export const DETERIORO_ACTIVOS_PCT = 5;

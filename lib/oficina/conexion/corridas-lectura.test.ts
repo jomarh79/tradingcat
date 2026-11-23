@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, entradaPcpDe, saludFinancieraDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, entradaPcpDe, saludFinancieraDe, valuacionDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -183,5 +183,13 @@ describe('salud financiera guardada en la corrida (v0.71)', () => {
     expect(saludFinancieraDe({ salud_financiera: { resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] } }))
       .toEqual({ resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] });
     expect(saludFinancieraDe({ salud_financiera: {} })).toMatchObject({ resumen: null, ganancias: { estado: null, ttm: null }, avisos: [] });
+  });
+});
+
+describe('valuación con P/E vs promedio de 5 años (v0.72)', () => {
+  it('lee la comparación guardada en valuacion_modelo.modelo.per; sin ella, null', () => {
+    const per = { per_actual: 18, per_promedio: 22, puntos: 5, relacion: 'por_debajo', motivo: null };
+    expect(valuacionDe({ valuacion_modelo: { modelo: { per }, cierre: 10 } })!.per).toEqual(per);
+    expect(valuacionDe({ valuacion_modelo: { modelo: {} } })!.per).toBeNull();
   });
 });
