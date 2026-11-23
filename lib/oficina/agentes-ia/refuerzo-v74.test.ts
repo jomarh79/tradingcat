@@ -1,5 +1,7 @@
 // Pruebas de la v0.74: pertenencia a los índices de referencia (S&P 500, Nasdaq-100, Dow, QUAL). PMP al abrir: obligatoria; PCP: solo alerta.
 import { describe, expect, it } from 'vitest';
+import { respuestaIndicesPrueba } from './indices.test-util';
+import { limpiarCachePertenencia } from '../conexion/pertenencia-indices';
 import { ejecutarAnalisisGuardado } from './index';
 import type { FetchDatos } from './index';
 import { modeloFalso } from './modelo-falso.test-util';
@@ -24,15 +26,16 @@ const RESP: Record<string, unknown> = {
 };
 type Indices = { miembros: string[]; falla?: boolean };
 function montar(portafolio: 'PMP' | 'PCP', ind: Indices, bd: Record<string, Fila[]> = {}) {
+  limpiarCachePertenencia();
   const b = nuevaBdGuardado(bd, {}, portafolio);
   const m = modeloFalso({ directorPropone: true });
   const llamadas: string[] = [];
   const fetchFn: FetchDatos = async url => {
     llamadas.push(url);
-    if (url.includes('/index/constituents') || url.includes('/etf/holdings')) {
+    if (url.includes('wikipedia.org') || url.includes('ishares.com')) {
       if (ind.falla === true) return { ok: false, status: 403, json: async () => ({}) };
-      const miembro = ind.miembros.some(s => url.includes(encodeURIComponent(s)) || url.includes(s));
-      return { ok: true, status: 200, json: async () => (url.includes('/etf/holdings') ? { holdings: [{ symbol: miembro ? 'GKOS' : 'ZZZ' }] } : { constituents: [miembro ? 'GKOS' : 'ZZZ'] }) };
+      const ix = respuestaIndicesPrueba(url, ind.miembros)!;
+      return ix;
     }
     const k = Object.keys(RESP).find(x => url.includes(x));
     if (k === undefined) throw new Error('URL no prevista ' + url);
@@ -46,7 +49,7 @@ function montar(portafolio: 'PMP' | 'PCP', ind: Indices, bd: Record<string, Fila
 
 describe('v0.74: PMP exige pertenecer a un índice para abrir', () => {
   it('pertenece a uno: la corrida corre y guarda la pertenencia', async () => {
-    const t = montar('PMP', { miembros: ['^GSPC'] });
+    const t = montar('PMP', { miembros: ['GKOS'] });
     const r = await t.ejecutar();
     expect(r.http).toBe(200);
     expect(JSON.stringify([t.b.e.inserts, t.b.e.rpc])).toContain('pertenencia_indices');
@@ -76,7 +79,7 @@ describe('v0.74: PCP solo da alerta', () => {
     expect(JSON.stringify([r.cuerpo, t.b.e.inserts, t.b.e.rpc])).toContain('No pertenece a ningún índice');
   });
   it('pertenece: solo lo nombra', async () => {
-    const t = montar('PCP', { miembros: ['^NDX'] });
+    const t = montar('PCP', { miembros: ['GKOS'] });
     const r = await t.ejecutar();
     expect(r.http).toBe(200);
     expect(JSON.stringify([t.b.e.inserts, t.b.e.rpc])).toContain('Nasdaq-100');

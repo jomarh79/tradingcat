@@ -1,6 +1,7 @@
 // Pruebas de la v0.35: la Oficina lee rol, negocio (Notas), competidores y portafolios de la watchlist.
 import { describe, expect, it } from 'vitest';
 import { ejecutarAnalisisGuardado } from './index';
+import { respuestaIndicesPrueba } from './indices.test-util';
 import type { FetchDatos } from './index';
 import { modeloFalso } from './modelo-falso.test-util';
 import { PF, nuevaBdGuardado } from './bd-guardado.test-util';
@@ -22,8 +23,6 @@ const RESP: Record<string, unknown> = {
   'freq=annual': { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] },
   'freq=quarterly': { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] },
   '/stock/metric': { metric: { currentRatioAnnual: 4.69 } },
-  '/index/constituents': { constituents: ['GKOS'] },
-  '/etf/holdings': { holdings: [{ symbol: 'GKOS' }] },
   'interval=1day': respuestaChart('GKOS', '1day', DIARIAS_PRUEBA()),
   'interval=1week': respuestaChart('GKOS', '1week', SEMANALES_PRUEBA()),
 };
@@ -31,6 +30,7 @@ function fetchFalso(fallaWebull = false) {
   const llamadas: string[] = [];
   const fetchFn: FetchDatos = async url => {
     llamadas.push(url);
+    const ix = respuestaIndicesPrueba(url); if (ix !== undefined) return ix;
     if (fallaWebull && url.includes('/api/webull/')) return { ok: false, status: 502, json: async () => ({}) };
     const k = Object.keys(RESP).find(x => url.includes(x));
     if (k === undefined) throw new Error('URL no prevista');

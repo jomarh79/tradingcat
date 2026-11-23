@@ -573,3 +573,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - La ficha PMP-09 «índices de referencia» ahora muestra los índices a los que pertenece (ya no la lista declarada); si no pertenece o no se pudo consultar queda en no propuestos.
 - Se guarda en `referencias.pertenencia_indices` y se muestra en /oficina («Índices de referencia»).
 - Nota: si Finnhub responde 403 por plan en constituyentes/holdings, PMP no iniciará y el mensaje lo dice.
+
+## v0.75 — Pertenencia a índices con fuentes gratuitas
+- Finnhub cobra los constituyentes (HTTP 403 en SPY/QQQ/DIA/QUAL), así que `pertenencia-indices.ts` lee: S&P 500, Nasdaq-100 y Dow desde Wikipedia (API `action=parse`, columna Symbol/Ticker) y QUAL desde el CSV de tenencias de iShares. Sin clave.
+- Cada lista debe tener un mínimo de símbolos (SPY 400, QQQ 80, DIA 25, QUAL 80); una lista recortada cuenta como fallo. Caché en memoria de 24 h (los fallos no se guardan).
+- Mismas reglas: PMP al abrir sin poder comprobar o sin índice → no inicia (sugiere PCP); PCP solo alerta/nombra.
+- `FetchDatos` admite `text()` opcional (el CSV). Pruebas: `indices.test-util.ts`.
+- Si Wikipedia o iShares cambian de formato o bloquean, el mensaje dice cuál falló y por qué (HTTP, lista incompleta, etc.).

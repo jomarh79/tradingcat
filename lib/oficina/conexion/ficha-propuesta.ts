@@ -144,7 +144,7 @@ export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readon
   propuesta['plan_ejecucion'] = { texto: TEXTO_PLAN_EJECUCION_PMP, fuente: FUENTE_REGLAS };
   propuesta['decision_final'] = { texto: TEXTO_DECISION_FINAL_PMP, fuente: FUENTE_REGLAS };
   // v0.74: «índices de referencia» = a qué índice(s) pertenece la acción (S&P 500, Nasdaq-100, Dow o QUAL). Antes solo listaba los cuatro ETF declarados.
-  if (e.extra?.pertenencia?.estado === 'pertenece') propuesta['indices_referencia'] = { texto: e.extra.pertenencia.texto, fuente: 'Finnhub (constituyentes de los índices y tenencias de QUAL)' };
+  if (e.extra?.pertenencia?.estado === 'pertenece') propuesta['indices_referencia'] = { texto: e.extra.pertenencia.texto, fuente: 'Wikipedia (S&P 500, Nasdaq-100, Dow) y tenencias de QUAL (iShares)' };
   else no_propuestos.push(`indices_referencia: ${e.extra?.pertenencia?.texto ?? 'no se consultó la pertenencia a los índices'} PMP exige pertenecer a un índice; no se propone`);
 
   // velas cerradas: con `ahora` se usa la misma regla que el Técnico (si el mercado ya cerró, cuenta la vela de hoy); sin `ahora` se descarta la del día en curso (o posterior)

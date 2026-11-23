@@ -4,6 +4,7 @@ import {
   EPSILON_CIFRA, ESCALAS_CIFRA, MAX_VALORES_EN_MENSAJE, PROMPT_FUNDAMENTAL, PROMPT_TECNICO, VERIFICAR_CIFRAS_FUNDAMENTAL, VERIFICAR_CIFRAS_TECNICO, VERSION_PROMPT_FUNDAMENTAL,
   VERSION_PROMPT_TECNICO, ejecutarAnalisisGuardado, validarSalidaFundamental, validarSalidaTecnicoIa, validarSobreTecnico,
 } from './index';
+import { respuestaIndicesPrueba } from './indices.test-util';
 import type { FetchDatos, SobreTecnicoValido } from './index';
 import { cifrasSinRespaldo, lecturasDeCifra, numerosEnTextos } from './utilidades';
 import type { Obj } from './utilidades';
@@ -270,12 +271,10 @@ describe('v0.15: guardado: el Técnico con una cifra truncada falla y queda decl
     'freq=annual': { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] },
     'freq=quarterly': { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] },
     '/stock/metric': { metric: { currentRatioAnnual: 4.69 } },
-    '/index/constituents': { constituents: ['GKOS'] },
-    '/etf/holdings': { holdings: [{ symbol: 'GKOS' }] },
     'interval=1day': respuestaChart('GKOS', '1day', DIARIAS_PRUEBA()),
     'interval=1week': respuestaChart('GKOS', '1week', SEMANALES_PRUEBA()),
   };
-  const fetchFn: FetchDatos = async url => { const k = Object.keys(RESP).find(x => url.includes(x))!; return { ok: true, status: 200, json: async () => RESP[k] }; };
+  const fetchFn: FetchDatos = async url => { const ix = respuestaIndicesPrueba(url); if (ix !== undefined) return ix; const k = Object.keys(RESP).find(x => url.includes(x))!; return { ok: true, status: 200, json: async () => RESP[k] }; };
   const correr = async (m: ReturnType<typeof modeloFalso>) => {
     const b = nuevaBdGuardado({}, {});
     let n = 0;

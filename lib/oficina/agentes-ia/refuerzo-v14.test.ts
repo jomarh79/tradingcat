@@ -4,6 +4,7 @@ import {
   AGENTE_TECNICO, ESQUEMA_TECNICO, completarDatosFuente, PROMPT_TECNICO, TOPE_CONFIANZA_CON_FALTANTES, VERSION_PROMPT_TECNICO, crearPuertoAnalista, ejecutarAnalisisGuardado, extraerVelas, filaAnalisisIa,
   itemsDesdeSnapshotTecnico, mensajeTecnicoParaModelo, obtenerVelas, validarSalidaTecnicoIa, validarSobreTecnico,
 } from './index';
+import { respuestaIndicesPrueba } from './indices.test-util';
 import type { FetchDatos, SobreTecnicoValido } from './index';
 import { modeloFalso } from './modelo-falso.test-util';
 import { PF, nuevaBdGuardado } from './bd-guardado.test-util';
@@ -477,12 +478,11 @@ function montar(opc: { chart?: Parameters<typeof redChart>[0]; modelo?: Paramete
   const llamadas: string[] = [];
   const fetchFn: FetchDatos = async (url, init) => {
     llamadas.push(url);
+    const ix = respuestaIndicesPrueba(url); if (ix !== undefined) return ix;
     if (url.includes('/api/chart-data')) return chart.fetchFn(url, init);
     const cuerpo = url.includes('/api/webull/') ? { success: true, symbol: 'GKOS', annual: [entrada(2023, 1200), entrada(2024, 1500)], ttm: null, forwardEps: null }
       : url.includes('freq=annual') ? { data: [{ year: 2025, quarter: 0, form: '10-K', endDate: '2025-12-31', filedDate: '2026-02-23', report: { bs: [{ concept: 'us-gaap_Assets', unit: 'u_usd', value: 893487000 }], cf: [] } }] }
       : url.includes('freq=quarterly') ? { data: [{ year: 2026, quarter: 3, form: '10-Q', endDate: '2026-09-30', filedDate: '2026-10-28', report: { bs: [], cf: [{ concept: 'us-gaap_NetCashProvidedByUsedInOperatingActivities', unit: 'u_usd', value: 40867000 }] } }] }
-      : url.includes('/index/constituents') ? { constituents: ['GKOS'] }
-      : url.includes('/etf/holdings') ? { holdings: [{ symbol: 'GKOS' }] }
       : { metric: { currentRatioAnnual: 4.69 } };
     return { ok: true, status: 200, json: async () => cuerpo };
   };
