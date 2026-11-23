@@ -104,8 +104,8 @@ export function crearLlamadaGemini(o: OpcionesClienteGemini): LlamadaModelo {
 }
 
 // ---------------------------------------------------------------- v0.30: reintento con espera ante fallos TEMPORALES del proveedor
-/** Esperas (ms) entre intentos: 2 reintentos, a los 2 s y a los 5 s. El reintento inmediato de la corrida cae en la misma ráfaga de 503. */
-export const ESPERAS_REINTENTO_PROVEEDOR_MS: readonly number[] = [2000, 5000];
+/** Esperas (ms) entre intentos: 4 reintentos, a los 2, 5, 12 y 25 s (v0.76: un 503 del proveedor suele durar más de 7 s). El reintento inmediato de la corrida cae en la misma ráfaga de 503. */
+export const ESPERAS_REINTENTO_PROVEEDOR_MS: readonly number[] = [2000, 5000, 12000, 25000];
 /** Solo lo que suele ser temporal: límite de ritmo (429), error del servidor (500/502/503/504) y error de red. NO claves inválidas (401/403), 400, respuestas bloqueadas ni truncadas. */
 const ERROR_TEMPORAL = /^proveedor: (HTTP (429|500|502|503|504)\b|error de red$)/;
 export const esErrorTemporalProveedor = (error: string): boolean => ERROR_TEMPORAL.test(error);

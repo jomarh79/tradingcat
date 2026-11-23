@@ -580,3 +580,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Mismas reglas: PMP al abrir sin poder comprobar o sin índice → no inicia (sugiere PCP); PCP solo alerta/nombra.
 - `FetchDatos` admite `text()` opcional (el CSV). Pruebas: `indices.test-util.ts`.
 - Si Wikipedia o iShares cambian de formato o bloquean, el mensaje dice cuál falló y por qué (HTTP, lista incompleta, etc.).
+
+## v0.76
+- Reintentos ante 503/429/5xx del proveedor del modelo: de 2 a 4, con esperas de 2, 5, 12 y 25 s.
+- Pertenencia a índices: el texto ahora muestra el motivo de cada índice no consultado («Sin consultar: QQQ (HTTP 403)»); el lector de Wikipedia acepta celdas tipo «NYSE: MMM».

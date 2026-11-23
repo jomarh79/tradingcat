@@ -50,8 +50,9 @@ export function simbolosDeHtml(html: string): Set<string> | null {
     const set = new Set<string>();
     for (const f of filas.slice(inicio)) {
       const celdas = (f.match(/<t[hd][\s\S]*?<\/t[hd]>/gi) ?? []).map(limpiarCelda);
-      const v = norm((celdas[col] ?? '').split(/\s/)[0]);
-      if (esSimbolo(v)) set.add(v);
+      // «NYSE: MMM» o «MMM»: vale el último token con forma de símbolo.
+      const v = (celdas[col] ?? '').split(/[\s:]+/).map(norm).filter(esSimbolo).pop();
+      if (v !== undefined) set.add(v);
     }
     if (mejor === null || set.size > mejor.size) mejor = set;
   }
@@ -78,7 +79,7 @@ export function resolverPertenencia(resultados: readonly { indice: IndiceReferen
   const fallidos = resultados.filter(r => r.pertenece === null).map(r => ({ indice: r.indice.id, motivo: r.motivo ?? 'sin dato' }));
   const nombre = (id: string) => INDICES_MEMBRESIA.find(i => i.id === id)?.nombre ?? id;
   if (indices.length > 0) {
-    return { estado: 'pertenece', indices, no_incluido_en, fallidos, texto: `Pertenece a: ${indices.map(i => `${nombre(i)} (${i})`).join(', ')}.${fallidos.length > 0 ? ` Sin consultar: ${fallidos.map(f => f.indice).join(', ')}.` : ''}` };
+    return { estado: 'pertenece', indices, no_incluido_en, fallidos, texto: `Pertenece a: ${indices.map(i => `${nombre(i)} (${i})`).join(', ')}.${fallidos.length > 0 ? ` Sin consultar: ${fallidos.map(f => `${f.indice} (${f.motivo})`).join(', ')}.` : ''}` };
   }
   if (fallidos.length === 0) {
     return { estado: 'no_pertenece', indices, no_incluido_en, fallidos, texto: `No pertenece a ningún índice de referencia (${INDICES_MEMBRESIA.map(i => i.nombre).join(', ')}).` };

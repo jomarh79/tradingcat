@@ -31,6 +31,7 @@ describe('lectura de las listas (v0.75, fuentes gratuitas)', () => {
   it('Wikipedia: toma la columna Symbol/Ticker de la tabla con más símbolos y normaliza BRK.B', () => {
     const s = simbolosDeHtml(html('Symbol', ['JCI', 'BRK.B', 'brk-a']));
     expect([...s!].sort()).toEqual(['BRK.A', 'BRK.B', 'JCI']);
+    expect([...simbolosDeHtml(html('Symbol', ['NYSE: MMM', 'NASDAQ: AAPL']))!].sort()).toEqual(['AAPL', 'MMM']);
     expect(simbolosDeHtml('<table><tr><th>Nada</th></tr></table>')).toBeNull();
     expect(simbolosDeHtml('')).toBeNull();
   });
@@ -70,7 +71,7 @@ describe('pertenencia a índices (v0.74/v0.75)', () => {
     const { d } = deps({ spy: SPY('JCI'), qqq: { status: 500 }, dia: DIA(), qual: QUAL() });
     const r = await consultarPertenencia(d, 'JCI');
     expect(r.estado).toBe('pertenece');
-    expect(r.texto).toContain('Sin consultar: QQQ');
+    expect(r.texto).toContain('Sin consultar: QQQ (HTTP 500)');
   });
   it('una lista incompleta o con otra forma no demuestra nada: cuenta como fallo', async () => {
     const { d } = deps({ spy: ['JCI'], qqq: { cuerpo: '<p>sin tabla</p>' }, dia: DIA(), qual: QUAL() });
