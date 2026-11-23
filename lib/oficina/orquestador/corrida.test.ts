@@ -38,6 +38,7 @@ const datos = (extra: Partial<DatosCongelados> = {}): DatosCongelados => ({
   velas: velas(), sobres: { fundamental: { f: 1 }, valuacion: { v: 1 }, tecnico: { t: 1 }, riesgo_capital: { r: 1 } }, sobre_auditor: { aud: 1 },
   contexto_director: { watchlist: 'x' },
   salud_financiera: { resumen: 'solida', texto: 'Ganancias y flujo de caja libre positivos.' },
+  dividendo_pmp: { estado: 'paga_verde', texto: 'Paga dividendos y está del lado verde.' },
   motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', momento: { detonante_confirmado: true }, monto_operacion: '50' },
   ...extra,
 });
@@ -381,6 +382,29 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     expect((await con('sin_datos')).salida_motor.decision).toBe('NO_EVALUABLE');
     expect((await con('incompleta')).salida_motor.decision).toBe('NO_EVALUABLE');
     expect((await con(null)).salida_motor.decision).toBe('NO_EVALUABLE');
+  });
+  it('v0.73: PMP al abrir exige dividendos y lado verde: no paga = NO_COMPRAR (sugiere PCP), lado rojo = ESPERAR, sin datos = NO_EVALUABLE, verde = COMPRAR', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '50', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '50' } };
+    const con = async (estado: string | null) => corrida(await ejecutarCorrida(sol(), datos({ ...base, ...(estado === null ? { dividendo_pmp: undefined } : { dividendo_pmp: { estado, texto: `div ${estado}` } }) }), puertos().p));
+    const verde = await con('paga_verde');
+    expect(verde.salida_motor.decision).toBe('COMPRAR');
+    expect(verde.salida_motor.motivos.some(m => m.codigo === 'DIVIDENDO' && m.resultado === 'cumple')).toBe(true);
+    const no = await con('no_paga');
+    expect(no.salida_motor.decision).toBe('NO_COMPRAR');
+    expect(no.salida_motor.motivos.some(m => m.codigo === 'DIVIDENDO' && m.resultado === 'incumple')).toBe(true);
+    const rojo = await con('paga_rojo');
+    expect(rojo.salida_motor.decision).toBe('ESPERAR');
+    expect(rojo.salida_motor.condicion_ejecucion).toContain('lado verde');
+    expect((await con('sin_datos')).salida_motor.decision).toBe('NO_EVALUABLE');
+    expect((await con(null)).salida_motor.decision).toBe('NO_EVALUABLE');
+    expect((verde.fila_historial.referencias as Record<string, unknown>)['dividendo_pmp']).toEqual({ estado: 'paga_verde', texto: 'div paga_verde' });
+  });
+  it('v0.73: el dividendo no aplica a PCP ni a la recompra de PMP', async () => {
+    const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
+    const a = corrida(await ejecutarCorrida(pcp(), datosPcp({ ...base, dividendo_pmp: { estado: 'no_paga', texto: 'x' } }), puertos().p));
+    expect(a.salida_motor.decision).toBe('COMPRAR');
+    expect(a.entrada_motor.dividendo).toBeUndefined();
+    expect((a.fila_historial.referencias as Record<string, unknown>)['dividendo_pmp']).toBeUndefined();
   });
   it('v0.72: la salud financiera obligatoria no aplica a PCP (informativa) ni a la recompra de PMP', async () => {
     const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };

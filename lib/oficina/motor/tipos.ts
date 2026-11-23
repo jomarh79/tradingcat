@@ -135,6 +135,8 @@ export interface EntradaMotor {
   momento?: Momento;
   /** v0.72: solo PMP + nueva_posicion. Salud financiera por código: ganancias y flujo de caja libre (obligatorios). */
   salud_financiera?: { resumen: 'solida' | 'aceptable' | 'mixta' | 'debil' | 'incompleta' | 'sin_datos'; texto: string };
+  /** v0.73: solo PMP + nueva_posicion. Dividendo: PMP exige que pague; si paga, su rendimiento debe estar del lado verde (≥ promedio de 5 años). */
+  dividendo?: { estado: 'paga_verde' | 'paga_rojo' | 'no_paga' | 'sin_datos'; texto: string };
   salida?: ContextoSalida;
   aporte?: ContextoAporte;
   revision_etf?: ContextoRevisionETF;

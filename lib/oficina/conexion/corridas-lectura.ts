@@ -92,6 +92,7 @@ export interface CorridaDetalle {
   salida_pcp: PlanSalidaPcp | null;
   entrada_pcp: EntradaPcp | null;
   salud_financiera: SaludFinancieraDetalle | null;
+  dividendo_pmp: DividendoPmpDetalle | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
   /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
@@ -228,6 +229,22 @@ export function saludFinancieraDe(ref: Record<string, unknown>): SaludFinanciera
   return { resumen: txt(x['resumen']), texto: txt(x['texto']), ganancias: med(x['ganancias']), flujo_caja: med(x['flujo_caja']), avisos: arr(x['avisos']).map(textoCorto) };
 }
 
+export interface DividendoPmpDetalle {
+  estado: string | null; texto: string | null; rendimiento_actual: number | null; rendimiento_promedio: number | null; puntos: number | null
+  anios_cubiertos: number | null; ultimo_dividendo: { fecha: string | null; monto: number | null } | null
+}
+
+/** v0.73: dividendo de PMP guardado en referencias.dividendo_pmp. Solo lectura. */
+export function dividendoPmpDe(ref: Record<string, unknown>): DividendoPmpDetalle | null {
+  const x = ref['dividendo_pmp'];
+  if (!esObj(x)) return null;
+  const u = x['ultimo_dividendo'];
+  return {
+    estado: txt(x['estado']), texto: txt(x['texto']), rendimiento_actual: num(x['rendimiento_actual']), rendimiento_promedio: num(x['rendimiento_promedio']),
+    puntos: num(x['puntos']), anios_cubiertos: num(x['anios_cubiertos']), ultimo_dividendo: esObj(u) ? { fecha: txt(u['fecha']), monto: num(u['monto']) } : null,
+  };
+}
+
 export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
@@ -302,6 +319,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       salida_pcp: planSalidaPcpDe(ref),
       entrada_pcp: entradaPcpDe(ref),
       salud_financiera: saludFinancieraDe(ref),
+      dividendo_pmp: dividendoPmpDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
       valuacion: valuacionDe(ref),
     },

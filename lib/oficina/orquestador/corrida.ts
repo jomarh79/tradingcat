@@ -61,6 +61,14 @@ function saludParaMotor(x: unknown): { salud_financiera: NonNullable<EntradaMoto
   return { salud_financiera: { resumen, texto: typeof o['texto'] === 'string' ? o['texto'] : 'No se pudieron leer los estados financieros.' } };
 }
 
+/** v0.73: dividendo de PMP para el Motor. Sin el dato queda «sin_datos»: no se supone que paga ni que está barata. */
+function dividendoParaMotor(x: unknown): { dividendo: NonNullable<EntradaMotor['dividendo']> } {
+  const o = typeof x === 'object' && x !== null ? (x as Record<string, unknown>) : {};
+  const r = o['estado'];
+  const estado = r === 'paga_verde' || r === 'paga_rojo' || r === 'no_paga' || r === 'sin_datos' ? r : 'sin_datos';
+  return { dividendo: { estado, texto: typeof o['texto'] === 'string' ? o['texto'] : 'No se pudieron leer los dividendos.' } };
+}
+
 /** Uso del detonante del Técnico que alimenta `momento` del Motor, por portafolio + tipo (C6). */
 export const USO_MOMENTO_POR_CASO: Readonly<Record<string, UsoMomento>> = {
   'PCP:nueva_posicion': 'apertura_pcp',
@@ -191,6 +199,8 @@ export interface DatosCongelados {
   valuacion_modelo?: unknown;
   /** v0.71: ganancias y flujo de caja libre del ticker (solo PCP); informativo, no entra al Motor. */
   salud_financiera?: unknown;
+  /** v0.73: dividendo de PMP (paga / lado verde o rojo contra el promedio de 5 años). Lo usa el Motor solo en PMP + nueva_posicion. */
+  dividendo_pmp?: unknown;
   /** v0.60: rol que el expediente tiene registrado (columna rol_posicion); la ficha lo usa cuando la watchlist no declara rol. */
   rol_expediente?: string | null;
   /** v0.35: avisos de la capa de datos (por ejemplo watchlist) que quedan en `referencias.avisos`. */
@@ -597,6 +607,7 @@ export async function ejecutarCorrida(
     ...(m.tesis_estado !== undefined ? { tesis_estado: m.tesis_estado } : {}),
     ...(momento !== undefined ? { momento } : {}),
     ...(portafolio === 'PMP' && tipo === 'nueva_posicion' ? saludParaMotor(datos.salud_financiera) : {}),
+    ...(portafolio === 'PMP' && tipo === 'nueva_posicion' ? dividendoParaMotor(datos.dividendo_pmp) : {}),
     ...(salida !== undefined ? { salida } : {}),
     ...(aporte !== null ? (aporte.contexto !== null ? { aporte: aporte.contexto } : {}) : m.aporte !== undefined ? { aporte: m.aporte } : {}),
     ...(m.revision_etf !== undefined ? { revision_etf: m.revision_etf } : {}),
@@ -617,6 +628,7 @@ export async function ejecutarCorrida(
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(salida_pcp !== null ? { salida_pcp } : {}),
+    ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo
     ...(portafolio === 'PCP' && tipo === 'nueva_posicion' && tecnico !== null && tecnico.detonantes !== null && tecnico.snapshot !== null
       ? { entrada_pcp: {

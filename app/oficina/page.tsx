@@ -68,6 +68,7 @@ interface Detalle {
   } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
+  dividendo_pmp?: { estado: string | null; texto: string | null; rendimiento_actual: number | null; rendimiento_promedio: number | null; puntos: number | null; anios_cubiertos: number | null; ultimo_dividendo: { fecha: string | null; monto: number | null } | null } | null
   valuacion?: { anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null; precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null; fecha: string | null; motivo: string | null; avisos: string[]; per: { per_actual: number | null; per_promedio: number | null; puntos: number | null; relacion: string | null; motivo: string | null } | null } | null
   ficha_propuesta?: { propuesta: { apartado: string; texto: string; fuente: string }[]; no_propuestos: string[] } | null
 }
@@ -302,6 +303,19 @@ export default function OficinaPage() {
             ))}
             <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>{d.corrida.portafolio_codigo === 'PMP' ? 'Obligatoria en PMP: sin ganancias y flujo de caja libre positivos (TTM y último año) no se compra.' : 'Solo ayuda a decidir cuánto invertir: no compra, no vende ni bloquea la decisión.'}</div>
             {d.salud_financiera.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.dividendo_pmp && (
+          <Seccion titulo="Dividendo vs precio (obligatorio, PMP)">
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: d.dividendo_pmp.estado === 'paga_verde' ? C.success : d.dividendo_pmp.estado === 'paga_rojo' || d.dividendo_pmp.estado === 'no_paga' ? C.danger : C.warning }}>
+              {d.dividendo_pmp.estado === 'paga_verde' ? 'Lado verde: barata, se puede comprar' : d.dividendo_pmp.estado === 'paga_rojo' ? 'Lado rojo: cara, no se compra' : d.dividendo_pmp.estado === 'no_paga' ? 'No paga dividendos: se sugiere pasarla a PCP' : 'Sin datos'}
+            </div>
+            {d.dividendo_pmp.rendimiento_actual !== null && d.dividendo_pmp.rendimiento_promedio !== null && (
+              <div style={{ fontSize: 12, color: '#ccc' }}>Hoy {d.dividendo_pmp.rendimiento_actual.toFixed(3)}% · promedio de 5 años {d.dividendo_pmp.rendimiento_promedio.toFixed(3)}% (diario, sin anualizar; {d.dividendo_pmp.puntos} cierres, {d.dividendo_pmp.anios_cubiertos} años)</div>
+            )}
+            {d.dividendo_pmp.ultimo_dividendo && <div style={{ fontSize: 11, color: '#999', marginTop: 3 }}>Último dividendo: {d.dividendo_pmp.ultimo_dividendo.monto ?? '—'} el {d.dividendo_pmp.ultimo_dividendo.fecha ?? '—'}</div>}
+            {d.dividendo_pmp.texto && <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>{d.dividendo_pmp.texto}</div>}
           </Seccion>
         )}
 

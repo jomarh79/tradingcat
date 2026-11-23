@@ -558,3 +558,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - **Salud financiera:** nuevo resumen «aceptable» = ninguna medida negativa y al menos una «mixta» (TTM y último año no coinciden): PASA. «incompleta» = una medida sin datos y ninguna negativa: NO_EVALUABLE (antes bloqueaba como NO_COMPRAR). «mixta» queda para una medida negativa y la otra no: NO_COMPRAR.
 - **Valuación sin señal técnica:** ya no se omite en PMP + nueva posición (antes v0.26); así el P/E contra su promedio de 5 años se ve siempre en la corrida. PMP-01 sigue sin aplicar sin señal (la ganancia anualizada se evalúa cuando hay señal); una valuación CARA da ESPERAR.
 - Arreglo de tipos en /oficina: el portafolio se lee de `d.corrida.portafolio_codigo`.
+
+## v0.73: PMP al abrir — dividendos obligatorios y «Dividendo vs precio» del lado verde
+- **Paga dividendos (obligatorio en PMP).** `conexion/dividendo-pmp.ts`: paga = al menos un pago en los últimos 400 días. Si no paga: NO_COMPRAR (`sin_dividendos`) y el texto sugiere pasarla a PCP (la Oficina solo sugiere; el cambio de portafolio lo haces tú en la watchlist).
+- **Lado verde o rojo.** Misma cuenta que `DividendYieldChart` (último dividendo conocido ÷ cierre del día, sin anualizar) con el promedio de los **últimos 5 años** (la gráfica usa 10 por omisión). Hoy ≥ promedio = verde = barata (se puede comprar); hoy < promedio = rojo = cara: ESPERAR (`dividendo_caro`). Pide al menos 250 cierres y 3 años con dividendo conocido; si no, NO_EVALUABLE (no se supone).
+- Es ADEMÁS del P/E contra su promedio de 5 años (v0.72b), de ganancias y flujo de caja positivos y del filtro de 10%; el Motor las revisa en ese orden: valuación (P/E) → fundamentales → salud financiera → dividendo → técnico. Solo PMP + nueva posición.
+- Se guarda en `referencias.dividendo_pmp` y /oficina muestra «Dividendo vs precio (obligatorio, PMP)». PMP-01 se queda como está (se evalúa cuando hay señal técnica).
+- Para que la gráfica de /chart también use 5 años basta pasar `years={5}` a `DividendYieldChart` donde se usa (el componente no se tocó).

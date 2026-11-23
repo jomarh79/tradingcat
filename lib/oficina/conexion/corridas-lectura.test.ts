@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detalleCorrida, entradaPcpDe, saludFinancieraDe, valuacionDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
+import { detalleCorrida, entradaPcpDe, saludFinancieraDe, valuacionDe, dividendoPmpDe, fichaPropuestaDe, limiteSeguro, limpiarTicker, listarCorridas, planSalidaDe, planSalidaPcpDe, reglasDe, textoCorto } from './corridas-lectura';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -191,5 +191,15 @@ describe('valuación con P/E vs promedio de 5 años (v0.72)', () => {
     const per = { per_actual: 18, per_promedio: 22, puntos: 5, relacion: 'por_debajo', motivo: null };
     expect(valuacionDe({ valuacion_modelo: { modelo: { per }, cierre: 10 } })!.per).toEqual(per);
     expect(valuacionDe({ valuacion_modelo: { modelo: {} } })!.per).toBeNull();
+  });
+});
+
+describe('dividendo de PMP guardado en la corrida (v0.73)', () => {
+  it('sin dividendo_pmp: null; con datos: estado, rendimientos y último pago', () => {
+    expect(dividendoPmpDe({})).toBeNull();
+    expect(dividendoPmpDe({ dividendo_pmp: 'x' })).toBeNull();
+    expect(dividendoPmpDe({ dividendo_pmp: { estado: 'paga_rojo', texto: 't', rendimiento_actual: 0.08, rendimiento_promedio: 0.09, puntos: 1200, anios_cubiertos: 4.9, ultimo_dividendo: { fecha: '2026-09-01', monto: 0.5 } } }))
+      .toEqual({ estado: 'paga_rojo', texto: 't', rendimiento_actual: 0.08, rendimiento_promedio: 0.09, puntos: 1200, anios_cubiertos: 4.9, ultimo_dividendo: { fecha: '2026-09-01', monto: 0.5 } });
+    expect(dividendoPmpDe({ dividendo_pmp: {} })).toMatchObject({ estado: null, rendimiento_actual: null, ultimo_dividendo: null });
   });
 });

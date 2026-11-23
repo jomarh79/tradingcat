@@ -22,6 +22,7 @@ import { obtenerDatosFundamental } from './datos-reales';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
 import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
+import { evaluarDividendoPmp } from '../conexion/dividendo-pmp';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
 import type { TrazabilidadIa } from './persistencia-ia';
@@ -115,6 +116,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   // v0.71: salud financiera (ganancias y flujo de caja libre) informativa en PCP y obligatoria en PMP (la aplica el Motor); con los mismos datos ya leídos
   const salud_financiera = portafolio === 'PCP' || portafolio === 'PMP' ? evaluarSaludFinanciera(resto, { obligatoria: portafolio === 'PMP' }) : undefined;
   const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
+  // v0.73: dividendo de PMP (paga / lado verde o rojo de «Dividendo vs precio» contra el promedio de 5 años); con los dividendos y las velas diarias ya leídos
+  const dividendo_pmp = portafolio === 'PMP'
+    ? evaluarDividendoPmp({ dividendos: ficha_datos?.dividendos ?? null, cierres: velas.ok ? velas.velas.diarias.map(c => ({ time: c.time, close: c.close })) : null, ahora: deps.ahora() })
+    : undefined;
 
   // (3) sobre del Fundamental
   const run_id = deps.nuevoId();
@@ -258,7 +263,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(dividendo_pmp !== undefined ? { dividendo_pmp } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null

@@ -202,6 +202,34 @@ function decidirEntrada(e: EntradaMotor, recompra: boolean): Resolucion {
     motivos.push({ nivel: 'fundamentales', codigo: 'SALUD_FINANCIERA', resultado: 'cumple', detalle: 'Ganancias y flujo de caja libre positivos' });
   }
 
+  // Nivel 5c (v0.73, solo PMP al abrir): PMP exige que la empresa pague dividendos (si no, se sugiere pasarla a PCP) y que su rendimiento por dividendo esté del lado
+  // verde de «Dividendo vs precio» (≥ promedio de 5 años = barata); del lado rojo = cara, se espera. Sin datos = no evaluable (no se supone).
+  if (e.portafolio_codigo === 'PMP' && !recompra && e.dividendo !== undefined) {
+    const dv = e.dividendo;
+    if (dv.estado === 'sin_datos') {
+      return {
+        decision: 'NO_EVALUABLE', nivel: 'datos', detalle: `No se puede comprobar el dividendo (obligatorio en PMP): ${dv.texto}`,
+        motivos: [...motivos, { nivel: 'fundamentales', codigo: 'DIVIDENDO', resultado: 'no_evaluable', detalle: dv.texto }],
+      };
+    }
+    if (dv.estado === 'no_paga') {
+      return {
+        decision: negativa, nivel: 'fundamentales', motivo_codigo: 'sin_dividendos',
+        detalle: `PMP exige que la empresa pague dividendos: ${dv.texto}`,
+        motivos: [...motivos, { nivel: 'fundamentales', codigo: 'DIVIDENDO', resultado: 'incumple', detalle: dv.texto }],
+      };
+    }
+    if (dv.estado === 'paga_rojo') {
+      return {
+        decision: 'ESPERAR', nivel: 'valuacion', motivo_codigo: 'dividendo_caro',
+        detalle: `El rendimiento por dividendo está del lado rojo (cara): ${dv.texto}`,
+        condicion_ejecucion: 'Que el rendimiento por dividendo vuelva al promedio de 5 años o más (lado verde)',
+        motivos: [...motivos, { nivel: 'valuacion', codigo: 'DIVIDENDO', resultado: 'incumple', detalle: dv.texto }],
+      };
+    }
+    motivos.push({ nivel: 'valuacion', codigo: 'DIVIDENDO', resultado: 'cumple', detalle: dv.texto });
+  }
+
   // Nivel 6: técnico y momento de ejecución
   const tecnico = e.resultados_agentes.tecnico?.veredicto;
   const m = e.momento;
