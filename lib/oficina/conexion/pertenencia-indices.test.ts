@@ -11,11 +11,11 @@ const csv = (t: string[]) => `iShares MSCI USA Quality Factor ETF\nFund Holdings
 type Resp = { status?: number; cuerpo?: string };
 function deps(p: { spy?: string[] | Resp; qqq?: string[] | Resp; dia?: string[] | Resp; qual?: string[] | Resp }) {
   const llamadas: string[] = [];
-  const dest = (pagina: string): string[] | Resp | undefined => pagina.includes('S%26P_500') ? p.spy : pagina.includes('Nasdaq-100') ? p.qqq : pagina.includes('Dow_Jones') ? p.dia : pagina.includes('QUAL') ? p.qual : undefined;
+  const dest = (pagina: string): string[] | Resp | undefined => pagina.includes('S%26P_500') ? p.spy : pagina.includes('NASDAQ-100') ? p.qqq : pagina.includes('Dow_Jones') ? p.dia : pagina.includes('QUAL') ? p.qual : undefined;
   const fetchFn: FetchDatos = async url => {
     llamadas.push(url);
     const d = dest(url);
-    const r: Resp = d === undefined ? { status: 404 } : Array.isArray(d) ? (url.includes('wikipedia') ? { cuerpo: html(url.includes('Nasdaq') ? 'Ticker' : 'Symbol', d) } : { cuerpo: csv(d) }) : d;
+    const r: Resp = d === undefined ? { status: 404 } : Array.isArray(d) ? (url.includes('wikipedia') ? { cuerpo: html(url.includes('NASDAQ') ? 'Ticker' : 'Symbol', d) } : { cuerpo: csv(d) }) : d;
     const status = r.status ?? 200;
     return { ok: status >= 200 && status < 300, status, json: async () => ({ parse: { text: r.cuerpo ?? '' } }), text: async () => r.cuerpo ?? '' };
   };

@@ -584,3 +584,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.76
 - Reintentos ante 503/429/5xx del proveedor del modelo: de 2 a 4, con esperas de 2, 5, 12 y 25 s.
 - Pertenencia a índices: el texto ahora muestra el motivo de cada índice no consultado («Sin consultar: QQQ (HTTP 403)»); el lector de Wikipedia acepta celdas tipo «NYSE: MMM».
+
+## v0.77
+- Pertenencia a índices: las tablas de componentes de Nasdaq-100 y Dow están en las páginas «List of NASDAQ-100 companies» y «List of Dow Jones Industrial Average companies» (las anteriores no traían la tabla). Si QUAL (iShares) falla, el motivo muestra cómo empieza la respuesta; el CSV tolera BOM.

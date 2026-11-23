@@ -10,8 +10,8 @@ export interface IndiceReferencia { id: string; nombre: string; etf: string; fue
 const WIKI = (pagina: string) => `https://en.wikipedia.org/w/api.php?action=parse&page=${pagina}&prop=text&format=json&formatversion=2&redirects=1`;
 export const INDICES_MEMBRESIA: readonly IndiceReferencia[] = [
   { id: 'SPY', nombre: 'S&P 500', etf: 'SPY', fuente: 'wikipedia', url: WIKI('List_of_S%26P_500_companies') },
-  { id: 'QQQ', nombre: 'Nasdaq-100', etf: 'QQQ', fuente: 'wikipedia', url: WIKI('Nasdaq-100') },
-  { id: 'DIA', nombre: 'Dow Jones', etf: 'DIA', fuente: 'wikipedia', url: WIKI('Dow_Jones_Industrial_Average') },
+  { id: 'QQQ', nombre: 'Nasdaq-100', etf: 'QQQ', fuente: 'wikipedia', url: WIKI('List_of_NASDAQ-100_companies') },
+  { id: 'DIA', nombre: 'Dow Jones', etf: 'DIA', fuente: 'wikipedia', url: WIKI('List_of_Dow_Jones_Industrial_Average_companies') },
   { id: 'QUAL', nombre: 'MSCI USA Quality (QUAL)', etf: 'QUAL', fuente: 'ishares_csv', url: 'https://www.ishares.com/us/products/256101/ishares-msci-usa-quality-factor-etf/1467271812596.ajax?fileType=csv&fileName=QUAL_holdings&dataType=fund' },
 ];
 /** Mínimo de símbolos para creer una lista (una tabla recortada o una página rota no demuestra nada). */
@@ -61,7 +61,7 @@ export function simbolosDeHtml(html: string): Set<string> | null {
 
 /** Del CSV de tenencias de iShares, la columna Ticker. Puro. Null si no hay encabezado o filas. */
 export function simbolosDeCsvIshares(csv: string): Set<string> | null {
-  const lineas = csv.split(/\r?\n/);
+  const lineas = csv.replace(/^\uFEFF/, '').split(/\r?\n/);
   const ini = lineas.findIndex(l => /^"?Ticker"?,/i.test(l.trim()));
   if (ini < 0) return null;
   const set = new Set<string>();
@@ -105,9 +105,11 @@ async function listaDe(deps: DepsDatosReales, indice: IndiceReferencia, ahora: n
       const html = j?.parse?.text;
       simbolos = typeof html === 'string' ? simbolosDeHtml(html) : null;
     } else {
-      simbolos = r.text === undefined ? null : simbolosDeCsvIshares(await r.text());
+      const cuerpo = r.text === undefined ? null : await r.text();
+      simbolos = cuerpo === null ? null : simbolosDeCsvIshares(cuerpo);
+      if (simbolos === null) return { ok: false, motivo: cuerpo === null ? 'sin texto en la respuesta' : `sin columna Ticker (empieza: «${cuerpo.slice(0, 40).replace(/[^\w .,:;-]/g, '?')}»)` };
     }
-    if (simbolos === null) return { ok: false, motivo: 'respuesta vacía o con otra forma' };
+    if (simbolos === null) return { ok: false, motivo: 'respuesta vacía o sin tabla con columna Symbol/Ticker' };
     if (simbolos.size < (MINIMO_SIMBOLOS[indice.id] ?? 1)) return { ok: false, motivo: `lista incompleta (${String(simbolos.size)} símbolos)` };
     cache.set(indice.id, { en: ahora, simbolos });
     return { ok: true, simbolos };
