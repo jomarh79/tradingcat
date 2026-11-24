@@ -86,13 +86,17 @@ export function evaluarSaludFinanciera(fuentes: { income_statement?: unknown; fi
   const financiera = esIndustriaFinanciera(industria);
   // Financiera: solo cuentan las ganancias (el flujo de caja se muestra pero no se evalúa).
   const e = financiera ? [ganancias.estado] : [ganancias.estado, flujo_caja.estado];
-  const resumen: ResumenSalud = e.every(x => x === 'sin_datos') ? 'sin_datos'
+  // v0.82: si el proveedor no trae el flujo de caja libre (por ejemplo falta el capex) y las ganancias sí cumplen, NO bloquea: queda como aviso. Las ganancias sin datos siguen sin poder evaluarse.
+  const flujoSinDatos = !financiera && flujo_caja.estado === 'sin_datos' && (ganancias.estado === 'positivo' || ganancias.estado === 'mixto');
+  if (flujoSinDatos) avisos.push('flujo de caja libre sin datos en el proveedor: no bloquea; revísalo a mano');
+  const resumen: ResumenSalud = flujoSinDatos ? 'aceptable' : e.every(x => x === 'sin_datos') ? 'sin_datos'
     : e.every(x => x === 'positivo') ? 'solida'
       : e.every(x => x === 'negativo') ? 'debil'
         : e.some(x => x === 'negativo') ? 'mixta'
           : e.some(x => x === 'sin_datos') ? 'incompleta' : 'aceptable';
   const obl = opciones.obligatoria === true;
-  const cola = financiera && (resumen === 'solida' || resumen === 'aceptable') ? 'Genera ganancias.'
+  const cola = flujoSinDatos ? 'Genera ganancias; el flujo de caja libre no está disponible en el proveedor y no bloquea (aviso).'
+    : financiera && (resumen === 'solida' || resumen === 'aceptable') ? 'Genera ganancias.'
     : resumen === 'solida' ? 'Genera ganancias y flujo de caja libre.'
     : resumen === 'aceptable' ? 'Genera ganancias y flujo de caja libre; en alguna medida el TTM y el último año no coinciden.'
       : resumen === 'sin_datos' ? 'No hay datos para evaluarla.'

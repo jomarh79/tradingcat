@@ -31,12 +31,18 @@ describe('salud financiera de PCP (v0.71, informativa)', () => {
     expect(evaluarSaludFinanciera({ income_statement: income(50, [2025, 40]), finnhub_metric: metric(-3, -4) }).resumen).toBe('mixta');
     expect(evaluarSaludFinanciera({ income_statement: income(-50, [2025, -40]), finnhub_metric: metric(3, 4) }).resumen).toBe('mixta');
   });
-  it('v0.72 (22-nov): TTM y último año que no coinciden en una medida es «aceptable» (cumple); una medida sin datos y ninguna negativa es «incompleta»', () => {
+  it('v0.72 (22-nov): TTM y último año que no coinciden en una medida es «aceptable» (cumple); ganancias sin datos y flujo positivo es «incompleta»; flujo sin datos con ganancias positivas NO bloquea (v0.82: aceptable con aviso)', () => {
     const m = evaluarSaludFinanciera({ income_statement: income(-5, [2025, 40]), finnhub_metric: metric(3, 4) });
     expect(m.ganancias.estado).toBe('mixto');
     expect(m.resumen).toBe('aceptable');
     expect(m.texto).toContain('no coinciden');
-    expect(evaluarSaludFinanciera({ income_statement: income(5, [2025, 4]) }).resumen).toBe('incompleta');
+    expect(evaluarSaludFinanciera({ finnhub_metric: metric(9, 9) }).resumen).toBe('incompleta');
+    const sinFlujo = evaluarSaludFinanciera({ income_statement: income(5, [2025, 4]) }, { obligatoria: true });
+    expect(sinFlujo.resumen).toBe('aceptable');
+    expect(sinFlujo.avisos.join(' ')).toContain('flujo de caja libre sin datos');
+    expect(sinFlujo.texto).toContain('no bloquea');
+    // ganancias negativas con flujo sin datos siguen bloqueando
+    expect(evaluarSaludFinanciera({ income_statement: income(-5, [2025, -4]) }, { obligatoria: true }).resumen).toBe('mixta');
     expect(evaluarSaludFinanciera({ income_statement: income(-5, [2025, -4]) }).resumen).toBe('mixta');
   });
   it('sin TTM usa el último año fiscal; sin ningún dato: sin_datos (nunca se rellena)', () => {

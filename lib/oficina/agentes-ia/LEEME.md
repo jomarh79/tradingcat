@@ -606,3 +606,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.81
 - Flujo de caja libre: el pago de propiedad, planta y equipo también se busca en `PaymentsToAcquireProductiveAssets` y `PaymentsToAcquireOtherPropertyPlantAndEquipment` (empresas como GLW no usaban el concepto estándar y quedaban «sin datos»). Sin ninguno de los conceptos sigue sin inventarse.
 - /oficina: la valuación mostraba «mínimo 14%»; ahora 10% (PMP-01 v3).
+
+## v0.82
+- Decisión de Jaime (24-nov): si el proveedor no trae el flujo de caja libre (p. ej. falta el capex) y las ganancias cumplen, PMP NO bloquea: la salud queda «aceptable» con un aviso («flujo de caja libre sin datos en el proveedor»). Ganancias sin datos siguen siendo NO_EVALUABLE; ganancias negativas siguen bloqueando; flujo de caja negativo sigue bloqueando.
