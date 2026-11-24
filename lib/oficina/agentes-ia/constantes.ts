@@ -79,6 +79,8 @@ export const PROVEEDORES_IA = [PROVEEDOR_OPENAI, PROVEEDOR_GEMINI] as const;
 export const ENV_GEMINI_API_KEY = 'GEMINI_API_KEY';
 export const ENV_GEMINI_MODELO_ANALISTA = 'GEMINI_MODEL_ANALISTA';
 export const ENV_GEMINI_MODELO_DIRECTOR = 'GEMINI_MODEL_DIRECTOR';
+/** v0.83: opcional. Modelo de respaldo para cuando el principal sigue dando un error temporal (503, 429, 5xx) tras los reintentos con espera. */
+export const ENV_GEMINI_MODELO_RESPALDO = 'GEMINI_MODEL_FALLBACK';
 export const GEMINI_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const GEMINI_RUTA_MODELOS = '/models/';
 export const GEMINI_SUFIJO_GENERAR = ':generateContent';

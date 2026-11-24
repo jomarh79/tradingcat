@@ -609,3 +609,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.82
 - Decisión de Jaime (24-nov): si el proveedor no trae el flujo de caja libre (p. ej. falta el capex) y las ganancias cumplen, PMP NO bloquea: la salud queda «aceptable» con un aviso («flujo de caja libre sin datos en el proveedor»). Ganancias sin datos siguen siendo NO_EVALUABLE; ganancias negativas siguen bloqueando; flujo de caja negativo sigue bloqueando.
+
+## v0.83 — modelo de respaldo
+- Opcional: variable de entorno `GEMINI_MODEL_FALLBACK` (nombre de otro modelo de Gemini). Si el modelo principal sigue con un error temporal (503, 429, 5xx) después de los 4 reintentos con espera, se intenta UNA vez con el de respaldo. Si no se define la variable, todo funciona como antes. Errores de clave o de petición (401/403/400) no cambian de modelo.

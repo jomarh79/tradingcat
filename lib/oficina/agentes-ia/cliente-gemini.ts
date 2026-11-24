@@ -124,3 +124,15 @@ export function conReintentoTransitorio(
     return r;
   };
 }
+
+/** v0.83: si tras los reintentos el modelo principal sigue con un error TEMPORAL, se intenta UNA vez con el modelo de respaldo (si está configurado y es distinto).
+ *  El resultado trae el nombre del modelo que respondió. Errores no temporales (clave, 400, respuesta bloqueada) no cambian de modelo. */
+export function conRespaldoDeModelo(llamar: LlamadaModelo, respaldo: string | undefined): LlamadaModelo {
+  const modeloRespaldo = respaldo !== undefined && MODELO_VALIDO.test(respaldo) && !/^AIza/.test(respaldo) ? respaldo : undefined;
+  if (modeloRespaldo === undefined) return llamar;
+  return async (p: PeticionModelo): Promise<RespuestaModelo> => {
+    const r = await llamar(p);
+    if (r.ok || !esErrorTemporalProveedor(r.error) || p.modelo === modeloRespaldo) return r;
+    return llamar({ ...p, modelo: modeloRespaldo });
+  };
+}
