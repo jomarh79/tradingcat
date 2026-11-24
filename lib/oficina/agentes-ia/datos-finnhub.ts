@@ -28,7 +28,7 @@ export const CAMPOS_BALANCE: readonly CampoConcepto[] = [
 ];
 export const CAMPOS_FLUJO: readonly CampoConcepto[] = [
   { campo: 'flujo_operativo', conceptos: ['us-gaap_NetCashProvidedByUsedInOperatingActivities'] },
-  { campo: 'pagos_propiedad_planta_equipo', conceptos: ['us-gaap_PaymentsToAcquirePropertyPlantAndEquipment'] },
+  { campo: 'pagos_propiedad_planta_equipo', conceptos: ['us-gaap_PaymentsToAcquirePropertyPlantAndEquipment', 'us-gaap_PaymentsToAcquireProductiveAssets', 'us-gaap_PaymentsToAcquireOtherPropertyPlantAndEquipment'] },
   { campo: 'flujo_inversion', conceptos: ['us-gaap_NetCashProvidedByUsedInInvestingActivities'] },
   { campo: 'flujo_financiamiento', conceptos: ['us-gaap_NetCashProvidedByUsedInFinancingActivities'] },
   { campo: 'compensacion_en_acciones', conceptos: ['us-gaap_ShareBasedCompensation'] },

@@ -602,3 +602,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Botón ▶: tras la corrida de posición abierta de PCP, si el precio está en la zona de recompra (`recompra_sugerida` en la respuesta), encadena solo la evaluación de recompra con el monto que toca (1 compra → 25, 2 compras → 50) y la muestra bajo la tarjeta. Nada se compra solo.
 - /oficina: la corrida de recompra muestra «Recompra técnica (PCP)» con las señales de hoy (`referencias.entrada_pcp`).
 - Correo «ZONA DE RECOMPRA PCP»: dice si hoy ya hay señal de recompra y de cuánto sería la compra; cuando aparece la señal dentro de la zona se manda un aviso nuevo. REDESPLEGAR `update-ia` (copia idéntica de `alertas-oficina.ts`).
+
+## v0.81
+- Flujo de caja libre: el pago de propiedad, planta y equipo también se busca en `PaymentsToAcquireProductiveAssets` y `PaymentsToAcquireOtherPropertyPlantAndEquipment` (empresas como GLW no usaban el concepto estándar y quedaban «sin datos»). Sin ninguno de los conceptos sigue sin inventarse.
+- /oficina: la valuación mostraba «mínimo 14%»; ahora 10% (PMP-01 v3).

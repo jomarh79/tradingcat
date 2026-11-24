@@ -371,7 +371,7 @@ export default function OficinaPage() {
                 <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.7 }}>
                   <div>P/E objetivo <b>{d.valuacion.pe_objetivo?.toFixed(1)}x</b> ({d.valuacion.origen_pe}) × EPS a {d.valuacion.anios} años <b>{d.valuacion.eps?.toFixed(2)}</b> ({d.valuacion.origen_eps})</div>
                   <div>Precio objetivo <b>{d.valuacion.precio_objetivo.toFixed(2)}</b> · cierre usado <b>{d.valuacion.cierre?.toFixed(2) ?? '—'}</b> ({d.valuacion.fecha ?? '—'})</div>
-                  <div>Ganancia total <b>{d.valuacion.ganancia_total_pct?.toFixed(1) ?? '—'}%</b> · anualizada a {d.valuacion.anios} años <b style={{ color: (d.valuacion.ganancia_anualizada_pct ?? 0) >= 14 ? C.success : C.warning }}>{d.valuacion.ganancia_anualizada_pct?.toFixed(2) ?? '—'}%</b> (mínimo 14%)</div>
+                  <div>Ganancia total <b>{d.valuacion.ganancia_total_pct?.toFixed(1) ?? '—'}%</b> · anualizada a {d.valuacion.anios} años <b style={{ color: (d.valuacion.ganancia_anualizada_pct ?? 0) >= 10 ? C.success : C.warning }}>{d.valuacion.ganancia_anualizada_pct?.toFixed(2) ?? '—'}%</b> (mínimo 10%)</div>
                 </div>
               )}
             {d.valuacion.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
