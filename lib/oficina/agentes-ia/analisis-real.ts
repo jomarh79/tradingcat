@@ -1,14 +1,14 @@
 // Análisis del Fundamental (y el Director) con datos reales traídos por el servidor. SOLO analiza: no lee ni escribe en Supabase, no guarda y no opera.
 // [PROPUESTA] El Director recibe SOLO el análisis del Fundamental, el ticker y el código de portafolio elegido. NUNCA se añaden posiciones, capital ni datos del
 // portafolio del usuario mientras se use la capa gratuita de Gemini (Google puede usar lo enviado para entrenar).
-import { CLAVES_ANALISIS_REAL } from './constantes';
+import { CLAVES_ANALISIS_REAL, EVALUACION_RECOMPRA } from './constantes';
 import { obtenerDatosFundamental } from './datos-reales';
 import type { DepsDatosReales } from './datos-reales';
 import { PORTAFOLIOS_PRUEBA, TICKER_PRUEBA_RE, ejecutarPruebaFundamental } from './prueba-fundamental';
 import type { DepsPrueba, ResultadoPrueba } from './prueba-fundamental';
 import { esObjeto } from './utilidades';
 
-export interface CuerpoAnalisis { ticker: string; con_director?: boolean; portafolio?: string; guardar: boolean; monto?: string }
+export interface CuerpoAnalisis { ticker: string; con_director?: boolean; portafolio?: string; guardar: boolean; monto?: string; evaluacion?: 'recompra' }
 export type ResultadoCuerpo = { ok: true; cuerpo: CuerpoAnalisis } | { ok: false; error: string };
 
 /** Valida el cuerpo de la ruta de análisis (con o sin guardado) antes de traer datos o llamar a un modelo. */
@@ -22,6 +22,13 @@ export function validarCuerpoAnalisis(body: unknown): ResultadoCuerpo {
   if (body['con_director'] !== undefined && typeof body['con_director'] !== 'boolean') return bad('con_director debe ser booleano');
   if (body['portafolio'] !== undefined && !(PORTAFOLIOS_PRUEBA as readonly unknown[]).includes(body['portafolio'])) return bad(`portafolio debe ser ${PORTAFOLIOS_PRUEBA.join('|')}`);
   if (body['guardar'] !== undefined && typeof body['guardar'] !== 'boolean') return bad('guardar debe ser booleano');
+  // v0.80: evaluación de recompra (solo PCP, con guardado y monto)
+  if (body['evaluacion'] !== undefined) {
+    if (body['evaluacion'] !== EVALUACION_RECOMPRA) return bad(`evaluacion solo admite «${EVALUACION_RECOMPRA}»`);
+    if (body['portafolio'] !== 'PCP') return bad('la recompra solo se evalúa en PCP');
+    if (body['guardar'] !== true) return bad('la recompra requiere guardar');
+    if (body['monto'] === undefined) return bad('la recompra requiere el monto de la compra (25 o 50 USD)');
+  }
   // v0.21: monto de la operación que declara el usuario en cada corrida (USD, positivo, hasta 2 decimales). No hay monto por omisión.
   let monto: string | undefined;
   if (body['monto'] !== undefined) {
@@ -37,6 +44,7 @@ export function validarCuerpoAnalisis(body: unknown): ResultadoCuerpo {
       ...(body['con_director'] !== undefined ? { con_director: body['con_director'] as boolean } : {}),
       ...(body['portafolio'] !== undefined ? { portafolio: body['portafolio'] as string } : {}),
       ...(monto !== undefined ? { monto } : {}),
+      ...(body['evaluacion'] !== undefined ? { evaluacion: 'recompra' as const } : {}),
     },
   };
 }

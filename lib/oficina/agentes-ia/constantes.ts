@@ -123,7 +123,9 @@ export const FINNHUB_METRIC_TODAS = 'all';
 export const TIMEOUT_DATOS_MS = 25_000;
 export const MAX_AVISOS_OBTENCION = 20;
 export const MAX_LARGO_AVISO = 300;
-export const CLAVES_ANALISIS_REAL = ['ticker', 'con_director', 'portafolio', 'guardar', 'monto'] as const;
+export const CLAVES_ANALISIS_REAL = ['ticker', 'con_director', 'portafolio', 'guardar', 'monto', 'evaluacion'] as const;
+/** v0.80: única evaluación especial que se puede pedir: la recompra de una posición PCP abierta. */
+export const EVALUACION_RECOMPRA = 'recompra';
 export const FUENTE_OK = 'ok';
 export const FUENTE_OMITIDA = 'omitida';
 
@@ -131,6 +133,7 @@ export const FUENTE_OMITIDA = 'omitida';
 export const DISPARADOR_ANALISIS_GUARDADO = 'usuario';
 export const TIPO_EVALUACION_NUEVA = 'nueva_posicion';
 export const TIPO_EVALUACION_ABIERTA = 'posicion_abierta';
+export const TIPO_EVALUACION_RECOMPRA = 'recompra';
 export const TABLA_EXPEDIENTES_TESIS = 'oficina_expedientes';
 export const COLUMNAS_TESIS_EXPEDIENTE = 'id,tesis_vigente,tesis_version,tesis_origen,rol_posicion';
 /** [PROPUESTA] false mientras se use la capa gratuita de Gemini: el Director no recibe el resultado del Auditor ni el tipo de evaluación real (delata si hay posición). */

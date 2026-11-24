@@ -22,7 +22,9 @@ const ESPERA_ENTRE_ANALISIS_MS = 31_000
 const ESPERA_REINTENTO_MS = 31_000
 const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '—')
 
-interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[] }
+interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[]
+  // v0.80: la posición PCP está en la zona de recompra → el botón encadena la evaluación de recompra y la deja aquí
+  recompra_sugerida?: { zona: boolean; restantes: number | null; monto_siguiente: string | null }; recompra_res?: Resultado | null; recompra_fallo?: string }
 
 // Código de portafolio (PMP, PCP...) a partir del nombre del portafolio de Trades abiertos (por ejemplo «PMP» o «PMP · Mediano plazo»); null si no coincide.
 function codigoDeNombre(nombre: string | null | undefined): string | null {
@@ -74,19 +76,26 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
   const cambiarPortafolio = (p: string) => { setPortafolio(p); setMonto(montoPor(p)) }
 
   // Una llamada al análisis de un portafolio. Un 429 (demasiado pronto) se reintenta una vez tras unos segundos.
-  const llamar = async (portafolioUsado: string, montoUsado: string): Promise<{ res: Resultado | null; fallo: string }> => {
+  const llamar = async (portafolioUsado: string, montoUsado: string, evaluacion?: 'recompra'): Promise<{ res: Resultado | null; fallo: string }> => {
     const m = montoUsado.trim()
     if (m !== '' && !/^\d{1,9}(\.\d{1,2})?$/.test(m)) return { res: null, fallo: 'El monto debe ser un número positivo en USD con hasta 2 decimales' }
     for (let intento = 0; intento < 2; intento++) {
       try {
         const r = await authedFetch('/api/oficina/analisis-fundamental', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}) }),
+          body: JSON.stringify({ ticker, portafolio: portafolioUsado, con_director: true, guardar: true, ...(m !== '' ? { monto: Number(m) } : {}), ...(evaluacion !== undefined ? { evaluacion } : {}) }),
         })
         if (r.status === 429 && intento === 0) { await new Promise(x => setTimeout(x, ESPERA_REINTENTO_MS)); continue }
         if (r.status === 429) return { res: null, fallo: 'Espera unos segundos entre un análisis y otro y vuelve a intentar' }
         const j = (await r.json().catch(() => null)) as Resultado | null
         if (!j) return { res: null, fallo: `El servidor respondió ${r.status} sin detalle` }
+        // v0.80: posición PCP en zona de recompra → evaluar la recompra con el monto que toca (25 o 50). El servidor pide 30 s entre análisis.
+        const rs = j.recompra_sugerida
+        if (evaluacion === undefined && portafolioUsado === 'PCP' && j.ok && rs?.zona === true && rs.monto_siguiente !== null) {
+          await new Promise(x => setTimeout(x, ESPERA_ENTRE_ANALISIS_MS))
+          const r2 = await llamar('PCP', rs.monto_siguiente, 'recompra')
+          j.recompra_res = r2.res; j.recompra_fallo = r2.fallo
+        }
         return { res: j, fallo: '' }
       } catch {
         return { res: null, fallo: 'No se pudo conectar con el servidor (el análisis puede seguir en marcha: revísalo en /oficina en un minuto)' }
@@ -143,6 +152,19 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
                             {(res.avisos_datos ?? []).map((x, i) => <div key={i}>• {x}</div>)}
                           </div>
                         </details>
+                      )}
+                      {res.recompra_sugerida?.zona === true && (
+                        <div style={{ marginTop: 10, borderTop: '1px solid #151515', paddingTop: 8 }}>
+                          <div style={{ fontWeight: 700, color: '#eab308', marginBottom: 4 }}>Zona de recompra: evaluación de recompra{res.recompra_sugerida.monto_siguiente ? ` (${res.recompra_sugerida.monto_siguiente} USD)` : ''}</div>
+                          {res.recompra_res?.ok ? (
+                            <>
+                              <div style={{ color: '#ccc' }}>Decisión: <b>{etiqueta(res.recompra_res.decision)}</b> · Estado: {etiqueta(res.recompra_res.estado_final)} · Auditor: {etiqueta(res.recompra_res.auditoria_veredicto)}</div>
+                              {(res.recompra_res.motivos ?? []).slice(0, 4).map((m, i) => <div key={i} style={{ color: '#eab308', marginTop: 3 }}>• {etiqueta(m.codigo)}: {m.detalle}</div>)}
+                            </>
+                          ) : (
+                            <div style={{ color: '#ef4444' }}>{res.recompra_res?.error ?? (res.recompra_fallo || (res.recompra_sugerida.monto_siguiente ? 'No se pudo evaluar la recompra' : 'No toca recompra automática (revisa tus compras)'))}{(res.recompra_res?.problemas ?? []).map((x, i) => <div key={i}>• {x}</div>)}</div>
+                          )}
+                        </div>
                       )}
                       <a href="/oficina" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 8, color: '#00bfff', textDecoration: 'none', fontWeight: 700 }}>Ver el detalle en Oficina →</a>
                     </>

@@ -596,3 +596,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Decisión de Jaime (24-nov): bancos, aseguradoras y brókers no tienen flujo de caja libre significativo (GS: negativo todos los años). Para ellas la salud financiera (PMP obligatoria, PCP informativa) evalúa solo las ganancias; el flujo de caja se muestra pero no cuenta.
 - Se detecta por la industria de Finnhub (`stock/profile2` → `finnhubIndustry`, patrón `ES_FINANCIERA` en `salud-financiera.ts`: bank, financ, insur, broker, capital markets, asset manag, investment, credit, mortgage, reit). Si no se puede leer la industria, rige la regla general y se avisa.
 - Se guarda `financiera` e `industria` en `referencias.salud_financiera` y /oficina lo indica.
+
+## v0.80 — recompras de PCP
+- Cuerpo de la ruta: `evaluacion: "recompra"` (solo PCP, con `guardar` y `monto`). Sin posición abierta responde 422 (etapa `recompra`) sin llamar al modelo ni escribir. La corrida usa el tipo `recompra`: Auditor (PCP-02 monto escalonado 25/25/50, PCP-03 máximo 3 compras y 100 USD, PCP-04 señal, PCP-07 plan escalonado), Técnico (`recompra_pcp`: RSI, Koncorde, Mogalef inferior, nivel pasado; sin MACD; mínimo 1) y Motor (RECOMPRAR / NO_RECOMPRAR). No se llama al Fundamental.
+- Botón ▶: tras la corrida de posición abierta de PCP, si el precio está en la zona de recompra (`recompra_sugerida` en la respuesta), encadena solo la evaluación de recompra con el monto que toca (1 compra → 25, 2 compras → 50) y la muestra bajo la tarjeta. Nada se compra solo.
+- /oficina: la corrida de recompra muestra «Recompra técnica (PCP)» con las señales de hoy (`referencias.entrada_pcp`).
+- Correo «ZONA DE RECOMPRA PCP»: dice si hoy ya hay señal de recompra y de cuánto sería la compra; cuando aparece la señal dentro de la zona se manda un aviso nuevo. REDESPLEGAR `update-ia` (copia idéntica de `alertas-oficina.ts`).

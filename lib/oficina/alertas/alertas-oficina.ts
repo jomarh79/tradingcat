@@ -89,10 +89,18 @@ export function leerEstadoSalidaPcp(valor: unknown): EstadoSalidaPcp | null {
 
 export const FIRMA_SIN_AVISO = 'NADA';
 
+/** v0.80: dentro de la zona de recompra, dice si hoy ya hay señal de recompra y de cuánto sería la compra (compra 2 = 25 USD, compra 3 = 50 USD; PCP-02). */
+export function textoSenalRecompra(r: { compras?: number; senal_recompra?: { confirmada: boolean; cumplidas: string[] } | null }): string {
+  const monto = r.compras === 1 ? ' La siguiente compra sería de 25 USD.' : r.compras === 2 ? ' La siguiente compra sería de 50 USD.' : '';
+  if (r.senal_recompra === undefined || r.senal_recompra === null) return `Señal de recompra de hoy: sin datos.${monto}`;
+  return r.senal_recompra.confirmada ? `Hoy YA hay señal de recompra (${r.senal_recompra.cumplidas.join(', ')}).${monto}` : `Hoy todavía no hay señal de recompra.${monto}`;
+}
+
 /** Resume en un texto lo que el plan dice hoy: una salida concreta, la zona de recompra o nada. Si cambia, hay algo nuevo que avisar. */
-export function firmaSalidaPcp(r: { decision: string | null; porcentaje: number | null; motivo: string | null; nivel: string | null; zona_recompra: boolean }): string {
+export function firmaSalidaPcp(r: { decision: string | null; porcentaje: number | null; motivo: string | null; nivel: string | null; zona_recompra: boolean; senal_recompra?: { confirmada: boolean } | null }): string {
   if (r.decision !== null) return `${r.decision}:${r.porcentaje ?? ''}:${r.motivo ?? ''}:${r.nivel ?? ''}`;
-  return r.zona_recompra ? 'ZONA_RECOMPRA' : FIRMA_SIN_AVISO;
+  // v0.80: cuando aparece la señal de recompra dentro de la zona, es un aviso nuevo
+  return r.zona_recompra ? (r.senal_recompra?.confirmada === true ? 'ZONA_RECOMPRA_CON_SENAL' : 'ZONA_RECOMPRA') : FIRMA_SIN_AVISO;
 }
 
 /** Una revisión por trade y día. Avisa cuando la firma es algo (salida o zona) y es distinta de la última vez que se guardó (o nunca se había visto). Nunca repite el mismo aviso. */
@@ -129,7 +137,8 @@ export type RespuestaSenal =
 /** v0.69: respuesta de /api/oficina/senal-salida (mismo cálculo que la corrida de la Oficina para una posición PCP abierta). */
 export type RespuestaSalidaPcp =
   | { ok: true; fecha_vela: string; cierre: number; decision: 'VENDER' | 'REDUCIR' | null; porcentaje: number | null; motivo: string | null; nivel: string | null; detalle: string | null;
-      zona_recompra: boolean; recompras_restantes: number | null; costo_promedio: string | null; stop: string | null }
+      zona_recompra: boolean; recompras_restantes: number | null; costo_promedio: string | null; stop: string | null;
+      compras?: number; senal_recompra?: { confirmada: boolean; cumplidas: string[] } | null }
   | { ok: false; error: string };
 
 export interface DepsAlertas {
@@ -219,7 +228,7 @@ export async function ejecutarAlertasOficina(deps: DepsAlertas, tickersWatchlist
               const esSalida = r.decision !== null;
               const detalle = esSalida
                 ? `${r.decision === 'VENDER' ? 'Vender' : 'Reducir'} ${r.porcentaje ?? ''}% de ${t}: ${r.detalle ?? ''}. ${cierto}${costo} Es una propuesta: la Oficina no vende; tú decides y, al ejecutar, registra la venta y marca el TP cumplido en Trades abiertos.`
-                : `El cierre de ${t} está en o bajo tu stop${r.stop !== null ? ` (${r.stop})` : ''} en un plan escalonado: zona de posible recompra${r.recompras_restantes !== null ? ` (hasta ${r.recompras_restantes} más)` : ''}. ${cierto}${costo} Solo es un aviso: no vende; si quieres recomprar, corre la recompra en la Oficina.`;
+                : `El cierre de ${t} está en o bajo tu stop${r.stop !== null ? ` (${r.stop})` : ''} en un plan escalonado: zona de posible recompra${r.recompras_restantes !== null ? ` (hasta ${r.recompras_restantes} más)` : ''}. ${cierto}${costo} ${textoSenalRecompra(r)} Solo es un aviso: no vende; si quieres recomprar, corre la recompra en la Oficina (el botón ▶ de Trades abiertos la evalúa solo).`;
               const ok = await deps.enviar({ ticker: t, type: esSalida ? TIPO_ALERTA_SALIDA_PCP : TIPO_ALERTA_RECOMPRA_PCP, currentPrice: 0, targetPrice: 0, detalle });
               if (ok && await deps.guardarEstado(`salida_pcp:${id}`, d.estado)) resumen.salidas_pcp_avisadas.push(t);   // si el correo no salió, no se guarda y se reintenta
             } else if (d.accion === 'guardar') {

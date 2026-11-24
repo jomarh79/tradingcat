@@ -67,7 +67,7 @@ describe('copia en la Edge Function', () => {
   });
 });
 
-import { decidirSalidaPcp, ejecutarAlertasOficina, firmaSalidaPcp, leerEstadoSalidaPcp, TIPO_ALERTA_PMP11, TIPO_ALERTA_RECOMPRA_PCP, TIPO_ALERTA_SALIDA_PCP, TIPO_ALERTA_SENAL, TIPO_ALERTA_SENAL_PCP } from './alertas-oficina';
+import { decidirSalidaPcp, ejecutarAlertasOficina, firmaSalidaPcp, leerEstadoSalidaPcp, textoSenalRecompra, TIPO_ALERTA_PMP11, TIPO_ALERTA_RECOMPRA_PCP, TIPO_ALERTA_SALIDA_PCP, TIPO_ALERTA_SENAL, TIPO_ALERTA_SENAL_PCP } from './alertas-oficina';
 import type { DepsAlertas, RespuestaSalidaPcp, RespuestaSenal } from './alertas-oficina';
 
 function montar(o: { tablas?: Record<string, unknown[]>; senal?: (t: string) => RespuestaSenal; salida?: (t: string) => RespuestaSalidaPcp | null; correoOk?: boolean; abierto?: boolean; hoy?: string } = {}) {
@@ -242,6 +242,9 @@ describe('salida y zona de recompra de PCP (v0.69)', () => {
   it('la firma resume lo que dice el plan hoy', () => {
     expect(firmaSalidaPcp({ decision: 'VENDER', porcentaje: 100, motivo: 'nivel_planeado', nivel: 'TP1 = 150', zona_recompra: false })).toBe('VENDER:100:nivel_planeado:TP1 = 150');
     expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: true })).toBe('ZONA_RECOMPRA');
+    // v0.80: cuando aparece la señal de recompra dentro de la zona, la firma cambia (aviso nuevo)
+    expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: true, senal_recompra: { confirmada: false } })).toBe('ZONA_RECOMPRA');
+    expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: true, senal_recompra: { confirmada: true } })).toBe('ZONA_RECOMPRA_CON_SENAL');
     expect(firmaSalidaPcp({ decision: null, porcentaje: null, motivo: null, nivel: null, zona_recompra: false })).toBe('NADA');
   });
   it('decide: avisa lo nuevo, nunca repite lo mismo, guarda «nada» y revisa una vez al día', () => {
@@ -314,3 +317,12 @@ describe('salida y zona de recompra de PCP (v0.69)', () => {
   });
 });
 
+
+describe('texto de la señal de recompra en el correo de zona (v0.80)', () => {
+  it('con señal, sin señal y sin datos; el monto sigue a PCP-02 (1 compra → 25, 2 compras → 50)', () => {
+    expect(textoSenalRecompra({ compras: 1, senal_recompra: { confirmada: true, cumplidas: ['RSI_SOBREVENTA'] } })).toBe('Hoy YA hay señal de recompra (RSI_SOBREVENTA). La siguiente compra sería de 25 USD.');
+    expect(textoSenalRecompra({ compras: 2, senal_recompra: { confirmada: false, cumplidas: [] } })).toBe('Hoy todavía no hay señal de recompra. La siguiente compra sería de 50 USD.');
+    expect(textoSenalRecompra({ compras: 3, senal_recompra: null })).toBe('Señal de recompra de hoy: sin datos.');
+    expect(textoSenalRecompra({})).toBe('Señal de recompra de hoy: sin datos.');
+  });
+});

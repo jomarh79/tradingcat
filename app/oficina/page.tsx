@@ -321,7 +321,7 @@ export default function OficinaPage() {
         )}
 
         {d.entrada_pcp && (
-          <Seccion titulo="Entrada técnica (PCP)">
+          <Seccion titulo={d.corrida.tipo_evaluacion === 'recompra' ? 'Recompra técnica (PCP)' : 'Entrada técnica (PCP)'}>
             <div style={{ fontSize: 12, color: d.entrada_pcp.confirmada ? C.success : C.warning, fontWeight: 700, marginBottom: 4 }}>
               {d.entrada_pcp.cumplidas.length} señal(es) cumplida(s) · mínimo {d.entrada_pcp.senales_minimas ?? '—'}
               {d.entrada_pcp.fuerza ? <> · fuerza {d.entrada_pcp.fuerza.replace('_', ' ')}</> : null}

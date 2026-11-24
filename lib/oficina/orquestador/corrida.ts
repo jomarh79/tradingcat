@@ -630,12 +630,16 @@ export async function ejecutarCorrida(
     ...(salida_pcp !== null ? { salida_pcp } : {}),
     ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo
-    ...(portafolio === 'PCP' && tipo === 'nueva_posicion' && tecnico !== null && tecnico.detonantes !== null && tecnico.snapshot !== null
-      ? { entrada_pcp: {
-        confirmada: tecnico.detonantes.apertura_pcp.detonante_confirmado, senales_minimas: tecnico.detonantes.apertura_pcp.senales_minimas,
-        fuerza: tecnico.detonantes.apertura_pcp.fuerza, no_evaluables: tecnico.detonantes.apertura_pcp.senales_no_evaluables.map(String),
-        cumplidas: tecnico.detonantes.apertura_pcp.senales_cumplidas.map(id => ({ id: String(id), detalle: tecnico.snapshot!.senales.find(g => g.id === id)?.detalle ?? '' })),
-      } } : {}),
+    // v0.80: igual en la recompra de PCP (detonante recompra_pcp: RSI, Koncorde, Mogalef inferior, nivel pasado; sin MACD)
+    ...(portafolio === 'PCP' && (tipo === 'nueva_posicion' || tipo === 'recompra') && tecnico !== null && tecnico.detonantes !== null && tecnico.snapshot !== null
+      ? { entrada_pcp: (() => {
+        const det = tipo === 'recompra' ? tecnico.detonantes.recompra_pcp : tecnico.detonantes.apertura_pcp;
+        return {
+          confirmada: det.detonante_confirmado, senales_minimas: det.senales_minimas,
+          fuerza: det.fuerza, no_evaluables: det.senales_no_evaluables.map(String),
+          cumplidas: det.senales_cumplidas.map(id => ({ id: String(id), detalle: tecnico.snapshot!.senales.find(g => g.id === id)?.detalle ?? '' })),
+        };
+      })() } : {}),
     ...((portafolio === 'PCP' || portafolio === 'PMP') && typeof datos.salud_financiera === 'object' && datos.salud_financiera !== null ? { salud_financiera: datos.salud_financiera } : {}),
     // v0.63: el cálculo de valuación por código (P/E, EPS, precio objetivo, ganancia anualizada) queda en la corrida para poder verlo y cotejarlo en /oficina
     ...(typeof datos.valuacion_modelo === 'object' && datos.valuacion_modelo !== null ? { valuacion_modelo: datos.valuacion_modelo } : {}),

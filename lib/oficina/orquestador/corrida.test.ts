@@ -342,7 +342,7 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ velas: velas(sinSenal), posicion_existe: true, motor: dineroPcp }), puertos().p));
     expect(c.entrada_motor.momento).toEqual({ detonante_confirmado: false });         // PCP recompra -> recompra_pcp
   });
-  it('v0.70: PCP apertura guarda en referencias.entrada_pcp las señales cumplidas y su fuerza; PMP y la recompra no', async () => {
+  it('v0.70: PCP apertura guarda en referencias.entrada_pcp las señales cumplidas y su fuerza; PMP no; la recompra usa recompra_pcp (v0.80)', async () => {
     const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };
     const a = corrida(await ejecutarCorrida(pcp(), datosPcp(base), puertos().p));
     const ep = (a.fila_historial.referencias as Record<string, unknown>)['entrada_pcp'] as { cumplidas: { id: string }[]; fuerza: string | null; confirmada: boolean };
@@ -352,7 +352,10 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     const b = corrida(await ejecutarCorrida(sol(), datos(base), puertos().p));
     expect((b.fila_historial.referencias as Record<string, unknown>)['entrada_pcp']).toBeUndefined();
     const c = corrida(await ejecutarCorrida(pcp({ tipo_evaluacion: 'recompra' }), datosPcp({ ...base, posicion_existe: true }), puertos().p));
-    expect((c.fila_historial.referencias as Record<string, unknown>)['entrada_pcp']).toBeUndefined();
+    const ec = (c.fila_historial.referencias as Record<string, unknown>)['entrada_pcp'] as { cumplidas: { id: string }[]; fuerza: string | null; confirmada: boolean; senales_minimas: number | null };
+    expect(ec.cumplidas.length).toBe(c.tecnico!.detonantes!.recompra_pcp.senales_cumplidas.length);
+    expect(ec.confirmada).toBe(c.tecnico!.detonantes!.recompra_pcp.detonante_confirmado);
+    expect(ec.senales_minimas).toBe(c.tecnico!.detonantes!.recompra_pcp.senales_minimas);
   });
   it('v0.71: la salud financiera informativa llega a referencias solo en PCP y no cambia la decisión', async () => {
     const base = { velas: velas(baja), motor: { capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' as const }, tesis_estado: 'intacta' as const, monto_operacion: '25' } };

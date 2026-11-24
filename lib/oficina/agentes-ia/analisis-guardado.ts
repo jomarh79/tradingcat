@@ -13,7 +13,7 @@
 // (la respuesta lo dice: `persistencia.estado` distinto de `guardada`).
 import {
   AGENTE_FUNDAMENTAL, AGENTE_TECNICO, CLAVE_ANOTACIONES_CODIGO, COLUMNAS_TESIS_EXPEDIENTE, DIRECTOR_VE_DATOS_PRIVADOS, DISPARADOR_ANALISIS_GUARDADO, MERCADO_PRUEBA,
-  PORTAFOLIO_PRUEBA_POR_OMISION, TABLA_EXPEDIENTES_TESIS, CONTRATO_ENTRADA, TIPO_EVALUACION_ABIERTA, TIPO_EVALUACION_NUEVA,
+  PORTAFOLIO_PRUEBA_POR_OMISION, TABLA_EXPEDIENTES_TESIS, CONTRATO_ENTRADA, TIPO_EVALUACION_ABIERTA, TIPO_EVALUACION_NUEVA, TIPO_EVALUACION_RECOMPRA,
 } from './constantes';
 import { validarCuerpoAnalisis } from './analisis-real';
 import { velasDiariasCerradas } from '../conexion/velas-cerradas';
@@ -146,7 +146,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if ('error' in pos) return falla('posicion', [pos.error]);
   if (pos.filas.length > 1) return falla('posicion', [`${TABLA_POSICIONES}: hay ${pos.filas.length} posiciones abiertas de ${ticker} en ${portafolio} (ambiguo)`]);
   const posicion_existe = pos.filas.length === 1;
-  const tipo_evaluacion = posicion_existe ? TIPO_EVALUACION_ABIERTA : TIPO_EVALUACION_NUEVA;
+  // v0.80: recompra de una posición PCP abierta (la pide el botón cuando el precio está en la zona de recompra). Sin posición no hay nada que recomprar.
+  const es_recompra = v.cuerpo.evaluacion === 'recompra';
+  if (es_recompra && !posicion_existe) return falla('recompra', [`no hay una posición abierta de ${ticker} en ${portafolio}: no hay nada que recomprar`]);
+  const tipo_evaluacion = es_recompra ? TIPO_EVALUACION_RECOMPRA : posicion_existe ? TIPO_EVALUACION_ABIERTA : TIPO_EVALUACION_NUEVA;
   // v0.31: plan de salidas de PMP (solo lectura). Con una posición PMP abierta, un dato ilegible o inválido NO se rellena: no se llama a ningún modelo.
   let salida_pmp: DatosSalidaPmp | undefined;
   if (portafolio === 'PMP' && posicion_existe) {
@@ -299,13 +302,18 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     ...(valuacion !== undefined ? { valuacion: { origen: 'codigo', horizonte_meses: valuacion.horizonte_meses, veredicto: veredictoValuacion(valuacion), precio_objetivo: valuacion.modelo.precio_objetivo, ganancia_anualizada_pct: valuacion.modelo.ganancia_anualizada_pct, fuente: valuacion.fuente, ...(valuacion.avisos.length > 0 ? { avisos: valuacion.avisos } : {}) } } : {}),
     riesgo_capital: { estado: 'ok', origen: 'codigo', ...riesgo, ...(avisos_capital.length > 0 ? { avisos: avisos_capital } : {}) },
     director: resumenAgente(respuestas.director, respuestas.director?.estado === 'ok' ? { clasificacion_tesis } : {}),
-    analisis_completo: respuestas.fundamental?.estado === 'ok' && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',
+    analisis_completo: (es_recompra || respuestas.fundamental?.estado === 'ok') && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',
     resultado_corrida: c.resultado,
     persistencia,
   };
   if (c.resultado === 'corrida') {
     const f = c.fila_historial;
     Object.assign(cuerpo, { corrida_id: c.corrida_id, estado_final: f.estado_final, decision: f.decision, auditoria_veredicto: f.auditoria_veredicto, motivos: f.motivos });
+    // v0.80: si la posición PCP está en la zona de recompra, se lo dice al botón para que encadene la evaluación de recompra (monto: compra 2 = 25, compra 3 = 50; PCP-02)
+    const sp = (f.referencias as Record<string, unknown> | undefined)?.['salida_pcp'] as { zona_recompra?: unknown; recompras_restantes?: unknown; compras?: unknown } | undefined;
+    if (portafolio === 'PCP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && sp?.zona_recompra === true) {
+      cuerpo['recompra_sugerida'] = { zona: true, restantes: typeof sp.recompras_restantes === 'number' ? sp.recompras_restantes : null, monto_siguiente: sp.compras === 1 ? '25' : sp.compras === 2 ? '50' : null };
+    }
   }
   return { http: persistencia.estado === 'guardada' ? 200 : 500, cuerpo };
 }
