@@ -2,15 +2,12 @@
 // como completo hasta que el usuario lo apruebe (estado 'aprobado' en ficha.ficha_pmp del expediente). Todo apartado que dependa de su criterio o de datos
 // que no tenemos (dividendos, correlación) NO se propone y se declara en `no_propuestos`; nunca se inventa.
 // plan_ejecucion y decision_final se proponen con las reglas de PMP que el usuario ya aprobó (10-nov); él las aprueba o las corrige.
-import type { PertenenciaIndices } from './pertenencia-indices';
 import type { Candle } from '../tecnico';
 import type { DatosWatchlist } from './watchlist-datos';
 import { velasDiariasCerradas } from './velas-cerradas';
 
 /** Datos extra que reúne la corrida de PMP (v0.40). Todo es opcional: lo que falta se declara en `no_propuestos`, nunca se rellena. */
 export interface DatosFichaExtra {
-  /** v0.74: a qué índices de referencia pertenece (S&P 500, Nasdaq-100, Dow, QUAL). */
-  pertenencia?: PertenenciaIndices;
   /** null = no se pudo consultar (distinto de [] = no pagó dividendos). */
   dividendos: { date: string; amount: number }[] | null;
   dividendos_error?: string;
@@ -143,9 +140,7 @@ export function proponerFichaPmp(e: { ticker: string; hoy: string; velas: readon
   propuesta['identidad'] = { texto: partes.join(' · '), fuente: 'ticker de la corrida, watchlist y expediente' };
   propuesta['plan_ejecucion'] = { texto: TEXTO_PLAN_EJECUCION_PMP, fuente: FUENTE_REGLAS };
   propuesta['decision_final'] = { texto: TEXTO_DECISION_FINAL_PMP, fuente: FUENTE_REGLAS };
-  // v0.74: «índices de referencia» = a qué índice(s) pertenece la acción (S&P 500, Nasdaq-100, Dow o QUAL). Antes solo listaba los cuatro ETF declarados.
-  if (e.extra?.pertenencia?.estado === 'pertenece') propuesta['indices_referencia'] = { texto: e.extra.pertenencia.texto, fuente: 'Wikipedia (S&P 500, Nasdaq-100, Dow) y tenencias de QUAL (iShares)' };
-  else no_propuestos.push(`indices_referencia: ${e.extra?.pertenencia?.texto ?? 'no se consultó la pertenencia a los índices'} PMP exige pertenecer a un índice; no se propone`);
+  propuesta['indices_referencia'] = { texto: `${INDICES_REFERENCIA.join(', ')} (los índices de referencia que declaraste el 10-nov)`, fuente: 'declarado por el usuario' };
 
   // velas cerradas: con `ahora` se usa la misma regla que el Técnico (si el mercado ya cerró, cuenta la vela de hoy); sin `ahora` se descarta la del día en curso (o posterior)
   const cerradas = e.ahora !== undefined

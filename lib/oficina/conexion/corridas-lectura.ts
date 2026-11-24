@@ -93,7 +93,6 @@ export interface CorridaDetalle {
   entrada_pcp: EntradaPcp | null;
   salud_financiera: SaludFinancieraDetalle | null;
   dividendo_pmp: DividendoPmpDetalle | null;
-  pertenencia_indices: PertenenciaDetalle | null;
   /** Borrador de la ficha de PMP-09 calculado por la corrida (no está aprobado); null si la corrida no lo trae. */
   ficha_propuesta: FichaPropuestaDetalle | null;
   /** v0.63: valuación por código de la corrida (PMP, posición nueva); null si la corrida no la calculó. */
@@ -246,16 +245,6 @@ export function dividendoPmpDe(ref: Record<string, unknown>): DividendoPmpDetall
   };
 }
 
-export interface PertenenciaDetalle { estado: string | null; indices: string[]; no_incluido_en: string[]; texto: string | null }
-
-/** v0.74: pertenencia a los índices de referencia guardada en referencias.pertenencia_indices. Solo lectura. */
-export function pertenenciaDe(ref: Record<string, unknown>): PertenenciaDetalle | null {
-  const x = ref['pertenencia_indices'];
-  if (!esObj(x)) return null;
-  const lista = (v: unknown): string[] => (Array.isArray(v) ? v.filter((t): t is string => typeof t === 'string') : []);
-  return { estado: txt(x['estado']), indices: lista(x['indices']), no_incluido_en: lista(x['no_incluido_en']), texto: txt(x['texto']) };
-}
-
 export interface ValuacionDetalle {
   anios: number | null; pe_objetivo: number | null; origen_pe: string | null; eps: number | null; origen_eps: string | null;
   precio_objetivo: number | null; cierre: number | null; ganancia_total_pct: number | null; ganancia_anualizada_pct: number | null;
@@ -331,7 +320,6 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       entrada_pcp: entradaPcpDe(ref),
       salud_financiera: saludFinancieraDe(ref),
       dividendo_pmp: dividendoPmpDe(ref),
-      pertenencia_indices: pertenenciaDe(ref),
       ficha_propuesta: fichaPropuestaDe(ref),
       valuacion: valuacionDe(ref),
     },

@@ -20,9 +20,9 @@ describe('proponerFichaPmp', () => {
   const hoy = '2026-11-12';
   it('propone identidad, índices, rendimiento y volatilidad con velas suficientes', () => {
     const r = proponerFichaPmp({ ticker: 'SE', hoy, velas: serie(900), watchlist: WL });
-    expect(Object.keys(r.propuesta).sort()).toEqual(['decision_final', 'identidad', 'plan_ejecucion', 'rendimiento', 'volatilidad_riesgo']);
+    expect(Object.keys(r.propuesta).sort()).toEqual(['decision_final', 'identidad', 'indices_referencia', 'plan_ejecucion', 'rendimiento', 'volatilidad_riesgo']);
     expect(r.propuesta['identidad']?.texto).toBe('SE · mercado US · portafolio PMP · rol mixto · negocio: Comercio electrónico y pagos');
-    expect(r.no_propuestos.join('|')).toContain('índices');
+    expect(r.propuesta['indices_referencia']?.texto).toContain('SPY, QQQ, DIA, QUAL');
     expect(r.propuesta['rendimiento']?.texto).toMatch(/1 mes \+2\.1%.*1 año \+28\.6%.*3 años \+112\.9%/);
     expect(r.propuesta['volatilidad_riesgo']?.texto).toMatch(/Volatilidad anualizada 0\.0%.*caída máxima desde un máximo \+0\.0%/);
   });

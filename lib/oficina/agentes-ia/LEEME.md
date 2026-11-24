@@ -587,3 +587,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.77
 - Pertenencia a índices: las tablas de componentes de Nasdaq-100 y Dow están en las páginas «List of NASDAQ-100 companies» y «List of Dow Jones Industrial Average companies» (las anteriores no traían la tabla). Si QUAL (iShares) falla, el motivo muestra cómo empieza la respuesta; el CSV tolera BOM.
+
+## v0.78 — se quita la pertenencia a índices
+- Decisión de Jaime (23-nov): identificar a qué índice pertenece cada acción daba errores (Finnhub cobra; Wikipedia/iShares frágiles). Se elimina todo el concepto: sin consulta, sin bloqueo en PMP, sin alerta en PCP, sin sección en /oficina.
+- La ficha PMP-09 vuelve a declarar los índices de referencia (SPY, QQQ, DIA, QUAL) como antes de la v0.74. Se conservan los cambios de v0.75-v0.76 de reintentos del modelo (4 reintentos).

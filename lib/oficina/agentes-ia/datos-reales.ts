@@ -8,7 +8,7 @@ import {
 } from './constantes';
 import { esObjeto } from './utilidades';
 
-export type FetchDatos = (url: string, init: { headers: Record<string, string>; signal: AbortSignal; redirect: 'manual' | 'error' | 'follow'; cache?: 'no-store'; method?: 'GET' | 'POST'; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text?: () => Promise<string> }>;
+export type FetchDatos = (url: string, init: { headers: Record<string, string>; signal: AbortSignal; redirect: 'manual' | 'error' | 'follow'; cache?: 'no-store'; method?: 'GET' | 'POST'; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 export interface DepsDatosReales {
   fetchFn: FetchDatos; origen: string; authorization: string; finnhub_key: string;

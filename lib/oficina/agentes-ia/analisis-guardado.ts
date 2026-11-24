@@ -23,7 +23,6 @@ import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
 import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
 import { evaluarDividendoPmp } from '../conexion/dividendo-pmp';
-import { avisoPcpPorIndice, bloqueoPmpPorIndice, consultarPertenencia } from '../conexion/pertenencia-indices';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
 import type { TrazabilidadIa } from './persistencia-ia';
@@ -116,10 +115,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   // v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP (si algo falla, la ficha lo declara; no bloquea)
   // v0.71: salud financiera (ganancias y flujo de caja libre) informativa en PCP y obligatoria en PMP (la aplica el Motor); con los mismos datos ya leídos
   const salud_financiera = portafolio === 'PCP' || portafolio === 'PMP' ? evaluarSaludFinanciera(resto, { obligatoria: portafolio === 'PMP' }) : undefined;
-  // v0.74: pertenencia a un índice de referencia (S&P 500, Nasdaq-100, Dow, QUAL). PMP al abrir: obligatoria (si no, la corrida no inicia); PCP: solo alerta.
-  const pertenencia = portafolio === 'PMP' || portafolio === 'PCP' ? await consultarPertenencia(datosDeps, ticker) : undefined;
-  const ficha_base = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
-  const ficha_datos = ficha_base !== undefined && pertenencia !== undefined ? { ...ficha_base, pertenencia } : ficha_base;
+  const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
   // v0.73: dividendo de PMP (paga / lado verde o rojo de «Dividendo vs precio» contra el promedio de 5 años); con los dividendos y las velas diarias ya leídos
   const dividendo_pmp = portafolio === 'PMP'
     ? evaluarDividendoPmp({ dividendos: ficha_datos?.dividendos ?? null, cierres: velas.ok ? velas.velas.diarias.map(c => ({ time: c.time, close: c.close })) : null, ahora: deps.ahora() })
@@ -141,11 +137,6 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   if (pos.filas.length > 1) return falla('posicion', [`${TABLA_POSICIONES}: hay ${pos.filas.length} posiciones abiertas de ${ticker} en ${portafolio} (ambiguo)`]);
   const posicion_existe = pos.filas.length === 1;
   const tipo_evaluacion = posicion_existe ? TIPO_EVALUACION_ABIERTA : TIPO_EVALUACION_NUEVA;
-  // v0.74 (decisión 22-nov): PMP exige pertenecer a un índice para comprar; si no pertenece (o no se puede comprobar) no se inicia la corrida y se sugiere PCP
-  if (portafolio === 'PMP' && !posicion_existe && pertenencia !== undefined) {
-    const bloqueo = bloqueoPmpPorIndice(pertenencia);
-    if (bloqueo !== null) return falla('indice', [bloqueo]);
-  }
   // v0.31: plan de salidas de PMP (solo lectura). Con una posición PMP abierta, un dato ilegible o inválido NO se rellena: no se llama a ningún modelo.
   let salida_pmp: DatosSalidaPmp | undefined;
   if (portafolio === 'PMP' && posicion_existe) {
@@ -195,7 +186,6 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   // v0.65: salida de PCP (solo lectura). Compras con precio y cantidad, TP1..TP3, stop y plan declarado. Con una posición PCP abierta, un dato inválido NO se rellena: no se llama a ningún modelo.
   let salida_pcp: DatosSalidaPcp | undefined;
   const avisos_pcp: string[] = [];
-  if (portafolio === 'PCP' && pertenencia !== undefined) { const a = avisoPcpPorIndice(pertenencia); if (a !== null) avisos_pcp.push(a); }
   if (portafolio === 'PCP' && posicion_existe) {
     const trade_id = pos.filas[0]?.['trade_id'];
     if (typeof trade_id !== 'string' || trade_id === '') return falla('salida_pcp', [`${ticker}: la posición no trae trade_id`]);
@@ -273,7 +263,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     snapshot_id, snapshot_generado_en: ahora, snapshot_fecha_datos: fechaEnZona(new Date(ahora), ZONA_OFICINA), expediente_id: exp.expediente_id, posicion_existe,
     reglas_versiones_ids: [], tesis_ref: null, parametros: par.filas as unknown as FilaParametro[], velas: velas.ok ? velas.velas : null,
     sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
-    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(dividendo_pmp !== undefined ? { dividendo_pmp } : {}), ...(pertenencia !== undefined ? { pertenencia_indices: pertenencia } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
+    ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(dividendo_pmp !== undefined ? { dividendo_pmp } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null

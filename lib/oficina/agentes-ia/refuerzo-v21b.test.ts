@@ -1,7 +1,6 @@
 // Pruebas de la v0.21: monto de la operación declarado por el usuario en cada corrida.
 import { describe, expect, it } from 'vitest';
 import { validarCuerpoAnalisis, ejecutarAnalisisReal, ejecutarAnalisisGuardado, CLAVES_ANALISIS_REAL } from './index';
-import { respuestaIndicesPrueba } from './indices.test-util';
 import type { FetchDatos } from './index';
 import { modeloFalso } from './modelo-falso.test-util';
 import { PF, nuevaBdGuardado } from './bd-guardado.test-util';
@@ -29,7 +28,6 @@ function fetchFalso(fallaWebull = false) {
   const llamadas: string[] = [];
   const fetchFn: FetchDatos = async url => {
     llamadas.push(url);
-    const ix = respuestaIndicesPrueba(url); if (ix !== undefined) return ix;
     if (fallaWebull && url.includes('/api/webull/')) return { ok: false, status: 502, json: async () => ({}) };
     const k = Object.keys(RESP).find(x => url.includes(x));
     if (k === undefined) throw new Error('URL no prevista');
