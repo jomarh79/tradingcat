@@ -591,3 +591,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.78 — se quita la pertenencia a índices
 - Decisión de Jaime (23-nov): identificar a qué índice pertenece cada acción daba errores (Finnhub cobra; Wikipedia/iShares frágiles). Se elimina todo el concepto: sin consulta, sin bloqueo en PMP, sin alerta en PCP, sin sección en /oficina.
 - La ficha PMP-09 vuelve a declarar los índices de referencia (SPY, QQQ, DIA, QUAL) como antes de la v0.74. Se conservan los cambios de v0.75-v0.76 de reintentos del modelo (4 reintentos).
+
+## v0.79 — financieras en la salud financiera
+- Decisión de Jaime (24-nov): bancos, aseguradoras y brókers no tienen flujo de caja libre significativo (GS: negativo todos los años). Para ellas la salud financiera (PMP obligatoria, PCP informativa) evalúa solo las ganancias; el flujo de caja se muestra pero no cuenta.
+- Se detecta por la industria de Finnhub (`stock/profile2` → `finnhubIndustry`, patrón `ES_FINANCIERA` en `salud-financiera.ts`: bank, financ, insur, broker, capital markets, asset manag, investment, credit, mortgage, reit). Si no se puede leer la industria, rige la regla general y se avisa.
+- Se guarda `financiera` e `industria` en `referencias.salud_financiera` y /oficina lo indica.

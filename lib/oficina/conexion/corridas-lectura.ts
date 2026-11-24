@@ -215,7 +215,7 @@ export function entradaPcpDe(ref: Record<string, unknown>): EntradaPcp | null {
 }
 
 export interface SaludFinancieraDetalle {
-  resumen: string | null; texto: string | null
+  resumen: string | null; texto: string | null; financiera: boolean; industria: string | null
   ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }
   flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }
   avisos: string[]
@@ -226,7 +226,7 @@ export function saludFinancieraDe(ref: Record<string, unknown>): SaludFinanciera
   const x = ref['salud_financiera'];
   if (!esObj(x)) return null;
   const med = (v: unknown) => { const m = esObj(v) ? v : {}; return { estado: txt(m['estado']), ttm: num(m['ttm']), anual: num(m['anual']), fy: txt(m['fy']) }; };
-  return { resumen: txt(x['resumen']), texto: txt(x['texto']), ganancias: med(x['ganancias']), flujo_caja: med(x['flujo_caja']), avisos: arr(x['avisos']).map(textoCorto) };
+  return { resumen: txt(x['resumen']), texto: txt(x['texto']), financiera: x['financiera'] === true, industria: txt(x['industria']), ganancias: med(x['ganancias']), flujo_caja: med(x['flujo_caja']), avisos: arr(x['avisos']).map(textoCorto) };
 }
 
 export interface DividendoPmpDetalle {

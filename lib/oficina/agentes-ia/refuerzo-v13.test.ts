@@ -105,6 +105,25 @@ describe('v0.13: cuerpo de la ruta', () => {
   });
 });
 
+describe('v0.79: financieras en la salud financiera guardada', () => {
+  const salud = async (industria: string | null) => {
+    if (industria !== null) RESP['/stock/profile2'] = { finnhubIndustry: industria };
+    try {
+      const t = montar();
+      const r = await t.ejecutar();
+      expect(r.http).toBe(200);
+      return ((t.b.e.rpc[0]!.args['p_corrida'] as Fila)['referencias'] as Record<string, unknown>)['salud_financiera'] as Record<string, unknown>;
+    } finally { delete RESP['/stock/profile2']; }
+  };
+  it('con la industria bancaria se marca financiera y se guarda la industria', async () => {
+    expect(await salud('Banking')).toMatchObject({ financiera: true, industria: 'Banking' });
+  });
+  it('con otra industria o sin poder leerla rige la regla general', async () => {
+    expect(await salud('Medical Devices')).toMatchObject({ financiera: false, industria: 'Medical Devices' });
+    expect(await salud(null)).toMatchObject({ financiera: false, industria: null });
+  });
+});
+
 describe('v0.13: guardado, camino feliz (posición nueva)', () => {
   it('crea el expediente, guarda los análisis y registra la corrida con el mismo run_id', async () => {
     const t = montar();

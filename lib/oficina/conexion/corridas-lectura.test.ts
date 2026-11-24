@@ -181,7 +181,7 @@ describe('salud financiera guardada en la corrida (v0.71)', () => {
     expect(saludFinancieraDe({})).toBeNull();
     expect(saludFinancieraDe({ salud_financiera: 'x' })).toBeNull();
     expect(saludFinancieraDe({ salud_financiera: { resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] } }))
-      .toEqual({ resumen: 'mixta', texto: 't', ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] });
+      .toEqual({ resumen: 'mixta', texto: 't', financiera: false, industria: null, ganancias: { estado: 'positivo', ttm: 5, anual: 4, fy: 'fy2025' }, flujo_caja: { estado: 'negativo', ttm: -1, anual: null, fy: null }, avisos: ['a'] });
     expect(saludFinancieraDe({ salud_financiera: {} })).toMatchObject({ resumen: null, ganancias: { estado: null, ttm: null }, avisos: [] });
   });
 });

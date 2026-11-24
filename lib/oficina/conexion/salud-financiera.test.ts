@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluarSaludFinanciera } from './salud-financiera';
+import { esIndustriaFinanciera, evaluarSaludFinanciera } from './salud-financiera';
 
 const income = (ttm: number | null, ...anuales: [number, number][]) => ({
   success: true, ttm: ttm === null ? null : { netIncome: ttm }, annual: anuales.map(([fiscalYear, netIncome]) => ({ fiscalYear, netIncome })),
@@ -58,5 +58,30 @@ describe('salud financiera de PCP (v0.71, informativa)', () => {
     expect(evaluarSaludFinanciera(f, { obligatoria: true }).texto).toContain('PMP exige');
     expect(evaluarSaludFinanciera(f, { obligatoria: true }).texto).toContain('obligatoria en PMP');
     expect(evaluarSaludFinanciera(f).texto).toContain('solo informativa');
+  });
+});
+
+describe('financieras (v0.79): el flujo de caja libre no cuenta, basta con ganancias', () => {
+  it('detecta industrias financieras de Finnhub y no otras', () => {
+    for (const i of ['Banking', 'Financial Services', 'Insurance', 'Investment Banking & Brokerage', 'Capital Markets']) expect(esIndustriaFinanciera(i)).toBe(true);
+    for (const i of ['Medical Devices', 'Technology', 'Retail', '', null, undefined]) expect(esIndustriaFinanciera(i)).toBe(false);
+  });
+  it('banco con ganancias y flujo de caja negativo: sólida (como GS)', () => {
+    const f = { income_statement: income(22169, [2025, 17176]), finnhub_metric: metric(-47000, -47218) };
+    const gral = evaluarSaludFinanciera(f, { obligatoria: true });
+    expect(gral.resumen).toBe('mixta');
+    const fin = evaluarSaludFinanciera(f, { obligatoria: true, industria: 'Banking' });
+    expect(fin).toMatchObject({ resumen: 'solida', financiera: true, industria: 'Banking' });
+    expect(fin.flujo_caja.estado).toBe('negativo');
+    expect(fin.texto).toContain('el flujo de caja libre no se evalúa');
+  });
+  it('banco sin ganancias: débil; sin datos de ganancias: sin_datos; mixto: aceptable', () => {
+    expect(evaluarSaludFinanciera({ income_statement: income(-5, [2025, -10]), finnhub_metric: metric(9, 9) }, { industria: 'Banking' }).resumen).toBe('debil');
+    expect(evaluarSaludFinanciera({ finnhub_metric: metric(9, 9) }, { industria: 'Banking' }).resumen).toBe('sin_datos');
+    expect(evaluarSaludFinanciera({ income_statement: income(5, [2025, -10]) }, { industria: 'Insurance' }).resumen).toBe('aceptable');
+  });
+  it('empresa no financiera mantiene la regla general', () => {
+    const r = evaluarSaludFinanciera({ income_statement: income(500, [2025, 400]), finnhub_metric: metric(-3, -4) }, { industria: 'Technology' });
+    expect(r).toMatchObject({ financiera: false, resumen: 'mixta' });
   });
 });

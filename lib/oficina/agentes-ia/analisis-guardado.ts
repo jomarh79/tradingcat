@@ -18,7 +18,8 @@ import {
 import { validarCuerpoAnalisis } from './analisis-real';
 import { velasDiariasCerradas } from '../conexion/velas-cerradas';
 import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } from './clasificar-tesis';
-import { obtenerDatosFundamental } from './datos-reales';
+import { leer, obtenerDatosFundamental } from './datos-reales';
+import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from './constantes';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
 import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
@@ -114,7 +115,16 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const avisos_velas = velas.ok ? velas.avisos : [velas.error];
   // v0.40: dividendos, fundamentales e índices de referencia para el borrador de la ficha de PMP (si algo falla, la ficha lo declara; no bloquea)
   // v0.71: salud financiera (ganancias y flujo de caja libre) informativa en PCP y obligatoria en PMP (la aplica el Motor); con los mismos datos ya leídos
-  const salud_financiera = portafolio === 'PCP' || portafolio === 'PMP' ? evaluarSaludFinanciera(resto, { obligatoria: portafolio === 'PMP' }) : undefined;
+  // v0.79: industria (Finnhub profile2) para tratar a las financieras (el flujo de caja libre no cuenta). Si no se lee, rige la regla general y se avisa.
+  let industria: string | null = null;
+  let aviso_industria: string | null = null;
+  if (portafolio === 'PCP' || portafolio === 'PMP') {
+    const pf = await leer(datosDeps, `${FINNHUB_URL_BASE}/stock/profile2?symbol=${encodeURIComponent(ticker)}`, { Accept: 'application/json', [FINNHUB_CABECERA_CLAVE]: datosDeps.finnhub_key });
+    const ind = pf.ok && typeof pf.json === 'object' && pf.json !== null ? (pf.json as Record<string, unknown>)['finnhubIndustry'] : undefined;
+    if (typeof ind === 'string' && ind.trim() !== '') industria = ind.trim();
+    else aviso_industria = `no se pudo leer el sector de la empresa (${pf.ok ? 'sin industria' : pf.motivo}); se aplica la regla general de flujo de caja libre`;
+  }
+  const salud_financiera = portafolio === 'PCP' || portafolio === 'PMP' ? evaluarSaludFinanciera(resto, { obligatoria: portafolio === 'PMP', industria }) : undefined;
   const ficha_datos = portafolio === 'PMP' ? await reunirDatosFicha(datosDeps, ticker, resto) : undefined;
   // v0.73: dividendo de PMP (paga / lado verde o rojo de «Dividendo vs precio» contra el promedio de 5 años); con los dividendos y las velas diarias ya leídos
   const dividendo_pmp = portafolio === 'PMP'
@@ -185,7 +195,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const tesis_vigente_previa = hayTesisVigente(tes.filas[0]?.['tesis_vigente']);
   // v0.65: salida de PCP (solo lectura). Compras con precio y cantidad, TP1..TP3, stop y plan declarado. Con una posición PCP abierta, un dato inválido NO se rellena: no se llama a ningún modelo.
   let salida_pcp: DatosSalidaPcp | undefined;
-  const avisos_pcp: string[] = [];
+  const avisos_pcp: string[] = aviso_industria !== null ? [aviso_industria] : [];
   if (portafolio === 'PCP' && posicion_existe) {
     const trade_id = pos.filas[0]?.['trade_id'];
     if (typeof trade_id !== 'string' || trade_id === '') return falla('salida_pcp', [`${ticker}: la posición no trae trade_id`]);

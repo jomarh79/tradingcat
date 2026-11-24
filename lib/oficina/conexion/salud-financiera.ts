@@ -22,7 +22,14 @@ export interface SaludFinanciera {
   resumen: ResumenSalud;
   texto: string;
   avisos: string[];
+  /** v0.79: empresa financiera (banco, aseguradora, bróker…): el flujo de caja libre no es significativo y NO cuenta; basta con ganancias positivas. */
+  financiera: boolean;
+  industria: string | null;
 }
+
+/** Industria de Finnhub (`finnhubIndustry` de stock/profile2) que corresponde a una empresa financiera. */
+export const ES_FINANCIERA = /bank|financ|insur|broker|capital markets|asset manag|investment|credit|mortgage|reit/i;
+export const esIndustriaFinanciera = (industria: string | null | undefined): boolean => typeof industria === 'string' && ES_FINANCIERA.test(industria);
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const objeto = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -71,27 +78,32 @@ function medirFlujo(reportado: unknown, metric: unknown, avisos: string[]): Medi
 const FRASE: Record<EstadoMedida, string> = { positivo: 'positivo', negativo: 'negativo', mixto: 'mixto (TTM y último año no coinciden)', sin_datos: 'sin datos' };
 
 /** `obligatoria` = PMP al abrir (el Motor bloquea si no es sólida); en PCP es solo informativa. */
-export function evaluarSaludFinanciera(fuentes: { income_statement?: unknown; finnhub_reportado?: unknown; finnhub_metric?: unknown }, opciones: { obligatoria?: boolean } = {}): SaludFinanciera {
+export function evaluarSaludFinanciera(fuentes: { income_statement?: unknown; finnhub_reportado?: unknown; finnhub_metric?: unknown }, opciones: { obligatoria?: boolean; industria?: string | null } = {}): SaludFinanciera {
   const avisos: string[] = [];
   const ganancias = medirGanancias(fuentes.income_statement);
   const flujo_caja = medirFlujo(fuentes.finnhub_reportado, fuentes.finnhub_metric, avisos);
-  const e = [ganancias.estado, flujo_caja.estado];
+  const industria = opciones.industria ?? null;
+  const financiera = esIndustriaFinanciera(industria);
+  // Financiera: solo cuentan las ganancias (el flujo de caja se muestra pero no se evalúa).
+  const e = financiera ? [ganancias.estado] : [ganancias.estado, flujo_caja.estado];
   const resumen: ResumenSalud = e.every(x => x === 'sin_datos') ? 'sin_datos'
     : e.every(x => x === 'positivo') ? 'solida'
       : e.every(x => x === 'negativo') ? 'debil'
         : e.some(x => x === 'negativo') ? 'mixta'
           : e.some(x => x === 'sin_datos') ? 'incompleta' : 'aceptable';
   const obl = opciones.obligatoria === true;
-  const cola = resumen === 'solida' ? 'Genera ganancias y flujo de caja libre.'
+  const cola = financiera && (resumen === 'solida' || resumen === 'aceptable') ? 'Genera ganancias.'
+    : resumen === 'solida' ? 'Genera ganancias y flujo de caja libre.'
     : resumen === 'aceptable' ? 'Genera ganancias y flujo de caja libre; en alguna medida el TTM y el último año no coinciden.'
       : resumen === 'sin_datos' ? 'No hay datos para evaluarla.'
         : resumen === 'incompleta' ? 'Falta una de las dos medidas: no se puede confirmar.'
           : obl ? 'PMP exige ganancias y flujo de caja libre positivos (TTM y último año).'
             : resumen === 'debil' ? 'No genera ganancias ni flujo de caja libre: es un dato para pensar con cuidado cuánto invertir.'
               : 'Una de las dos medidas es negativa: revísala antes de decidir el monto.';
+  const nota = financiera ? ` Empresa financiera (${industria ?? ''}): el flujo de caja libre no se evalúa, solo las ganancias.` : '';
   const pie = obl ? 'Es obligatoria en PMP.' : 'Es solo informativa: no compra, no vende ni bloquea.';
   return {
-    ganancias, flujo_caja, resumen, avisos,
-    texto: `Ganancias (utilidad neta): ${FRASE[ganancias.estado]}. Flujo de caja libre: ${FRASE[flujo_caja.estado]}. ${cola} ${pie}`,
+    ganancias, flujo_caja, resumen, avisos, financiera, industria,
+    texto: `Ganancias (utilidad neta): ${FRASE[ganancias.estado]}. Flujo de caja libre: ${FRASE[flujo_caja.estado]}.${nota} ${cola} ${pie}`,
   };
 }
