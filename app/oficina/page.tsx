@@ -61,7 +61,7 @@ interface Detalle {
   datos_vencidos: string[]
   salida_pmp: PlanSalida | null
   salida_pcp?: {
-    compras: number | null; costo_promedio: string | null; precio_actual: string | null; primera_salida_realizada: boolean; motivo: string | null
+    compras: number | null; etapas?: number | null; costo_promedio: string | null; precio_actual: string | null; primera_salida_realizada: boolean; motivo: string | null
     nivel_alcanzado: string | null; niveles: { nivel: string | null; cumplido: boolean }[]; stop: string | null; zona_recompra: boolean
     recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
@@ -336,7 +336,7 @@ export default function OficinaPage() {
         {d.salida_pcp && (
           <Seccion titulo="Salida (PCP)">
             <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>
-              {d.salida_pcp.compras ?? '—'} compra(s){d.salida_pcp.costo_promedio ? <> · costo promedio {d.salida_pcp.costo_promedio}</> : null}
+              {d.salida_pcp.etapas ?? d.salida_pcp.compras ?? '—'} etapa(s) (take profit llenos){d.salida_pcp.costo_promedio ? <> · costo promedio {d.salida_pcp.costo_promedio}</> : null}
               {d.salida_pcp.primera_salida_realizada && <> · primera salida ya hecha</>}
             </div>
             {d.salida_pcp.precio_actual && <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>Precio (último cierre): {d.salida_pcp.precio_actual}{d.salida_pcp.stop ? <> · stop de referencia {d.salida_pcp.stop}</> : null}</div>}
@@ -354,7 +354,7 @@ export default function OficinaPage() {
             )}
             {/* v0.84: estado de las recompras (1ª = 25 USD, 2ª = 50 USD; PCP-02/03) y qué significa MANTENER */}
             {(() => {
-              const n = d.salida_pcp.compras ?? 0
+              const n = d.salida_pcp.etapas ?? d.salida_pcp.compras ?? 0
               const rest = d.salida_pcp.recompras_restantes
               if (rest === null) return <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>Recompras: el plan de la posición no está declarado como escalonado, así que no se evalúan.</div>
               const hechas = Math.max(0, Math.min(2, n - 1))

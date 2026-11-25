@@ -167,12 +167,19 @@ function contadasODeclarar(e: EntradaAuditor, desde: string): { contadas: Compra
   return { contadas: comprasContadas(e.posicion.compras, desde), total: e.posicion.compras.length };
 }
 
+/** v0.85: número de compras de la etapa PCP: los TP con valor (si vienen) o, como antes, las compras del historial. */
+const etapasPcp = (e: EntradaAuditor): number | null => {
+  const x = e.posicion.etapas_pcp;
+  return typeof x === 'number' && Number.isInteger(x) && x >= 1 ? x : null;
+};
+
 function pcp02(c: Ctx): Eval {
   const lista = arr(c.r.definicion['compras']);
   if (!lista) return defInvalida(c.r, 'compras');
   const cc = contadasODeclarar(c.e, c.r.vigente_desde);
   if (!cc) return noEval('compras_no_declaradas', 'No se declaran las compras de la posición');
-  const n = cc.contadas.length + 1; // [PROPUESTA 3.7, aprobada] reinicia en 1 con la primera compra desde la vigencia
+  const et = c.e.tipo_evaluacion === 'nueva_posicion' ? null : etapasPcp(c.e);
+  const n = et !== null ? et + 1 : cc.contadas.length + 1; // [PROPUESTA 3.7, aprobada] reinicia en 1 con la primera compra desde la vigencia; v0.85: con TP llenos, la etapa manda
   const fila = lista.map(obj).find((x) => x && x['n'] === n);
   const m = c.e.operacion.monto;
   if (m === null || aDec(m) === null) return noEval('monto_no_declarado', 'La operación no declara un monto válido');
@@ -190,11 +197,19 @@ function pcp03(c: Ctx): Eval {
   if (typeof maxCompras !== 'number' || aDec(maxInv) === null) return defInvalida(c.r, 'max_compras / max_invertido_usd');
   const cc = contadasODeclarar(c.e, c.r.vigente_desde);
   if (!cc) return noEval('compras_no_declaradas', 'No se declaran las compras de la posición');
-  const acumulado = sumaMontos(cc.contadas);
+  const et = c.e.tipo_evaluacion === 'nueva_posicion' ? null : etapasPcp(c.e);
+  // v0.85: con TP llenos, lo invertido es lo planeado por etapa (PCP-02: 25 + 25 + 50) y no la suma del historial, que ignora las ventas parciales
+  const lista02 = arr(regla(c.e, 'PCP-02')?.definicion['compras']);
+  let acumuladoEtapas: bigint | null = null;
+  if (et !== null && lista02) {
+    acumuladoEtapas = BigInt(0);
+    for (let k = 1; k <= et; k++) { const f = lista02.map(obj).find((x) => x && x['n'] === k); const mm = f ? aDec(texto(f['monto_usd'])) : null; if (mm === null) { acumuladoEtapas = null; break; } acumuladoEtapas += mm; }
+  }
+  const acumulado = acumuladoEtapas !== null ? acumuladoEtapas : sumaMontos(cc.contadas);
   const m = aDec(c.e.operacion.monto);
   if (acumulado === null) return noEval('dato_invalido', 'Una compra de la posición trae un monto inválido');
   if (m === null) return noEval('monto_no_declarado', 'La operación no declara un monto válido');
-  const nueva = cc.contadas.length + 1;
+  const nueva = et !== null ? et + 1 : cc.contadas.length + 1;
   const total = acumulado + m;
   const nota = cc.total > cc.contadas.length ? ` (${cc.total - cc.contadas.length} compra(s) anteriores a la vigencia no cuentan)` : '';
   const u = { operador: '<=', valor: `${maxCompras} compras y USD ${maxInv}` };
@@ -211,8 +226,9 @@ function pcp05(c: Ctx): Eval {
   if (compras === null) return noEval('compras_no_declaradas', 'No se declaran las compras de la posición');
   const vp = c.e.posicion.ventas_previas;
   if (vp === null) return noEval('ventas_previas_no_declaradas', 'No se declara cuántas ventas parciales se han hecho');
-  const plan = arr(tabla[String(compras.length)]);
-  if (!plan) return noEval('numero_de_compras_sin_plan', `No hay plan de salida para ${compras.length} compra(s)`);
+  const nCompras = etapasPcp(c.e) ?? compras.length;
+  const plan = arr(tabla[String(nCompras)]);
+  if (!plan) return noEval('numero_de_compras_sin_plan', `No hay plan de salida para ${nCompras} compra(s)`);
   const esperado = texto(plan[vp]);
   if (esperado === null) return incumple('La salida ya se completó según el plan', 'No proponer más ventas');
   const p = c.e.operacion.porcentaje_venta;
@@ -220,7 +236,7 @@ function pcp05(c: Ctx): Eval {
   const u = { operador: '=', valor: esperado };
   return igual(p, esperado)
     ? ok(`Venta ${vp + 1} de ${plan.length}: ${p}% = ${esperado}%`, { valor: p, umbral: u })
-    : incumple(`Con ${compras.length} compra(s) la venta ${vp + 1} debe ser ${esperado}% y se propone ${p}%`, `Proponer ${esperado}%`, { valor: p, umbral: u });
+    : incumple(`Con ${nCompras} compra(s) la venta ${vp + 1} debe ser ${esperado}% y se propone ${p}%`, `Proponer ${esperado}%`, { valor: p, umbral: u });
 }
 
 function pcp06(c: Ctx): Eval {
@@ -228,7 +244,7 @@ function pcp06(c: Ctx): Eval {
   const compras = c.e.posicion.compras;
   const vp = c.e.posicion.ventas_previas;
   if (compras === null || vp === null) return noEval('dato_faltante', 'Faltan las compras o las ventas previas de la posición');
-  if (compras.length < 2 || vp !== 0) return ok('La salida depende de la señal de salida (delegada al Técnico)');
+  if ((etapasPcp(c.e) ?? compras.length) < 2 || vp !== 0) return ok('La salida depende de la señal de salida (delegada al Técnico)');
   const costo = c.e.posicion.costo_promedio_ponderado;
   const precio = c.e.operacion.precio;
   if (aDec(costo) === null || aDec(precio) === null) return noEval('dato_faltante', 'Falta el costo promedio ponderado o el precio de la venta');
@@ -247,8 +263,8 @@ function pcp07(c: Ctx): Eval {
   if (e.tipo_evaluacion === 'recompra' && plan === 'una_compra') {
     return incumple('El plan de una compra no admite recompras', 'Declarar un plan escalonado al abrir (no aplica a una posición ya abierta con plan de una compra)');
   }
-  if (e.tipo_evaluacion === 'posicion_abierta' && esVenta(e) && e.operacion.motivo_venta === 'stop' && plan === 'escalonado') {
-    return incumple('En un plan escalonado el stop marca una zona de posible recompra, no una venta', 'Evaluar la recompra o vender por una señal de salida');
+  if (e.tipo_evaluacion === 'posicion_abierta' && esVenta(e) && e.operacion.motivo_venta === 'stop' && plan === 'escalonado' && (etapasPcp(e) ?? 0) < 3) {
+    return incumple('En un plan escalonado el stop marca una zona de posible recompra, no una venta (solo en la etapa final, con los 3 TP llenos, el stop es salida)', 'Evaluar la recompra o vender por una señal de salida');
   }
   return ok(`Plan declarado: ${plan}`);
 }

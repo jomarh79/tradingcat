@@ -196,7 +196,7 @@ describe('cargarHechosPosicion', () => {
     expect(ll).toEqual([
       { tabla: 'oficina_v_posiciones', cols: 'trade_id,portfolio_id,ticker,fecha_apertura', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
       { tabla: 'trade_executions', cols: 'id,trade_id,execution_type,price,quantity,executed_at,total', filtros: [['trade_id', TR]] },
-      { tabla: 'trades', cols: 'id,entry_price,initial_quantity', filtros: [['id', TR]] },
+      { tabla: 'trades', cols: 'id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3', filtros: [['id', TR]] },
       { tabla: 'oficina_v_capital', cols: 'portfolio_id,posiciones_abiertas', filtros: [['portfolio_id', PF]] },
       { tabla: 'oficina_expedientes', cols: 'id,ticker,portfolio_id,rol_posicion,ficha', filtros: [['portfolio_id', PF], ['ticker', 'MSFT']] },
     ]);

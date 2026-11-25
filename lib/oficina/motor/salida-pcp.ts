@@ -39,6 +39,8 @@ export interface ResultadoSalidaPCP {
   exigida: SalidaExigida | null;
   precio_actual: string;
   compras: number;
+  /** v0.85: etapa de la posición = take profit con valor (TP1 apertura, TP2 1.ª recompra, TP3 2.ª recompra); si no hay ninguno, el número de compras. */
+  etapas: number;
   costo_promedio: string | null;
   primera_salida_realizada: boolean;
   motivo: 'senal_salida' | 'nivel_planeado' | 'costo_promedio' | 'stop' | null;
@@ -62,9 +64,12 @@ export function evaluarPlanSalidaPCP(e: EntradaSalidaPCP): ResultadoSalidaPCP {
   const n = e.compras.length;
   const niveles: NivelSalidaPCP[] = e.niveles ? e.niveles.map(x => ({ ...x })) : [];
   const stop = e.stop != null && e.stop !== '' ? e.stop : null;
+  // v0.85 (decisión de Jaime, 24-nov): la etapa la marcan los TP con valor, no el historial de compras (con ventas parciales y nuevas compras el historial se desfasa)
+  const llenos = niveles.filter(x => x.nivel !== null).length;
+  const ne = llenos > 0 ? llenos : n;
   const faltantes: string[] = [];
   const base = {
-    precio_actual: e.precio_actual, compras: n, costo_promedio: null as string | null, primera_salida_realizada: e.primera_salida_realizada,
+    precio_actual: e.precio_actual, compras: n, etapas: ne, costo_promedio: null as string | null, primera_salida_realizada: e.primera_salida_realizada,
     niveles, stop, zona_recompra: false, recompras_restantes: null as number | null, senal_salida: e.senal_salida, faltantes,
   };
   const sin = (): ResultadoSalidaPCP => ({ ...base, exigida: null, motivo: null, nivel_alcanzado: null });
@@ -81,11 +86,11 @@ export function evaluarPlanSalidaPCP(e: EntradaSalidaPCP): ResultadoSalidaPCP {
   if (sumaCantidad > BigInt(0)) base.costo_promedio = textoDeEscala(sumaCosto / sumaCantidad);
 
   if (e.plan === null && stop !== null) faltantes.push('plan_pcp: la posición no declara su plan; el stop no se evalúa (ni como venta ni como zona de recompra)');
-  if (e.plan === 'escalonado' && stop !== null && precio <= dec(stop) && n < MAX_COMPRAS_PCP) {
+  if (e.plan === 'escalonado' && stop !== null && precio <= dec(stop) && ne < MAX_COMPRAS_PCP) {
     base.zona_recompra = true;
-    base.recompras_restantes = MAX_COMPRAS_PCP - n;
+    base.recompras_restantes = MAX_COMPRAS_PCP - ne;
   } else if (e.plan === 'escalonado') {
-    base.recompras_restantes = Math.max(0, MAX_COMPRAS_PCP - n);
+    base.recompras_restantes = Math.max(0, MAX_COMPRAS_PCP - ne);
   }
 
   const alcanzado = (i: number): string | null => {
@@ -95,7 +100,12 @@ export function evaluarPlanSalidaPCP(e: EntradaSalidaPCP): ResultadoSalidaPCP {
   const vender = (motivo: NonNullable<ResultadoSalidaPCP['motivo']>, detalle: string, nivel: string | null): ResultadoSalidaPCP =>
     ({ ...base, exigida: { decision: 'VENDER', porcentaje: 100, regla: motivo === 'stop' ? REGLA_STOP_PCP : REGLA_SALIDA_PCP, detalle }, motivo, nivel_alcanzado: nivel });
 
-  if (n === 1) {
+  // v0.85: etapa final (los 3 TP llenos = apertura y 2 recompras) y el cierre en o bajo el stop: se propone salir del activo (100%). Nunca vende sola.
+  if (e.plan === 'escalonado' && stop !== null && precio <= dec(stop) && ne >= MAX_COMPRAS_PCP) {
+    return vender('stop', 'Etapa final (apertura y 2 recompras) y el precio tocó el stop: se sale del activo', null);
+  }
+
+  if (ne === 1) {
     if (e.senal_salida) return vender('senal_salida', 'Señal de salida con una compra: se vende el 100%', null);
     const tp1 = alcanzado(0);
     if (tp1 !== null) return vender('nivel_planeado', `El precio ${e.precio_actual} llegó a ${tp1} con una compra: se vende el 100%`, tp1);

@@ -369,6 +369,19 @@ describe('PCP', () => {
       expect(s.veredicto).toBe('NO_EVALUABLE');
     }
   });
+  it('v0.85: la etapa la marcan los TP llenos, no el historial (BE: 4 compras, TP1 y TP2 → etapa 2, la recompra es de 50)', () => {
+    const be = comp(4);
+    const conEtapas = (n: number, monto: string) => { const e = reco(be, monto); return { ...e, posicion: { ...e.posicion, etapas_pcp: n } }; };
+    expect(res(auditar(conEtapas(2, '50')), 'PCP-02').resultado).toBe('cumple');
+    expect(res(auditar(conEtapas(2, '25')), 'PCP-02').resultado).toBe('incumple');
+    expect(res(auditar(conEtapas(2, '50')), 'PCP-03').resultado).toBe('cumple');
+    expect(res(auditar(conEtapas(3, '50')), 'PCP-03').resultado).toBe('incumple');
+  });
+  it('v0.85: con los 3 TP llenos, vender 100% por stop cumple PCP-07; con 2 sigue incumpliendo', () => {
+    const v = (n: number) => auditar(pcp({ tipo_evaluacion: 'posicion_abierta', operacion: { accion: 'vender', porcentaje_venta: '100', motivo_venta: 'stop' }, posicion: { existe: true, fecha_apertura: '2026-10-10', compras: comp(3), ventas_previas: 0, plan_pcp: 'escalonado', etapas_pcp: n } }));
+    expect(res(v(3), 'PCP-07').resultado).toBe('cumple');
+    expect(res(v(2), 'PCP-07').resultado).toBe('incumple');
+  });
   it('C-11: plan escalonado con stop tocado: vender por el stop es infracción; recomprar no se bloquea', () => {
     const vender = auditar(pcp({ tipo_evaluacion: 'posicion_abierta', operacion: { accion: 'vender', porcentaje_venta: '100', motivo_venta: 'stop' }, posicion: { existe: true, fecha_apertura: '2026-10-10', compras: comp(1), ventas_previas: 0, plan_pcp: 'escalonado' } }));
     expect(res(vender, 'PCP-07').resultado).toBe('incumple');

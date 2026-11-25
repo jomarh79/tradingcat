@@ -12,7 +12,7 @@ export interface HechosAuditor {
   operacion?: Partial<EntradaAuditor['operacion']>;
   posicion?: {
     fecha_apertura?: string | null; compras?: CompraPosicion[] | null; ventas_previas?: number | null;
-    costo_promedio_ponderado?: string | null; plan_pcp?: PlanPCP | null; rol?: string | null;
+    costo_promedio_ponderado?: string | null; plan_pcp?: PlanPCP | null; rol?: string | null; etapas_pcp?: number | null;
   };
   posiciones_abiertas?: number | null;
   datos?: Partial<EntradaAuditor['datos']>;

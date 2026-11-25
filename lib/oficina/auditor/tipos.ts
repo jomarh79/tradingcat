@@ -89,6 +89,8 @@ export interface EntradaAuditor {
     costo_promedio_ponderado: string | null;
     plan_pcp: PlanPCP | null;
     rol: string | null;
+    /** v0.85: etapa PCP = take profit con valor (1 apertura, 2 con 1.ª recompra, 3 con 2.ª). Si no viene, se cuentan las compras del historial como antes. */
+    etapas_pcp?: number | null;
   };
   contexto_portafolio: {
     posiciones_abiertas: number | null;

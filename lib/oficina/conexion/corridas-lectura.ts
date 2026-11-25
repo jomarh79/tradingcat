@@ -60,6 +60,8 @@ export interface PlanSalidaPmp {
 /** v0.65: resultado de la salida de PCP guardado en referencias.salida_pcp. */
 export interface PlanSalidaPcp {
   compras: number | null;
+  /** v0.85: etapa PCP (take profit con valor). */
+  etapas: number | null;
   costo_promedio: string | null;
   precio_actual: string | null;
   primera_salida_realizada: boolean;
@@ -192,7 +194,7 @@ export function planSalidaPcpDe(ref: Record<string, unknown>): PlanSalidaPcp | n
   if (!esObj(x)) return null;
   const e = x['exigida'];
   return {
-    compras: num(x['compras']), costo_promedio: txt(x['costo_promedio']), precio_actual: txt(x['precio_actual']),
+    compras: num(x['compras']), etapas: num(x['etapas']), costo_promedio: txt(x['costo_promedio']), precio_actual: txt(x['precio_actual']),
     primera_salida_realizada: x['primera_salida_realizada'] === true, motivo: txt(x['motivo']), nivel_alcanzado: txt(x['nivel_alcanzado']),
     niveles: arr(x['niveles']).filter(esObj).map(n => ({ nivel: txt(n['nivel']), cumplido: n['cumplido'] === true })),
     stop: txt(x['stop']), zona_recompra: x['zona_recompra'] === true, recompras_restantes: num(x['recompras_restantes']),

@@ -21,7 +21,7 @@ export interface SalidaPcpTicker {
   detalle: string | null;
   zona_recompra: boolean;
   recompras_restantes: number | null;
-  /** v0.80: número de compras de la posición (la siguiente recompra es de 25 si hay 1 compra y de 50 si hay 2). */
+  /** v0.85: etapa PCP = take profit con valor (la siguiente recompra es de 25 si hay 1 compra y de 50 si hay 2). */
   compras: number;
   /** v0.80: señales de recompra de hoy (detonante recompra_pcp: RSI, Koncorde, Mogalef inferior, nivel pasado); null si el Técnico no las pudo evaluar. */
   senal_recompra: { confirmada: boolean; cumplidas: string[] } | null;
@@ -57,7 +57,7 @@ export async function evaluarSalidaPcpTicker(deps: DepsDatosReales, e: { ticker:
       ticker, fecha_vela: u.fecha, cierre: Number(u.cierre),
       decision: r.exigida === null ? null : (r.exigida.decision === 'VENDER' || r.exigida.decision === 'REDUCIR' ? r.exigida.decision : null),
       porcentaje: r.exigida?.porcentaje ?? null, motivo: r.motivo, nivel: r.nivel_alcanzado, detalle: r.exigida?.detalle ?? null,
-      zona_recompra: r.zona_recompra, recompras_restantes: r.recompras_restantes, compras: r.compras,
+      zona_recompra: r.zona_recompra, recompras_restantes: r.recompras_restantes, compras: r.etapas,
       senal_recompra: t.detonantes === null ? null : { confirmada: t.detonantes.recompra_pcp.detonante_confirmado, cumplidas: t.detonantes.recompra_pcp.senales_cumplidas.map(String) },
       costo_promedio: r.costo_promedio, stop: r.stop,
       faltantes: r.faltantes, avisos: [...d.avisos, ...v.avisos],

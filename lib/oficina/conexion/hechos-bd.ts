@@ -150,7 +150,10 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     if (compras.length === 0) problemas.push(`${q.ticker}: la posición no tiene compras registradas`);
     let cpp: string | null = null;
     if (sumaQ > CERO) cpp = textoDec((BigInt(2) * sumaPQ + sumaQ) / (BigInt(2) * sumaQ)); // half-up a la escala interna
-    hechos.posicion = { fecha_apertura: p.fecha_apertura, compras, ventas_previas: ventas, costo_promedio_ponderado: cpp };
+    // v0.85: etapas del PCP = take profit con valor (TP1 apertura, TP2 1.ª recompra, TP3 2.ª recompra). Sin ninguno, el Auditor cuenta las compras del historial.
+    const tpLlenos = tradeFila === undefined || typeof tradeFila !== 'object' || tradeFila === null ? 0
+      : ['take_profit_1', 'take_profit_2', 'take_profit_3'].filter((k) => { const d = aDec((tradeFila as Record<string, unknown>)[k]); return d !== null && d > CERO; }).length;
+    hechos.posicion = { fecha_apertura: p.fecha_apertura, compras, ventas_previas: ventas, costo_promedio_ponderado: cpp, ...(tpLlenos > 0 ? { etapas_pcp: tpLlenos } : {}) };
   }
 
   const cap = filas.capital.filter((c) => c.portfolio_id === q.portfolio_id);

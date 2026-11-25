@@ -615,3 +615,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.84
 - /oficina, sección «Salida (PCP)»: siempre muestra el estado de las recompras (1.ª de 25 USD y 2.ª de 50 USD: cuántas van, cuál sigue y cuándo se evalúa) y deja claro cuándo la decisión es MANTENER (sin salida y fuera de la zona de recompra). Solo lectura; no cambia decisiones.
+
+## v0.85 — Etapa del PCP por take profit llenos
+- La etapa de una posición PCP la marcan los TP con valor: TP1 = apertura, TP2 = 1.ª recompra, TP3 = 2.ª recompra (no el historial de compras, que se desfasa con ventas parciales y nuevas compras).
+- Cierre en o bajo el stop: solo TP1 → 1.ª recompra (25 USD); TP1+TP2 → 2.ª recompra (50 USD); los 3 TP → la Oficina propone VENDER 100% (motivo stop, con aviso); tú decides.
+- Auditor: hechos.posicion.etapas_pcp (desde trades.take_profit_1..3) manda en PCP-02/03/05/06/07; sin TP se cuenta el historial como antes. PCP-07 acepta vender por stop solo con 3 TP.
+- Edge Function: sin cambios en este lote (la señal usa la etapa).

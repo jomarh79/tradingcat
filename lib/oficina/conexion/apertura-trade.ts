@@ -4,7 +4,7 @@
 // se entiende que esa ejecución ES la apertura y no se suma dos veces.
 import { aDec } from '../auditor/numeros';
 
-export const COLUMNAS_TRADE_APERTURA = 'id,entry_price,initial_quantity';
+export const COLUMNAS_TRADE_APERTURA = 'id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3';
 const CERO = BigInt(0);
 const FACTOR = BigInt(10) ** BigInt(8);
 const CENTAVO = BigInt(10) ** BigInt(6);   // 0.01 en la escala interna (1e8)

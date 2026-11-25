@@ -35,21 +35,21 @@ describe('evaluarSalidaPCP: comportamiento anterior (sin niveles)', () => {
 
 describe('evaluarPlanSalidaPCP: TP de trades (aprobado el 18-nov)', () => {
   it('una compra: TP1 alcanzado vende 100% aunque no haya señal', () => {
-    const r = evaluarPlanSalidaPCP(base({ precio_actual: '110', niveles: [N('108'), N('120'), N(null)] }));
+    const r = evaluarPlanSalidaPCP(base({ precio_actual: '110', niveles: [N('108'), N(null), N(null)] }));
     expect(r.exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
     expect(r.motivo).toBe('nivel_planeado');
     expect(r.nivel_alcanzado).toBe('TP1 = 108');
   });
   it('una compra: TP1 aún no alcanzado o ya cumplido no dispara', () => {
     expect(evaluarPlanSalidaPCP(base({ precio_actual: '107.99', niveles: [N('108'), N(null), N(null)] })).exigida).toBeNull();
-    expect(evaluarPlanSalidaPCP(base({ precio_actual: '130', niveles: [N('108', true), N('120'), N(null)] })).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP(base({ precio_actual: '130', niveles: [N('108', true), N(null), N(null)] })).exigida).toBeNull();
   });
   it('una compra: la señal sigue mandando aunque haya TP', () => {
     const r = evaluarPlanSalidaPCP(base({ precio_actual: '101', senal_salida: true, niveles: [N('108'), N(null), N(null)] }));
     expect(r.motivo).toBe('senal_salida');
   });
   it('dos compras: la primera salida exige superar el costo promedio aunque TP1 esté bajo el costo', () => {
-    const r = evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '88', niveles: [N('85'), N(null), N(null)], senal_salida: true }));
+    const r = evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '88', niveles: [N('85'), N('200'), N(null)], senal_salida: true }));
     expect(r.exigida).toBeNull();
     expect(r.costo_promedio).toBe('90');
   });
@@ -75,9 +75,9 @@ describe('evaluarPlanSalidaPCP: TP de trades (aprobado el 18-nov)', () => {
     expect(llega.nivel_alcanzado).toBe('TP1 = 100');
   });
   it('dos compras: TP1 igual al costo promedio sale al superarlo; sin TP1 en el trade (o ya cumplido) basta superar el costo', () => {
-    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '90.5', niveles: [N('90'), N(null), N(null)] })).exigida).toMatchObject({ decision: 'REDUCIR' });
-    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '90', niveles: [N('90'), N(null), N(null)] })).exigida).toBeNull();
-    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '95', niveles: [N('100', true), N(null), N(null)] })).exigida).toMatchObject({ decision: 'REDUCIR' });
+    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '90.5', niveles: [N('90'), N('200'), N(null)] })).exigida).toMatchObject({ decision: 'REDUCIR' });
+    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '90', niveles: [N('90'), N('200'), N(null)] })).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP(base({ compras: dos, precio_actual: '95', niveles: [N('100', true), N('200'), N(null)] })).exigida).toMatchObject({ decision: 'REDUCIR' });
   });
   it('tres compras se comporta igual que dos y calcula el costo promedio ponderado', () => {
     const r = evaluarPlanSalidaPCP(base({ compras: tres, precio_actual: '81' }));
@@ -114,5 +114,29 @@ describe('evaluarPlanSalidaPCP: zona de posible recompra (solo aviso)', () => {
   });
   it('sin compras no hay nada que evaluar', () => {
     expect(evaluarPlanSalidaPCP(base({ compras: [] })).exigida).toBeNull();
+  });
+});
+
+describe('v0.85: la etapa PCP la marcan los take profit con valor', () => {
+  const be = [{ cantidad: '1', precio: '184.74' }, { cantidad: '1', precio: '177.17' }, { cantidad: '1', precio: '142.39' }, { cantidad: '1', precio: '154.92' }]; // 4 compras, TP1 y TP2
+  it('BE: 4 compras pero solo TP1 y TP2 → etapa 2, queda 1 recompra y toca el stop → zona de recompra', () => {
+    const r = evaluarPlanSalidaPCP(base({ compras: be, precio_actual: '90', stop: '95', niveles: [N('200', true), N('210', true), N(null)] }));
+    expect(r.etapas).toBe(2);
+    expect(r.zona_recompra).toBe(true);
+    expect(r.recompras_restantes).toBe(1);
+    expect(r.exigida).toBeNull();
+  });
+  it('solo TP1 y stop tocado → 1.ª recompra (2 restantes)', () => {
+    const r = evaluarPlanSalidaPCP(base({ precio_actual: '90', stop: '95', niveles: [N('200'), N(null), N(null)] }));
+    expect(r.etapas).toBe(1);
+    expect(r.zona_recompra).toBe(true);
+    expect(r.recompras_restantes).toBe(2);
+  });
+  it('3 TP llenos y stop tocado → VENDER 100% por stop', () => {
+    const r = evaluarPlanSalidaPCP(base({ compras: be, precio_actual: '90', stop: '95', niveles: [N('200', true), N('210', true), N('220')] }));
+    expect(r.etapas).toBe(3);
+    expect(r.exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
+    expect(r.motivo).toBe('stop');
+    expect(r.zona_recompra).toBe(false);
   });
 });

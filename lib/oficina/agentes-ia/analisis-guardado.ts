@@ -310,9 +310,9 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     const f = c.fila_historial;
     Object.assign(cuerpo, { corrida_id: c.corrida_id, estado_final: f.estado_final, decision: f.decision, auditoria_veredicto: f.auditoria_veredicto, motivos: f.motivos });
     // v0.80: si la posición PCP está en la zona de recompra, se lo dice al botón para que encadene la evaluación de recompra (monto: compra 2 = 25, compra 3 = 50; PCP-02)
-    const sp = (f.referencias as Record<string, unknown> | undefined)?.['salida_pcp'] as { zona_recompra?: unknown; recompras_restantes?: unknown; compras?: unknown } | undefined;
+    const sp = (f.referencias as Record<string, unknown> | undefined)?.['salida_pcp'] as { zona_recompra?: unknown; recompras_restantes?: unknown; compras?: unknown; etapas?: unknown } | undefined;
     if (portafolio === 'PCP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && sp?.zona_recompra === true) {
-      cuerpo['recompra_sugerida'] = { zona: true, restantes: typeof sp.recompras_restantes === 'number' ? sp.recompras_restantes : null, monto_siguiente: sp.compras === 1 ? '25' : sp.compras === 2 ? '50' : null };
+      cuerpo['recompra_sugerida'] = { zona: true, restantes: typeof sp.recompras_restantes === 'number' ? sp.recompras_restantes : null, monto_siguiente: (typeof sp.etapas === 'number' ? sp.etapas : sp.compras) === 1 ? '25' : (typeof sp.etapas === 'number' ? sp.etapas : sp.compras) === 2 ? '50' : null };
     }
   }
   return { http: persistencia.estado === 'guardada' ? 200 : 500, cuerpo };
