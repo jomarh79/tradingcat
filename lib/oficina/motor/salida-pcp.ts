@@ -22,6 +22,8 @@ export const MAX_COMPRAS_PCP = 3;
 export const REGLA_SALIDA_PCP = 'PCP-06';
 /** La venta por stop del plan de una compra se registra con PCP-07 (como antes de v0.65). */
 export const REGLA_STOP_PCP = 'PCP-07';
+/** v0.86 (decisión de Jaime, 24-nov): si en la sesión el precio sube más de este % sobre el cierre anterior y la posición está en ganancias, se propone vender el 100% sin esperar nada más. */
+export const UMBRAL_SALTO_SESION_PCT = 10;
 
 export interface EntradaSalidaPCP {
   /** Plan declarado en la ficha (PCP-07). null = no declarado: el stop no se evalúa y se avisa. */
@@ -33,6 +35,9 @@ export interface EntradaSalidaPCP {
   niveles?: readonly [NivelSalidaPCP, NivelSalidaPCP, NivelSalidaPCP];
   senal_salida: boolean;
   primera_salida_realizada: boolean;
+  /** v0.86: precio en vivo (en la sesión, sin esperar el cierre) y cierre anterior, para el salto de sesión. Ausentes = esa salida no se evalúa. */
+  precio_sesion?: string | null;
+  cierre_anterior?: string | null;
 }
 
 export interface ResultadoSalidaPCP {
@@ -43,7 +48,7 @@ export interface ResultadoSalidaPCP {
   etapas: number;
   costo_promedio: string | null;
   primera_salida_realizada: boolean;
-  motivo: 'senal_salida' | 'nivel_planeado' | 'costo_promedio' | 'stop' | null;
+  motivo: 'senal_salida' | 'nivel_planeado' | 'costo_promedio' | 'stop' | 'salto_sesion' | null;
   /** Texto del nivel que disparó la salida (p. ej. «TP2 = 120»); null si no fue un nivel. */
   nivel_alcanzado: string | null;
   niveles: NivelSalidaPCP[];
@@ -99,6 +104,17 @@ export function evaluarPlanSalidaPCP(e: EntradaSalidaPCP): ResultadoSalidaPCP {
   };
   const vender = (motivo: NonNullable<ResultadoSalidaPCP['motivo']>, detalle: string, nivel: string | null): ResultadoSalidaPCP =>
     ({ ...base, exigida: { decision: 'VENDER', porcentaje: 100, regla: motivo === 'stop' ? REGLA_STOP_PCP : REGLA_SALIDA_PCP, detalle }, motivo, nivel_alcanzado: nivel });
+
+  // v0.86: salto de sesión. Sube más del 10% sobre el cierre anterior y está en ganancias (precio sobre el costo promedio): VENDER 100% sin respetar ninguna otra regla
+  // (estadísticamente después de un alza así suele caer). Es una propuesta: la Oficina nunca vende sola.
+  const ps = e.precio_sesion != null && e.precio_sesion !== '' ? e.precio_sesion : null;
+  const ca = e.cierre_anterior != null && e.cierre_anterior !== '' ? e.cierre_anterior : null;
+  if (ps !== null && ca !== null && sumaCantidad > BigInt(0)) {
+    const costo = sumaCosto / sumaCantidad;
+    if (dec(ps) * BigInt(100) > dec(ca) * BigInt(100 + UMBRAL_SALTO_SESION_PCT) && dec(ps) > costo) {
+      return vender('salto_sesion', `En la sesión el precio (${ps}) subió más de ${UMBRAL_SALTO_SESION_PCT}% sobre el cierre anterior (${ca}) y la posición está en ganancias (costo promedio ${base.costo_promedio}): se vende el 100% (tras un alza así suele caer)`, null);
+    }
+  }
 
   // v0.85: etapa final (los 3 TP llenos = apertura y 2 recompras) y el cierre en o bajo el stop: se propone salir del activo (100%). Nunca vende sola.
   if (e.plan === 'escalonado' && stop !== null && precio <= dec(stop) && ne >= MAX_COMPRAS_PCP) {

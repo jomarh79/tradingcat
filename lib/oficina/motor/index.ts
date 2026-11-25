@@ -6,7 +6,7 @@ export { transicionAutorizacion } from './autorizacion';
 export type { Actor, ResultadoTransicion } from './autorizacion';
 export { evaluarExpiracion, calcularVencimiento, siguienteDiaHabil, ZONA_CALENDARIO, ZONA_OFICINA } from './expiracion';
 export type { CalendarioHabil, ResultadoExpiracion } from './expiracion';
-export { evaluarSalidaPCP, evaluarPlanSalidaPCP, MAX_COMPRAS_PCP, REGLA_SALIDA_PCP, REGLA_STOP_PCP } from './salida-pcp';
+export { evaluarSalidaPCP, evaluarPlanSalidaPCP, MAX_COMPRAS_PCP, REGLA_SALIDA_PCP, REGLA_STOP_PCP, UMBRAL_SALTO_SESION_PCT } from './salida-pcp';
 export type { EntradaSalidaPCP, CompraPCP, NivelSalidaPCP, ResultadoSalidaPCP, PlanPCP as PlanSalidaPCP } from './salida-pcp';
 export { evaluarSalidaPMP, totalSalidasPMP, REGLA_SALIDA_PMP } from './salida-pmp';
 export type { EntradaSalidaPMP, ResultadoSalidaPMP, NivelSalidaPMP } from './salida-pmp';

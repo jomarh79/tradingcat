@@ -7,6 +7,7 @@ import { evaluarPlanSalidaPCP } from '../motor';
 import { prepararTecnico } from '../orquestador/preparar-tecnico';
 import { limpiarTicker } from './corridas-lectura';
 import type { FilaEjecucion } from './hechos-bd';
+import { obtenerCotizacionVivo } from './cotizacion-vivo';
 import { construirDatosSalidaPcp } from './salida-pcp-bd';
 
 export interface SalidaPcpTicker {
@@ -16,7 +17,7 @@ export interface SalidaPcpTicker {
   /** VENDER / REDUCIR si el plan exige salir; null si no. */
   decision: 'VENDER' | 'REDUCIR' | null;
   porcentaje: number | null;
-  motivo: 'senal_salida' | 'nivel_planeado' | 'costo_promedio' | 'stop' | null;
+  motivo: 'senal_salida' | 'nivel_planeado' | 'costo_promedio' | 'stop' | 'salto_sesion' | null;
   nivel: string | null;
   detalle: string | null;
   zona_recompra: boolean;
@@ -50,7 +51,9 @@ export async function evaluarSalidaPcpTicker(deps: DepsDatosReales, e: { ticker:
   // Una señal de salida no evaluable nunca se toma como «no hay señal» (igual que en la corrida)
   if (u === null || t.senal_salida === null) return { ok: false, http: 422, error: `El Técnico no pudo evaluar la señal de salida (${t.estado}): ${t.motivos.slice(0, 3).join(', ')}` };
 
-  const r = evaluarPlanSalidaPCP({ ...d.datos, precio_actual: String(u.cierre), senal_salida: t.senal_salida });
+  // v0.86: salto de sesión con el precio en vivo; si la cotización no llega, esa salida no se evalúa (no se supone nada)
+  const q = await obtenerCotizacionVivo(deps, ticker);
+  const r = evaluarPlanSalidaPCP({ ...d.datos, precio_actual: String(u.cierre), senal_salida: t.senal_salida, ...(q !== null ? { precio_sesion: q.precio, cierre_anterior: q.cierre_anterior } : {}) });
   return {
     ok: true,
     datos: {

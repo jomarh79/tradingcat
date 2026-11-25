@@ -140,3 +140,19 @@ describe('v0.85: la etapa PCP la marcan los take profit con valor', () => {
     expect(r.zona_recompra).toBe(false);
   });
 });
+
+describe('v0.86: salto de sesión (>10% sobre el cierre anterior y en ganancias → VENDER 100%)', () => {
+  const dosC = [{ cantidad: '1', precio: '100' }, { cantidad: '1', precio: '80' }]; // costo promedio 90
+  it('sube 10.5% en la sesión y está sobre el costo → VENDER 100% sin esperar TP ni señal', () => {
+    const r = evaluarPlanSalidaPCP(base({ compras: dosC, precio_actual: '95', precio_sesion: '110.5', cierre_anterior: '100', niveles: [N('150'), N('160'), N(null)] }));
+    expect(r.exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
+    expect(r.motivo).toBe('salto_sesion');
+  });
+  it('exactamente 10% no basta; sin cotización no se evalúa', () => {
+    expect(evaluarPlanSalidaPCP(base({ compras: dosC, precio_actual: '85', precio_sesion: '110', cierre_anterior: '100' })).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP(base({ compras: dosC, precio_actual: '85' })).motivo).toBeNull();
+  });
+  it('sube más de 10% pero no está en ganancias (bajo el costo promedio) → no vende', () => {
+    expect(evaluarPlanSalidaPCP(base({ compras: dosC, precio_actual: '85', precio_sesion: '88', cierre_anterior: '70' })).exigida).toBeNull();
+  });
+});

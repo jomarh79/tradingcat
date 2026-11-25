@@ -20,6 +20,7 @@ import { velasDiariasCerradas } from '../conexion/velas-cerradas';
 import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } from './clasificar-tesis';
 import { leer, obtenerDatosFundamental } from './datos-reales';
 import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from './constantes';
+import { obtenerCotizacionVivo } from '../conexion/cotizacion-vivo';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
 import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
@@ -211,7 +212,9 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     if ('error' in fi) return falla('salida_pcp', [fi.error]);
     const c = construirDatosSalidaPcp(tr.filas[0], ej.filas as unknown as FilaEjecucion[], fi.filas[0]?.['ficha'], ticker);
     if (!c.ok) return falla('salida_pcp', c.problemas);
-    salida_pcp = c.datos;
+    // v0.86: precio en vivo y cierre anterior para el salto de sesión (>10% y en ganancias → vender 100%); sin cotización no se evalúa
+    const q = await obtenerCotizacionVivo(datosDeps, ticker);
+    salida_pcp = q !== null ? { ...c.datos, precio_sesion: q.precio, cierre_anterior: q.cierre_anterior } : c.datos;
     avisos_pcp.push(...c.avisos);
   }
   // v0.58: la tesis que aprobaste llega al Fundamental para que marque qué se mantiene, se debilita o se rompe. Si no se puede leer como texto, se sigue sin tesis (no se inventa).

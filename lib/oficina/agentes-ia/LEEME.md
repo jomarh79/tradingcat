@@ -621,3 +621,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Cierre en o bajo el stop: solo TP1 → 1.ª recompra (25 USD); TP1+TP2 → 2.ª recompra (50 USD); los 3 TP → la Oficina propone VENDER 100% (motivo stop, con aviso); tú decides.
 - Auditor: hechos.posicion.etapas_pcp (desde trades.take_profit_1..3) manda en PCP-02/03/05/06/07; sin TP se cuenta el historial como antes. PCP-07 acepta vender por stop solo con 3 TP.
 - Edge Function: sin cambios en este lote (la señal usa la etapa).
+
+## v0.86 — PCP: salida 100% por salto de sesión
+- Si en la sesión (precio en vivo de Finnhub /quote, sin esperar el cierre) el activo sube más de 10% sobre el cierre anterior y el precio está sobre el costo promedio, la Oficina propone VENDER 100% sin respetar otras reglas (motivo `salto_sesion`). Propuesta: tú decides.
+- Aplica en la corrida ▶ (posición abierta PCP) y en la alerta de salida. Si la cotización no llega, esa salida no se evalúa y todo sigue como antes.
+- Edge Function: sin cambios de archivo, pero la alerta llama a la ruta `/api/oficina/senal-salida` (se despliega con la app).

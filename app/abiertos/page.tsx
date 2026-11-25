@@ -18,6 +18,12 @@ const dayKey    = (d: any) => String(d || '').split('T')[0]
 const parseDate = (d: any) => new Date(dayKey(d) + 'T00:00:00')
 const errMsg    = (e: any) => e?.message || String(e)
 
+// Precios (AVG, stop, actual, TPs): no revelan montos invertidos, así que se muestran siempre, aunque estén ocultos los valores
+const fmtPrecio = (v: number | null | undefined) => {
+  const n = Math.round((Number.isFinite(Number(v)) ? Number(v) : 0) * 100) / 100
+  return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 // Mercado de EE.UU. (NYSE/Nasdaq): lun-vie 9:30–16:00 hora de Nueva York.
 // Usar la zona de NY evita desfases cuando cambia el horario de verano.
 const isMarketOpen = () => {
@@ -440,7 +446,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
   ) : (
     <span onClick={() => { setPriceDraft(String(trade.curPrice)); setEditingPriceId(trade.id) }}
       title="Clic para cambiar el precio" style={{ ...style, cursor: 'pointer', borderBottom: '1px dashed #fbbf2466' }}>
-      {money(trade.curPrice)}
+      {fmtPrecio(trade.curPrice)}
     </span>
   )
 
@@ -704,7 +710,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                     {/* Posición */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
                       <Metric label="Cant.">{shares(trade.quantity)}</Metric>
-                      <Metric label="AVG"><span style={{ color: '#fbbf24' }}>{money(trade.avgPrice)}</span></Metric>
+                      <Metric label="AVG"><span style={{ color: '#fbbf24' }}>{fmtPrecio(trade.avgPrice)}</span></Metric>
                       <Metric label="Invertido">{money(trade.invested)}</Metric>
                     </div>
 
@@ -716,7 +722,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                           onClick={() => toggleTarget(trade, 'stop_hit')}
                           disabled={!trade.stop_loss}
                           style={targetBtnTouch(trade.stop_hit, '#f44336', !trade.stop_loss)}>
-                          {trade.stop_loss ? money(trade.stop_loss) : '—'}
+                          {trade.stop_loss ? fmtPrecio(trade.stop_loss) : '—'}
                         </button>
                       </div>
                       {TARGETS.map((tp, i) => (
@@ -726,7 +732,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                             onClick={() => toggleTarget(trade, tp.hit)}
                             disabled={!trade[tp.field]}
                             style={targetBtnTouch(trade[tp.hit], '#4caf50', !trade[tp.field])}>
-                            {trade[tp.field] ? money(trade[tp.field]) : '—'}
+                            {trade[tp.field] ? fmtPrecio(trade[tp.field]) : '—'}
                           </button>
                         </div>
                       ))}
@@ -823,7 +829,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                       <td style={tdStyle}>{shares(trade.quantity)}</td>
 
                       {/* Avg */}
-                      <td style={{ ...tdStyle, color: '#fbbf24' }}>{money(trade.avgPrice)}</td>
+                      <td style={{ ...tdStyle, color: '#fbbf24' }}>{fmtPrecio(trade.avgPrice)}</td>
 
                       {/* Invertido */}
                       <td style={{ ...tdStyle, fontWeight: 'bold' }}>{money(trade.invested)}</td>
@@ -834,7 +840,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                           onClick={() => toggleTarget(trade, 'stop_hit')}
                           disabled={!trade.stop_loss}
                           style={targetBtn(trade.stop_hit, '#f44336', !trade.stop_loss)}>
-                          {trade.stop_loss ? money(trade.stop_loss) : '—'}
+                          {trade.stop_loss ? fmtPrecio(trade.stop_loss) : '—'}
                         </button>
                       </td>
 
@@ -850,7 +856,7 @@ const renderPrice = (trade: any, style: React.CSSProperties) =>
                             onClick={() => toggleTarget(trade, tp.hit)}
                             disabled={!trade[tp.field]}
                             style={targetBtn(trade[tp.hit], '#4caf50', !trade[tp.field])}>
-                            {trade[tp.field] ? money(trade[tp.field]) : '—'}
+                            {trade[tp.field] ? fmtPrecio(trade[tp.field]) : '—'}
                           </button>
                         </td>
                       ))}
