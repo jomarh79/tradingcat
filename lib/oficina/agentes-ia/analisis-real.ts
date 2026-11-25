@@ -25,9 +25,9 @@ export function validarCuerpoAnalisis(body: unknown): ResultadoCuerpo {
   // v0.80: evaluación de recompra (solo PCP, con guardado y monto)
   if (body['evaluacion'] !== undefined) {
     if (body['evaluacion'] !== EVALUACION_RECOMPRA) return bad(`evaluacion solo admite «${EVALUACION_RECOMPRA}»`);
-    if (body['portafolio'] !== 'PCP') return bad('la recompra solo se evalúa en PCP');
+    if (body['portafolio'] !== 'PCP' && body['portafolio'] !== 'PMP') return bad('la recompra solo se evalúa en PCP y PMP');
     if (body['guardar'] !== true) return bad('la recompra requiere guardar');
-    if (body['monto'] === undefined) return bad('la recompra requiere el monto de la compra (25 o 50 USD)');
+    if (body['monto'] === undefined) return bad('la recompra requiere el monto de la compra (PCP: 25 o 50 USD; PMP: 10 USD)');
   }
   // v0.21: monto de la operación que declara el usuario en cada corrida (USD, positivo, hasta 2 decimales). No hay monto por omisión.
   let monto: string | undefined;

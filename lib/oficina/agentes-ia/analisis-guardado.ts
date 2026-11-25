@@ -21,6 +21,7 @@ import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } fro
 import { leer, obtenerDatosFundamental } from './datos-reales';
 import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from './constantes';
 import { obtenerCotizacionVivo } from '../conexion/cotizacion-vivo';
+import { calcularLimitePosicionPmp } from '../conexion/limite-posicion-pmp';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
 import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
@@ -187,6 +188,15 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     const ultimaCerrada = cerradas[cerradas.length - 1];
     valuacion = await calcularValuacionCorrida(datosDeps, ticker, ultimaCerrada === undefined ? null : ultimaCerrada.close, hoyCorrida);
   }
+  // v0.87: recompra de PMP: tope de 10% del portafolio por activo (activos + efectivo). Si no se puede calcular no se supone: el Motor deja NO_EVALUABLE.
+  let limite_posicion: Awaited<ReturnType<typeof calcularLimitePosicionPmp>> | undefined;
+  if (portafolio === 'PMP' && es_recompra) {
+    const tid = pos.filas[0]?.['trade_id'];
+    limite_posicion = typeof tid === 'string' && tid !== '' && v.cuerpo.monto !== undefined
+      ? await calcularLimitePosicionPmp((t, c, f) => leerFilas(cliente, t, c, f), { portfolio_id: pf.portfolio_id, trade_id: tid, efectivo, monto: v.cuerpo.monto })
+      : { ok: false, error: 'falta el trade o el monto de la recompra' };
+    if (!limite_posicion.ok) avisos_capital.push(`tope 10% por activo: ${limite_posicion.error}`);
+  }
   const par = await leerFilas(cliente, TABLA_PARAMETROS, COLUMNAS_PARAMETROS, []);
   if ('error' in par) return falla('parametros', [par.error]);
 
@@ -281,7 +291,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     sobres: { [AGENTE_FUNDAMENTAL]: sobreFundamental, [AGENTE_TECNICO]: sobreTecnico }, sobre_auditor: null,
     ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(dividendo_pmp !== undefined ? { dividendo_pmp } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
-    ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas } } : {}),
+    ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas, stop: salida_pmp.stop } } : {}),
+    ...(limite_posicion !== undefined && limite_posicion.ok ? { limite_posicion: limite_posicion.limite } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
       : {},
@@ -316,6 +327,11 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     const sp = (f.referencias as Record<string, unknown> | undefined)?.['salida_pcp'] as { zona_recompra?: unknown; recompras_restantes?: unknown; compras?: unknown; etapas?: unknown } | undefined;
     if (portafolio === 'PCP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && sp?.zona_recompra === true) {
       cuerpo['recompra_sugerida'] = { zona: true, restantes: typeof sp.recompras_restantes === 'number' ? sp.recompras_restantes : null, monto_siguiente: (typeof sp.etapas === 'number' ? sp.etapas : sp.compras) === 1 ? '25' : (typeof sp.etapas === 'number' ? sp.etapas : sp.compras) === 2 ? '50' : null };
+    }
+    // v0.87: PMP en posición abierta: el cierre en o bajo el stop O una señal de recompra → el botón encadena la evaluación de recompra de 10 USD (el Motor aplica el tope de 10%)
+    const rp = (f.referencias as Record<string, unknown> | undefined)?.['recompra_pmp'] as { disparada?: unknown; por_stop?: unknown; por_senal?: unknown } | undefined;
+    if (portafolio === 'PMP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && rp?.disparada === true) {
+      cuerpo['recompra_sugerida'] = { zona: true, restantes: null, monto_siguiente: '10', por_stop: rp.por_stop === true, por_senal: rp.por_senal === true };
     }
   }
   return { http: persistencia.estado === 'guardada' ? 200 : 500, cuerpo };

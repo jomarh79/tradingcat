@@ -11,3 +11,5 @@ export type { EntradaSalidaPCP, CompraPCP, NivelSalidaPCP, ResultadoSalidaPCP, P
 export { evaluarSalidaPMP, totalSalidasPMP, REGLA_SALIDA_PMP } from './salida-pmp';
 export type { EntradaSalidaPMP, ResultadoSalidaPMP, NivelSalidaPMP } from './salida-pmp';
 export { verificarInvariantes } from './invariantes';
+export { evaluarRecompraPMP, limiteActivoPMP, MONTO_RECOMPRA_PMP, TOPE_ACTIVO_PMP_PCT } from './recompra-pmp';
+export type { ResultadoRecompraPMP, LimiteActivoPMP } from './recompra-pmp';

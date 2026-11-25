@@ -465,9 +465,9 @@ describe('Técnico en la corrida: momento, frescura y parámetros', () => {
     corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'recompra' }), datos({ velas: velas(sinSenal), posicion_existe: true }), x.p));
     expect(x.log).toContain('analista:valuacion');
   });
-  it('v0.22: PMP recompra sigue sin detonante del Técnico: solo el momento que entregue el llamador; sin él, ESPERAR', async () => {
+  it('v0.87: PMP recompra toma el detonante recompra_pmp del Técnico (antes v0.22 no tenía)', async () => {
     const r = corrida(await ejecutarCorrida(sol({ tipo_evaluacion: 'recompra' }), datos({ posicion_existe: true, motor: { capital: { efectivo_disponible: '100', monto_requerido: '10', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '10' } }), puertos().p));
-    expect(r.entrada_motor.momento).toBeUndefined();
+    expect(r.entrada_motor.momento).toEqual({ detonante_confirmado: true });
   });
   it('la condición de ejecución del llamador se conserva junto al detonante del Técnico', async () => {
     const r = corrida(await ejecutarCorrida(pcp(), datosPcp({ velas: velas(baja), motor: { condicion_ejecucion: 'cierre sobre 10', capital: { efectivo_disponible: '100', monto_requerido: '25', veredicto_riesgo: 'VIABLE' }, tesis_estado: 'intacta', monto_operacion: '25' } }), puertos().p));

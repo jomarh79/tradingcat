@@ -20,8 +20,8 @@
 //   C9. `senal_salida` no evaluable (null) nunca se convierte en false: no se evalúa la salida del PCP y se declara en `datos_faltantes`.
 //   C10. El cálculo de código del Técnico corre siempre que haga falta para `momento` o la salida del PCP, aunque el agente Técnico de IA sea opcional (PLP).
 
-import { RUTA_POR_TIPO, decidir, evaluarPlanSalidaPCP, evaluarSalidaPMP } from '../motor';
-import type { EntradaSalidaPMP, ResultadoSalidaPCP, ResultadoSalidaPMP } from '../motor';
+import { RUTA_POR_TIPO, decidir, evaluarPlanSalidaPCP, evaluarRecompraPMP, evaluarSalidaPMP } from '../motor';
+import type { EntradaSalidaPMP, ResultadoRecompraPMP, ResultadoSalidaPCP, ResultadoSalidaPMP } from '../motor';
 import type {
   Agente, Auditoria, Capital, ContextoAporte, ContextoRetiro, ContextoRevisionETF, ContextoSalida, EntradaMotor, EntradaSalidaPCP, EstadoDirector,
   EstadoFinal, MotivoEstado, PortafolioCodigo, ResultadoAgente, Ruta, SalidaMotor, TesisEstado, TipoEvaluacion, VeredictoAuditor,
@@ -74,6 +74,7 @@ export const USO_MOMENTO_POR_CASO: Readonly<Record<string, UsoMomento>> = {
   'PCP:nueva_posicion': 'apertura_pcp',
   'PMP:nueva_posicion': 'apertura_pmp',
   'PCP:recompra': 'recompra_pcp',
+  'PMP:recompra': 'recompra_pmp',
   'PLP:recompra': 'dca_plp',
 };
 
@@ -189,7 +190,9 @@ export interface DatosCongelados {
   salida_pcp?: Omit<EntradaSalidaPCP, 'senal_salida' | 'precio_actual'> & { precio_actual?: string };
   /** Plan de salidas de PMP (posición abierta): monto invertido, niveles TP1..TP3 con su casilla «cumplido» y las señales de la vela de la salida anterior.
    *  El precio de hoy y las señales de hoy los pone el Técnico. */
-  salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'>;
+  salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'> & { stop?: string | null };
+  /** v0.87: PMP + recompra. Tope de 10% por activo ya calculado con los datos de la base (activos + efectivo). */
+  limite_posicion?: EntradaMotor['limite_posicion'];
   corrida_previa_id?: string | null;
   /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores, portafolios); lo usa la preparación del Auditor. */
   watchlist?: DatosWatchlist | null;
@@ -587,6 +590,17 @@ export async function ejecutarCorrida(
     }
   }
 
+  // v0.87: recompra de PMP (10 USD): el cierre en o bajo el stop O una señal de recompra. En la posición abierta solo avisa; en la evaluación de recompra manda como detonante.
+  let recompra_pmp: ResultadoRecompraPMP | null = null;
+  if (portafolio === 'PMP' && (tipo === 'posicion_abierta' || tipo === 'recompra') && datos.salida_pmp !== undefined && tecnico?.snapshot?.ultima_vela_diaria != null) {
+    const det = tecnico.detonantes?.recompra_pmp;
+    recompra_pmp = evaluarRecompraPMP({
+      precio_actual: String(tecnico.snapshot.ultima_vela_diaria.cierre), stop: datos.salida_pmp.stop ?? null,
+      senal_confirmada: det === undefined ? null : det.detonante_confirmado, senales_cumplidas: det === undefined ? [] : det.senales_cumplidas.map(String),
+    });
+    for (const f of recompra_pmp.faltantes) avisos.push(f);
+  }
+
   const usoMomento = USO_MOMENTO_POR_CASO[`${portafolio}:${tipo}`];
   let momento: EntradaMotor['momento'];
   if (usoMomento !== undefined) {
@@ -597,6 +611,8 @@ export async function ejecutarCorrida(
     momento = { ...datos.motor.momento };
   }
 
+  if (recompra_pmp !== null && tipo === 'recompra' && momento !== undefined) momento = { ...momento, detonante_confirmado: recompra_pmp.disparada };
+  else if (recompra_pmp !== null && tipo === 'recompra') momento = { detonante_confirmado: recompra_pmp.disparada };
   const m = datos.motor ?? {};
   const entrada_motor: EntradaMotor = {
     corrida_id, ticker: sol.ticker, portafolio_codigo: portafolio, tipo_evaluacion: tipo, ruta, fecha_evaluacion,
@@ -605,6 +621,7 @@ export async function ejecutarCorrida(
     datos_vencidos: [...(datos.datos_vencidos ?? [])], datos_faltantes: faltantes, posicion_confirmada: coh.confirmada,
     ...(m.capital !== undefined ? { capital: m.capital } : {}),
     ...(m.tesis_estado !== undefined ? { tesis_estado: m.tesis_estado } : {}),
+    ...(portafolio === 'PMP' && tipo === 'recompra' && datos.limite_posicion !== undefined ? { limite_posicion: datos.limite_posicion } : {}),
     ...(momento !== undefined ? { momento } : {}),
     ...(portafolio === 'PMP' && tipo === 'nueva_posicion' ? saludParaMotor(datos.salud_financiera) : {}),
     ...(portafolio === 'PMP' && tipo === 'nueva_posicion' ? dividendoParaMotor(datos.dividendo_pmp) : {}),
@@ -628,6 +645,7 @@ export async function ejecutarCorrida(
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(salida_pcp !== null ? { salida_pcp } : {}),
+    ...(recompra_pmp !== null ? { recompra_pmp } : {}),
     ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo
     // v0.80: igual en la recompra de PCP (detonante recompra_pcp: RSI, Koncorde, Mogalef inferior, nivel pasado; sin MACD)

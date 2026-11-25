@@ -61,7 +61,7 @@ describe('camino normal', () => {
     expect(s.analisis_ids).toContain('aud1');
   });
   it('recompra favorable: RECOMPRAR', () => {
-    const s = decidir(nuevaPosicion({ tipo_evaluacion: 'recompra' }));
+    const s = decidir(nuevaPosicion({ tipo_evaluacion: 'recompra', limite_posicion: { posicion_actual: '0.00', portafolio_total: '100.00', tope: '10.00', posicion_despues: '10.00', excede: false } }));
     expect(s.decision).toBe('RECOMPRAR');
   });
   it('datos vencidos: NO_EVALUABLE y pendiente_informacion, nunca COMPRAR', () => {
@@ -87,7 +87,7 @@ describe('camino normal', () => {
   it('valuación CARA espera; tesis rota en recompra: NO_RECOMPRAR con revisión formal', () => {
     const cara = { fundamental: ok('SOLIDO'), valuacion: ok('CARA'), tecnico: ok('FAVORABLE'), riesgo_capital: ok('VIABLE') };
     expect(decidir(nuevaPosicion({ resultados_agentes: cara })).decision).toBe('ESPERAR');
-    const s = decidir(nuevaPosicion({ tipo_evaluacion: 'recompra', tesis_estado: 'rota' }));
+    const s = decidir(nuevaPosicion({ tipo_evaluacion: 'recompra', tesis_estado: 'rota', limite_posicion: { posicion_actual: '0.00', portafolio_total: '100.00', tope: '10.00', posicion_despues: '10.00', excede: false } }));
     expect(s.decision).toBe('NO_RECOMPRAR');
     expect(s.requiere_revision_formal).toBe(true);
   });

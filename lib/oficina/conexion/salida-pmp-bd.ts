@@ -13,7 +13,7 @@ import { EJECUCION_COMPRA, EJECUCION_VENTA } from './hechos-bd';
 import type { FilaEjecucion } from './hechos-bd';
 
 export const TABLA_TRADES = 'trades';
-export const COLUMNAS_TRADE_SALIDA = 'id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3,tp1_hit,tp2_hit,tp3_hit';
+export const COLUMNAS_TRADE_SALIDA = 'id,entry_price,initial_quantity,take_profit_1,take_profit_2,take_profit_3,tp1_hit,tp2_hit,tp3_hit,stop_loss';
 
 export interface DatosSalidaPmp {
   monto_invertido: string;
@@ -22,6 +22,8 @@ export interface DatosSalidaPmp {
   ultima_venta: string | null;
   /** Señales de salida cumplidas antes de esa venta; null si no hay venta previa o no se pudieron reconstruir. */
   senales_previas: string[] | null;
+  /** v0.87: stop_loss del trade (cierre en o bajo el stop dispara la recompra de PMP); null = sin stop. */
+  stop: string | null;
 }
 export type ResultadoDatosSalidaPmp = { ok: true; datos: DatosSalidaPmp } | { ok: false; problemas: string[] };
 
@@ -33,6 +35,12 @@ function nivelDe(valor: unknown, cumplido: unknown, nombre: string, problemas: s
   if (d === null) { problemas.push(`trades.${nombre} no es un número válido`); return { nivel: null, cumplido: cumplido === true }; }
   // 0 o negativo = «sin nivel» (así lo deja la página de trades cuando no se llena)
   return { nivel: d > BigInt(0) ? textoDec(d) : null, cumplido: cumplido === true };
+}
+
+function stopDe(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const d = aDec(typeof v === 'number' ? String(v) : v);
+  return d !== null && d > BigInt(0) ? textoDec(d) : null;
 }
 
 export function construirDatosSalidaPmp(
@@ -66,5 +74,5 @@ export function construirDatosSalidaPmp(
 
   const hechas = niveles.filter(n => n.cumplido).length;
   const senales_previas = hechas > 0 && ultima !== null && velas !== null ? senalesDeSalidaAntesDe(velas, ultima, ticker, fuente_velas) : null;
-  return { ok: true, datos: { monto_invertido: textoDec(invertido), niveles, ultima_venta: ultima, senales_previas } };
+  return { ok: true, datos: { monto_invertido: textoDec(invertido), niveles, ultima_venta: ultima, senales_previas, stop: stopDe(trade['stop_loss']) } };
 }

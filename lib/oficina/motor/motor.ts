@@ -153,6 +153,26 @@ function decidirEntrada(e: EntradaMotor, recompra: boolean): Resolucion {
       ? 'Sin límites de riesgo registrados: se reporta como informativo, no bloquea' : 'Efectivo suficiente',
   });
 
+  // Nivel 2b (v0.87, solo PMP + recompra): un activo no puede pasar del 10% del portafolio (activos comprados + efectivo). Sin el dato no se supone.
+  if (e.portafolio_codigo === 'PMP' && recompra) {
+    const l = e.limite_posicion;
+    if (l === undefined) {
+      return {
+        decision: 'NO_EVALUABLE', nivel: 'datos', detalle: 'No se pudo calcular el valor del portafolio: no se puede comprobar el tope de 10% por activo',
+        motivos: [...motivos, { nivel: 'riesgo_capital', codigo: 'LIMITE_10PCT', resultado: 'no_evaluable', detalle: 'Falta el valor del portafolio o de la posición' }],
+      };
+    }
+    if (l.excede) {
+      return {
+        decision: 'ESPERAR', nivel: 'riesgo_capital', motivo_codigo: 'limite_10pct_portafolio',
+        detalle: `La recompra dejaría ${l.posicion_despues} USD en el activo y el tope es ${l.tope} USD (10% de ${l.portafolio_total} USD del portafolio)`,
+        condicion_ejecucion: 'Que el portafolio crezca o el activo pese menos del 10% tras la recompra',
+        motivos: [...motivos, { nivel: 'riesgo_capital', codigo: 'LIMITE_10PCT', resultado: 'incumple', detalle: `${l.posicion_despues} > ${l.tope} USD` }],
+      };
+    }
+    motivos.push({ nivel: 'riesgo_capital', codigo: 'LIMITE_10PCT', resultado: 'cumple', detalle: `Quedaría ${l.posicion_despues} USD de un tope de ${l.tope} USD (10% del portafolio)` });
+  }
+
   // Nivel 3: tesis
   if (e.tesis_estado === 'rota' || e.tesis_estado === 'debilitada') {
     return {

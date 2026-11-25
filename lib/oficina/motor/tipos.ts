@@ -133,6 +133,8 @@ export interface EntradaMotor {
   capital?: Capital;
   tesis_estado?: TesisEstado;
   momento?: Momento;
+  /** v0.87: solo PMP + recompra. Tope de 10% del portafolio por activo (activos + efectivo) tras sumar la recompra. Sin el dato la recompra queda NO_EVALUABLE. */
+  limite_posicion?: { posicion_actual: string; portafolio_total: string; tope: string; posicion_despues: string; excede: boolean };
   /** v0.72: solo PMP + nueva_posicion. Salud financiera por código: ganancias y flujo de caja libre (obligatorios). */
   salud_financiera?: { resumen: 'solida' | 'aceptable' | 'mixta' | 'debil' | 'incompleta' | 'sin_datos'; texto: string };
   /** v0.73: solo PMP + nueva_posicion. Dividendo: PMP exige que pague; si paga, su rendimiento debe estar del lado verde (≥ promedio de 5 años). */

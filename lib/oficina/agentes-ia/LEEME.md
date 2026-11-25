@@ -626,3 +626,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Si en la sesión (precio en vivo de Finnhub /quote, sin esperar el cierre) el activo sube más de 10% sobre el cierre anterior y el precio está sobre el costo promedio, la Oficina propone VENDER 100% sin respetar otras reglas (motivo `salto_sesion`). Propuesta: tú decides.
 - Aplica en la corrida ▶ (posición abierta PCP) y en la alerta de salida. Si la cotización no llega, esa salida no se evalúa y todo sigue como antes.
 - Edge Function: sin cambios de archivo, pero la alerta llama a la ruta `/api/oficina/senal-salida` (se despliega con la app).
+
+## v0.87 — Recompras de PMP (10 USD)
+- Dispara el stop O una señal: cierre en o bajo `trades.stop_loss`, o una señal de recompra del Técnico (`recompra_pmp`: RSI sobrevendido, Koncorde bajo cero, banda inferior de Mogalef, nivel pasado; basta una). Monto fijo de 10 USD (PMP-03).
+- Tope: un activo no puede pasar del 10% del portafolio (activos abiertos, neto de ventas, + efectivo). El cálculo es de código (`conexion/limite-posicion-pmp.ts`) y el Motor responde ESPERAR `limite_10pct_portafolio` si se pasa, o NO_EVALUABLE si no se pudo calcular (no se supone).
+- En la corrida ▶ de una posición PMP abierta, si se dispara, el botón encadena la evaluación de recompra (10 USD) igual que en PCP y la muestra en una tarjeta anidada. `referencias.recompra_pmp` guarda stop/señal.
+- Sin cambios en la Edge Function ni en alertas por correo (no se pidieron); el stop de PMP sigue sin vender nada (PMP-08).
