@@ -352,6 +352,20 @@ export default function OficinaPage() {
                 Zona de posible recompra: el precio está en o bajo el stop ({d.salida_pcp.recompras_restantes ?? '—'} recompra(s) disponible(s)). Es solo un aviso: la Oficina no vende ni compra sola.
               </div>
             )}
+            {/* v0.84: estado de las recompras (1ª = 25 USD, 2ª = 50 USD; PCP-02/03) y qué significa MANTENER */}
+            {(() => {
+              const n = d.salida_pcp.compras ?? 0
+              const rest = d.salida_pcp.recompras_restantes
+              if (rest === null) return <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>Recompras: el plan de la posición no está declarado como escalonado, así que no se evalúan.</div>
+              const hechas = Math.max(0, Math.min(2, n - 1))
+              const siguiente = rest > 0 ? (n === 1 ? '1.ª recompra de 25 USD' : n === 2 ? '2.ª recompra de 50 USD' : null) : null
+              return (
+                <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                  Recompras: {hechas} de 2 hechas{siguiente ? <> · siguiente: {siguiente}{d.salida_pcp.stop ? <> si el cierre toca el stop ({d.salida_pcp.stop}) y hay señal de recompra</> : null}</> : ' · ya no quedan recompras'}
+                  {!d.salida_pcp.exigida && !d.salida_pcp.zona_recompra && <> · <b>MANTENER</b>: sin salida y el precio no está en la zona de recompra</>}
+                </div>
+              )
+            })()}
             {d.salida_pcp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}

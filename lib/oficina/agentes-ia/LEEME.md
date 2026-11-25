@@ -612,3 +612,6 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 
 ## v0.83 — modelo de respaldo
 - Opcional: variable de entorno `GEMINI_MODEL_FALLBACK` (nombre de otro modelo de Gemini). Si el modelo principal sigue con un error temporal (503, 429, 5xx) después de los 4 reintentos con espera, se intenta UNA vez con el de respaldo. Si no se define la variable, todo funciona como antes. Errores de clave o de petición (401/403/400) no cambian de modelo.
+
+## v0.84
+- /oficina, sección «Salida (PCP)»: siempre muestra el estado de las recompras (1.ª de 25 USD y 2.ª de 50 USD: cuántas van, cuál sigue y cuándo se evalúa) y deja claro cuándo la decisión es MANTENER (sin salida y fuera de la zona de recompra). Solo lectura; no cambia decisiones.
