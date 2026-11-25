@@ -3,6 +3,8 @@
 import { dec, menorQue } from './decimal';
 
 export const MONTO_RECOMPRA_PMP = '10';
+/** v0.88: PLP recompra 5 USD (PLP-03) con el mismo disparo (stop O señal) y sin tope de monto ni de número de recompras. */
+export const MONTO_RECOMPRA_PLP = '5';
 export const TOPE_ACTIVO_PMP_PCT = 10;
 const FACTOR = BigInt('100000000');
 
@@ -40,6 +42,8 @@ export interface EntradaRecompraPMP {
   /** Detonante recompra_pmp del Técnico (al menos una señal cumplida) y sus señales; null = el Técnico no pudo evaluarlas. */
   senal_confirmada: boolean | null;
   senales_cumplidas: readonly string[];
+  /** Monto de la recompra (por omisión el de PMP). */
+  monto?: string;
 }
 export interface ResultadoRecompraPMP {
   monto: string;
@@ -59,5 +63,5 @@ export function evaluarRecompraPMP(e: EntradaRecompraPMP): ResultadoRecompraPMP 
   const por_stop = e.stop !== null && e.stop !== '' && !menorQue(e.stop, e.precio_actual);   // cierre en o bajo el stop
   if (e.senal_confirmada === null) faltantes.push('recompra_pmp: el Técnico no pudo evaluar las señales de recompra; solo cuenta el stop');
   const por_senal = e.senal_confirmada === true;
-  return { monto: MONTO_RECOMPRA_PMP, por_stop, por_senal, disparada: por_stop || por_senal, precio_actual: e.precio_actual, stop: e.stop ?? null, senales_cumplidas: [...e.senales_cumplidas], faltantes };
+  return { monto: e.monto ?? MONTO_RECOMPRA_PMP, por_stop, por_senal, disparada: por_stop || por_senal, precio_actual: e.precio_actual, stop: e.stop ?? null, senales_cumplidas: [...e.senales_cumplidas], faltantes };
 }

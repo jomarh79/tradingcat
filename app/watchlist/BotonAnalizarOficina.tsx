@@ -91,7 +91,7 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
         if (!j) return { res: null, fallo: `El servidor respondió ${r.status} sin detalle` }
         // v0.80: posición PCP en zona de recompra → evaluar la recompra con el monto que toca (25 o 50). El servidor pide 30 s entre análisis.
         const rs = j.recompra_sugerida
-        if (evaluacion === undefined && (portafolioUsado === 'PCP' || portafolioUsado === 'PMP') && j.ok && rs?.zona === true && rs.monto_siguiente !== null) {
+        if (evaluacion === undefined && (portafolioUsado === 'PCP' || portafolioUsado === 'PMP' || portafolioUsado === 'PLP') && j.ok && rs?.zona === true && rs.monto_siguiente !== null) {
           await new Promise(x => setTimeout(x, ESPERA_ENTRE_ANALISIS_MS))
           const r2 = await llamar(portafolioUsado, rs.monto_siguiente, 'recompra')
           j.recompra_res = r2.res; j.recompra_fallo = r2.fallo
@@ -155,7 +155,7 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
                       )}
                       {res.recompra_sugerida?.zona === true && (
                         <div style={{ marginTop: 10, borderTop: '1px solid #151515', paddingTop: 8 }}>
-                          <div style={{ fontWeight: 700, color: '#eab308', marginBottom: 4 }}>{res.recompra_sugerida.por_stop === true || res.recompra_sugerida.por_senal === true ? `Recompra PMP (${[res.recompra_sugerida.por_stop ? 'stop tocado' : '', res.recompra_sugerida.por_senal ? 'señal de recompra' : ''].filter(Boolean).join(' y ')})` : 'Zona de recompra'}: evaluación de recompra{res.recompra_sugerida.monto_siguiente ? ` (${res.recompra_sugerida.monto_siguiente} USD)` : ''}</div>
+                          <div style={{ fontWeight: 700, color: '#eab308', marginBottom: 4 }}>{res.recompra_sugerida.por_stop === true || res.recompra_sugerida.por_senal === true ? `Recompra ${(res as { portafolio?: string }).portafolio ?? portafolio} (${[res.recompra_sugerida.por_stop ? 'stop tocado' : '', res.recompra_sugerida.por_senal ? 'señal de recompra' : ''].filter(Boolean).join(' y ')})` : 'Zona de recompra'}: evaluación de recompra{res.recompra_sugerida.monto_siguiente ? ` (${res.recompra_sugerida.monto_siguiente} USD)` : ''}</div>
                           {res.recompra_res?.ok ? (
                             <>
                               <div style={{ color: '#ccc' }}>Decisión: <b>{etiqueta(res.recompra_res.decision)}</b> · Estado: {etiqueta(res.recompra_res.estado_final)} · Auditor: {etiqueta(res.recompra_res.auditoria_veredicto)}</div>

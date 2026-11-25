@@ -37,7 +37,7 @@ function nivelDe(valor: unknown, cumplido: unknown, nombre: string, problemas: s
   return { nivel: d > BigInt(0) ? textoDec(d) : null, cumplido: cumplido === true };
 }
 
-function stopDe(v: unknown): string | null {
+export function stopDe(v: unknown): string | null {
   if (v === null || v === undefined || v === '') return null;
   const d = aDec(typeof v === 'number' ? String(v) : v);
   return d !== null && d > BigInt(0) ? textoDec(d) : null;

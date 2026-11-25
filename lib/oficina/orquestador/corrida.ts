@@ -20,7 +20,7 @@
 //   C9. `senal_salida` no evaluable (null) nunca se convierte en false: no se evalúa la salida del PCP y se declara en `datos_faltantes`.
 //   C10. El cálculo de código del Técnico corre siempre que haga falta para `momento` o la salida del PCP, aunque el agente Técnico de IA sea opcional (PLP).
 
-import { RUTA_POR_TIPO, decidir, evaluarPlanSalidaPCP, evaluarRecompraPMP, evaluarSalidaPMP } from '../motor';
+import { MONTO_RECOMPRA_PLP, RUTA_POR_TIPO, decidir, evaluarPlanSalidaPCP, evaluarRecompraPMP, evaluarSalidaPMP } from '../motor';
 import type { EntradaSalidaPMP, ResultadoRecompraPMP, ResultadoSalidaPCP, ResultadoSalidaPMP } from '../motor';
 import type {
   Agente, Auditoria, Capital, ContextoAporte, ContextoRetiro, ContextoRevisionETF, ContextoSalida, EntradaMotor, EntradaSalidaPCP, EstadoDirector,
@@ -193,6 +193,8 @@ export interface DatosCongelados {
   salida_pmp?: Pick<EntradaSalidaPMP, 'monto_invertido' | 'niveles' | 'senales_previas'> & { stop?: string | null };
   /** v0.87: PMP + recompra. Tope de 10% por activo ya calculado con los datos de la base (activos + efectivo). */
   limite_posicion?: EntradaMotor['limite_posicion'];
+  /** v0.88: PLP con posición abierta: stop del trade (cierre en o bajo el stop dispara la recompra de 5 USD). */
+  recompra_plp?: { stop: string | null };
   corrida_previa_id?: string | null;
   /** v0.35: lo que el usuario llenó en la watchlist (rol, negocio, competidores, portafolios); lo usa la preparación del Auditor. */
   watchlist?: DatosWatchlist | null;
@@ -590,15 +592,17 @@ export async function ejecutarCorrida(
     }
   }
 
-  // v0.87: recompra de PMP (10 USD): el cierre en o bajo el stop O una señal de recompra. En la posición abierta solo avisa; en la evaluación de recompra manda como detonante.
+  // v0.87/v0.88: recompra de PMP (10 USD) y de PLP (5 USD): el cierre en o bajo el stop O una señal de recompra. En la posición abierta solo avisa; en la evaluación de recompra manda como detonante.
   let recompra_pmp: ResultadoRecompraPMP | null = null;
-  if (portafolio === 'PMP' && (tipo === 'posicion_abierta' || tipo === 'recompra') && datos.salida_pmp !== undefined && tecnico?.snapshot?.ultima_vela_diaria != null) {
-    const det = tecnico.detonantes?.recompra_pmp;
+  const stopRecompra = portafolio === 'PMP' ? datos.salida_pmp?.stop : portafolio === 'PLP' ? datos.recompra_plp?.stop : undefined;
+  if ((portafolio === 'PMP' || portafolio === 'PLP') && (tipo === 'posicion_abierta' || tipo === 'recompra') && stopRecompra !== undefined && tecnico?.snapshot?.ultima_vela_diaria != null) {
+    const det = portafolio === 'PMP' ? tecnico.detonantes?.recompra_pmp : tecnico.detonantes?.dca_plp;
     recompra_pmp = evaluarRecompraPMP({
-      precio_actual: String(tecnico.snapshot.ultima_vela_diaria.cierre), stop: datos.salida_pmp.stop ?? null,
+      precio_actual: String(tecnico.snapshot.ultima_vela_diaria.cierre), stop: stopRecompra,
       senal_confirmada: det === undefined ? null : det.detonante_confirmado, senales_cumplidas: det === undefined ? [] : det.senales_cumplidas.map(String),
+      ...(portafolio === 'PLP' ? { monto: MONTO_RECOMPRA_PLP } : {}),
     });
-    for (const f of recompra_pmp.faltantes) avisos.push(f);
+    for (const f of recompra_pmp.faltantes) avisos.push(portafolio === 'PLP' ? f.replace('recompra_pmp', 'dca_plp') : f);
   }
 
   const usoMomento = USO_MOMENTO_POR_CASO[`${portafolio}:${tipo}`];
@@ -645,7 +649,7 @@ export async function ejecutarCorrida(
     ...(datos.sustitucion_autorizada ? { autorizacion_sustitucion: datos.sustitucion_autorizada } : {}),
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(salida_pcp !== null ? { salida_pcp } : {}),
-    ...(recompra_pmp !== null ? { recompra_pmp } : {}),
+    ...(recompra_pmp !== null ? { [portafolio === 'PLP' ? 'recompra_plp' : 'recompra_pmp']: recompra_pmp } : {}),
     ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo
     // v0.80: igual en la recompra de PCP (detonante recompra_pcp: RSI, Koncorde, Mogalef inferior, nivel pasado; sin MACD)

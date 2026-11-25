@@ -632,3 +632,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Tope: un activo no puede pasar del 10% del portafolio (activos abiertos, neto de ventas, + efectivo). El cálculo es de código (`conexion/limite-posicion-pmp.ts`) y el Motor responde ESPERAR `limite_10pct_portafolio` si se pasa, o NO_EVALUABLE si no se pudo calcular (no se supone).
 - En la corrida ▶ de una posición PMP abierta, si se dispara, el botón encadena la evaluación de recompra (10 USD) igual que en PCP y la muestra en una tarjeta anidada. `referencias.recompra_pmp` guarda stop/señal.
 - Sin cambios en la Edge Function ni en alertas por correo (no se pidieron); el stop de PMP sigue sin vender nada (PMP-08).
+
+## v0.88 — Recompras de PLP (5 USD)
+- Igual que PMP (stop O señal) pero de 5 USD (PLP-03) y SIN tope de monto ni de número de recompras. Señales: las de `dca_plp` del Técnico (RSI sobrevendido, banda inferior de Mogalef, EMA8 sobre EMA21, nivel pasado); basta una.
+- En la corrida ▶ de una posición PLP abierta, si se dispara, el botón encadena la evaluación de recompra (5 USD). `referencias.recompra_plp` guarda stop/señal. Sin stop legible solo cuentan las señales.
+- Sin cambios en Edge Function ni alertas por correo.

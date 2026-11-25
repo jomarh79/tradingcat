@@ -29,7 +29,7 @@ describe('v0.80: cuerpo de la evaluación de recompra', () => {
   });
   it('rechaza otros valores, otro portafolio, sin guardar o sin monto', () => {
     expect(validarCuerpoAnalisis({ ...base, evaluacion: 'venta' })).toMatchObject({ ok: false });
-    expect(validarCuerpoAnalisis({ ...base, portafolio: 'PLP' })).toEqual({ ok: false, error: 'la recompra solo se evalúa en PCP y PMP' });
+    expect(validarCuerpoAnalisis({ ...base, portafolio: 'ETF' })).toEqual({ ok: false, error: 'la recompra solo se evalúa en PCP, PMP y PLP' });
     expect(validarCuerpoAnalisis({ ...base, portafolio: 'PMP' })).toMatchObject({ ok: true });
     expect(validarCuerpoAnalisis({ ...base, guardar: false })).toEqual({ ok: false, error: 'la recompra requiere guardar' });
     expect(validarCuerpoAnalisis({ ...base, monto: undefined })).toMatchObject({ ok: false, error: expect.stringContaining('monto') });

@@ -41,7 +41,7 @@ import { esObjeto } from './utilidades';
 import { COLUMNAS_EJECUCIONES, COLUMNAS_POSICIONES, TABLA_EJECUCIONES, TABLA_POSICIONES } from '../conexion/hechos-bd';
 import type { FilaEjecucion } from '../conexion/hechos-bd';
 import { COLUMNAS_WATCHLIST, TABLA_WATCHLIST, interpretarWatchlist } from '../conexion/watchlist-datos';
-import { COLUMNAS_TRADE_SALIDA, TABLA_TRADES, construirDatosSalidaPmp } from '../conexion/salida-pmp-bd';
+import { COLUMNAS_TRADE_SALIDA, TABLA_TRADES, construirDatosSalidaPmp, stopDe } from '../conexion/salida-pmp-bd';
 import type { DatosSalidaPmp } from '../conexion/salida-pmp-bd';
 import { COLUMNAS_TRADE_SALIDA_PCP, construirDatosSalidaPcp } from '../conexion/salida-pcp-bd';
 import type { DatosSalidaPcp } from '../conexion/salida-pcp-bd';
@@ -165,6 +165,13 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     const c = construirDatosSalidaPmp(tr.filas[0], ej.filas as unknown as FilaEjecucion[], velas.ok ? velas.velas : null, ticker, velas.ok ? velas.velas.fuente : '');
     if (!c.ok) return falla('salida_pmp', c.problemas);
     salida_pmp = c.datos;
+  }
+  // v0.88: PLP con posición abierta: stop del trade para la recompra de 5 USD (stop O señal). Sin stop legible no se supone: solo cuentan las señales.
+  let recompra_plp: { stop: string | null } | undefined;
+  if (portafolio === 'PLP' && posicion_existe) {
+    const tid = pos.filas[0]?.['trade_id'];
+    const trp = typeof tid === 'string' && tid !== '' ? await leerFilas(cliente, TABLA_TRADES, 'id,stop_loss', [['id', tid]]) : null;
+    recompra_plp = { stop: trp !== null && !('error' in trp) && trp.filas.length === 1 ? stopDe(trp.filas[0]?.['stop_loss']) : null };
   }
   // v0.35: lo que llenaste en la watchlist (rol, negocio = Notas, competidores, portafolios). Es un dato auxiliar: si no se puede leer (por ejemplo
   // aún no existen las columnas) la corrida sigue y lo declara como aviso; no se rellena nada.
@@ -292,6 +299,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     ...(ficha_datos !== undefined ? { ficha_datos } : {}), ...(salud_financiera !== undefined ? { salud_financiera } : {}), ...(dividendo_pmp !== undefined ? { dividendo_pmp } : {}), ...(valuacion !== undefined ? { valuacion_modelo: valuacion } : {}), ...(typeof rolExp === 'string' && rolExp !== '' ? { rol_expediente: rolExp } : {}), watchlist: watchlist.datos, ...(watchlist.avisos.length + avisos_pcp.length > 0 ? { avisos: [...watchlist.avisos, ...avisos_pcp] } : {}),
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas, stop: salida_pmp.stop } } : {}),
+    ...(recompra_plp !== undefined ? { recompra_plp } : {}),
     ...(limite_posicion !== undefined && limite_posicion.ok ? { limite_posicion: limite_posicion.limite } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
@@ -330,6 +338,10 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     }
     // v0.87: PMP en posición abierta: el cierre en o bajo el stop O una señal de recompra → el botón encadena la evaluación de recompra de 10 USD (el Motor aplica el tope de 10%)
     const rp = (f.referencias as Record<string, unknown> | undefined)?.['recompra_pmp'] as { disparada?: unknown; por_stop?: unknown; por_senal?: unknown } | undefined;
+    const rl = (f.referencias as Record<string, unknown> | undefined)?.['recompra_plp'] as { disparada?: unknown; por_stop?: unknown; por_senal?: unknown } | undefined;
+    if (portafolio === 'PLP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && rl?.disparada === true) {
+      cuerpo['recompra_sugerida'] = { zona: true, restantes: null, monto_siguiente: '5', por_stop: rl.por_stop === true, por_senal: rl.por_senal === true };
+    }
     if (portafolio === 'PMP' && tipo_evaluacion === TIPO_EVALUACION_ABIERTA && rp?.disparada === true) {
       cuerpo['recompra_sugerida'] = { zona: true, restantes: null, monto_siguiente: '10', por_stop: rp.por_stop === true, por_senal: rp.por_senal === true };
     }
