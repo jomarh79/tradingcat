@@ -21,6 +21,8 @@ import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } fro
 import { leer, obtenerDatosFundamental } from './datos-reales';
 import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from './constantes';
 import { obtenerCotizacionVivo } from '../conexion/cotizacion-vivo';
+import { obtenerComparacionPares } from '../conexion/comparacion-pares';
+import type { ComparacionPares } from '../conexion/comparacion-pares';
 import { calcularLimitePosicionPmp } from '../conexion/limite-posicion-pmp';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
@@ -179,6 +181,11 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   const watchlist = 'error' in wl
     ? { datos: null, avisos: [`${wl.error}; no se usan rol, negocio ni competidores de la watchlist`] }
     : interpretarWatchlist(wl.filas, ticker, portafolio);
+  // v0.92: comparación con los competidores de la watchlist (solo informativa; un fallo no bloquea la corrida). La recompra no la repite.
+  let comparacion: ComparacionPares | null = null;
+  if (!es_recompra) {
+    try { comparacion = await obtenerComparacionPares(datosDeps, ticker, watchlist.datos?.competidores ?? null); } catch { comparacion = null; }
+  }
   // v0.27: Riesgo y Capital por código. El efectivo se lee de `oficina_v_capital`; si no se puede leer NO se bloquea la corrida: el agente reporta DATOS_INSUFICIENTES.
   const cap = await leerFilas(cliente, 'oficina_v_capital', 'portfolio_id,efectivo', [['portfolio_id', pf.portfolio_id]]);
   const avisos_capital: string[] = [];
@@ -300,6 +307,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     ...(salida_pcp !== undefined ? { salida_pcp } : {}),
     ...(salida_pmp !== undefined ? { salida_pmp: { monto_invertido: salida_pmp.monto_invertido, niveles: salida_pmp.niveles, senales_previas: salida_pmp.senales_previas, stop: salida_pmp.stop } } : {}),
     ...(recompra_plp !== undefined ? { recompra_plp } : {}),
+    ...(comparacion !== null ? { comparacion_pares: comparacion } : {}),
     ...(limite_posicion !== undefined && limite_posicion.ok ? { limite_posicion: limite_posicion.limite } : {}),
     motor: riesgo.efectivo_disponible !== null && riesgo.monto_requerido !== null
       ? { capital: { efectivo_disponible: riesgo.efectivo_disponible, monto_requerido: riesgo.monto_requerido, veredicto_riesgo: riesgo.veredicto } }
@@ -326,6 +334,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     director: resumenAgente(respuestas.director, respuestas.director?.estado === 'ok' ? { clasificacion_tesis } : {}),
     analisis_completo: (es_recompra || respuestas.fundamental?.estado === 'ok') && (respuestas.tecnico === undefined || respuestas.tecnico.estado === 'ok') && respuestas.director?.estado === 'ok',
     resultado_corrida: c.resultado,
+    ...(comparacion?.sugerencia != null ? { comparacion_sugerencia: comparacion.sugerencia } : {}),
     persistencia,
   };
   if (c.resultado === 'corrida') {

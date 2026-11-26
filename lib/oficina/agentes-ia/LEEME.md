@@ -652,3 +652,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Con 2 o 3 compras, la primera salida es REDUCIR 50%. Lo que queda se trata como UNA sola compra: solo cuenta TP1 o la señal de salida y vende el 100% (antes pedía TP2/TP3). Con una sola compra (25 USD) la primera salida cierra el trade, como siempre.
 - Si después de la venta parcial se recompra, el ciclo empieza de cero: solo cuentan las ventas posteriores a la última compra (`conexion/ciclo-ventas.ts`; por fecha y hora de `executed_at`). Afecta `primera_salida_realizada` (Motor) y `ventas_previas` del Auditor en PCP; PMP y los demás portafolios siguen contando todas las ventas.
 - PCP-05: con una sola etapa (TP1 lleno) la salida se evalúa como primera salida (100%) aunque ya haya ventas previas.
+
+## v0.92 — Comparación con competidores
+- Con los competidores de la watchlist (casilla «competidores», hasta 4), cada corrida (no la de recompra) lee de Finnhub (`stock/metric`) 8 métricas de cada empresa: P/E, Forward P/E, EV/EBITDA, margen operativo, margen neto, ROE, crecimiento de ventas y deuda/capital (`conexion/comparacion-pares.ts`). Se guarda en `referencias.comparacion_pares` y no bloquea la corrida si falla.
+- Ranking promedio: en cada métrica se ordena a las empresas con dato (menor es mejor en múltiplos y deuda; mayor en márgenes, ROE y crecimiento), se normaliza la posición (0 = la mejor) y se promedia. Una empresa necesita al menos 4 métricas con dato. Múltiplos ≤ 0 (pérdidas) cuentan como sin dato; lo que Finnhub no trae queda «sin dato», nunca se rellena.
+- Sugerencia: si algún par supera al ticker por al menos 0.05 de puntaje, la Oficina sugiere verlo (con cuántas métricas gana). Es solo informativa: no cambia la decisión ni bloquea nada; la decide el código, no la IA.
+- /oficina: sección «Comparación con competidores» (tabla, mejor en verde, puntaje); ▶: una línea con la sugerencia.
+- OJO: las claves de Finnhub para Forward P/E (`forwardPE`) y EV/EBITDA (`currentEv/ebitdaTTM`, `evEbitdaTTM`) no se pudieron verificar contra la API real; si el proveedor no las trae saldrá «sin dato» y habrá que ajustar la clave o usar otra fuente.

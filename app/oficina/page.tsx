@@ -66,6 +66,7 @@ interface Detalle {
     recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
   } | null
+  comparacion_pares?: { principal: string; tickers: string[]; metricas: { id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; mejor_ticker: string | null }[]; puntajes: { ticker: string; puntaje: number | null; metricas_con_dato: number }[]; sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null; avisos: string[] } | null
   recompra?: { portafolio: 'PMP' | 'PLP'; monto: string | null; disparada: boolean; por_stop: boolean; por_senal: boolean; precio_actual: string | null; stop: string | null; senales_cumplidas: string[]; faltantes: string[] } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; financiera?: boolean; industria?: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
@@ -368,6 +369,44 @@ export default function OficinaPage() {
               )
             })()}
             {d.salida_pcp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.comparacion_pares && (
+          <Seccion titulo={`Comparación con competidores (${d.comparacion_pares.tickers.join(', ')})`}>
+            {d.comparacion_pares.sugerencia && (
+              <div style={{ fontSize: 12, color: C.warning, fontWeight: 700, marginBottom: 6 }}>{d.comparacion_pares.sugerencia.texto}</div>
+            )}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: '3px 8px', color: '#888' }}>Métrica</th>
+                    {d.comparacion_pares.tickers.map(t => <th key={t} style={{ textAlign: 'right', padding: '3px 8px', color: t === d.comparacion_pares!.principal ? C.warning : '#ccc' }}>{t}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.comparacion_pares.metricas.map(m => (
+                    <tr key={m.id}>
+                      <td style={{ padding: '3px 8px', color: '#aaa' }}>{m.etiqueta} <span style={{ color: '#666' }}>({m.mejor === 'menor' ? 'menor es mejor' : 'mayor es mejor'})</span></td>
+                      {d.comparacion_pares!.tickers.map(t => {
+                        const v = m.valores[t]
+                        return <td key={t} style={{ textAlign: 'right', padding: '3px 8px', color: v === null || v === undefined ? '#555' : m.mejor_ticker === t ? C.success : '#ccc', fontWeight: m.mejor_ticker === t ? 700 : 400 }}>{v === null || v === undefined ? 'sin dato' : `${v.toFixed(2)}${m.unidad === '%' ? '%' : 'x'}`}</td>
+                      })}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ padding: '5px 8px', color: '#aaa', borderTop: '1px solid #222' }}>Puntaje de ranking (0 = siempre el mejor)</td>
+                    {d.comparacion_pares.tickers.map(t => {
+                      const p = d.comparacion_pares!.puntajes.find(x => x.ticker === t)
+                      return <td key={t} style={{ textAlign: 'right', padding: '5px 8px', borderTop: '1px solid #222', color: '#ccc' }}>{p && p.puntaje !== null ? p.puntaje.toFixed(2) : '—'} <span style={{ color: '#666' }}>({p?.metricas_con_dato ?? 0}/8)</span></td>
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>Datos de Finnhub; lo que el proveedor no trae queda «sin dato» y no entra al ranking. Solo informativo: no cambia la decisión de la Oficina.</div>
+            {d.comparacion_pares.avisos.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 

@@ -87,6 +87,15 @@ export interface RecompraDetalle {
   senales_cumplidas: string[];
   faltantes: string[];
 }
+/** v0.92: comparación con los competidores (referencias.comparacion_pares), tal como la calculó el código. */
+export interface ComparacionParesDetalle {
+  principal: string;
+  tickers: string[];
+  metricas: Array<{ id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; mejor_ticker: string | null }>;
+  puntajes: Array<{ ticker: string; puntaje: number | null; metricas_con_dato: number }>;
+  sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
+  avisos: string[];
+}
 export interface FichaPropuestaDetalle {
   propuesta: Array<{ apartado: string; texto: string; fuente: string }>;
   no_propuestos: string[];
@@ -106,6 +115,8 @@ export interface CorridaDetalle {
   salida_pcp: PlanSalidaPcp | null;
   /** v0.90: recompra de PMP/PLP (stop O señal); null si la corrida no la calculó. */
   recompra: RecompraDetalle | null;
+  /** v0.92: comparación con los competidores de la watchlist; null si la corrida no la calculó. */
+  comparacion_pares: ComparacionParesDetalle | null;
   entrada_pcp: EntradaPcp | null;
   salud_financiera: SaludFinancieraDetalle | null;
   dividendo_pmp: DividendoPmpDetalle | null;
@@ -227,6 +238,23 @@ export function recompraDe(ref: Record<string, unknown>): RecompraDetalle | null
   };
 }
 
+export function comparacionParesDe(ref: Record<string, unknown>): ComparacionParesDetalle | null {
+  const x = ref['comparacion_pares'];
+  if (!esObj(x)) return null;
+  const sg = x['sugerencia'];
+  return {
+    principal: txt(x['principal']) ?? '', tickers: arr(x['tickers']).map(t => txt(t) ?? '').filter(t => t !== ''),
+    metricas: arr(x['metricas']).filter(esObj).map(m => ({
+      id: txt(m['id']) ?? '', etiqueta: txt(m['etiqueta']) ?? '', unidad: txt(m['unidad']) ?? '', mejor: txt(m['mejor']) ?? '',
+      valores: esObj(m['valores']) ? Object.fromEntries(Object.entries(m['valores']).map(([k, v]) => [k, typeof v === 'number' && Number.isFinite(v) ? v : null])) : {},
+      mejor_ticker: txt(m['mejor_ticker']),
+    })),
+    puntajes: arr(x['puntajes']).filter(esObj).map(p => ({ ticker: txt(p['ticker']) ?? '', puntaje: num(p['puntaje']), metricas_con_dato: num(p['metricas_con_dato']) ?? 0 })),
+    sugerencia: esObj(sg) ? { ticker: txt(sg['ticker']) ?? '', metricas_mejores: num(sg['metricas_mejores']) ?? 0, metricas_comparables: num(sg['metricas_comparables']) ?? 0, texto: textoCorto(sg['texto'] ?? '') } : null,
+    avisos: arr(x['avisos']).map(textoCorto),
+  };
+}
+
 export interface EntradaPcp { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] }
 
 /** v0.70: señales de entrada de PCP y su fuerza, guardadas en referencias.entrada_pcp. Solo lectura. */
@@ -344,6 +372,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       salida_pmp: planSalidaDe(ref),
       salida_pcp: planSalidaPcpDe(ref),
       recompra: recompraDe(ref),
+      comparacion_pares: comparacionParesDe(ref),
       entrada_pcp: entradaPcpDe(ref),
       salud_financiera: saludFinancieraDe(ref),
       dividendo_pmp: dividendoPmpDe(ref),

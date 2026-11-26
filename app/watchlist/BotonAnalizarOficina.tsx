@@ -24,6 +24,7 @@ const etiqueta = (s: string | null | undefined) => (s ? s.replace(/_/g, ' ') : '
 
 interface Resultado { ok: boolean; decision?: string | null; estado_final?: string; auditoria_veredicto?: string | null; motivos?: { codigo: string; detalle: string }[]; error?: string; etapa?: string; problemas?: string[]; avisos_datos?: string[]
   // v0.80: la posición PCP está en la zona de recompra → el botón encadena la evaluación de recompra y la deja aquí
+  comparacion_sugerencia?: { ticker: string; texto: string };
   recompra_sugerida?: { zona: boolean; restantes: number | null; monto_siguiente: string | null; por_stop?: boolean; por_senal?: boolean }; recompra_res?: Resultado | null; recompra_fallo?: string }
 
 // Código de portafolio (PMP, PCP...) a partir del nombre del portafolio de Trades abiertos (por ejemplo «PMP» o «PMP · Mediano plazo»); null si no coincide.
@@ -152,6 +153,9 @@ export default function BotonAnalizarOficina({ ticker, portafolios, portafolioNo
                             {(res.avisos_datos ?? []).map((x, i) => <div key={i}>• {x}</div>)}
                           </div>
                         </details>
+                      )}
+                      {res.comparacion_sugerencia && (
+                        <div style={{ marginTop: 8, color: '#eab308' }}>{res.comparacion_sugerencia.texto}</div>
                       )}
                       {res.recompra_sugerida?.zona === true && (
                         <div style={{ marginTop: 10, borderTop: '1px solid #151515', paddingTop: 8 }}>
