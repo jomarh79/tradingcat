@@ -121,20 +121,15 @@ export function evaluarPlanSalidaPCP(e: EntradaSalidaPCP): ResultadoSalidaPCP {
     return vender('stop', 'Etapa final (apertura y 2 recompras) y el precio tocó el stop: se sale del activo', null);
   }
 
-  if (ne === 1) {
-    if (e.senal_salida) return vender('senal_salida', 'Señal de salida con una compra: se vende el 100%', null);
+  // v0.91: con una sola etapa, o tras la primera salida parcial (lo que queda se trata como una sola compra de 25 y solo cuenta TP1), se vende el 100%.
+  if (ne === 1 || e.primera_salida_realizada) {
+    const sola = ne === 1 ? 'con una compra' : 'tras la primera salida (queda como una sola compra)';
+    if (e.senal_salida) return vender('senal_salida', `Señal de salida ${sola}: se vende el 100%`, null);
     const tp1 = alcanzado(0);
-    if (tp1 !== null) return vender('nivel_planeado', `El precio ${e.precio_actual} llegó a ${tp1} con una compra: se vende el 100%`, tp1);
+    if (tp1 !== null) return vender('nivel_planeado', `El precio ${e.precio_actual} llegó a ${tp1} ${sola}: se vende el 100%`, tp1);
     if (e.plan === 'una_compra' && stop !== null && precio <= dec(stop)) {
       return vender('stop', 'Plan de una compra: el precio tocó el stop', null);
     }
-    return sin();
-  }
-
-  if (e.primera_salida_realizada) {
-    if (e.senal_salida) return vender('senal_salida', 'Señal de salida tras la primera salida: se vende lo que queda', null);
-    const tp = alcanzado(1) ?? alcanzado(2);
-    if (tp !== null) return vender('nivel_planeado', `El precio ${e.precio_actual} llegó a ${tp} tras la primera salida: se vende lo que queda`, tp);
     return sin();
   }
 

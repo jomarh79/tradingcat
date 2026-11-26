@@ -228,15 +228,17 @@ function pcp05(c: Ctx): Eval {
   if (vp === null) return noEval('ventas_previas_no_declaradas', 'No se declara cuántas ventas parciales se han hecho');
   const nCompras = etapasPcp(c.e) ?? compras.length;
   const plan = arr(tabla[String(nCompras)]);
+  // v0.91: con una sola etapa lo que queda tras una salida parcial es una sola compra: la salida sigue siendo la primera (100%)
+  const vpPlan = nCompras === 1 ? 0 : vp;
   if (!plan) return noEval('numero_de_compras_sin_plan', `No hay plan de salida para ${nCompras} compra(s)`);
-  const esperado = texto(plan[vp]);
+  const esperado = texto(plan[vpPlan]);
   if (esperado === null) return incumple('La salida ya se completó según el plan', 'No proponer más ventas');
   const p = c.e.operacion.porcentaje_venta;
   if (p === null || aDec(p) === null) return noEval('porcentaje_no_declarado', 'La venta no declara su porcentaje');
   const u = { operador: '=', valor: esperado };
   return igual(p, esperado)
-    ? ok(`Venta ${vp + 1} de ${plan.length}: ${p}% = ${esperado}%`, { valor: p, umbral: u })
-    : incumple(`Con ${nCompras} compra(s) la venta ${vp + 1} debe ser ${esperado}% y se propone ${p}%`, `Proponer ${esperado}%`, { valor: p, umbral: u });
+    ? ok(`Venta ${vpPlan + 1} de ${plan.length}: ${p}% = ${esperado}%`, { valor: p, umbral: u })
+    : incumple(`Con ${nCompras} compra(s) la venta ${vpPlan + 1} debe ser ${esperado}% y se propone ${p}%`, `Proponer ${esperado}%`, { valor: p, umbral: u });
 }
 
 function pcp06(c: Ctx): Eval {

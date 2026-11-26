@@ -7,6 +7,7 @@ import { aDec, REGEX_FECHA, textoDec } from '../auditor/numeros';
 import type { DatoFuente, PlanPCP } from '../auditor';
 import type { HechosAuditor } from './entrada-auditor';
 import { COLUMNAS_TRADE_APERTURA, compraDeApertura } from './apertura-trade';
+import { ventasDelCiclo } from './ciclo-ventas';
 import { apartadosDeclarados } from './watchlist-datos';
 import type { DatosWatchlist } from './watchlist-datos';
 export const TABLA_TRADES_APERTURA = 'trades';
@@ -122,6 +123,8 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     const ej = filas.ejecuciones.filter((e) => e.trade_id === p.trade_id);
     const compras: { fecha: string; monto: string }[] = [];
     let ventas = 0;
+    // v0.91: en PCP las ventas previas son las del ciclo actual (posteriores a la última compra); en los demás portafolios, todas como antes
+    const ventasCiclo = q.portafolio_codigo === 'PCP' ? ventasDelCiclo(ej) : null;
     let sumaPQ = CERO;
     let sumaQ = CERO;
     for (const e of ej) {
@@ -153,7 +156,7 @@ export function resolverHechosPosicion(filas: FilasPosicion, q: ConsultaPosicion
     // v0.85: etapas del PCP = take profit con valor (TP1 apertura, TP2 1.ª recompra, TP3 2.ª recompra). Sin ninguno, el Auditor cuenta las compras del historial.
     const tpLlenos = tradeFila === undefined || typeof tradeFila !== 'object' || tradeFila === null ? 0
       : ['take_profit_1', 'take_profit_2', 'take_profit_3'].filter((k) => { const d = aDec((tradeFila as Record<string, unknown>)[k]); return d !== null && d > CERO; }).length;
-    hechos.posicion = { fecha_apertura: p.fecha_apertura, compras, ventas_previas: ventas, costo_promedio_ponderado: cpp, ...(tpLlenos > 0 ? { etapas_pcp: tpLlenos } : {}) };
+    hechos.posicion = { fecha_apertura: p.fecha_apertura, compras, ventas_previas: ventasCiclo !== null ? ventasCiclo : ventas, costo_promedio_ponderado: cpp, ...(tpLlenos > 0 ? { etapas_pcp: tpLlenos } : {}) };
   }
 
   const cap = filas.capital.filter((c) => c.portfolio_id === q.portfolio_id);

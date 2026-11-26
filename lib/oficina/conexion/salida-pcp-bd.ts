@@ -7,6 +7,7 @@
 
 import { aDec, textoDec } from '../auditor/numeros';
 import type { CompraPCP, EntradaSalidaPCP, NivelSalidaPCP } from '../motor';
+import { ventasDelCiclo } from './ciclo-ventas';
 import { compraDeApertura } from './apertura-trade';
 import { deducirPlanPcp } from './plan-pcp';
 import { EJECUCION_COMPRA, EJECUCION_VENTA, ESTADO_PLAN_DECLARADO, FICHA_CLAVE_PLAN, MODALIDADES_PLAN } from './hechos-bd';
@@ -65,7 +66,8 @@ export function construirDatosSalidaPcp(trade: unknown, ejecuciones: FilaEjecuci
     compras.push({ cantidad: textoDec(q), precio: textoDec(p) });
   }
   if (compras.length === 0) problemas.push(`${ticker}: no hay compras con precio y cantidad válidos para calcular el costo promedio`);
-  const ventas = ejecuciones.filter(x => x.execution_type === EJECUCION_VENTA).length;
+  // v0.91: solo cuentan las ventas posteriores a la última compra (ciclo actual); una recompra después de una venta parcial reinicia el ciclo
+  const ventas = ventasDelCiclo(ejecuciones);
 
   const pl = planPcpDeFicha(ficha);
   if (pl.problema) problemas.push(`${ticker}: ${pl.problema}`);

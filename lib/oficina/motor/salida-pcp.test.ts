@@ -59,12 +59,12 @@ describe('evaluarPlanSalidaPCP: TP de trades (aprobado el 18-nov)', () => {
     expect(r.motivo).toBe('nivel_planeado');
     expect(r.nivel_alcanzado).toBe('TP1 = 93');
   });
-  it('dos compras tras la primera salida: TP2 o TP3 venden el resto; TP1 no', () => {
+  it('v0.91: tras la primera salida lo que queda es una sola compra: solo TP1 o señal venden el 100%; TP2/TP3 ya no cuentan', () => {
     const e = base({ compras: dos, primera_salida_realizada: true });
-    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '100', niveles: [N('95'), N('110'), N('120')] }).exigida).toBeNull();
-    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '112', niveles: [N('95', true), N('110'), N('120')] }).exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
-    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '121', niveles: [N('95', true), N('110', true), N('120')] }).nivel_alcanzado).toBe('TP3 = 120');
-    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '130', niveles: [N('95', true), N('110', true), N('120', true)] }).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '100', niveles: [N('105'), N('110'), N('120')] }).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '112', niveles: [N('105'), N('110'), N('120')] }).exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
+    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '112', niveles: [N('105', true), N('110'), N('120')] }).exigida).toBeNull();
+    expect(evaluarPlanSalidaPCP({ ...e, precio_actual: '90', senal_salida: true, niveles: [N('105'), N(null), N(null)] }).exigida).toMatchObject({ decision: 'VENDER', porcentaje: 100 });
   });
   it('dos compras: con TP1 por encima del costo promedio, la primera salida espera a TP1 (18-nov)', () => {
     const e = base({ compras: dos, niveles: [N('100'), N('110'), N(null)] });   // costo promedio 90

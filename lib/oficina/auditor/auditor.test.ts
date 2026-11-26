@@ -382,6 +382,11 @@ describe('PCP', () => {
     expect(res(v(3), 'PCP-07').resultado).toBe('cumple');
     expect(res(v(2), 'PCP-07').resultado).toBe('incumple');
   });
+  it('v0.91: tras una salida parcial con una sola etapa, vender 100% cumple PCP-05 (sigue siendo la primera salida)', () => {
+    const v = (pct: string) => auditar(pcp({ tipo_evaluacion: 'posicion_abierta', operacion: { accion: 'vender', porcentaje_venta: pct, motivo_venta: 'senal_salida' }, posicion: { existe: true, fecha_apertura: '2026-10-10', compras: comp(2), ventas_previas: 1, plan_pcp: 'escalonado', etapas_pcp: 1 } }));
+    expect(res(v('100'), 'PCP-05').resultado).toBe('cumple');
+    expect(res(v('50'), 'PCP-05').resultado).toBe('incumple');
+  });
   it('C-11: plan escalonado con stop tocado: vender por el stop es infracción; recomprar no se bloquea', () => {
     const vender = auditar(pcp({ tipo_evaluacion: 'posicion_abierta', operacion: { accion: 'vender', porcentaje_venta: '100', motivo_venta: 'stop' }, posicion: { existe: true, fecha_apertura: '2026-10-10', compras: comp(1), ventas_previas: 0, plan_pcp: 'escalonado' } }));
     expect(res(vender, 'PCP-07').resultado).toBe('incumple');

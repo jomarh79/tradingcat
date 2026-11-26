@@ -647,3 +647,8 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - El rebote en SMA 100/200 (`REBOTE_SMA_100_200`) cuenta también como señal de recompra en PMP (`recompra_pmp`) y PLP (`dca_plp`).
 - SEMILLA (corrección de v0.89): solo se permite la recompra con el dividendo de esa misma empresa (SEM-04, tal como estaba); se quitó la guarda del Motor que la bloqueaba toda. ETF-01 se queda en su versión actual (el aporte de 1 USD solo si no alcanza el efectivo para los 2 USD).
 - PMP: el tope de 10% por activo es sobre costo invertido (confirmado).
+
+## v0.91 — PCP: ciclo tras la primera salida parcial
+- Con 2 o 3 compras, la primera salida es REDUCIR 50%. Lo que queda se trata como UNA sola compra: solo cuenta TP1 o la señal de salida y vende el 100% (antes pedía TP2/TP3). Con una sola compra (25 USD) la primera salida cierra el trade, como siempre.
+- Si después de la venta parcial se recompra, el ciclo empieza de cero: solo cuentan las ventas posteriores a la última compra (`conexion/ciclo-ventas.ts`; por fecha y hora de `executed_at`). Afecta `primera_salida_realizada` (Motor) y `ventas_previas` del Auditor en PCP; PMP y los demás portafolios siguen contando todas las ventas.
+- PCP-05: con una sola etapa (TP1 lleno) la salida se evalúa como primera salida (100%) aunque ya haya ventas previas.
