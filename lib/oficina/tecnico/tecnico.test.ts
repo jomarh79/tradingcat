@@ -535,7 +535,7 @@ describe('detonantes por uso', () => {
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {
       expect(detonantePara(sn({ [id]: true }), 'dca_plp').detonante_confirmado).toBe(false);
     }
-    expect(SENALES_POR_USO.dca_plp).toEqual(['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO']);
+    expect(SENALES_POR_USO.dca_plp).toEqual(['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO', 'REBOTE_SMA_100_200']);
   });
   it('salida PCP: basta una de RSI_SOBRECOMPRA, MOGALEF_BANDA_SUPERIOR o RESISTENCIA_PASADA, cada una por separado', () => {
     for (const id of ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA']) {

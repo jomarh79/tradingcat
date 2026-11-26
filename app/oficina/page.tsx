@@ -66,6 +66,7 @@ interface Detalle {
     recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
   } | null
+  recompra?: { portafolio: 'PMP' | 'PLP'; monto: string | null; disparada: boolean; por_stop: boolean; por_senal: boolean; precio_actual: string | null; stop: string | null; senales_cumplidas: string[]; faltantes: string[] } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; financiera?: boolean; industria?: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
   dividendo_pmp?: { estado: string | null; texto: string | null; rendimiento_actual: number | null; rendimiento_promedio: number | null; puntos: number | null; anios_cubiertos: number | null; ultimo_dividendo: { fecha: string | null; monto: number | null } | null } | null
@@ -367,6 +368,20 @@ export default function OficinaPage() {
               )
             })()}
             {d.salida_pcp.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
+          </Seccion>
+        )}
+
+        {d.recompra && (
+          <Seccion titulo={`Recompra (${d.recompra.portafolio} · ${d.recompra.monto ?? '—'} USD)`}>
+            <div style={{ fontSize: 12, color: d.recompra.disparada ? C.warning : '#ccc', fontWeight: d.recompra.disparada ? 700 : 400 }}>
+              {d.recompra.disparada
+                ? <>Toca recompra de {d.recompra.monto ?? '—'} USD{d.recompra.por_stop ? <> · el cierre ({d.recompra.precio_actual ?? '—'}) está en o bajo el stop ({d.recompra.stop ?? '—'})</> : null}{d.recompra.por_senal ? <> · señal de recompra: {d.recompra.senales_cumplidas.map(etiqueta).join(', ') || '—'}</> : null}</>
+                : <>No toca recompra: el cierre ({d.recompra.precio_actual ?? '—'}) está sobre el stop ({d.recompra.stop ?? 'sin stop'}) y no hay señal de recompra · <b>MANTENER</b></>}
+            </div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>
+              Dispara el stop O una señal (RSI, Koncorde, banda inferior de Mogalef, nivel pasado, rebote en SMA 100/200{d.recompra.portafolio === 'PLP' ? ', EMA8 sobre EMA21' : ''}). {d.recompra.portafolio === 'PMP' ? 'Tope: 10% del portafolio por activo (sobre costo invertido). ' : 'Sin tope de monto ni de número de recompras. '}Es solo un aviso: la Oficina no compra sola; el ▶ evalúa la recompra.
+            </div>
+            {d.recompra.faltantes.map((x, i) => <div key={i} style={{ fontSize: 11, color: C.warning, marginTop: 3 }}>• {x}</div>)}
           </Seccion>
         )}
 

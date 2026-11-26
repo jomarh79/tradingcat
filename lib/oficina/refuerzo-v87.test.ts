@@ -21,8 +21,8 @@ describe('v0.87: recompra de PMP = stop O señal', () => {
     expect(r.disparada).toBe(true);
     expect(r.faltantes.join()).toContain('recompra_pmp');
   });
-  it('el Técnico usa las mismas 4 señales que la recompra de PCP, mínimo 1', () => {
-    expect(SENALES_POR_USO.recompra_pmp).toEqual(SENALES_POR_USO.recompra_pcp);
+  it('el Técnico usa las señales de la recompra de PCP más el rebote en SMA 100/200, mínimo 1', () => {
+    expect(SENALES_POR_USO.recompra_pmp).toEqual([...SENALES_POR_USO.recompra_pcp, 'REBOTE_SMA_100_200']);
     expect(MINIMO_SENALES_POR_USO.recompra_pmp).toBe(1);
   });
   it('el stop del trade llega a los datos de salida de PMP', () => {
@@ -77,11 +77,6 @@ describe('v0.87: el Motor aplica el tope en la recompra de PMP', () => {
   });
   it('sin el dato del portafolio: NO_EVALUABLE (no se supone)', () => {
     expect(decidir(entrada()).decision).toBe('NO_EVALUABLE');
-  });
-  it('v0.89: SEMILLA no tiene recompras: NO_RECOMPRAR aunque todo lo demás cumpla', () => {
-    const r = decidir(entrada({ portafolio_codigo: 'SEMILLA' }));
-    expect(r.decision).toBe('NO_RECOMPRAR');
-    expect(JSON.stringify(r)).toContain('semilla_sin_recompras');
   });
   it('en PCP el tope no aplica', () => {
     expect(decidir(entrada({ portafolio_codigo: 'PCP' })).decision).toBe('RECOMPRAR');

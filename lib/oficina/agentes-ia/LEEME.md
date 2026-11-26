@@ -641,3 +641,9 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.89 — SEMILLA sin recompras; ETF ya cubierto
 - SEMILLA: el Motor responde NO_RECOMPRAR `semilla_sin_recompras` a cualquier recompra (también la de dividendo de la misma empresa que SEM-04 permitía). Spin off no es un portafolio de la Oficina: no se toca.
 - ETF sectoriales: el aporte semanal de 2 USD por ETF (1 USD si no alcanza el efectivo; ETF-01/ETF-02) ya existía y no tiene límite de aportes; no cambia nada.
+
+## v0.90 — Pantalla de recompras PMP/PLP, rebote SMA 100/200 y corrección de SEMILLA
+- /oficina: nueva sección «Recompra (PMP · 10 USD)» / «(PLP · 5 USD)»: si toca recompra (stop o señal) o MANTENER. Sale de `referencias.recompra_pmp|recompra_plp` (`recompraDe` en corridas-lectura).
+- El rebote en SMA 100/200 (`REBOTE_SMA_100_200`) cuenta también como señal de recompra en PMP (`recompra_pmp`) y PLP (`dca_plp`).
+- SEMILLA (corrección de v0.89): solo se permite la recompra con el dividendo de esa misma empresa (SEM-04, tal como estaba); se quitó la guarda del Motor que la bloqueaba toda. ETF-01 se queda en su versión actual (el aporte de 1 USD solo si no alcanza el efectivo para los 2 USD).
+- PMP: el tope de 10% por activo es sobre costo invertido (confirmado).

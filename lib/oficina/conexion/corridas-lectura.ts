@@ -75,6 +75,18 @@ export interface PlanSalidaPcp {
   faltantes: string[];
   exigida: { decision: string; porcentaje: number | null; detalle: string } | null;
 }
+/** v0.90: disparo de la recompra de PMP (10 USD) o PLP (5 USD) guardado en referencias.recompra_pmp / recompra_plp. */
+export interface RecompraDetalle {
+  portafolio: 'PMP' | 'PLP';
+  monto: string | null;
+  disparada: boolean;
+  por_stop: boolean;
+  por_senal: boolean;
+  precio_actual: string | null;
+  stop: string | null;
+  senales_cumplidas: string[];
+  faltantes: string[];
+}
 export interface FichaPropuestaDetalle {
   propuesta: Array<{ apartado: string; texto: string; fuente: string }>;
   no_propuestos: string[];
@@ -92,6 +104,8 @@ export interface CorridaDetalle {
   salida_pmp: PlanSalidaPmp | null;
   /** v0.65: salida de PCP (posición abierta); null si la corrida no la calculó. */
   salida_pcp: PlanSalidaPcp | null;
+  /** v0.90: recompra de PMP/PLP (stop O señal); null si la corrida no la calculó. */
+  recompra: RecompraDetalle | null;
   entrada_pcp: EntradaPcp | null;
   salud_financiera: SaludFinancieraDetalle | null;
   dividendo_pmp: DividendoPmpDetalle | null;
@@ -200,6 +214,16 @@ export function planSalidaPcpDe(ref: Record<string, unknown>): PlanSalidaPcp | n
     stop: txt(x['stop']), zona_recompra: x['zona_recompra'] === true, recompras_restantes: num(x['recompras_restantes']),
     senal_salida: x['senal_salida'] === true, faltantes: arr(x['faltantes']).map(textoCorto),
     exigida: esObj(e) ? { decision: txt(e['decision']) ?? '', porcentaje: num(e['porcentaje']), detalle: textoCorto(e['detalle'] ?? '') } : null,
+  };
+}
+
+export function recompraDe(ref: Record<string, unknown>): RecompraDetalle | null {
+  const portafolio = esObj(ref['recompra_pmp']) ? 'PMP' : esObj(ref['recompra_plp']) ? 'PLP' : null;
+  if (portafolio === null) return null;
+  const x = ref[portafolio === 'PMP' ? 'recompra_pmp' : 'recompra_plp'] as Record<string, unknown>;
+  return {
+    portafolio, monto: txt(x['monto']), disparada: x['disparada'] === true, por_stop: x['por_stop'] === true, por_senal: x['por_senal'] === true,
+    precio_actual: txt(x['precio_actual']), stop: txt(x['stop']), senales_cumplidas: arr(x['senales_cumplidas']).map(textoCorto), faltantes: arr(x['faltantes']).map(textoCorto),
   };
 }
 
@@ -319,6 +343,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       datos_vencidos: arr(fila['datos_vencidos']).map(textoCorto),
       salida_pmp: planSalidaDe(ref),
       salida_pcp: planSalidaPcpDe(ref),
+      recompra: recompraDe(ref),
       entrada_pcp: entradaPcpDe(ref),
       salud_financiera: saludFinancieraDe(ref),
       dividendo_pmp: dividendoPmpDe(ref),

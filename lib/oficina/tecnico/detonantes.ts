@@ -5,12 +5,12 @@ import type { IdSenal, SnapshotTecnico } from './tipos';
 export const SENALES_POR_USO = {
   apertura_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'REBOTE_SMA_100_200', 'REVERSION_ALCISTA_VELAS'],      // PCP-10; v0.70: +rebote en SMA 100/200 y reversión alcista por velas (6 posibles, mínimo 2)
   recompra_pcp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'],          // PCP-04; nivel = pivote de mínimo o de máximo (19-oct)
-  dca_plp: ['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO'],                    // PLP-03 (22-oct): definición común NIVEL_PASADO (mínimos y máximos, 19-oct); "sobreventa" = RSI ≤ 30 [PROPUESTA]
+  dca_plp: ['RSI_SOBREVENTA', 'MOGALEF_BANDA_INFERIOR', 'EMA8_SOBRE_EMA21', 'NIVEL_PASADO', 'REBOTE_SMA_100_200'],                    // PLP-03 (22-oct): definición común NIVEL_PASADO (mínimos y máximos, 19-oct); "sobreventa" = RSI ≤ 30 [PROPUESTA]
   salida_pcp: ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'],                           // PCP-05/06 (19-oct); sin soporte
   // Apertura de PMP (decisión del 9-nov): las mismas cinco señales de entrada que calcula el Técnico, pero exige AL MENOS DOS cumplidas (`MINIMO_SENALES_POR_USO`).
   apertura_pmp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'EMA8_SOBRE_EMA21', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'],
   // Recompra de PMP (decisión del 25-nov): las mismas cuatro señales que la recompra de PCP; basta una (el stop tocado también dispara, por código del Motor)
-  recompra_pmp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO'],
+  recompra_pmp: ['RSI_SOBREVENTA', 'KONCORDE_BAJO_CERO', 'MOGALEF_BANDA_INFERIOR', 'NIVEL_PASADO', 'REBOTE_SMA_100_200'],   // v0.90: +rebote en SMA 100/200 (25-nov)
   // Salida de PMP (decisión del 10-nov): banda superior de Mogalef, RSI sobrecomprado y resistencia pasada; exige AL MENOS DOS confirmaciones (el nivel planeado va aparte y basta solo).
   salida_pmp: ['RSI_SOBRECOMPRA', 'MOGALEF_BANDA_SUPERIOR', 'RESISTENCIA_PASADA'],
 } as const satisfies Record<string, readonly IdSenal[]>;
