@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compararPares, extraerMetricas, parsearCompetidores, obtenerComparacionPares } from './comparacion-pares';
+import { compararPares, extraerMetricas, extraerMetricasWebull, parsearCompetidores, obtenerComparacionPares, unirFuentes } from './comparacion-pares';
 import type { EmpresaComparada, MetricasEmpresa } from './comparacion-pares';
 
 const m = (pe: number | null, fwd: number | null, ev: number | null, mo: number | null, mn: number | null, roe: number | null, cr: number | null, de: number | null): MetricasEmpresa =>
@@ -59,13 +59,33 @@ describe('v0.92: comparación con pares (ranking promedio)', () => {
     expect(parsearCompetidores('jbl, FLEX; SANM FN JBL CLS XYZ', 'CLS')).toEqual(['JBL', 'FLEX', 'SANM', 'FN']);
     expect(parsearCompetidores(null, 'CLS')).toEqual([]);
   });
-  it('sin competidores no consulta nada; con ellos lee los ratios de cada empresa y declara a la que falla', async () => {
+  it('Webull manda: márgenes, crecimiento, P/E y Forward P/E salen de Webull; Finnhub solo completa (ROE, deuda/capital, EV/EBITDA)', () => {
+    const inc = { success: true, ttm: { revenue: 1000, opIncome: 100, netIncome: 80, dilutedEps: 4 }, annual: [{ endDate: '2024-12-31', revenue: 800 }, { endDate: '2025-12-31', revenue: 1000 }], forwardEps: { eps: 5 } };
+    const w = extraerMetricasWebull(inc, { pe: 22 }, 50);
+    expect(w).toMatchObject({ margen_operativo: 10, margen_neto: 8, crecimiento_ventas: 25, pe: 22, pe_forward: 10 });
+    expect(w.roe).toBeUndefined();
+    const fin = extraerMetricas({ metric: { peTTM: 99, operatingMarginTTM: 1, roeTTM: 30, 'totalDebt/totalEquityQuarterly': 0.4, 'currentEv/ebitdaTTM': 12 } });
+    const u = unirFuentes(w, fin);
+    expect(u.metricas).toMatchObject({ pe: 22, margen_operativo: 10, roe: 30, deuda_capital: 0.4, ev_ebitda: 12 });
+    expect(u.fuentes).toMatchObject({ pe: 'webull', margen_operativo: 'webull', roe: 'finnhub', deuda_capital: 'finnhub', ev_ebitda: 'finnhub' });
+  });
+  it('sin P/E de Webull se calcula con el precio y el EPS TTM; sin precio no se inventa', () => {
+    const inc = { ttm: { revenue: 100, dilutedEps: 4 }, annual: [] };
+    expect(extraerMetricasWebull(inc, {}, 40).pe).toBe(10);
+    expect(extraerMetricasWebull(inc, {}, null).pe).toBeUndefined();
+    expect(extraerMetricasWebull({ ttm: { dilutedEps: -1 } }, {}, 40).pe).toBeUndefined();
+  });
+  it('sin competidores no consulta nada; con ellos lee Webull y Finnhub de cada empresa y declara a la que falla', async () => {
     const pedidos: string[] = [];
+    const ok = (j: unknown) => ({ ok: true, status: 200, json: async () => j });
     const fetchFn = (async (url: string) => {
       pedidos.push(url);
       if (url.includes('symbol=BAD')) return { ok: false, status: 500, json: async () => ({}) };
       const n = url.includes('symbol=AAA') ? 20 : 10;
-      return { ok: true, status: 200, json: async () => ({ metric: { peTTM: n, forwardPE: n, 'currentEv/ebitdaTTM': n, operatingMarginTTM: 100 - n, netProfitMarginTTM: 100 - n, roeTTM: 100 - n, revenueGrowthTTMYoy: 100 - n, 'totalDebt/totalEquityQuarterly': n / 10 } }) };
+      if (url.includes('/api/webull/income-statement')) return ok({ success: true, ttm: { revenue: 1000, opIncome: (100 - n) * 10, netIncome: (100 - n) * 10, dilutedEps: 5 }, annual: [{ endDate: '2024-12-31', revenue: 1000 - (100 - n) * 5 }, { endDate: '2025-12-31', revenue: 1000 }], forwardEps: { eps: 5 } });
+      if (url.includes('/api/fundamentals')) return ok({ pe: n });
+      if (url.includes('/quote')) return ok({ c: n * 5, pc: n * 5 });
+      return ok({ metric: { roeTTM: 100 - n, 'totalDebt/totalEquityQuarterly': n / 10, 'currentEv/ebitdaTTM': n } });
     }) as never;
     const deps = { fetchFn, origen: 'http://x', authorization: 'Bearer x', finnhub_key: 'k' };
     expect(await obtenerComparacionPares(deps, 'AAA', null)).toBeNull();
@@ -73,6 +93,9 @@ describe('v0.92: comparación con pares (ranking promedio)', () => {
     const c = await obtenerComparacionPares(deps, 'AAA', 'BBB, BAD');
     expect(c?.tickers).toEqual(['AAA', 'BBB']);
     expect(c?.sugerencia?.ticker).toBe('BBB');
+    expect(c?.metricas.find(x => x.id === 'margen_operativo')?.fuentes['AAA']).toBe('webull');
+    expect(c?.metricas.find(x => x.id === 'roe')?.fuentes['AAA']).toBe('finnhub');
     expect(c?.avisos.join()).toContain('BAD');
+    expect(pedidos.some(u => u.includes('/api/webull/income-statement?symbol=AAA'))).toBe(true);
   });
 });

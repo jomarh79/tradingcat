@@ -4,6 +4,7 @@
 import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from '../agentes-ia/constantes';
 import { leer } from '../agentes-ia/datos-reales';
 import type { DepsDatosReales } from '../agentes-ia/datos-reales';
+import { obtenerCotizacionVivo } from './cotizacion-vivo';
 import { limpiarTicker } from './corridas-lectura';
 
 export type IdMetrica = 'pe' | 'pe_forward' | 'ev_ebitda' | 'margen_operativo' | 'margen_neto' | 'roe' | 'crecimiento_ventas' | 'deuda_capital';
@@ -54,12 +55,13 @@ export function extraerMetricas(json: unknown): MetricasEmpresa {
   return out;
 }
 
-export interface EmpresaComparada { ticker: string; metricas: MetricasEmpresa }
+export type FuenteMetrica = 'webull' | 'finnhub';
+export interface EmpresaComparada { ticker: string; metricas: MetricasEmpresa; /** De dónde salió cada métrica (opcional; null = sin dato). */ fuentes?: Record<IdMetrica, FuenteMetrica | null> }
 export interface PuntajeEmpresa { ticker: string; puntaje: number | null; metricas_con_dato: number; rank_promedio: number | null }
 export interface ComparacionPares {
   principal: string;
   tickers: string[];
-  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; mejor_ticker: string | null }>;
+  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null }>;
   puntajes: PuntajeEmpresa[];
   /** Par que ordena mejor que el ticker analizado; null si ninguno lo supera con claridad. */
   sugerencia: { ticker: string; puntaje: number; puntaje_principal: number; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
@@ -75,7 +77,8 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
   const filasMetricas: ComparacionPares['metricas'] = [];
   for (const d of METRICAS_PARES) {
     const valores: Record<string, number | null> = {};
-    for (const e of empresas) valores[e.ticker] = e.metricas[d.id];
+    const fuentes: Record<string, FuenteMetrica | null> = {};
+    for (const e of empresas) { valores[e.ticker] = e.metricas[d.id]; fuentes[e.ticker] = e.metricas[d.id] === null ? null : (e.fuentes?.[d.id] ?? null); }
     const con = empresas.filter(e => e.metricas[d.id] !== null).map(e => ({ t: e.ticker, v: e.metricas[d.id] as number }));
     con.sort((a, b) => (d.mejor === 'menor' ? a.v - b.v : b.v - a.v));
     const n = con.length;
@@ -89,7 +92,7 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
         i = j + 1;
       }
     }
-    filasMetricas.push({ id: d.id, etiqueta: d.etiqueta, unidad: d.unidad, mejor: d.mejor, valores, mejor_ticker: n >= 2 ? con[0]!.t : null });
+    filasMetricas.push({ id: d.id, etiqueta: d.etiqueta, unidad: d.unidad, mejor: d.mejor, valores, fuentes, mejor_ticker: n >= 2 ? con[0]!.t : null });
   }
   const puntajes: PuntajeEmpresa[] = tickers.map(t => {
     const a = normas[t]!;
@@ -133,20 +136,86 @@ export function parsearCompetidores(texto: string | null | undefined, principal:
   return out;
 }
 
+// ---- Webull primero (decisión de Jaime, 25-nov): P/E, Forward P/E, márgenes y crecimiento salen de las rutas internas de Webull cuando traen el dato;
+// Finnhub solo completa lo que Webull no trae (ROE, deuda/capital y EV/EBITDA necesitan balance, que Webull no tiene) o lo que le falte.
+const numW = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** Métricas que se pueden sacar de Webull: income-statement ({ttm, annual[], forwardEps}) y /api/fundamentals ({pe}). `precio` solo hace falta para el Forward P/E (y el P/E si Webull no trae `pe`). */
+export function extraerMetricasWebull(income: unknown, fundamentals: unknown, precio: number | null): Partial<MetricasEmpresa> {
+  const out: Partial<MetricasEmpresa> = {};
+  const ij = esObj(income) ? income : {};
+  const ttm = esObj(ij['ttm']) ? ij['ttm'] : {};
+  const rev = numW(ttm['revenue']);
+  const op = numW(ttm['opIncome']);
+  const neto = numW(ttm['netIncome']);
+  if (rev !== null && rev > 0 && op !== null) out.margen_operativo = (op / rev) * 100;
+  if (rev !== null && rev > 0 && neto !== null) out.margen_neto = (neto / rev) * 100;
+  const anual = (Array.isArray(ij['annual']) ? ij['annual'] : []).filter(esObj).filter(a => numW(a['revenue']) !== null && typeof a['endDate'] === 'string')
+    .sort((a, b) => String(a['endDate']).localeCompare(String(b['endDate'])));
+  if (anual.length >= 2) {
+    const nuevo = numW(anual[anual.length - 1]!['revenue']) as number;
+    const viejo = numW(anual[anual.length - 2]!['revenue']) as number;
+    if (viejo > 0) out.crecimiento_ventas = ((nuevo - viejo) / viejo) * 100;
+  }
+  const fj = esObj(fundamentals) ? fundamentals : {};
+  const pe = numW(fj['pe']);
+  const epsTtm = numW(ttm['dilutedEps']);
+  if (pe !== null && pe > 0) out.pe = pe;
+  else if (precio !== null && epsTtm !== null && epsTtm > 0) out.pe = precio / epsTtm;
+  const fwd = esObj(ij['forwardEps']) ? numW(ij['forwardEps']['eps']) : null;
+  if (precio !== null && fwd !== null && fwd > 0) out.pe_forward = precio / fwd;
+  return out;
+}
+
+/** Une las dos fuentes: Webull manda cuando trae el dato; Finnhub completa el resto. Nunca se rellena con estimaciones. */
+export function unirFuentes(webull: Partial<MetricasEmpresa>, finnhub: MetricasEmpresa | null): { metricas: MetricasEmpresa; fuentes: Record<IdMetrica, FuenteMetrica | null> } {
+  const metricas = {} as MetricasEmpresa;
+  const fuentes = {} as Record<IdMetrica, FuenteMetrica | null>;
+  for (const d of METRICAS_PARES) {
+    const w = webull[d.id];
+    const wOk = typeof w === 'number' && Number.isFinite(w) && !(d.solo_positivo && w <= 0);
+    if (wOk) { metricas[d.id] = w; fuentes[d.id] = 'webull'; }
+    else if (finnhub !== null && finnhub[d.id] !== null) { metricas[d.id] = finnhub[d.id]; fuentes[d.id] = 'finnhub'; }
+    else { metricas[d.id] = null; fuentes[d.id] = null; }
+  }
+  return { metricas, fuentes };
+}
+
+async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): Promise<EmpresaComparada | null> {
+  const s = encodeURIComponent(t);
+  const web = { Accept: 'application/json', Authorization: deps.authorization };
+  const fin = { Accept: 'application/json', [FINNHUB_CABECERA_CLAVE]: deps.finnhub_key };
+  const [inc, fun, met] = await Promise.all([
+    leer(deps, `${deps.origen}/api/webull/income-statement?symbol=${s}`, web),
+    leer(deps, `${deps.origen}/api/fundamentals?symbol=${s}`, web),
+    leer(deps, `${FINNHUB_URL_BASE}/stock/metric?symbol=${s}&metric=all`, fin),
+  ]);
+  if (!inc.ok) avisos.push(`${t}: Webull income-statement ${inc.motivo}`);
+  if (!fun.ok) avisos.push(`${t}: Webull fundamentals ${fun.motivo}`);
+  if (!met.ok) avisos.push(`${t}: Finnhub stock/metric ${met.motivo}`);
+  if (!inc.ok && !fun.ok && !met.ok) { avisos.push(`${t}: sin datos de ninguna fuente; queda fuera de la comparación`); return null; }
+  // El precio solo se pide si hace falta (Forward P/E, o P/E cuando Webull no trae `pe`)
+  const incJ = inc.ok ? inc.json : null;
+  const funJ = fun.ok ? fun.json : null;
+  const necesitaPrecio = (esObj(incJ) && esObj(incJ['forwardEps'])) || !(esObj(funJ) && numW(funJ['pe']) !== null);
+  const q = necesitaPrecio ? await obtenerCotizacionVivo(deps, t) : null;
+  const w = extraerMetricasWebull(incJ, funJ, q === null ? null : Number(q.precio));
+  const u = unirFuentes(w, met.ok ? extraerMetricas(met.json) : null);
+  return { ticker: t, metricas: u.metricas, fuentes: u.fuentes };
+}
+
 export async function obtenerComparacionPares(deps: DepsDatosReales, principal: string, competidores: string | null | undefined): Promise<ComparacionPares | null> {
   const pares = parsearCompetidores(competidores, principal);
   if (pares.length === 0) return null;
-  const cab = { Accept: 'application/json', [FINNHUB_CABECERA_CLAVE]: deps.finnhub_key };
   const empresas: EmpresaComparada[] = [];
   const avisos: string[] = [];
   for (const t of [principal, ...pares]) {
-    const r = await leer(deps, `${FINNHUB_URL_BASE}/stock/metric?symbol=${encodeURIComponent(t)}&metric=all`, cab);
-    if (!r.ok) { avisos.push(`${t}: no se pudieron leer sus ratios en Finnhub (${r.motivo}); queda fuera de la comparación`); continue; }
-    empresas.push({ ticker: t, metricas: extraerMetricas(r.json) });
+    const e = await leerEmpresa(deps, t, avisos);
+    if (e !== null) empresas.push(e);
   }
   if (!empresas.some(e => e.ticker === principal) || empresas.length < 2) return { ...compararPares(principal, empresas), avisos: [...avisos, 'No hay suficientes empresas con datos para comparar'] };
   const c = compararPares(principal, empresas);
   const sinDato = METRICAS_PARES.filter(d => empresas.every(e => e.metricas[d.id] === null)).map(d => d.etiqueta);
-  if (sinDato.length > 0) avisos.push(`Finnhub no trae para ninguna empresa: ${sinDato.join(', ')}`);
+  if (sinDato.length > 0) avisos.push(`Ninguna fuente (Webull ni Finnhub) trae para ninguna empresa: ${sinDato.join(', ')}`);
   return { ...c, avisos: [...avisos, ...c.avisos] };
 }

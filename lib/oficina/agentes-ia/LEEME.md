@@ -654,8 +654,13 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - PCP-05: con una sola etapa (TP1 lleno) la salida se evalúa como primera salida (100%) aunque ya haya ventas previas.
 
 ## v0.92 — Comparación con competidores
-- Con los competidores de la watchlist (casilla «competidores», hasta 4), cada corrida (no la de recompra) lee de Finnhub (`stock/metric`) 8 métricas de cada empresa: P/E, Forward P/E, EV/EBITDA, margen operativo, margen neto, ROE, crecimiento de ventas y deuda/capital (`conexion/comparacion-pares.ts`). Se guarda en `referencias.comparacion_pares` y no bloquea la corrida si falla.
+- Con los competidores de la watchlist (casilla «competidores», hasta 4), cada corrida (no la de recompra) arma 8 métricas (Webull primero, v0.93; ver abajo) de cada empresa: P/E, Forward P/E, EV/EBITDA, margen operativo, margen neto, ROE, crecimiento de ventas y deuda/capital (`conexion/comparacion-pares.ts`). Se guarda en `referencias.comparacion_pares` y no bloquea la corrida si falla.
 - Ranking promedio: en cada métrica se ordena a las empresas con dato (menor es mejor en múltiplos y deuda; mayor en márgenes, ROE y crecimiento), se normaliza la posición (0 = la mejor) y se promedia. Una empresa necesita al menos 4 métricas con dato. Múltiplos ≤ 0 (pérdidas) cuentan como sin dato; lo que Finnhub no trae queda «sin dato», nunca se rellena.
 - Sugerencia: si algún par supera al ticker por al menos 0.05 de puntaje, la Oficina sugiere verlo (con cuántas métricas gana). Es solo informativa: no cambia la decisión ni bloquea nada; la decide el código, no la IA.
 - /oficina: sección «Comparación con competidores» (tabla, mejor en verde, puntaje); ▶: una línea con la sugerencia.
 - OJO: las claves de Finnhub para Forward P/E (`forwardPE`) y EV/EBITDA (`currentEv/ebitdaTTM`, `evEbitdaTTM`) no se pudieron verificar contra la API real; si el proveedor no las trae saldrá «sin dato» y habrá que ajustar la clave o usar otra fuente.
+
+## v0.93 — Comparación con pares: Webull primero
+- Para cada empresa: `/api/webull/income-statement` y `/api/fundamentals` (rutas internas de Webull) y Finnhub (`stock/metric`). Webull manda cuando trae el dato: margen operativo y neto (TTM), crecimiento de ventas (último año fiscal contra el anterior), P/E (`pe` de fundamentals; si falta, precio ÷ EPS TTM) y Forward P/E (precio ÷ `forwardEps`). El precio sale de Finnhub `/quote` y solo se pide si hace falta.
+- Finnhub completa lo que Webull no trae: ROE, deuda/capital y EV/EBITDA (necesitan balance y Webull solo trae estado de resultados) y cualquier métrica que a Webull le falte. En /oficina cada valor lleva una W o una F según su fuente.
+- Una empresa solo queda fuera si ninguna fuente le responde. Lo que nadie trae queda «sin dato»; nada se estima.
