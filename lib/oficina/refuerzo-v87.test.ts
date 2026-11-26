@@ -78,6 +78,11 @@ describe('v0.87: el Motor aplica el tope en la recompra de PMP', () => {
   it('sin el dato del portafolio: NO_EVALUABLE (no se supone)', () => {
     expect(decidir(entrada()).decision).toBe('NO_EVALUABLE');
   });
+  it('v0.89: SEMILLA no tiene recompras: NO_RECOMPRAR aunque todo lo demás cumpla', () => {
+    const r = decidir(entrada({ portafolio_codigo: 'SEMILLA' }));
+    expect(r.decision).toBe('NO_RECOMPRAR');
+    expect(JSON.stringify(r)).toContain('semilla_sin_recompras');
+  });
   it('en PCP el tope no aplica', () => {
     expect(decidir(entrada({ portafolio_codigo: 'PCP' })).decision).toBe('RECOMPRAR');
   });

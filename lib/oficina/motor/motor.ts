@@ -119,6 +119,15 @@ function decidirEntrada(e: EntradaMotor, recompra: boolean): Resolucion {
     { nivel: 'reglas', codigo: 'AUDITORIA', resultado: 'cumple', detalle: 'El Auditor no reporta infracciones ni filtros fallidos' },
   ];
 
+  // v0.89 (decisión de Jaime, 25-nov): SEMILLA (y spin off) no tienen recompras: nunca se recompra, sin importar el dividendo ni el dinero.
+  if (recompra && e.portafolio_codigo === 'SEMILLA') {
+    return {
+      decision: 'NO_RECOMPRAR', nivel: 'reglas', motivo_codigo: 'semilla_sin_recompras',
+      detalle: 'SEMILLA no tiene recompras (decisión del 25-nov): cada semana se abre una posición nueva de 5 USD',
+      motivos: [...motivos, { nivel: 'reglas', codigo: 'SEMILLA_SIN_RECOMPRAS', resultado: 'incumple', detalle: 'El portafolio SEMILLA no admite recompras' }],
+    };
+  }
+
   // Nivel 2: riesgo y capital
   const monto = e.capital?.monto_requerido ?? e.monto_operacion ?? null;
   const efectivo = e.capital?.efectivo_disponible ?? null;

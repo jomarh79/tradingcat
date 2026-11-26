@@ -637,3 +637,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Igual que PMP (stop O señal) pero de 5 USD (PLP-03) y SIN tope de monto ni de número de recompras. Señales: las de `dca_plp` del Técnico (RSI sobrevendido, banda inferior de Mogalef, EMA8 sobre EMA21, nivel pasado); basta una.
 - En la corrida ▶ de una posición PLP abierta, si se dispara, el botón encadena la evaluación de recompra (5 USD). `referencias.recompra_plp` guarda stop/señal. Sin stop legible solo cuentan las señales.
 - Sin cambios en Edge Function ni alertas por correo.
+
+## v0.89 — SEMILLA sin recompras; ETF ya cubierto
+- SEMILLA: el Motor responde NO_RECOMPRAR `semilla_sin_recompras` a cualquier recompra (también la de dividendo de la misma empresa que SEM-04 permitía). Spin off no es un portafolio de la Oficina: no se toca.
+- ETF sectoriales: el aporte semanal de 2 USD por ETF (1 USD si no alcanza el efectivo; ETF-01/ETF-02) ya existía y no tiene límite de aportes; no cambia nada.
