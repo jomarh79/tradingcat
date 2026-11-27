@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compararPares, extraerMetricas, extraerMetricasWebull, parsearCompetidores, obtenerComparacionPares, unirFuentes } from './comparacion-pares';
+import { compararPares, extraerMetricas, extraerMetricasWebull, parsearCompetidores, obtenerComparacionPares, unirFilasCoherentes, unirFuentes } from './comparacion-pares';
 import type { EmpresaComparada, MetricasEmpresa } from './comparacion-pares';
 
 const m = (pe: number | null, fwd: number | null, ev: number | null, mo: number | null, mn: number | null, roe: number | null, cr: number | null, de: number | null): MetricasEmpresa =>
@@ -97,5 +97,30 @@ describe('v0.92: comparación con pares (ranking promedio)', () => {
     expect(c?.metricas.find(x => x.id === 'roe')?.fuentes['AAA']).toBe('finnhub');
     expect(c?.avisos.join()).toContain('BAD');
     expect(pedidos.some(u => u.includes('/api/webull/income-statement?symbol=AAA'))).toBe(true);
+  });
+  it('v0.94: una fila usa la misma fuente en todas las empresas (Webull si todas; si no, Finnhub si todas; si no, mezcla con aviso)', () => {
+    const fin = (mo: number | null): MetricasEmpresa => m(10, 10, null, mo, 10, 10, 10, 1);
+    const w = (mo?: number): Partial<MetricasEmpresa> => (mo === undefined ? { pe: 10 } : { pe: 10, margen_operativo: mo });
+    // GS y MS tienen margen operativo en Webull; BAC no → toda la fila sale de Finnhub
+    const r = unirFilasCoherentes([{ ticker: 'GS', webull: w(19), finnhub: fin(20) }, { ticker: 'MS', webull: w(20), finnhub: fin(21) }, { ticker: 'BAC', webull: w(), finnhub: fin(32) }]);
+    expect(r.empresas.map(e => e.metricas.margen_operativo)).toEqual([20, 21, 32]);
+    expect(r.empresas.every(e => e.fuentes!.margen_operativo === 'finnhub')).toBe(true);
+    expect(r.empresas.every(e => e.fuentes!.pe === 'webull')).toBe(true);
+    // si Finnhub tampoco cubre a todas: Webull primero y mezcla con aviso
+    const r2 = unirFilasCoherentes([{ ticker: 'A', webull: w(5), finnhub: fin(null) }, { ticker: 'B', webull: w(), finnhub: fin(7) }, { ticker: 'C', webull: w(), finnhub: fin(null) }]);
+    expect(r2.empresas.map(e => e.fuentes!.margen_operativo)).toEqual(['webull', 'finnhub', null]);
+    expect(r2.avisos.join()).toContain('Margen operativo');
+  });
+  it('v0.94: en una financiera, EV/EBITDA, deuda/capital y margen operativo se muestran pero no entran al ranking', () => {
+    const e = (t: string, de: number, mo: number, roe: number): EmpresaComparada => ({ ticker: t, metricas: m(10, 10, 20, mo, 10, roe, 5, de) });
+    // BAC gana solo en deuda y margen operativo; GS gana en ROE
+    const empresas = [e('GS', 11, 20, 18), e('BAC', 2, 33, 10)];
+    const normal = compararPares('GS', empresas);
+    const fin = compararPares('GS', empresas, { financiera: true });
+    expect(normal.sugerencia?.ticker).toBe('BAC');
+    expect(fin.metricas.find(x => x.id === 'deuda_capital')).toMatchObject({ en_ranking: false, mejor_ticker: null });
+    expect(fin.metricas.find(x => x.id === 'roe')?.en_ranking).toBe(true);
+    expect(fin.puntajes.find(p => p.ticker === 'GS')!.metricas_con_dato).toBeLessThan(normal.puntajes.find(p => p.ticker === 'GS')!.metricas_con_dato);
+    expect(fin.sugerencia).toBeNull();
   });
 });

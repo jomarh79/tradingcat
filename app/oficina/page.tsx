@@ -66,7 +66,7 @@ interface Detalle {
     recompras_restantes: number | null; senal_salida: boolean; faltantes: string[]
     exigida: { decision: string; porcentaje: number | null; detalle: string } | null
   } | null
-  comparacion_pares?: { principal: string; tickers: string[]; metricas: { id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; fuentes?: Record<string, string | null>; mejor_ticker: string | null }[]; puntajes: { ticker: string; puntaje: number | null; metricas_con_dato: number }[]; sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null; avisos: string[] } | null
+  comparacion_pares?: { principal: string; tickers: string[]; metricas: { id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; fuentes?: Record<string, string | null>; mejor_ticker: string | null; en_ranking?: boolean }[]; puntajes: { ticker: string; puntaje: number | null; metricas_con_dato: number }[]; sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null; avisos: string[] } | null
   recompra?: { portafolio: 'PMP' | 'PLP'; monto: string | null; disparada: boolean; por_stop: boolean; por_senal: boolean; precio_actual: string | null; stop: string | null; senales_cumplidas: string[]; faltantes: string[] } | null
   entrada_pcp?: { confirmada: boolean; senales_minimas: number | null; fuerza: string | null; no_evaluables: string[]; cumplidas: { id: string; detalle: string }[] } | null
   salud_financiera?: { resumen: string | null; texto: string | null; financiera?: boolean; industria?: string | null; ganancias: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; flujo_caja: { estado: string | null; ttm: number | null; anual: number | null; fy: string | null }; avisos: string[] } | null
@@ -388,7 +388,7 @@ export default function OficinaPage() {
                 <tbody>
                   {d.comparacion_pares.metricas.map(m => (
                     <tr key={m.id}>
-                      <td style={{ padding: '3px 8px', color: '#aaa' }}>{m.etiqueta} <span style={{ color: '#666' }}>({m.mejor === 'menor' ? 'menor es mejor' : 'mayor es mejor'})</span></td>
+                      <td style={{ padding: '3px 8px', color: '#aaa' }}>{m.etiqueta} <span style={{ color: '#666' }}>({m.mejor === 'menor' ? 'menor es mejor' : 'mayor es mejor'}{m.en_ranking === false ? ' · no entra al ranking' : ''})</span></td>
                       {d.comparacion_pares!.tickers.map(t => {
                         const v = m.valores[t]
                         return <td key={t} style={{ textAlign: 'right', padding: '3px 8px', color: v === null || v === undefined ? '#555' : m.mejor_ticker === t ? C.success : '#ccc', fontWeight: m.mejor_ticker === t ? 700 : 400 }}>{v === null || v === undefined ? 'sin dato' : `${v.toFixed(2)}${m.unidad === '%' ? '%' : 'x'}`}{v !== null && v !== undefined && m.fuentes?.[t] ? <span style={{ color: '#555', fontSize: 9, marginLeft: 3 }}>{m.fuentes[t] === 'webull' ? 'W' : 'F'}</span> : null}</td>

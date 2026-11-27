@@ -26,7 +26,7 @@ import type { ComparacionPares } from '../conexion/comparacion-pares';
 import { calcularLimitePosicionPmp } from '../conexion/limite-posicion-pmp';
 import { obtenerVelas } from './datos-velas';
 import { reunirDatosFicha } from './datos-ficha';
-import { evaluarSaludFinanciera } from '../conexion/salud-financiera';
+import { esIndustriaFinanciera, evaluarSaludFinanciera } from '../conexion/salud-financiera';
 import { evaluarDividendoPmp } from '../conexion/dividendo-pmp';
 import type { DepsDatosReales } from './datos-reales';
 import { guardarAnalisisIa } from './persistencia-ia';
@@ -184,7 +184,7 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
   // v0.92: comparación con los competidores de la watchlist (solo informativa; un fallo no bloquea la corrida). La recompra no la repite.
   let comparacion: ComparacionPares | null = null;
   if (!es_recompra) {
-    try { comparacion = await obtenerComparacionPares(datosDeps, ticker, watchlist.datos?.competidores ?? null); } catch { comparacion = null; }
+    try { comparacion = await obtenerComparacionPares(datosDeps, ticker, watchlist.datos?.competidores ?? null, { financiera: esIndustriaFinanciera(industria) }); } catch { comparacion = null; }
   }
   // v0.27: Riesgo y Capital por código. El efectivo se lee de `oficina_v_capital`; si no se puede leer NO se bloquea la corrida: el agente reporta DATOS_INSUFICIENTES.
   const cap = await leerFilas(cliente, 'oficina_v_capital', 'portfolio_id,efectivo', [['portfolio_id', pf.portfolio_id]]);

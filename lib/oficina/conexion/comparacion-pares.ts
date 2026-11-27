@@ -37,6 +37,8 @@ export const MINIMO_METRICAS_RANKING = 4;
 /** Un par solo se sugiere si su puntaje supera al del ticker por al menos esto (0 = empate, 1 = diferencia total). */
 export const MARGEN_SUGERENCIA = 0.05;
 export const MAX_PARES = 4;
+/** v0.94 (25-nov): en una financiera (banco, aseguradora, bróker) la deuda es parte del negocio y no hay EBITDA comparable: estas métricas se muestran pero NO entran al ranking. */
+export const METRICAS_NO_RANKEAN_EN_FINANCIERAS: readonly IdMetrica[] = ['ev_ebitda', 'deuda_capital', 'margen_operativo'];
 
 export type MetricasEmpresa = Record<IdMetrica, number | null>;
 
@@ -61,7 +63,7 @@ export interface PuntajeEmpresa { ticker: string; puntaje: number | null; metric
 export interface ComparacionPares {
   principal: string;
   tickers: string[];
-  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null }>;
+  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null; en_ranking: boolean }>;
   puntajes: PuntajeEmpresa[];
   /** Par que ordena mejor que el ticker analizado; null si ninguno lo supera con claridad. */
   sugerencia: { ticker: string; puntaje: number; puntaje_principal: number; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
@@ -70,7 +72,7 @@ export interface ComparacionPares {
 
 /** Ranking promedio: en cada métrica se ordena a las empresas con dato (1 = mejor; empates comparten el promedio de sus posiciones) y el puntaje
  *  de cada empresa es el promedio de su posición normalizada ((rank-1)/(n-1); 0 = siempre la mejor, 1 = siempre la peor). */
-export function compararPares(principal: string, empresas: readonly EmpresaComparada[]): ComparacionPares {
+export function compararPares(principal: string, empresas: readonly EmpresaComparada[], opciones: { financiera?: boolean } = {}): ComparacionPares {
   const tickers = empresas.map(e => e.ticker);
   const avisos: string[] = [];
   const normas: Record<string, number[]> = Object.fromEntries(tickers.map(t => [t, []]));
@@ -82,7 +84,8 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
     const con = empresas.filter(e => e.metricas[d.id] !== null).map(e => ({ t: e.ticker, v: e.metricas[d.id] as number }));
     con.sort((a, b) => (d.mejor === 'menor' ? a.v - b.v : b.v - a.v));
     const n = con.length;
-    if (n >= 2) {
+    const enRanking = !(opciones.financiera === true && METRICAS_NO_RANKEAN_EN_FINANCIERAS.includes(d.id));
+    if (n >= 2 && enRanking) {
       let i = 0;
       while (i < n) {
         let j = i;
@@ -92,7 +95,7 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
         i = j + 1;
       }
     }
-    filasMetricas.push({ id: d.id, etiqueta: d.etiqueta, unidad: d.unidad, mejor: d.mejor, valores, fuentes, mejor_ticker: n >= 2 ? con[0]!.t : null });
+    filasMetricas.push({ id: d.id, etiqueta: d.etiqueta, unidad: d.unidad, mejor: d.mejor, valores, fuentes, mejor_ticker: n >= 2 && enRanking ? con[0]!.t : null, en_ranking: enRanking });
   }
   const puntajes: PuntajeEmpresa[] = tickers.map(t => {
     const a = normas[t]!;
@@ -109,6 +112,7 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
       let mejores = 0;
       let comparables = 0;
       for (const f of filasMetricas) {
+        if (!f.en_ranking) continue;
         const a = f.valores[mejor.ticker];
         const b = f.valores[principal];
         if (a === null || a === undefined || b === null || b === undefined) continue;
@@ -167,7 +171,7 @@ export function extraerMetricasWebull(income: unknown, fundamentals: unknown, pr
   return out;
 }
 
-/** Une las dos fuentes: Webull manda cuando trae el dato; Finnhub completa el resto. Nunca se rellena con estimaciones. */
+/** Une las dos fuentes de UNA empresa: Webull manda cuando trae el dato; Finnhub completa el resto. Nunca se rellena con estimaciones. */
 export function unirFuentes(webull: Partial<MetricasEmpresa>, finnhub: MetricasEmpresa | null): { metricas: MetricasEmpresa; fuentes: Record<IdMetrica, FuenteMetrica | null> } {
   const metricas = {} as MetricasEmpresa;
   const fuentes = {} as Record<IdMetrica, FuenteMetrica | null>;
@@ -181,7 +185,39 @@ export function unirFuentes(webull: Partial<MetricasEmpresa>, finnhub: MetricasE
   return { metricas, fuentes };
 }
 
-async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): Promise<EmpresaComparada | null> {
+export interface EmpresaCruda { ticker: string; webull: Partial<MetricasEmpresa>; finnhub: MetricasEmpresa | null }
+
+/** v0.94: una fila de la tabla debe medir lo mismo en todas las empresas. Si Webull trae la métrica para TODAS, se usa Webull; si no, pero Finnhub la trae para
+ *  todas, se usa Finnhub en toda la fila (no se mezclan definiciones distintas, p. ej. el margen operativo de Webull con el de Finnhub). Solo si ninguna fuente
+ *  cubre a todas, se usa Webull primero y Finnhub para completar cada empresa, y se avisa de la mezcla. */
+export function unirFilasCoherentes(crudas: readonly EmpresaCruda[]): { empresas: EmpresaComparada[]; avisos: string[] } {
+  const avisos: string[] = [];
+  const empresas: EmpresaComparada[] = crudas.map(c => ({ ticker: c.ticker, metricas: {} as MetricasEmpresa, fuentes: {} as Record<IdMetrica, FuenteMetrica | null> }));
+  const valido = (d: DefMetrica, v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && !(d.solo_positivo && v <= 0);
+  for (const d of METRICAS_PARES) {
+    const todasW = crudas.every(c => valido(d, c.webull[d.id]));
+    const todasF = crudas.every(c => c.finnhub !== null && c.finnhub[d.id] !== null);
+    let mezcla = false;
+    crudas.forEach((c, i) => {
+      const w = c.webull[d.id];
+      const f = c.finnhub !== null ? c.finnhub[d.id] : null;
+      let v: number | null = null;
+      let fu: FuenteMetrica | null = null;
+      if (todasW) { v = w as number; fu = 'webull'; }
+      else if (todasF) { v = f; fu = 'finnhub'; }
+      else if (valido(d, w)) { v = w; fu = 'webull'; }
+      else if (f !== null) { v = f; fu = 'finnhub'; }
+      empresas[i]!.metricas[d.id] = v;
+      empresas[i]!.fuentes![d.id] = fu;
+    });
+    const usadas = new Set(empresas.map(e => e.fuentes![d.id]).filter(x => x !== null));
+    mezcla = usadas.size > 1;
+    if (mezcla) avisos.push(`${d.etiqueta}: ninguna fuente cubre a todas las empresas; se mezclan Webull y Finnhub y la comparación de esa fila es menos exacta`);
+  }
+  return { empresas, avisos };
+}
+
+async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): Promise<EmpresaCruda | null> {
   const s = encodeURIComponent(t);
   const web = { Accept: 'application/json', Authorization: deps.authorization };
   const fin = { Accept: 'application/json', [FINNHUB_CABECERA_CLAVE]: deps.finnhub_key };
@@ -200,22 +236,23 @@ async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): 
   const necesitaPrecio = (esObj(incJ) && esObj(incJ['forwardEps'])) || !(esObj(funJ) && numW(funJ['pe']) !== null);
   const q = necesitaPrecio ? await obtenerCotizacionVivo(deps, t) : null;
   const w = extraerMetricasWebull(incJ, funJ, q === null ? null : Number(q.precio));
-  const u = unirFuentes(w, met.ok ? extraerMetricas(met.json) : null);
-  return { ticker: t, metricas: u.metricas, fuentes: u.fuentes };
+  return { ticker: t, webull: w, finnhub: met.ok ? extraerMetricas(met.json) : null };
 }
 
-export async function obtenerComparacionPares(deps: DepsDatosReales, principal: string, competidores: string | null | undefined): Promise<ComparacionPares | null> {
+export async function obtenerComparacionPares(deps: DepsDatosReales, principal: string, competidores: string | null | undefined, opciones: { financiera?: boolean } = {}): Promise<ComparacionPares | null> {
   const pares = parsearCompetidores(competidores, principal);
   if (pares.length === 0) return null;
-  const empresas: EmpresaComparada[] = [];
+  const crudas: EmpresaCruda[] = [];
   const avisos: string[] = [];
   for (const t of [principal, ...pares]) {
     const e = await leerEmpresa(deps, t, avisos);
-    if (e !== null) empresas.push(e);
+    if (e !== null) crudas.push(e);
   }
-  if (!empresas.some(e => e.ticker === principal) || empresas.length < 2) return { ...compararPares(principal, empresas), avisos: [...avisos, 'No hay suficientes empresas con datos para comparar'] };
-  const c = compararPares(principal, empresas);
-  const sinDato = METRICAS_PARES.filter(d => empresas.every(e => e.metricas[d.id] === null)).map(d => d.etiqueta);
+  const u = unirFilasCoherentes(crudas);
+  if (!crudas.some(e => e.ticker === principal) || crudas.length < 2) return { ...compararPares(principal, u.empresas, opciones), avisos: [...avisos, 'No hay suficientes empresas con datos para comparar'] };
+  const c = compararPares(principal, u.empresas, opciones);
+  const sinDato = METRICAS_PARES.filter(d => u.empresas.every(e => e.metricas[d.id] === null)).map(d => d.etiqueta);
   if (sinDato.length > 0) avisos.push(`Ninguna fuente (Webull ni Finnhub) trae para ninguna empresa: ${sinDato.join(', ')}`);
-  return { ...c, avisos: [...avisos, ...c.avisos] };
+  if (opciones.financiera === true) avisos.push('Empresa financiera: deuda/capital, EV/EBITDA y margen operativo se muestran pero no entran al ranking (la deuda es parte de su negocio)');
+  return { ...c, avisos: [...avisos, ...u.avisos, ...c.avisos] };
 }

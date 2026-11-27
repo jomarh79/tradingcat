@@ -664,3 +664,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - Para cada empresa: `/api/webull/income-statement` y `/api/fundamentals` (rutas internas de Webull) y Finnhub (`stock/metric`). Webull manda cuando trae el dato: margen operativo y neto (TTM), crecimiento de ventas (último año fiscal contra el anterior), P/E (`pe` de fundamentals; si falta, precio ÷ EPS TTM) y Forward P/E (precio ÷ `forwardEps`). El precio sale de Finnhub `/quote` y solo se pide si hace falta.
 - Finnhub completa lo que Webull no trae: ROE, deuda/capital y EV/EBITDA (necesitan balance y Webull solo trae estado de resultados) y cualquier métrica que a Webull le falte. En /oficina cada valor lleva una W o una F según su fuente.
 - Una empresa solo queda fuera si ninguna fuente le responde. Lo que nadie trae queda «sin dato»; nada se estima.
+
+## v0.94 — Comparación con pares: filas coherentes y financieras
+- Una fila de la tabla usa la MISMA fuente en todas las empresas: Webull si trae la métrica para todas; si no, Finnhub si la trae para todas; solo si ninguna cubre a todas se usa Webull primero + Finnhub para completar y se avisa de la mezcla. (Caso GS/MS/BAC/JPM/SAN: Webull no trae el margen operativo de los bancos y mezclaba definiciones.)
+- Si el ticker analizado es financiero (industria de Finnhub: banco, aseguradora, bróker…), EV/EBITDA, deuda/capital y margen operativo se muestran pero NO entran al ranking ni a la sugerencia («no entra al ranking» en /oficina).

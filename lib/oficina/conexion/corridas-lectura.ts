@@ -91,7 +91,7 @@ export interface RecompraDetalle {
 export interface ComparacionParesDetalle {
   principal: string;
   tickers: string[];
-  metricas: Array<{ id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; fuentes: Record<string, string | null>; mejor_ticker: string | null }>;
+  metricas: Array<{ id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; fuentes: Record<string, string | null>; mejor_ticker: string | null; en_ranking: boolean }>;
   puntajes: Array<{ ticker: string; puntaje: number | null; metricas_con_dato: number }>;
   sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
   avisos: string[];
@@ -248,7 +248,7 @@ export function comparacionParesDe(ref: Record<string, unknown>): ComparacionPar
       id: txt(m['id']) ?? '', etiqueta: txt(m['etiqueta']) ?? '', unidad: txt(m['unidad']) ?? '', mejor: txt(m['mejor']) ?? '',
       valores: esObj(m['valores']) ? Object.fromEntries(Object.entries(m['valores']).map(([k, v]) => [k, typeof v === 'number' && Number.isFinite(v) ? v : null])) : {},
       fuentes: esObj(m['fuentes']) ? Object.fromEntries(Object.entries(m['fuentes']).map(([k, v]) => [k, typeof v === 'string' ? v : null])) : {},
-      mejor_ticker: txt(m['mejor_ticker']),
+      mejor_ticker: txt(m['mejor_ticker']), en_ranking: m['en_ranking'] !== false,
     })),
     puntajes: arr(x['puntajes']).filter(esObj).map(p => ({ ticker: txt(p['ticker']) ?? '', puntaje: num(p['puntaje']), metricas_con_dato: num(p['metricas_con_dato']) ?? 0 })),
     sugerencia: esObj(sg) ? { ticker: txt(sg['ticker']) ?? '', metricas_mejores: num(sg['metricas_mejores']) ?? 0, metricas_comparables: num(sg['metricas_comparables']) ?? 0, texto: textoCorto(sg['texto'] ?? '') } : null,
