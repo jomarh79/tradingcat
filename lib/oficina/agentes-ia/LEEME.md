@@ -679,3 +679,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 - El país sale de Webull (`/api/fundamentals`; los nombres de campo son una suposición) y, si no lo trae, de Finnhub `profile2.country`.
 - Comparación con pares: nueva métrica «Riesgo país» (menor es mejor), cuenta en el ranking promedio; la tabla muestra `CN · alto` y debajo un ⚠ por cada empresa de riesgo medio/alto.
 - Ticker analizado: si su país es medio/alto, aviso en el ▶ y se guarda en `referencias.riesgo_pais`. No cambia la decisión del Motor ni del Auditor.
+
+## v0.97 — País de operación por ticker
+
+Finnhub/Webull dan el país de domicilio legal (PDD sale como Irlanda, MELI como Uruguay). `PAIS_OPERACION_POR_TICKER` en `conexion/riesgo-pais.ts` (editable) fija el país donde opera la empresa y manda sobre la API (PDD→CN, MELI→BR, BABA/JD/BIDU→CN, etc.).

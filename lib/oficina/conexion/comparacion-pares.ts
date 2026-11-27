@@ -6,7 +6,7 @@ import { leer } from '../agentes-ia/datos-reales';
 import type { DepsDatosReales } from '../agentes-ia/datos-reales';
 import { obtenerCotizacionVivo } from './cotizacion-vivo';
 import { limpiarTicker } from './corridas-lectura';
-import { codigoPais, riesgoDePais, VALOR_NIVEL } from './riesgo-pais';
+import { codigoPais, paisEfectivo, riesgoDePais, VALOR_NIVEL } from './riesgo-pais';
 import type { RiesgoPaisEmpresa } from './riesgo-pais';
 
 export type IdMetrica = 'pe' | 'pe_forward' | 'ev_ebitda' | 'margen_operativo' | 'margen_neto' | 'roe' | 'crecimiento_ventas' | 'deuda_capital' | 'riesgo_pais';
@@ -272,6 +272,8 @@ async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): 
     if (cf !== null) pais = { codigo: cf, fuente: 'finnhub' };
     else avisos.push(`${t}: no se pudo leer su país; el riesgo país queda sin dato`);
   }
+  const ef = paisEfectivo(t, pais?.codigo ?? null);
+  if (ef.excepcion) pais = { codigo: ef.codigo, fuente: null };   // excepción fija (país de operación): sin letra W/F
   return { ticker: t, webull: w, finnhub: met.ok ? extraerMetricas(met.json) : null, pais };
 }
 

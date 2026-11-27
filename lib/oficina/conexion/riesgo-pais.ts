@@ -59,3 +59,19 @@ export function avisoRiesgoPais(ticker: string, r: RiesgoPaisEmpresa): string | 
   if (r.nivel === null || r.nivel === 'bajo') return null;
   return `${ticker}: país de riesgo ${r.nivel} (${r.nombre}, ${r.codigo}): ${r.motivo}. Solo es un aviso${r.nivel === 'alto' ? ' fuerte' : ''}: no cambia la decisión de la Oficina; en la comparación con competidores cuenta como una métrica más.`;
 }
+
+/**
+ * Excepciones por ticker (editable): Finnhub/Webull dan el país de DOMICILIO legal, que a veces no es donde opera la empresa
+ * (PDD figura en Irlanda y opera en China; MELI figura en Uruguay y opera en Latinoamérica). Aquí fijas el país de OPERACIÓN real.
+ * Si el ticker está aquí, manda sobre lo que diga la API.
+ */
+export const PAIS_OPERACION_POR_TICKER: Record<string, string> = {
+  PDD: 'CN', BABA: 'CN', JD: 'CN', BIDU: 'CN', NIO: 'CN', LI: 'CN', XPEV: 'CN', TME: 'CN', BILI: 'CN', NTES: 'CN', YUMC: 'CN', TCOM: 'CN', FUTU: 'HK',
+  MELI: 'BR', GLOB: 'AR', DESP: 'CO',
+};
+
+/** País efectivo del ticker: la excepción editable si existe; si no, el que dio la API. */
+export function paisEfectivo(ticker: string, codigoApi: unknown): { codigo: string | null; excepcion: boolean } {
+  const ex = PAIS_OPERACION_POR_TICKER[ticker.trim().toUpperCase()];
+  return ex !== undefined ? { codigo: ex, excepcion: true } : { codigo: codigoPais(codigoApi), excepcion: false };
+}

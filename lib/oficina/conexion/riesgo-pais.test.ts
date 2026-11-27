@@ -28,3 +28,12 @@ describe('v0.96: riesgo país', () => {
     expect(c.paises['PDD']!.nivel).toBe('alto');
   });
 });
+
+import { paisEfectivo } from './riesgo-pais';
+describe('v0.97: país de operación por ticker', () => {
+  it('PDD manda CN aunque la API diga IE; sin excepción se usa el de la API', () => {
+    expect(paisEfectivo('PDD', 'IE')).toEqual({ codigo: 'CN', excepcion: true });
+    expect(paisEfectivo('pdd', null).codigo).toBe('CN');
+    expect(paisEfectivo('AMZN', 'US')).toEqual({ codigo: 'US', excepcion: false });
+  });
+});

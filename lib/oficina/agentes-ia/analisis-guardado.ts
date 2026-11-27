@@ -21,7 +21,7 @@ import { clasificarTesisPropuesta, fundamentalMarcaCambio, hayTesisVigente } fro
 import { leer, obtenerDatosFundamental } from './datos-reales';
 import { FINNHUB_CABECERA_CLAVE, FINNHUB_URL_BASE } from './constantes';
 import { obtenerCotizacionVivo } from '../conexion/cotizacion-vivo';
-import { avisoRiesgoPais, riesgoDePais } from '../conexion/riesgo-pais';
+import { avisoRiesgoPais, paisEfectivo, riesgoDePais } from '../conexion/riesgo-pais';
 import { obtenerComparacionPares } from '../conexion/comparacion-pares';
 import type { ComparacionPares } from '../conexion/comparacion-pares';
 import { calcularLimitePosicionPmp } from '../conexion/limite-posicion-pmp';
@@ -185,7 +185,8 @@ export async function ejecutarAnalisisGuardado(cliente: ClienteGuardado, deps: D
     ? { datos: null, avisos: [`${wl.error}; no se usan rol, negocio ni competidores de la watchlist`] }
     : interpretarWatchlist(wl.filas, ticker, portafolio);
   // v0.96: riesgo país del ticker analizado (lista fija editable de conexion/riesgo-pais.ts); solo aviso
-  const riesgo_pais = pais_codigo !== null ? riesgoDePais(pais_codigo) : null;
+  const paisEf = paisEfectivo(ticker, pais_codigo).codigo;
+  const riesgo_pais = paisEf !== null ? riesgoDePais(paisEf) : null;
   const aviso_riesgo_pais = riesgo_pais !== null ? avisoRiesgoPais(ticker, riesgo_pais) : null;
   // v0.92: comparación con los competidores de la watchlist (solo informativa; un fallo no bloquea la corrida). La recompra no la repite.
   let comparacion: ComparacionPares | null = null;
