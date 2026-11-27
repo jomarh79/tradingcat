@@ -672,3 +672,10 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.95 — Comparación con pares: varios pares y deuda/capital en 0
 - La sugerencia lista a TODOS los pares que superan al ticker con el margen (antes solo el primero; un empate dejaba fuera a uno): «Ordenan mejor que GS: BAC (mejor en 3 de 5 métricas), JPM (…)».
 - Deuda/capital exactamente 0 de Finnhub se trata como sin dato (emisores extranjeros como PDD y SAN no traen balance; un cero inflaba su ranking). Un valor pequeño real (0.03) sí cuenta.
+
+## v0.96 — Riesgo país
+
+- Nueva lista fija y editable `lib/oficina/conexion/riesgo-pais.ts` (país ISO2 → bajo / medio / alto). Corrígela ahí cuando no estés de acuerdo (ej. CN, HK = alto). País desconocido = «sin dato», nunca se supone bajo.
+- El país sale de Webull (`/api/fundamentals`; los nombres de campo son una suposición) y, si no lo trae, de Finnhub `profile2.country`.
+- Comparación con pares: nueva métrica «Riesgo país» (menor es mejor), cuenta en el ranking promedio; la tabla muestra `CN · alto` y debajo un ⚠ por cada empresa de riesgo medio/alto.
+- Ticker analizado: si su país es medio/alto, aviso en el ▶ y se guarda en `referencias.riesgo_pais`. No cambia la decisión del Motor ni del Auditor.

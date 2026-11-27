@@ -195,6 +195,8 @@ export interface DatosCongelados {
   limite_posicion?: EntradaMotor['limite_posicion'];
   /** v0.92: comparación del ticker con sus competidores de la watchlist (solo informativa); pasa tal cual a `referencias.comparacion_pares`. */
   comparacion_pares?: unknown;
+  /** v0.96: riesgo país del ticker analizado (lista fija); pasa tal cual a `referencias.riesgo_pais`. */
+  riesgo_pais?: unknown;
   /** v0.88: PLP con posición abierta: stop del trade (cierre en o bajo el stop dispara la recompra de 5 USD). */
   recompra_plp?: { stop: string | null };
   corrida_previa_id?: string | null;
@@ -652,6 +654,7 @@ export async function ejecutarCorrida(
     ...(salida_pmp !== null ? { salida_pmp } : {}),
     ...(salida_pcp !== null ? { salida_pcp } : {}),
     ...(datos.comparacion_pares !== undefined && datos.comparacion_pares !== null ? { comparacion_pares: datos.comparacion_pares } : {}),
+    ...(datos.riesgo_pais !== undefined && datos.riesgo_pais !== null ? { riesgo_pais: datos.riesgo_pais } : {}),
     ...(recompra_pmp !== null ? { [portafolio === 'PLP' ? 'recompra_plp' : 'recompra_pmp']: recompra_pmp } : {}),
     ...(portafolio === 'PMP' && typeof datos.dividendo_pmp === 'object' && datos.dividendo_pmp !== null ? { dividendo_pmp: datos.dividendo_pmp } : {}),
     // v0.70: señales de la entrada de PCP (apertura) con su fuerza informativa; solo lectura para /oficina y el correo

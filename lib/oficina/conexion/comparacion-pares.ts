@@ -6,8 +6,10 @@ import { leer } from '../agentes-ia/datos-reales';
 import type { DepsDatosReales } from '../agentes-ia/datos-reales';
 import { obtenerCotizacionVivo } from './cotizacion-vivo';
 import { limpiarTicker } from './corridas-lectura';
+import { codigoPais, riesgoDePais, VALOR_NIVEL } from './riesgo-pais';
+import type { RiesgoPaisEmpresa } from './riesgo-pais';
 
-export type IdMetrica = 'pe' | 'pe_forward' | 'ev_ebitda' | 'margen_operativo' | 'margen_neto' | 'roe' | 'crecimiento_ventas' | 'deuda_capital';
+export type IdMetrica = 'pe' | 'pe_forward' | 'ev_ebitda' | 'margen_operativo' | 'margen_neto' | 'roe' | 'crecimiento_ventas' | 'deuda_capital' | 'riesgo_pais';
 
 export interface DefMetrica {
   id: IdMetrica;
@@ -16,7 +18,7 @@ export interface DefMetrica {
   claves: readonly string[];
   /** Mejor = menor (múltiplos y deuda) o mayor (márgenes, ROE, crecimiento). */
   mejor: 'menor' | 'mayor';
-  unidad: 'x' | '%';
+  unidad: 'x' | '%' | 'nivel';
   /** Los múltiplos con valor cero o negativo (pérdidas) no tienen significado: se tratan como sin dato. */
   solo_positivo: boolean;
 }
@@ -30,6 +32,8 @@ export const METRICAS_PARES: readonly DefMetrica[] = [
   { id: 'roe', etiqueta: 'ROE (retorno sobre capital)', claves: ['roeTTM', 'roeRfy'], mejor: 'mayor', unidad: '%', solo_positivo: false },
   { id: 'crecimiento_ventas', etiqueta: 'Crecimiento de ventas (YoY)', claves: ['revenueGrowthTTMYoy', 'revenueGrowthQuarterlyYoy'], mejor: 'mayor', unidad: '%', solo_positivo: false },
   { id: 'deuda_capital', etiqueta: 'Deuda / Capital', claves: ['totalDebt/totalEquityQuarterly', 'totalDebt/totalEquityAnnual'], mejor: 'menor', unidad: 'x', solo_positivo: false },
+  // v0.96: riesgo país (0 bajo, 1 medio, 2 alto) de la lista fija de conexion/riesgo-pais.ts; no sale de ninguna API de ratios (claves vacías)
+  { id: 'riesgo_pais', etiqueta: 'Riesgo país', claves: [], mejor: 'menor', unidad: 'nivel', solo_positivo: false },
 ];
 
 /** Mínimo de métricas con dato para poder ordenar a una empresa. */
@@ -59,12 +63,14 @@ export function extraerMetricas(json: unknown): MetricasEmpresa {
 }
 
 export type FuenteMetrica = 'webull' | 'finnhub';
-export interface EmpresaComparada { ticker: string; metricas: MetricasEmpresa; /** De dónde salió cada métrica (opcional; null = sin dato). */ fuentes?: Record<IdMetrica, FuenteMetrica | null> }
+export interface EmpresaComparada { ticker: string; /** Código de país (ISO 2) de la empresa, para mostrarlo. */ pais?: string | null; metricas: MetricasEmpresa; /** De dónde salió cada métrica (opcional; null = sin dato). */ fuentes?: Record<IdMetrica, FuenteMetrica | null> }
 export interface PuntajeEmpresa { ticker: string; puntaje: number | null; metricas_con_dato: number; rank_promedio: number | null }
 export interface ComparacionPares {
   principal: string;
   tickers: string[];
-  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null; en_ranking: boolean }>;
+  /** v0.96: país y nivel de riesgo de cada empresa (lista fija). */
+  paises: Record<string, RiesgoPaisEmpresa>;
+  metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%' | 'nivel'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null; en_ranking: boolean }>;
   puntajes: PuntajeEmpresa[];
   /** Par que ordena mejor que el ticker analizado; null si ninguno lo supera con claridad. */
   sugerencia: { ticker: string; puntaje: number; puntaje_principal: number; metricas_mejores: number; metricas_comparables: number; /** Todos los pares que superan al ticker con el margen (el primero es el mejor). */ pares: Array<{ ticker: string; puntaje: number; metricas_mejores: number; metricas_comparables: number }>; texto: string } | null;
@@ -135,7 +141,8 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
       };
     }
   }
-  return { principal, tickers, metricas: filasMetricas, puntajes, sugerencia, avisos };
+  const paises = Object.fromEntries(empresas.map(e => [e.ticker, riesgoDePais(e.pais ?? null)]));
+  return { principal, tickers, paises, metricas: filasMetricas, puntajes, sugerencia, avisos };
 }
 
 /** Tickers de la casilla de competidores de la watchlist («ALC, BLCO SGHT»): sin repetidos, sin el propio ticker, máximo MAX_PARES. */
@@ -195,7 +202,7 @@ export function unirFuentes(webull: Partial<MetricasEmpresa>, finnhub: MetricasE
   return { metricas, fuentes };
 }
 
-export interface EmpresaCruda { ticker: string; webull: Partial<MetricasEmpresa>; finnhub: MetricasEmpresa | null }
+export interface EmpresaCruda { ticker: string; webull: Partial<MetricasEmpresa>; finnhub: MetricasEmpresa | null; /** País (ISO 2) y de dónde salió. */ pais?: { codigo: string | null; fuente: FuenteMetrica | null } }
 
 /** v0.94: una fila de la tabla debe medir lo mismo en todas las empresas. Si Webull trae la métrica para TODAS, se usa Webull; si no, pero Finnhub la trae para
  *  todas, se usa Finnhub en toda la fila (no se mezclan definiciones distintas, p. ej. el margen operativo de Webull con el de Finnhub). Solo si ninguna fuente
@@ -205,6 +212,15 @@ export function unirFilasCoherentes(crudas: readonly EmpresaCruda[]): { empresas
   const empresas: EmpresaComparada[] = crudas.map(c => ({ ticker: c.ticker, metricas: {} as MetricasEmpresa, fuentes: {} as Record<IdMetrica, FuenteMetrica | null> }));
   const valido = (d: DefMetrica, v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && !(d.solo_positivo && v <= 0);
   for (const d of METRICAS_PARES) {
+    if (d.id === 'riesgo_pais') {
+      crudas.forEach((c, i) => {
+        const r = riesgoDePais(c.pais?.codigo ?? null);
+        empresas[i]!.metricas.riesgo_pais = r.nivel === null ? null : VALOR_NIVEL[r.nivel];
+        empresas[i]!.fuentes!.riesgo_pais = r.nivel === null ? null : (c.pais?.fuente ?? null);
+        empresas[i]!.pais = c.pais?.codigo ?? null;
+      });
+      continue;
+    }
     const todasW = crudas.every(c => valido(d, c.webull[d.id]));
     const todasF = crudas.every(c => c.finnhub !== null && c.finnhub[d.id] !== null);
     let mezcla = false;
@@ -246,7 +262,17 @@ async function leerEmpresa(deps: DepsDatosReales, t: string, avisos: string[]): 
   const necesitaPrecio = (esObj(incJ) && esObj(incJ['forwardEps'])) || !(esObj(funJ) && numW(funJ['pe']) !== null);
   const q = necesitaPrecio ? await obtenerCotizacionVivo(deps, t) : null;
   const w = extraerMetricasWebull(incJ, funJ, q === null ? null : Number(q.precio));
-  return { ticker: t, webull: w, finnhub: met.ok ? extraerMetricas(met.json) : null };
+  // País: Webull primero (si /api/fundamentals lo trae); si no, Finnhub profile2
+  let pais: EmpresaCruda['pais'] = { codigo: null, fuente: null };
+  const cw = esObj(funJ) ? [funJ['country'], funJ['countryCode'], funJ['country_code'], funJ['regionCode']].map(codigoPais).find(x => x !== null) ?? null : null;
+  if (cw !== null) pais = { codigo: cw, fuente: 'webull' };
+  else {
+    const pf = await leer(deps, `${FINNHUB_URL_BASE}/stock/profile2?symbol=${s}`, fin);
+    const cf = pf.ok && esObj(pf.json) ? codigoPais(pf.json['country']) : null;
+    if (cf !== null) pais = { codigo: cf, fuente: 'finnhub' };
+    else avisos.push(`${t}: no se pudo leer su país; el riesgo país queda sin dato`);
+  }
+  return { ticker: t, webull: w, finnhub: met.ok ? extraerMetricas(met.json) : null, pais };
 }
 
 export async function obtenerComparacionPares(deps: DepsDatosReales, principal: string, competidores: string | null | undefined, opciones: { financiera?: boolean } = {}): Promise<ComparacionPares | null> {

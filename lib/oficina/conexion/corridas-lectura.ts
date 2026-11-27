@@ -91,10 +91,16 @@ export interface RecompraDetalle {
 export interface ComparacionParesDetalle {
   principal: string;
   tickers: string[];
+  paises: Record<string, { codigo: string | null; nombre: string | null; nivel: string | null; motivo: string | null }>;
   metricas: Array<{ id: string; etiqueta: string; unidad: string; mejor: string; valores: Record<string, number | null>; fuentes: Record<string, string | null>; mejor_ticker: string | null; en_ranking: boolean }>;
   puntajes: Array<{ ticker: string; puntaje: number | null; metricas_con_dato: number }>;
   sugerencia: { ticker: string; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
   avisos: string[];
+}
+export interface RiesgoPaisDetalle { codigo: string | null; nombre: string | null; nivel: string | null; motivo: string | null }
+export function riesgoPaisDe(ref: Record<string, unknown>): RiesgoPaisDetalle | null {
+  const x = ref['riesgo_pais'];
+  return esObj(x) ? { codigo: txt(x['codigo']), nombre: txt(x['nombre']), nivel: txt(x['nivel']), motivo: txt(x['motivo']) } : null;
 }
 export interface FichaPropuestaDetalle {
   propuesta: Array<{ apartado: string; texto: string; fuente: string }>;
@@ -117,6 +123,8 @@ export interface CorridaDetalle {
   recompra: RecompraDetalle | null;
   /** v0.92: comparación con los competidores de la watchlist; null si la corrida no la calculó. */
   comparacion_pares: ComparacionParesDetalle | null;
+  /** v0.96: riesgo país del ticker analizado (lista fija); null si no se pudo leer el país. */
+  riesgo_pais: RiesgoPaisDetalle | null;
   entrada_pcp: EntradaPcp | null;
   salud_financiera: SaludFinancieraDetalle | null;
   dividendo_pmp: DividendoPmpDetalle | null;
@@ -243,6 +251,7 @@ export function comparacionParesDe(ref: Record<string, unknown>): ComparacionPar
   if (!esObj(x)) return null;
   const sg = x['sugerencia'];
   return {
+    paises: esObj(x['paises']) ? Object.fromEntries(Object.entries(x['paises']).map(([k, v]) => [k, esObj(v) ? { codigo: txt(v['codigo']), nombre: txt(v['nombre']), nivel: txt(v['nivel']), motivo: txt(v['motivo']) } : { codigo: null, nombre: null, nivel: null, motivo: null }])) : {},
     principal: txt(x['principal']) ?? '', tickers: arr(x['tickers']).map(t => txt(t) ?? '').filter(t => t !== ''),
     metricas: arr(x['metricas']).filter(esObj).map(m => ({
       id: txt(m['id']) ?? '', etiqueta: txt(m['etiqueta']) ?? '', unidad: txt(m['unidad']) ?? '', mejor: txt(m['mejor']) ?? '',
@@ -374,6 +383,7 @@ export async function detalleCorrida(cliente: ClienteLectura, corrida_id: unknow
       salida_pcp: planSalidaPcpDe(ref),
       recompra: recompraDe(ref),
       comparacion_pares: comparacionParesDe(ref),
+      riesgo_pais: riesgoPaisDe(ref),
       entrada_pcp: entradaPcpDe(ref),
       salud_financiera: saludFinancieraDe(ref),
       dividendo_pmp: dividendoPmpDe(ref),

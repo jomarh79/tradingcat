@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { compararPares, extraerMetricas, extraerMetricasWebull, parsearCompetidores, obtenerComparacionPares, unirFilasCoherentes, unirFuentes } from './comparacion-pares';
 import type { EmpresaComparada, MetricasEmpresa } from './comparacion-pares';
 
-const m = (pe: number | null, fwd: number | null, ev: number | null, mo: number | null, mn: number | null, roe: number | null, cr: number | null, de: number | null): MetricasEmpresa =>
-  ({ pe, pe_forward: fwd, ev_ebitda: ev, margen_operativo: mo, margen_neto: mn, roe, crecimiento_ventas: cr, deuda_capital: de });
+const m = (pe: number | null, fwd: number | null, ev: number | null, mo: number | null, mn: number | null, roe: number | null, cr: number | null, de: number | null, rp: number | null = null): MetricasEmpresa =>
+  ({ pe, pe_forward: fwd, ev_ebitda: ev, margen_operativo: mo, margen_neto: mn, roe, crecimiento_ventas: cr, deuda_capital: de, riesgo_pais: rp });
 // La tabla del ejemplo de Jaime (puntos medios de los rangos)
 const TABLA: EmpresaComparada[] = [
   { ticker: 'CLS', metricas: m(18, 9.5, 12.7, 8.32, 6.83, 30.23, 82.5, 0.17) },
