@@ -123,4 +123,16 @@ describe('v0.92: comparación con pares (ranking promedio)', () => {
     expect(fin.puntajes.find(p => p.ticker === 'GS')!.metricas_con_dato).toBeLessThan(normal.puntajes.find(p => p.ticker === 'GS')!.metricas_con_dato);
     expect(fin.sugerencia).toBeNull();
   });
+  it('v0.95: si varios pares superan al ticker, la sugerencia los lista a todos (empate incluido)', () => {
+    const e = (t: string, roe: number, mn: number): EmpresaComparada => ({ ticker: t, metricas: m(10, 10, null, null, mn, roe, 5, null) });
+    const c = compararPares('GS', [e('GS', 1, 1), e('BAC', 9, 9), e('JPM', 9, 9), e('MS', 0.5, 0.5)]);
+    expect(c.sugerencia?.pares.map(p => p.ticker).sort()).toEqual(['BAC', 'JPM']);
+    expect(c.sugerencia?.texto).toContain('BAC');
+    expect(c.sugerencia?.texto).toContain('JPM');
+    expect(c.sugerencia?.texto).toContain('Ordenan mejor que GS');
+  });
+  it('v0.95: deuda/capital exactamente 0 se toma como sin dato (emisores extranjeros como PDD o SAN); 0.03 sí cuenta', () => {
+    expect(extraerMetricas({ metric: { 'totalDebt/totalEquityQuarterly': 0 } }).deuda_capital).toBeNull();
+    expect(extraerMetricas({ metric: { 'totalDebt/totalEquityQuarterly': 0.03 } }).deuda_capital).toBe(0.03);
+  });
 });

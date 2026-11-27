@@ -668,3 +668,7 @@ La apertura de un trade NO crea fila en `trade_executions` (solo recompras y ven
 ## v0.94 — Comparación con pares: filas coherentes y financieras
 - Una fila de la tabla usa la MISMA fuente en todas las empresas: Webull si trae la métrica para todas; si no, Finnhub si la trae para todas; solo si ninguna cubre a todas se usa Webull primero + Finnhub para completar y se avisa de la mezcla. (Caso GS/MS/BAC/JPM/SAN: Webull no trae el margen operativo de los bancos y mezclaba definiciones.)
 - Si el ticker analizado es financiero (industria de Finnhub: banco, aseguradora, bróker…), EV/EBITDA, deuda/capital y margen operativo se muestran pero NO entran al ranking ni a la sugerencia («no entra al ranking» en /oficina).
+
+## v0.95 — Comparación con pares: varios pares y deuda/capital en 0
+- La sugerencia lista a TODOS los pares que superan al ticker con el margen (antes solo el primero; un empate dejaba fuera a uno): «Ordenan mejor que GS: BAC (mejor en 3 de 5 métricas), JPM (…)».
+- Deuda/capital exactamente 0 de Finnhub se trata como sin dato (emisores extranjeros como PDD y SAN no traen balance; un cero inflaba su ranking). Un valor pequeño real (0.03) sí cuenta.

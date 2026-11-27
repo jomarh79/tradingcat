@@ -52,7 +52,8 @@ export function extraerMetricas(json: unknown): MetricasEmpresa {
   for (const d of METRICAS_PARES) {
     let v: number | null = null;
     for (const k of d.claves) { const x = m[k]; if (esNum(x)) { v = x; break; } }
-    out[d.id] = v !== null && d.solo_positivo && v <= 0 ? null : v;
+    // Deuda/capital exactamente 0 casi siempre es un dato que el proveedor no tiene (emisores extranjeros como PDD o SAN), no una empresa sin deuda: sin dato
+    out[d.id] = v !== null && ((d.solo_positivo && v <= 0) || (d.id === 'deuda_capital' && v === 0)) ? null : v;
   }
   return out;
 }
@@ -66,7 +67,7 @@ export interface ComparacionPares {
   metricas: Array<{ id: IdMetrica; etiqueta: string; unidad: 'x' | '%'; mejor: 'menor' | 'mayor'; valores: Record<string, number | null>; fuentes: Record<string, FuenteMetrica | null>; mejor_ticker: string | null; en_ranking: boolean }>;
   puntajes: PuntajeEmpresa[];
   /** Par que ordena mejor que el ticker analizado; null si ninguno lo supera con claridad. */
-  sugerencia: { ticker: string; puntaje: number; puntaje_principal: number; metricas_mejores: number; metricas_comparables: number; texto: string } | null;
+  sugerencia: { ticker: string; puntaje: number; puntaje_principal: number; metricas_mejores: number; metricas_comparables: number; /** Todos los pares que superan al ticker con el margen (el primero es el mejor). */ pares: Array<{ ticker: string; puntaje: number; metricas_mejores: number; metricas_comparables: number }>; texto: string } | null;
   avisos: string[];
 }
 
@@ -107,21 +108,30 @@ export function compararPares(principal: string, empresas: readonly EmpresaCompa
   let sugerencia: ComparacionPares['sugerencia'] = null;
   if (yo === undefined || yo.puntaje === null) avisos.push(`${principal}: menos de ${MINIMO_METRICAS_RANKING} métricas con dato; no se puede ordenar frente a sus pares`);
   else {
-    const mejor = puntajes.filter(p => p.ticker !== principal && p.puntaje !== null).sort((a, b) => (a.puntaje as number) - (b.puntaje as number))[0];
-    if (mejor !== undefined && (mejor.puntaje as number) <= yo.puntaje - MARGEN_SUGERENCIA) {
-      let mejores = 0;
-      let comparables = 0;
+    const mejores = puntajes.filter(p => p.ticker !== principal && p.puntaje !== null && (p.puntaje as number) <= yo.puntaje! - MARGEN_SUGERENCIA)
+      .sort((a, b) => (a.puntaje as number) - (b.puntaje as number));
+    const cuenta = (t: string): { mejores: number; comparables: number } => {
+      let mj = 0;
+      let cp = 0;
       for (const f of filasMetricas) {
         if (!f.en_ranking) continue;
-        const a = f.valores[mejor.ticker];
+        const a = f.valores[t];
         const b = f.valores[principal];
         if (a === null || a === undefined || b === null || b === undefined) continue;
-        comparables++;
-        if (f.mejor === 'menor' ? a < b : a > b) mejores++;
+        cp++;
+        if (f.mejor === 'menor' ? a < b : a > b) mj++;
       }
+      return { mejores: mj, comparables: cp };
+    };
+    if (mejores.length > 0) {
+      const pares = mejores.map(p => ({ ticker: p.ticker, puntaje: p.puntaje as number, metricas_mejores: cuenta(p.ticker).mejores, metricas_comparables: cuenta(p.ticker).comparables }));
+      const top = pares[0]!;
+      const detalle = pares.map(p => `${p.ticker} (mejor en ${p.metricas_mejores} de ${p.metricas_comparables} métricas)`).join(', ');
       sugerencia = {
-        ticker: mejor.ticker, puntaje: mejor.puntaje as number, puntaje_principal: yo.puntaje, metricas_mejores: mejores, metricas_comparables: comparables,
-        texto: `${mejor.ticker} ordena mejor que ${principal} frente a sus pares (mejor en ${mejores} de ${comparables} métricas comparables): vale la pena revisarlo antes de comprar ${principal}. Es solo una sugerencia por ranking de métricas; no cambia la decisión de la Oficina.`,
+        ticker: top.ticker, puntaje: top.puntaje, puntaje_principal: yo.puntaje, metricas_mejores: top.metricas_mejores, metricas_comparables: top.metricas_comparables, pares,
+        texto: pares.length === 1
+          ? `${top.ticker} ordena mejor que ${principal} frente a sus pares (mejor en ${top.metricas_mejores} de ${top.metricas_comparables} métricas comparables): vale la pena revisarlo antes de comprar ${principal}. Es solo una sugerencia por ranking de métricas; no cambia la decisión de la Oficina.`
+          : `Ordenan mejor que ${principal} frente a sus pares: ${detalle}. Vale la pena revisarlos antes de comprar ${principal}. Es solo una sugerencia por ranking de métricas; no cambia la decisión de la Oficina.`,
       };
     }
   }
