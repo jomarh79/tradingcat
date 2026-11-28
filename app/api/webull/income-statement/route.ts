@@ -280,6 +280,7 @@ async function load(symbol: string, debug = false): Promise<Result> {
       ...(debug ? { debugForecast: forecast } : {}),
     },
   };
+}
 
 export async function GET(request: NextRequest) {
     if (!(await isOwnerRequest(request))) {
@@ -345,6 +346,7 @@ export async function GET(request: NextRequest) {
         result = await pending;
       }
     }
+  
 
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {
