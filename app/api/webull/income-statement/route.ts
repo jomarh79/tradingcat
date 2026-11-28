@@ -234,7 +234,8 @@ type Result = { status: number; body: any };
 const cache = new Map<string, { expires: number; data: Result }>();
 const inflight = new Map<string, Promise<Result>>();
 
-async function load(symbol: string): Promise<Result> {
+//async function load(symbol: string): Promise<Result> {
+async function load(symbol: string, debug = false): Promise<Result> {
   const auth = await getWebullAccessToken();
   if (auth.status !== "NORMAL") {
     return {
@@ -256,6 +257,18 @@ async function load(symbol: string): Promise<Result> {
   // Ascendente por año — más viejo primero
   const annual = rawAnnual.map(parseEntry).sort((a, b) => a.fiscalYear - b.fiscalYear);
 
+//  return {
+//    status: 200,
+//    body: {
+//      success: true,
+//      symbol,
+//      annual,
+//      ttm: buildTtm(rawQuarterly),
+//      forwardEps: buildForwardEps(forecast),
+//    },
+//  };
+//}
+
   return {
     status: 200,
     body: {
@@ -264,9 +277,9 @@ async function load(symbol: string): Promise<Result> {
       annual,
       ttm: buildTtm(rawQuarterly),
       forwardEps: buildForwardEps(forecast),
+      ...(debug ? { debugForecast: forecast } : {}),
     },
   };
-}
 
 export async function GET(request: NextRequest) {
     if (!(await isOwnerRequest(request))) {
@@ -285,26 +298,52 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Faltan WEBULL_APP_KEY / WEBULL_KEY_APP_SECRET" }, { status: 500 });
     }
 
-    let result: Result;
-    const hit = cache.get(symbol);
-    if (hit && hit.expires > Date.now()) {
-      result = hit.data;
-    } else {
-      let pending = inflight.get(symbol);
-      if (!pending) {
-        pending = load(symbol)
-          .then((r) => {
+//    let result: Result;
+//    const hit = cache.get(symbol);
+//    if (hit && hit.expires > Date.now()) {
+//      result = hit.data;
+//    } else {
+//      let pending = inflight.get(symbol);
+//      if (!pending) {
+//        pending = load(symbol)
+//          .then((r) => {
             // Solo se guardan respuestas buenas: un error o un token sin listo no se queda pegado en caché
-            if (r.status === 200) {
-              cache.set(symbol, { expires: Date.now() + TTL_MS, data: r });
-              while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
-            }
-            return r;
-          })
-          .finally(() => inflight.delete(symbol));
-        inflight.set(symbol, pending);
+//            if (r.status === 200) {
+//              cache.set(symbol, { expires: Date.now() + TTL_MS, data: r });
+//              while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
+//            }
+//            return r;
+//         })
+//          .finally(() => inflight.delete(symbol));
+//        inflight.set(symbol, pending);
+//      }
+//      result = await pending;
+//    }
+
+    const debug = request.nextUrl.searchParams.get("debug") === "1";
+    let result: Result;
+    if (debug) {
+      result = await load(symbol, true); // sin caché ni deduplicación
+    } else {
+      const hit = cache.get(symbol);
+      if (hit && hit.expires > Date.now()) {
+        result = hit.data;
+      } else {
+        let pending = inflight.get(symbol);
+        if (!pending) {
+          pending = load(symbol)
+            .then((r) => {
+              if (r.status === 200) {
+                cache.set(symbol, { expires: Date.now() + TTL_MS, data: r });
+                while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
+              }
+              return r;
+            })
+            .finally(() => inflight.delete(symbol));
+          inflight.set(symbol, pending);
+        }
+        result = await pending;
       }
-      result = await pending;
     }
 
     return NextResponse.json(result.body, { status: result.status });
